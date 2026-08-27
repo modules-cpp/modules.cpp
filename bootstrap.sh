@@ -18,5 +18,8 @@ MM_CPPFLAGS="-std=c++20"
 echo "Flags ${MM_CPPFLAGS}"
 echo
 mkdir ${MM_BUILD}
-${MCCP}  tools/build/main.cpp -o ${MM_BUILD}/build
+echo "Compile build0"
+${MCCP} -v ${MM_CPPFLAGS} tools/build/main.cpp -o ${MM_BUILD}/build0
 echo
+echo "Build build"
+${MM_BUILD}/build0 tools/build/mm.mdy
