@@ -77,3 +77,9 @@ else
     echo "FAIL: unexpected output" >&2
     exit 1
 fi
+
+echo
+echo test test
+echo
+out/tools/test/test  tests/mm/build/
+out/tools/test/test  tests/mm/mdy/

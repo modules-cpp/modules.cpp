@@ -10,7 +10,9 @@
 // app binaries. kind:test targets are counted but not built: running tests is
 // tools/test's job, and a build that stops on a failing test cannot be used to
 // fix it.
-
+//
+// Pawel Wodnicki (C) 2026
+// 32bitmicro LLC (C) 2026
 #include <cstddef>
 #include <filesystem>
 #include <iostream>

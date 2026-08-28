@@ -10,7 +10,9 @@ module;
 #include <filesystem>
 export module mm.mdy;
 
-namespace mm::mdy { 
+namespace mm::mdy {
+
+
 // Export the enum so users of the module can check block types
 export enum class BlockType {
     Empty,
@@ -32,6 +34,12 @@ export struct MDYDocument {
     std::map<std::string, std::vector<std::string>, std::less<>> metadata;
     std::vector<Block> body;
 };
+
+// Internal module API used by the implementation and white-box tests.
+// These are not exported to ordinary importers.
+std::string_view trim(std::string_view text);
+Block parse_line(std::string_view line);
+
 
 // Export the primary API functions
 export class Parser {

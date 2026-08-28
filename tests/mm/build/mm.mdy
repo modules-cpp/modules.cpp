@@ -1,0 +1,16 @@
+---
+mm: 0.1
+kind: test
+name: build
+use: mm.test
+use: mm.build
+unit: tests/mm/build/quote.cpp
+unit: tests/mm/build/walk.cpp
+unit: tests/mm/build/order.cpp
+unit: tests/main.cpp
+---
+
+# mm.build test target
+
+`use: mm.build` pulls in mm.mdy transitively, so this manifest never names the
+parser's units or their ordering.

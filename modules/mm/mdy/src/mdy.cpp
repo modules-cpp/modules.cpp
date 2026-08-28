@@ -11,6 +11,7 @@ module;
 
 module mm.mdy;
 
+namespace mm::mdy {
 // Internal helper to strip leading and trailing whitespace from string_views
 std::string_view trim(std::string_view text)
 {
@@ -21,7 +22,6 @@ std::string_view trim(std::string_view text)
     return text.substr(first, last - first + 1);
 }
 
-namespace mm::mdy {
 // C++20 parsing helper function
 Block parse_line(std::string_view line) {
     // 1. Trim leading space if necessary (simplified)

@@ -2,8 +2,6 @@
 mm: 0.1
 kind: dir
 name: mm
-folder: app
-folder: build
 folder: mdy
-folder: test
+folder: build
 ---

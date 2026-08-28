@@ -1,0 +1,18 @@
+---
+mm: 0.1
+kind: test
+name: mdy
+use: mm.test
+use: mm.mdy
+unit: modules/mm/mdy/tests/unit.cpp
+unit: tests/mm/mdy/integration.cpp
+unit: tests/mm/mdy/regression.cpp
+unit: tests/mm/mdy/defect.cpp
+unit: tests/main.cpp
+---
+
+# mm.mdy test target
+
+`use:` pulls in the test harness and the module under test, with their own units
+in their own declared order. This manifest lists only what belongs to the test:
+the white-box partition, the black-box translation units and the runner.

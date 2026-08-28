@@ -1,0 +1,8 @@
+---
+mm: 0.1
+kind: module
+name: test
+module: mm.test
+file: test.cppm
+file: src/test.cpp
+---

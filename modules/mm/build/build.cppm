@@ -15,6 +15,7 @@ inline constexpr int exit_usage    = 64;
 inline constexpr int exit_manifest = 65;
 inline constexpr int exit_compile  = 80;
 inline constexpr int exit_link     = 81;
+inline constexpr int exit_run      = 127;
 
 struct Toolchain {
     std::string cxx      = "c++ -fmodules-ts";

@@ -5,7 +5,7 @@ modules.cpp - C++20 modules
 # bootstrap
 bootstrap.sh
 
-Bootstrap script/
+Bootstrap script.
 
 # build
 build.sh
@@ -43,9 +43,17 @@ Minimal Modules.
 
 Application module.
 
+### mm::build
+
+Build module.
+
 ## mm::mdy
 
-MDU module.
+MDY module.
+
+## mm::test
+
+Test module.
 
 
 # tools
@@ -53,3 +61,7 @@ MDU module.
 ## build
 
 Build tool.
+
+## test
+
+test tool.
