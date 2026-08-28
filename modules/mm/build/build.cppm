@@ -72,6 +72,11 @@ struct Node {
 
 inline constexpr std::size_t no_parent = static_cast<std::size_t>(-1);
 
+// Every manifest reachable from dir, parents before children, using the same
+// cycle-safe rules as load_tree. Sets ok to false and reports the reason on a
+// malformed tree.
+std::vector<Node> load_nodes(const std::filesystem::path& dir, bool& ok);
+
 // Accepts either a manifest path or the directory holding one.
 std::filesystem::path resolve_manifest(std::filesystem::path path);
 

@@ -4,5 +4,6 @@ kind: app
 name: mdy
 use: mm.app
 use: mm.mdy
+use: mm.build
 file: mdy.cpp
 ---
