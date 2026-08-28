@@ -52,7 +52,7 @@ struct Target {
 };
 
 struct Tree {
-    std::vector<Target> targets;  // kind:module kind:app kind:doc kind:test
+    std::vector<Target> targets;  // kind:module and kind:app
     std::vector<Target> tests;    // kind:test, collected but never built here
     std::vector<Target> docs;     // kind:doc, prose; reached by a walk, never built
     bool ok = true;

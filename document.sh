@@ -34,11 +34,17 @@ set -eu
 cd "$(dirname "$0")"
 
 MM_MANIFEST="mm.mdy"
-MM_FLAGS=""
+MM_VERBOSE="false"
+MM_HAVE_OUTPUT="false"
+MM_OUTPUT=""
 
 for arg in "$@"; do
     case "${arg}" in
-        -v|--verbose|-o=*) MM_FLAGS="${MM_FLAGS} ${arg}" ;;
+        -v|--verbose) MM_VERBOSE="true" ;;
+        -o=*)
+            MM_HAVE_OUTPUT="true"
+            MM_OUTPUT=${arg#-o=}
+            ;;
         -h|--help)
             echo "usage: document.sh [-v] [-o=<dir>] [<manifest>]"
             exit 0
@@ -62,4 +68,12 @@ if [ ! -x "${MM_TOOL}" ]; then
 fi
 
 # -h is the app's flag for HTML, not for help.
-exec "${MM_TOOL}" ${MM_FLAGS} -h "${MM_MANIFEST}"
+if [ "${MM_VERBOSE}" = "true" ] && [ "${MM_HAVE_OUTPUT}" = "true" ]; then
+    exec "${MM_TOOL}" -v "-o=${MM_OUTPUT}" -h "${MM_MANIFEST}"
+elif [ "${MM_VERBOSE}" = "true" ]; then
+    exec "${MM_TOOL}" -v -h "${MM_MANIFEST}"
+elif [ "${MM_HAVE_OUTPUT}" = "true" ]; then
+    exec "${MM_TOOL}" "-o=${MM_OUTPUT}" -h "${MM_MANIFEST}"
+else
+    exec "${MM_TOOL}" -h "${MM_MANIFEST}"
+fi

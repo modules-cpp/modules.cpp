@@ -22,7 +22,7 @@ Each metadata entry is written as a key, a colon, and a value.
 - Single quotes have no special meaning.
 - Escapes, nested objects, arrays, comments, and multiline values are not interpreted.
 - A line without a colon is ignored while parsing front matter, unless it is the closing fence.
-- Metadata is stored as a map from string to string. If a key occurs more than once, the last value replaces earlier values.
+- Metadata is stored as a map from each key to a vector of values. If a key occurs more than once, every value is preserved in declaration order.
 
 Although the fences resemble YAML front matter, MDY does not implement YAML.
 
@@ -35,7 +35,7 @@ The name key gives the logical name of the described project, directory, module,
 
 The file key names a source or document file associated with module, app, and doc manifests.
 
-The folder key names a child directory to visit from a project or dir manifest. Existing manifests repeat folder to list several children. The generic mm.mdy parser stores metadata in a map, however, so repeated folder entries collapse to the last entry. A manifest walker that supports all child folders must preserve repeated keys separately or use a different collection representation.
+The folder key names a child directory to visit from a project or dir manifest. Existing manifests repeat folder to list several children. The parser preserves every repeated folder value in declaration order, allowing a manifest walker to visit all declared children.
 
 ## Body blocks
 After the closing front matter fence, every nonempty line becomes one block. Leading and trailing whitespace is removed from the entire line before block recognition.

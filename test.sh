@@ -81,5 +81,5 @@ fi
 echo
 echo test test
 echo
-out/tools/test/test  tests/mm/build/
-out/tools/test/test  tests/mm/mdy/
+out/tools/test/test tests/mm/build/ || exit $?
+out/tools/test/test tests/mm/mdy/ || exit $?
