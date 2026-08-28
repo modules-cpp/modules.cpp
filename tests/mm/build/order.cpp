@@ -25,7 +25,7 @@ mm::build::Target module_target(std::string_view name, std::string_view module_n
     target.name = std::string(name);
     target.module_name = std::string(module_name);
     target.dir = std::string("modules/") + std::string(name);
-    target.sources.push_back(std::string(name) + ".cppm");
+    target.sources.push_back({std::string(name) + ".cppm", std::string(module_name)});
     target.uses = std::move(uses);
     target.objects.push_back(std::string(name) + ".o");
     return target;
@@ -36,7 +36,7 @@ mm::build::Target app_target(std::string_view name, std::vector<std::string> use
     target.kind = "app";
     target.name = std::string(name);
     target.dir = std::string("apps/") + std::string(name);
-    target.sources.push_back(std::string(name) + ".cpp");
+    target.sources.push_back({std::string(name) + ".cpp", ""});
     target.uses = std::move(uses);
     target.objects.push_back(std::string(name) + ".o");
     return target;
@@ -158,7 +158,7 @@ void order_from_visits_only_what_is_reachable() {
     test.kind = "test";
     test.name = "mdy";
     test.uses = {"mm.test", "mm.mdy"};
-    test.sources.push_back("tests/mm/mdy/integration.cpp");
+    test.sources.push_back({"tests/mm/mdy/integration.cpp", ""});
     tree.targets.push_back(std::move(test));
 
     std::vector<std::size_t> order;
@@ -181,7 +181,7 @@ void order_from_resolves_transitively() {
     test.kind = "test";
     test.name = "build";
     test.uses = {"mm.build"};
-    test.sources.push_back("tests/mm/build/walk.cpp");
+    test.sources.push_back({"tests/mm/build/walk.cpp", ""});
     tree.targets.push_back(std::move(test));
 
     std::vector<std::size_t> order;

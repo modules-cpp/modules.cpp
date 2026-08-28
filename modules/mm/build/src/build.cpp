@@ -51,30 +51,34 @@ struct WalkState {
     }
 };
 
-void walk(const std::filesystem::path& dir, Tree& tree, WalkState& state) {
-    const auto manifest = (dir / "mm.mdy").lexically_normal();
+// The result of the guard every traversal has to pass before reading a
+// manifest. Both walks share it: the cycle, escape and revisit rules are the
+// hardening a review finding demanded, and one implementation is one place to
+// get it right.
+enum class Enter { ok, skip, error };
+
+Enter enter_manifest(const std::filesystem::path& dir, WalkState& state,
+                     std::filesystem::path& manifest, std::filesystem::path& canonical) {
+    manifest = (dir / "mm.mdy").lexically_normal();
 
     if (!std::filesystem::exists(manifest)) {
         std::cerr << "build: missing manifest: " << manifest.string() << "\n";
-        tree.ok = false;
-        return;
+        return Enter::error;
     }
 
     // Resolves "..", "." and symlinks, so two spellings of one manifest compare
     // equal and a symlink loop cannot masquerade as a new directory.
     std::error_code ec;
-    const auto canonical = std::filesystem::weakly_canonical(manifest, ec);
+    canonical = std::filesystem::weakly_canonical(manifest, ec);
     if (ec) {
         std::cerr << "build: cannot resolve " << manifest.string() << ": " << ec.message() << "\n";
-        tree.ok = false;
-        return;
+        return Enter::error;
     }
 
     const auto relative = canonical.lexically_relative(state.root);
     if (relative.empty() || *relative.begin() == "..") {
         std::cerr << "build: manifest outside the project root: " << canonical.string() << "\n";
-        tree.ok = false;
-        return;
+        return Enter::error;
     }
 
     if (state.contains(state.visiting, canonical)) {
@@ -82,11 +86,23 @@ void walk(const std::filesystem::path& dir, Tree& tree, WalkState& state) {
         for (const auto& entry : state.visiting)
             std::cerr << "    " << entry.lexically_relative(state.root).string() << "\n";
         std::cerr << "    " << relative.string() << "  <- repeats\n";
-        tree.ok = false;
-        return;
+        return Enter::error;
     }
 
-    if (state.contains(state.visited, canonical)) return;
+    if (state.contains(state.visited, canonical)) return Enter::skip;
+
+    return Enter::ok;
+}
+
+void walk(const std::filesystem::path& dir, Tree& tree, WalkState& state) {
+    std::filesystem::path manifest;
+    std::filesystem::path canonical;
+
+    switch (enter_manifest(dir, state, manifest, canonical)) {
+        case Enter::error: tree.ok = false; return;
+        case Enter::skip:  return;
+        case Enter::ok:    break;
+    }
 
     const auto doc = mm::mdy::Parser::parse_file(manifest);
     const auto kind = first(doc, "kind");
@@ -123,8 +139,11 @@ void walk(const std::filesystem::path& dir, Tree& tree, WalkState& state) {
     if (kind == "doc") {
         // Prose. Listed so a walk sees it, but nothing compiles or links it, so
         // an empty file: list is not an error.
-        for (const auto& file : all(doc, "file"))
-            target.sources.push_back((dir / file).lexically_normal().string());
+        for (const auto& file : all(doc, "file")) {
+            auto unit = parse_unit(file);
+            unit.path = (dir / unit.path).lexically_normal().string();
+            target.sources.push_back(std::move(unit));
+        }
 
         tree.docs.push_back(std::move(target));
         return;
@@ -132,7 +151,7 @@ void walk(const std::filesystem::path& dir, Tree& tree, WalkState& state) {
 
     if (kind == "test") {
         // unit: entries are already root relative.
-        for (const auto& unit : all(doc, "unit")) target.sources.push_back(unit);
+        for (const auto& unit : all(doc, "unit")) target.sources.push_back(parse_unit(unit));
 
         if (target.sources.empty()) {
             std::cerr << "build: manifest declares no unit: entries: " << manifest.string() << "\n";
@@ -145,8 +164,11 @@ void walk(const std::filesystem::path& dir, Tree& tree, WalkState& state) {
     }
 
     // file: entries are relative to the manifest.
-    for (const auto& file : all(doc, "file"))
-        target.sources.push_back((dir / file).lexically_normal().string());
+    for (const auto& file : all(doc, "file")) {
+        auto unit = parse_unit(file);
+        unit.path = (dir / unit.path).lexically_normal().string();
+        target.sources.push_back(std::move(unit));
+    }
 
     if (target.sources.empty()) {
         std::cerr << "build: manifest declares no file: entries: " << manifest.string() << "\n";
@@ -160,6 +182,41 @@ void walk(const std::filesystem::path& dir, Tree& tree, WalkState& state) {
     }
 
     tree.targets.push_back(std::move(target));
+}
+
+void walk_nodes(const std::filesystem::path& dir, std::size_t parent,
+                std::vector<Node>& nodes, WalkState& state, bool& ok) {
+    std::filesystem::path manifest;
+    std::filesystem::path canonical;
+
+    switch (enter_manifest(dir, state, manifest, canonical)) {
+        case Enter::error: ok = false; return;
+        case Enter::skip:  return;
+        case Enter::ok:    break;
+    }
+
+    const auto doc = mm::mdy::Parser::parse_file(manifest);
+
+    Node node;
+    node.manifest = manifest;
+    node.dir = dir.lexically_normal();
+    node.kind = first(doc, "kind");
+    node.name = first(doc, "name");
+    node.parent = parent;
+
+    nodes.push_back(std::move(node));
+    const auto index = nodes.size() - 1;
+
+    if (parent != no_parent) nodes[parent].children.push_back(index);
+
+    if (nodes[index].kind == "project" || nodes[index].kind == "dir") {
+        state.visiting.push_back(canonical);
+        for (const auto& folder : all(doc, "folder"))
+            walk_nodes(dir / folder, index, nodes, state, ok);
+        state.visiting.pop_back();
+    }
+
+    state.visited.push_back(canonical);
 }
 
 std::size_t index_of_module(const Tree& tree, const std::string& module_name) {
@@ -217,6 +274,33 @@ Toolchain default_toolchain(bool verbose) {
     return toolchain;
 }
 
+std::string bmi_name(std::string_view module_name) {
+    std::string name;
+    name.reserve(module_name.size() + 4);
+
+    for (const char c : module_name) name += (c == ':' ? '-' : c);
+    name += ".pcm";
+
+    return name;
+}
+
+Unit parse_unit(std::string_view value) {
+    Unit unit;
+
+    const auto split = value.find_first_of(" \t");
+    if (split == std::string_view::npos) {
+        unit.path = std::string(value);
+        return unit;
+    }
+
+    unit.path = std::string(value.substr(0, split));
+
+    const auto name = value.find_first_not_of(" \t", split);
+    if (name != std::string_view::npos) unit.module_name = std::string(value.substr(name));
+
+    return unit;
+}
+
 std::filesystem::path resolve_manifest(std::filesystem::path path) {
     std::error_code ec;
     if (std::filesystem::is_directory(path, ec)) path /= "mm.mdy";
@@ -252,6 +336,24 @@ Tree load_tree(const std::filesystem::path& dir) {
     return tree;
 }
 
+std::vector<Node> load_nodes(const std::filesystem::path& dir, bool& ok) {
+    std::vector<Node> nodes;
+    ok = true;
+
+    std::error_code ec;
+    WalkState state;
+    state.root = std::filesystem::weakly_canonical(dir, ec);
+    if (ec) {
+        std::cerr << "build: cannot resolve project root " << dir.string()
+                  << ": " << ec.message() << "\n";
+        ok = false;
+        return nodes;
+    }
+
+    walk_nodes(dir, no_parent, nodes, state, ok);
+    return nodes;
+}
+
 Target load_test(const std::filesystem::path& manifest_path, bool& ok) {
     ok = false;
     Target target;
@@ -274,7 +376,7 @@ Target load_test(const std::filesystem::path& manifest_path, bool& ok) {
     target.module_name = first(doc, "module");
     target.dir = manifest_path.parent_path();
     target.uses = all(doc, "use");
-    target.sources = all(doc, "unit");
+    for (const auto& unit : all(doc, "unit")) target.sources.push_back(parse_unit(unit));
 
     if (target.name.empty()) {
         std::cerr << "build: manifest has no name\n";
@@ -356,20 +458,20 @@ int compile(const Toolchain& toolchain, Target& target, const std::filesystem::p
     std::error_code ec;
 
     for (const auto& source : target.sources) {
-        if (!std::filesystem::exists(source)) {
-            std::cerr << "build: source does not exist: " << source << "\n";
+        if (!std::filesystem::exists(source.path)) {
+            std::cerr << "build: source does not exist: " << source.path << "\n";
             return exit_manifest;
         }
 
-        const auto object = build_dir / (source + ".o");
+        const auto object = build_dir / (source.path + ".o");
         std::filesystem::create_directories(object.parent_path(), ec);
 
-        std::cout << "    " << source << "\n";
+        std::cout << "    " << source.path << "\n";
 
         const auto command = toolchain.cxx + " " + toolchain.cxxflags +
-                             " -c " + shell_quote(source) + " -o " + shell_quote(object);
+                             " -c " + shell_quote(source.path) + " -o " + shell_quote(object);
         if (run(toolchain, command) != 0) {
-            std::cerr << "build: failed to compile " << source << "\n";
+            std::cerr << "build: failed to compile " << source.path << "\n";
             return exit_compile;
         }
 

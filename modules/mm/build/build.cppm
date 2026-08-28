@@ -27,6 +27,18 @@ struct Toolchain {
 // Honours $CXX when set.
 Toolchain default_toolchain(bool verbose = false);
 
+// One translation unit. A unit that declares a module name is an interface unit
+// and produces a BMI under Clang; a unit without one is an implementation unit
+// or a plain translation unit and produces only an object. GCC ignores the name.
+struct Unit {
+    std::string path;         // root relative
+    std::string module_name;  // empty when the unit produces no BMI
+};
+
+// Splits a "file:" or "unit:" value: a path, optionally followed by whitespace
+// and the module name that unit defines.
+Unit parse_unit(std::string_view value);
+
 // One buildable thing named by a manifest. Sources are stored root relative and
 // in declared order, because declaration order is dependency order.
 struct Target {
@@ -34,7 +46,7 @@ struct Target {
     std::string name;
     std::string module_name;                     // kind:module only
     std::filesystem::path dir;                   // root relative
-    std::vector<std::string> sources;            // root relative
+    std::vector<Unit> sources;                   // root relative
     std::vector<std::string> uses;               // module names
     std::vector<std::filesystem::path> objects;  // filled in by compile
 };
@@ -45,6 +57,20 @@ struct Tree {
     std::vector<Target> docs;     // kind:doc, prose; reached by a walk, never built
     bool ok = true;
 };
+
+// One manifest in the tree, including the kind:project and kind:dir manifests
+// that load_tree only traverses through. This is the structural view: what
+// exists and how it nests, rather than what to compile.
+struct Node {
+    std::filesystem::path manifest;  // relative to the walk root
+    std::filesystem::path dir;       // relative to the walk root
+    std::string kind;
+    std::string name;
+    std::size_t parent = static_cast<std::size_t>(-1);  // -1 at the root
+    std::vector<std::size_t> children;
+};
+
+inline constexpr std::size_t no_parent = static_cast<std::size_t>(-1);
 
 // Accepts either a manifest path or the directory holding one.
 std::filesystem::path resolve_manifest(std::filesystem::path path);
