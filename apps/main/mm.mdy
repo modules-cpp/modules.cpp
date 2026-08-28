@@ -1,0 +1,6 @@
+---
+mm: 0.1
+kind: app
+name: main
+file: main.cpp
+---

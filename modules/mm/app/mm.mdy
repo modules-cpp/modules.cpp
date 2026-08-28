@@ -1,0 +1,6 @@
+---
+mm: 0.1
+kind: module
+name: app
+file: app.cppm
+---

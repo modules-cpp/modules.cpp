@@ -1,0 +1,6 @@
+---
+mm: 0.1
+kind: module
+name: mdy
+file: mdy.cppm
+---

@@ -1,0 +1,6 @@
+---
+mm: 0.1
+kind: app
+name: mdy
+file: mdy.cpp
+---
