@@ -8,14 +8,17 @@ module;
 #include <vector>
 #include <map>
 #include <filesystem>
+
 module mm.mdy;
 
 // Internal helper to strip leading and trailing whitespace from string_views
-std::string_view trim(std::string_view str) {
-    const auto first = str.find_first_not_of(" \t\r\n");
-    if (first == std::string_view::npos) return "";
-    const auto last = str.find_last_not_of(" \t\r\n");
-    return str.substr(first, (last - first + 1));
+std::string_view trim(std::string_view text)
+{
+    constexpr std::string_view whitespace = " \t\r\n\f\v";
+    const auto first = text.find_first_not_of(whitespace);
+    if (first == std::string_view::npos) return {};
+    const auto last = text.find_last_not_of(whitespace);
+    return text.substr(first, last - first + 1);
 }
 
 namespace mm::mdy {

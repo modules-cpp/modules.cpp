@@ -52,21 +52,6 @@ std::string to_html(const std::vector<mm::mdy::Block>& blocks) {
     return html_output;
 }
 
-// C++20 vector formatter
-template <>
-struct std::formatter<std::vector<std::string>> : std::formatter<std::string> {
-    auto format(const std::vector<std::string>& v, std::format_context& ctx) const {
-        auto out = ctx.out();
-        bool first = true;
-        for (const auto& s : v) {
-            if (!first) out = std::format_to(out, ", ");
-            out = std::format_to(out, "{}", s);
-            first = false;
-        }
-        return out;
-    }
-};
-
 int sample() {
     std::filesystem::path mdy_file = "./out/sample.mdy";
     create_dummy_mdy(mdy_file);
@@ -78,7 +63,7 @@ int sample() {
     std::cout << "=== METADATA EXTRACTED ===\n";
     for (const auto& [key, values] : doc.metadata) {
         for (const auto& val : values) {
-            std::cout << key << " " << val << "\n";
+            std::cout << key << " -> " << val << "\n";
         }
     }
 
