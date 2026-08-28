@@ -1,0 +1,11 @@
+---
+mm: 0.1
+kind: doc
+name: docs
+file: mdy.mdy
+---
+
+# Documentation
+
+`kind: doc` targets are prose. A manifest walk reaches them so they are not
+invisible to the tools, but nothing compiles or links them.

@@ -6,6 +6,7 @@
 #include <filesystem>
 #include <vector>
 #include <map>
+#include <format>
 
 import mm.mdy;
 
@@ -51,7 +52,22 @@ std::string to_html(const std::vector<mm::mdy::Block>& blocks) {
     return html_output;
 }
 
-int main() {
+// C++20 vector formatter
+template <>
+struct std::formatter<std::vector<std::string>> : std::formatter<std::string> {
+    auto format(const std::vector<std::string>& v, std::format_context& ctx) const {
+        auto out = ctx.out();
+        bool first = true;
+        for (const auto& s : v) {
+            if (!first) out = std::format_to(out, ", ");
+            out = std::format_to(out, "{}", s);
+            first = false;
+        }
+        return out;
+    }
+};
+
+int sample() {
     std::filesystem::path mdy_file = "./out/sample.mdy";
     create_dummy_mdy(mdy_file);
 
@@ -60,8 +76,10 @@ int main() {
 
     // Print parsed front matter metadata
     std::cout << "=== METADATA EXTRACTED ===\n";
-    for (const auto& [key, value] : doc.metadata) {
-        std::cout << key << " -> " << value << "\n";
+    for (const auto& [key, values] : doc.metadata) {
+        for (const auto& val : values) {
+            std::cout << key << " " << val << "\n";
+        }
     }
 
     std::cout << "\n=== BODY CONTENT TRAVERSAL ===\n";
@@ -72,9 +90,85 @@ int main() {
             std::cout << "Heading2: " << block.content << "\n";
         } else if (block.type == mm::mdy::BlockType::Heading3) {
             std::cout << "Heading3: " << block.content << "\n";
+        } else if (block.type == mm::mdy::BlockType::UnorderedList) {
+            std::cout << "UnorderedList: " << block.content << "\n";
         } else {
             std::cout << "Text: " << block.content << "\n";
         }
+    }
+
+    return 0;
+}
+
+
+
+// read mdy file 
+int main(int argc, char** argv) {
+    bool verbose = false;
+    bool html = false;
+
+    if (argc < 2) {
+        std::cout << "usage: [-s] | file.mdy [-v, -h]" << "\n!";
+        exit(1);
+    }
+
+    if (argc == 2) {
+        if(std::string(argv[1]) == std::string("-s"))
+        {
+            verbose = true;
+            exit(sample());
+        }
+    }
+
+    if (argc == 3) {
+        if(std::string(argv[2]) == std::string("-v"))
+            verbose = true;
+    }
+  
+    if (argc == 3) {
+        if(std::string(argv[2]) == std::string("-h"))
+            html = true;
+    }
+
+    if (verbose || html)
+        std::cout << "mdy file: " << argv[1] << "\n";
+
+    std::filesystem::path mdy_file = argv[1];
+    
+    if (!std::filesystem::exists(mdy_file)) {
+        std::cerr << "file not found " << mdy_file << "\n";
+        exit(1);
+    }
+    // Run our modular front matter parser
+    mm::mdy::MDYDocument doc = mm::mdy::Parser::parse_file(mdy_file);
+
+    if (verbose) {
+        // Print parsed front matter metadata
+        std::cout << "--- metadata --\n";
+        for (const auto& [key, values] : doc.metadata) {
+            for (const auto& val : values) {
+                std::cout << key << " " << val << "\n";
+            }
+        }
+
+        std::cout << "\n=== mdy content ===\n";
+        for (const auto& block : doc.body) {
+            if (block.type == mm::mdy::BlockType::Heading1) {
+                std::cout << "H1: " << block.content << "\n";
+            } else if (block.type == mm::mdy::BlockType::Heading2) {
+                std::cout << "H2: " << block.content << "\n";
+            } else if (block.type == mm::mdy::BlockType::Heading3) {
+                std::cout << "H3: " << block.content << "\n";
+            } else if (block.type == mm::mdy::BlockType::UnorderedList) {
+                std::cout << "UL: " << block.content << "\n";
+            } else {
+                std::cout << "TX: " << block.content << "\n";
+            }
+        }
+    }
+
+    if (html) {
+        std::cout << to_html(doc.body);
     }
 
     return 0;

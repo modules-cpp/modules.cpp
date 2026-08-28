@@ -1,0 +1,74 @@
+---
+mm: 0.1
+kind: doc
+name: mdy
+file: mdy.mdy
+---
+# MDY format
+MDY is a line-oriented document and manifest format used by modules.cpp. An MDY file can contain a metadata header followed by a simple prose body.
+
+## File structure
+An MDY document has an optional front matter header and an optional body. The front matter begins only when the first line, after surrounding whitespace is removed, is exactly three hyphens. A second line containing exactly three hyphens ends the front matter and begins the body.
+
+The conventional shape is an opening fence, metadata lines, a closing fence, and body lines. Repository manifests normally contain only front matter. Documentation files may contain both front matter and body content.
+
+## Front matter
+Each metadata entry is written as a key, a colon, and a value.
+
+- The first colon separates the key from the value.
+- Surrounding spaces, tabs, carriage returns, and newlines are removed from keys and values.
+- Empty keys and empty values are accepted by the current parser.
+- A value enclosed in double quotes has its outer quotes removed.
+- Single quotes have no special meaning.
+- Escapes, nested objects, arrays, comments, and multiline values are not interpreted.
+- A line without a colon is ignored while parsing front matter, unless it is the closing fence.
+- Metadata is stored as a map from string to string. If a key occurs more than once, the last value replaces earlier values.
+
+Although the fences resemble YAML front matter, MDY does not implement YAML.
+
+## Manifest metadata
+The mm key identifies the format version. Every current repository manifest uses 0.1.
+
+The kind key identifies the manifest role. Values currently used in the repository are project, dir, module, app, and doc.
+
+The name key gives the logical name of the described project, directory, module, application, or document.
+
+The file key names a source or document file associated with module, app, and doc manifests.
+
+The folder key names a child directory to visit from a project or dir manifest. Existing manifests repeat folder to list several children. The generic mm.mdy parser stores metadata in a map, however, so repeated folder entries collapse to the last entry. A manifest walker that supports all child folders must preserve repeated keys separately or use a different collection representation.
+
+## Body blocks
+After the closing front matter fence, every nonempty line becomes one block. Leading and trailing whitespace is removed from the entire line before block recognition.
+
+- A line beginning with one hash and one space is a level-one heading.
+- A line beginning with two hashes and one space is a level-two heading.
+- A line beginning with three hashes and one space is a level-three heading.
+- A line beginning with a hyphen and one space is an unordered-list item.
+- A line beginning with an asterisk and one space is an unordered-list item.
+- Every other nonempty line is a paragraph.
+- Empty lines are skipped and are not retained in the parsed body.
+
+Only three heading levels are recognized. Inline emphasis, links, code spans, fenced code blocks, ordered lists, nested lists, and paragraph continuation are not parsed specially. Each physical nonempty line is independent.
+
+## Parser behavior
+Parser::parse_file reads front matter into MDYDocument.metadata and body blocks into MDYDocument.body. If the path does not exist, it returns an empty document.
+
+The opening fence must be the first physical line. If it is absent, all nonempty lines are treated as body paragraphs or body block markers. A later fence does not start front matter.
+
+Parser::parse is a lower-level body parser. It does not recognize or remove front matter; it parses every nonempty physical line as a body block. Use Parser::parse_file when reading a complete MDY document.
+
+## Minimal manifest example
+The following describes an application named example whose source is main.cpp. The markers shown as opening fence and closing fence are literal lines containing three hyphens.
+
+Opening fence
+mm: 0.1
+kind: app
+name: example
+file: main.cpp
+Closing fence
+
+## Documentation example
+A documentation MDY file uses kind: doc, names its document with name, identifies its content file with file, closes the metadata header, and then places headings, paragraphs, and unordered-list items in the body.
+
+## Current limitations
+The parser reports no syntax errors and does not validate required keys, version values, kind values, or referenced paths. It also cannot distinguish a missing file from a valid empty document through the returned MDYDocument alone.

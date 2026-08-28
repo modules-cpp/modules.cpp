@@ -1,3 +1,5 @@
+// Pawel Wodnicki (C) 2026
+// 32bitmicro LLC (C) 2026
 module;
 #include <fstream>
 #include <iostream>
@@ -27,7 +29,7 @@ export struct Block {
 
 // Holds both the front matter metadata and the body content
 export struct MDYDocument {
-    std::map<std::string, std::string> metadata;
+    std::map<std::string, std::vector<std::string>, std::less<>> metadata;
     std::vector<Block> body;
 };
 

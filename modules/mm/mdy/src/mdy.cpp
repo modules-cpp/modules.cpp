@@ -111,7 +111,7 @@ MDYDocument Parser::parse_file(const std::filesystem::path& file_path) {
                     value = value.substr(1, value.size() - 2);
                 }
 
-                doc.metadata[std::string(key)] = std::string(value);
+                doc.metadata[std::string(key)].push_back(std::string(value));
             }
         } 
         else {

@@ -69,7 +69,7 @@ Text: True logical separation of interface code
 Heading3: Rules
 Text: Modules replace old header-file macro include frameworks entirely.'
 status=$?
-actual=$(./out/apps/mdy/mdy 2>&1)
+actual=$(./out/apps/mdy/mdy -s 2>&1)
 printf 'expected: [%s]\n' "$expected" >&2
 printf 'actual:   [%s]\n' "$actual" >&2
 
