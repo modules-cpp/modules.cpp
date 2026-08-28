@@ -2,5 +2,6 @@
 mm: 0.1
 kind: app
 name: build
-file: main.cpp
+use: mm.build
+file: build.cpp
 ---

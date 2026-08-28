@@ -1,0 +1,9 @@
+---
+mm: 0.1
+kind: module
+name: build
+module: mm.build
+use: mm.mdy
+file: build.cppm
+file: src/build.cpp
+---

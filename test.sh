@@ -20,13 +20,11 @@ else
 fi
 
 echo
-echo test build
+echo test build1
 echo
-expected='modules.cpp build tool
-./out/build
-no arguments'
+expected='build: not an mm.mdy manifest: -h'
 status=$?
-actual=$(./out/build 2>&1)
+actual=$(./out/build1 -h    2>&1)
 printf 'expected: [%s]\n' "$expected" >&2
 printf 'actual:   [%s]\n' "$actual" >&2
 

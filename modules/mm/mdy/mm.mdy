@@ -2,5 +2,7 @@
 mm: 0.1
 kind: module
 name: mdy
+module: mm.mdy
 file: mdy.cppm
+file: src/mdy.cpp
 ---
