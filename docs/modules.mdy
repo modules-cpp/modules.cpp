@@ -33,6 +33,9 @@ Shared behavior belongs in a module. Front ends handle arguments, select a
 workflow, and report results. This keeps policy reusable and interfaces small.
 
 ## Design goals
+These goals describe the target architecture; see Current boundaries for
+which of them are already enforced in the current implementation.
+
 - Modular — use C++20 modules with explicit interfaces and dependencies.
 - Stable APIs — publish versioned module contracts and evolve them compatibly.
 - Manifest-driven — model targets and artifacts in versioned MDY graphs.
@@ -300,6 +303,8 @@ defects and become ordinary regression tests when fixed.
 - gcm.cache contains GCC compiled-module state.
 
 # Current boundaries
+These are the gaps between the Design goals and today's implementation.
+
 - App defines the application boundary but stores no state; shared lifecycle,
   context, logging, or argument services can be added there without coupling
   them to build policy.
