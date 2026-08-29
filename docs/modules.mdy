@@ -10,8 +10,8 @@ It describes, builds, tests, and documents itself from source.
 
 The project has no third-party build system, runtime library, test framework,
 package manager, or documentation generator. It requires a host C++20
-compiler, the C++ standard library, and basic platform services. The current
-implementation uses host compiler (GCC) with C++ module support and a POSIX shell.
+compiler, the C++ standard library, and basic platform services. Today it
+runs on GCC with C++ module support and a POSIX shell.
 
 Every participating directory contains an mm.mdy manifest. These manifests
 define the project tree, targets, source order, and module dependencies. The
@@ -50,9 +50,9 @@ which of them are already enforced in the current implementation.
 - Safe — confine traversal and quote paths passed to external processes.
 - Portable — isolate compiler and operating-system behavior behind interfaces.
 
-Stable and portable interfaces are design goals. The current public code has
-an MDY format version, but it does not yet enforce module API compatibility.
-The current compiler and process driver is GCC- and POSIX-oriented.
+Stable and portable interfaces are design goals. The public code carries an
+MDY format version, but does not yet enforce module API compatibility, and
+the compiler and process driver remain GCC- and POSIX-oriented.
 
 ## Architectural model
 The architecture has three cooperating layers.
@@ -142,7 +142,7 @@ target order is calculated from use dependencies.
 mm.app exports the App base class. App accepts argc and argv, provides a
 virtual run function, and exposes a main-style forwarding member.
 
-The current base class stores no state and run returns success.
+App stores no state, and run returns success.
 
 ## mm.mdy
 mm.mdy exports the document model and parser:
@@ -181,8 +181,8 @@ The execution layer compiles units, links programs, and installs applications.
 Generated paths mirror source paths under out. shell_quote protects paths sent
 through the shell. Child exit and signal states become tool exit codes.
 
-The current Toolchain uses c++ with C++20 and GCC modules-ts flags. A full
-build clears gcm.cache before compiling.
+Toolchain invokes c++ with C++20 and GCC modules-ts flags. A full build
+clears gcm.cache before compiling.
 
 ## mm.test
 mm.test provides the project test framework. It exports assertions, test cases,
@@ -308,8 +308,8 @@ These are the gaps between the Design goals and today's implementation.
 - App defines the application boundary but stores no state; shared lifecycle,
   context, logging, or argument services can be added there without coupling
   them to build policy.
-- The compiler driver currently follows GCC modules-ts conventions.
-- Process execution and bootstrap scripts currently require POSIX services.
+- The compiler driver follows GCC modules-ts conventions.
+- Process execution and bootstrap scripts require POSIX services.
 - Builds are full rebuilds rather than incremental builds.
 - Source order is declared rather than inferred from import statements.
 - use dependencies resolve only to module targets.
