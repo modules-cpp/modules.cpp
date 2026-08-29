@@ -99,14 +99,17 @@ The source tree is organized by responsibility.
 +-- docs/
     +-- mm.mdy                documentation manifest
     +-- mdy.mdy               MDY format reference
-    +-- modules-4.mdy         this guide
+    +-- modules.mdy           this guide
 
 Generated objects and programs live under out. GCC compiled-module state lives
 under gcm.cache. Neither directory is part of the source model.
 
 # MDY manifests
-MDY is the line-oriented format used for manifests and prose. See docs/mdy.mdy
-for its syntax, metadata rules, body blocks, usage, and parser limitations.
+MDY is the line-oriented format used for manifests and prose. Every MDY file
+is an MDY document; a manifest is an MDY document named mm.mdy that declares a
+project or dir target. This guide is itself an MDY document (kind: doc), not a
+manifest. See docs/mdy.mdy for MDY syntax, metadata rules, body blocks, usage,
+and parser limitations.
 
 For this guide, the important manifest fields are:
 
@@ -248,7 +251,7 @@ and includes metadata, breadcrumbs, child links, and prose.
 Common commands are:
 
 - ./out/bin/mdy -s
-- ./out/bin/mdy docs/modules-4.mdy -h > modules-4.html
+- ./out/bin/mdy docs/modules.mdy -h > modules.html
 - ./document.sh
 - ./document.sh -o=site
 
