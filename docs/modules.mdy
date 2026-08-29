@@ -201,8 +201,8 @@ This turns known defects into executable records without weakening regressions.
 tools/build/main.cpp is compiled as out/build0 without importing project
 modules. It creates a recovery boundary that only needs the host compiler.
 
-The current bootstrap uses build0 as a bootstrap and smoke-test artifact. It
-then uses explicit compiler commands to build mm.mdy, mm.build, and build1.
+bootstrap.sh uses build0 as a smoke-test artifact, then issues explicit
+compiler commands to build mm.mdy, mm.build, and build1.
 
 ## build1 and build
 tools/build/build.cpp is the manifest-driven build front end. bootstrap.sh
