@@ -92,6 +92,7 @@ The source tree is organized by responsibility.
 +-- build.sh                  full project build
 +-- test.sh                   smoke and target tests
 +-- document.sh               HTML documentation
++-- check.sh                  optional: docs/modules-c++20.mdy via cppcheck
 +-- clean.sh                  generated-file cleanup
 +-- apps/
 |   +-- main/                 minimal application
@@ -104,6 +105,7 @@ The source tree is organized by responsibility.
 +-- tools/
 |   +-- build/                bootstrap and build front ends
 |   +-- test/                 test front end
+|   +-- check/                cppcheck front end and addon; see check.sh
 +-- tests/mm/
 |   +-- build/                mm.build tests
 |   +-- mdy/                  mm.mdy public and regression tests
@@ -111,6 +113,7 @@ The source tree is organized by responsibility.
 |   +-- mm.mdy                documentation manifest
 |   +-- mdy.mdy               MDY format reference
 |   +-- modules.mdy           this guide
+|   +-- modules-c++20.mdy     C++20 language subset specification
 |
 +-- out/                      all of the output and generated files
 +-- gcm.cache/                gcc modules cache
@@ -282,6 +285,17 @@ A clean repository can produce all project tools with this sequence:
 bootstrap.sh creates out/build0 and out/build1. build.sh uses build1 to build
 the complete project. The installed out/bin/build can then rebuild the project,
 which makes the toolchain self-hosting.
+
+An optional, experimental step can follow test.sh:
+
+- ./check.sh
+
+check.sh enforces docs/modules-c++20.mdy over the manifest tree, using
+tools/check to wrap the installed cppcheck tool. Unlike the rest of this
+sequence, it depends on a third-party tool: cppcheck must already be
+installed, and check.sh is not part of the self-hosting chain above. It is
+therefore not required to build, test, or document the project, and skipping
+it changes nothing else in this sequence.
 
 For TDD, run the smallest relevant test target first:
 
