@@ -11,7 +11,7 @@ It describes, builds, tests, and documents itself from source.
 The project has no third-party build system, runtime library, test framework,
 package manager, or documentation generator. It requires a host C++20
 compiler, the C++ standard library, and basic platform services. Today it
-runs on GCC with C++ module support and a POSIX shell.
+builds with GCC with C++ module support and a POSIX shell.
 
 Every participating directory contains an mm.mdy manifest. These manifests
 define the project tree, targets, source order, and module dependencies. The
@@ -108,9 +108,12 @@ The source tree is organized by responsibility.
 |   +-- build/                mm.build tests
 |   +-- mdy/                  mm.mdy public and regression tests
 +-- docs/
-    +-- mm.mdy                documentation manifest
-    +-- mdy.mdy               MDY format reference
-    +-- modules.mdy           this guide
+|   +-- mm.mdy                documentation manifest
+|   +-- mdy.mdy               MDY format reference
+|   +-- modules.mdy           this guide
+|
++-- out/                      all of the output and generated files
++-- gcm.cache/                gcc modules cache
 
 Generated objects and programs live under out. GCC compiled-module state lives
 under gcm.cache. Neither directory is part of the source model.
