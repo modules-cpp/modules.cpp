@@ -1,0 +1,147 @@
+---
+mm: 0.1
+kind: doc
+name: modules.cpp C++20 language specification
+---
+
+# Purpose
+This document specifies the subset of C++20 language and standard library
+features permitted in modules.cpp source code. It restates docs/modules.mdy's
+Self-contained and Inspectable design goals as concrete, checkable rules, so
+that the codebase stays small, auditable, and free of exception-based control
+flow and hand-written template or metaprogramming machinery.
+
+# Conformance language
+This specification uses MUST, MUST NOT, SHOULD, SHOULD NOT, and MAY with the
+following fixed meanings.
+
+- MUST / MUST NOT — an absolute requirement or prohibition. Code that
+  violates a MUST rule does not conform to this specification and is
+  rejected in review, regardless of author intent.
+- SHOULD / SHOULD NOT — a strong recommendation. Deviating requires a
+  written justification in the code review or a comment at the point of
+  deviation.
+- MAY — fully optional; the choice is left to the author.
+
+# Scope
+This specification applies to all C++ source under modules/, tools/, and
+apps/. Code under tests/ and modules/*/tests/ is held to the same rules
+except where the Known non-conformance section below records an explicit,
+bounded exception.
+
+# Baseline compiler and standard
+- Code MUST compile as ISO C++20, using only language and library features a
+  conforming C++20 compiler and standard library provide.
+- Code MUST NOT depend on compiler-specific extensions beyond the module
+  support flag already documented as a current boundary in docs/modules.mdy
+  (GCC's -fmodules-ts).
+- Code MUST NOT depend on any third-party library, header-only or otherwise.
+  This restates docs/modules.mdy's Self-contained design goal as a hard rule.
+
+# Permitted language features
+- export module, module, and import MUST be used for all project code;
+  #include MUST be confined to the global module fragment (module;) and used
+  only for standard library headers.
+- Ordinary classes and structs, with constructors, destructors, and ordinary
+  non-template member functions, MAY be used freely.
+- A single level of virtual dispatch (a base class with a virtual destructor
+  and virtual member functions, and concrete classes that override them) MAY
+  be used where the architecture already relies on it, as with App. New
+  polymorphic hierarchies beyond this pattern SHOULD be justified in review
+  rather than introduced by default.
+- enum class MUST be used in place of unscoped enum for all new enumerated
+  types.
+- [[nodiscard]] SHOULD be applied to any function whose return value must
+  not be silently discarded.
+- Non-capturing or by-reference lambdas MAY be used for short, local
+  callbacks, such as a closing action passed to a single call site. Lambdas
+  MUST NOT be stored as std::function or otherwise used as a substitute for
+  a named function or for virtual dispatch.
+- std::source_location::current() MAY be used as a default argument to
+  attach call-site information to diagnostics, following mm.test's existing
+  use.
+- RAII MUST be used for every owned resource, including files, temporary
+  directories, and file handles. Manual new and delete MUST NOT appear in
+  project code.
+- Copy and move special member functions MUST be declared explicitly,
+  whether defaulted, deleted, or defined, for any type that owns a resource
+  or must not be copied. Implicit generation MUST NOT be relied upon for
+  such types.
+
+# Disallowed: exceptions
+- throw, try, and catch MUST NOT appear in project code outside the Known
+  non-conformance section below.
+- Functions MUST report failure through their return type: a status enum
+  following the existing Enter::ok / Enter::skip / Enter::error pattern, a
+  bool, or a std::error_code out-parameter for functions wrapping operating
+  system or filesystem calls that themselves report errors that way.
+- Standard library operations that can throw on their own terms, such as a
+  container allocation failure, are unaffected by this rule; it governs
+  throw and catch sites this project authors, not the exception
+  specifications of the standard library itself.
+
+# Disallowed: templates and metaprogramming
+- Project code MUST NOT declare new template functions, template classes, or
+  template aliases.
+- Project code MUST NOT use compile-time dispatch or metaprogramming
+  facilities such as concepts, requires-expressions, std::enable_if, if
+  constexpr on types, variadic templates, or template specialization.
+- Project code MAY instantiate and use templates already provided by the
+  C++20 standard library, such as std::vector, std::map, std::string, and
+  std::optional, exactly as the standard library specifies them. Using a
+  standard container or algorithm is not authoring a template; writing a new
+  one is what this rule prohibits.
+- constexpr functions and variables MAY be used for compile-time constants
+  and simple compile-time-evaluable functions. consteval MAY be used where a
+  value must be guaranteed to evaluate at compile time. Neither MAY be
+  combined with template parameters to perform compile-time dispatch.
+
+# Standard library usage
+- std::filesystem MUST be used for path and filesystem operations, using the
+  std::error_code overloads wherever an operation can fail. mm.build and the
+  test scaffolding already use this pattern correctly, and it is normative
+  going forward.
+- std::vector MUST be the default sequential container. std::map MAY be used
+  where key lookup is genuinely required. Other standard containers MAY be
+  introduced when a vector or map is a clearly poor fit, with the choice
+  justified in review.
+- std::string_view MUST be preferred over std::string for non-owning,
+  read-only string parameters.
+- A plain function-pointer type alias, following mm.test's
+  using fn = void (*)(); pattern, MUST be preferred over std::function for
+  simple, non-capturing callback registration, to avoid the associated type
+  erasure and heap allocation.
+
+# Known non-conformance
+This section records existing code that predates this specification and
+does not yet conform. It is the only place a MUST violation is permitted,
+and only for the entries listed here.
+
+- mm.test's expect and failure use throw, and run_all catches them, which
+  conflicts with the exceptions rule above. This is deliberate and
+  load-bearing: it is the mechanism by which a failed assertion unwinds out
+  of a test body without the test author writing manual control flow. It is
+  the one permitted exception to the exceptions rule, confined to mm.test,
+  until a non-throwing mechanism replaces it. No other module MAY introduce
+  throw or catch on the strength of this precedent.
+- mm.test's registrar constructor template, declared as
+  template <std::size_t N> registrar(std::string_view name, const case_
+  (&cases)[N]), is a hand-written template and conflicts with the templates
+  rule above. It MAY remain until replaced by a non-template mechanism, such
+  as an explicit count parameter at each call site, tracked as technical
+  debt rather than used as precedent elsewhere.
+- apps/mdy/mdy.cpp's explicit template specialization MUST be reviewed and
+  either removed or added to this section with the same justification given
+  for the two mm.test entries above.
+
+# Enforcement
+- Code review MUST check new and changed code against this specification
+  before merge. A MUST violation outside the Known non-conformance list MUST
+  block merge.
+- A text search for throw, try, catch, and template over modules/, tools/,
+  and apps/, excluding the lines listed in Known non-conformance, SHOULD run
+  as part of test.sh or a dedicated lint step, so violations are caught
+  mechanically rather than relying on review alone.
+- Adding an entry to Known non-conformance requires the same justification
+  this document gives for its existing entries: what the exception buys, and
+  what would need to happen to remove it.
