@@ -1,0 +1,7 @@
+---
+mm: 0.1
+kind: app
+name: check
+use: mm.build
+file: check.cpp
+---

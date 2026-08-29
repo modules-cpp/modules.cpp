@@ -4,4 +4,5 @@ kind: dir
 name: tools
 folder: build
 folder: test
+folder: check
 ---
