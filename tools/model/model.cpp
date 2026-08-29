@@ -32,6 +32,7 @@
 import mm.build;
 import mm.model;
 import models.manifest;
+import models.tool;
 
 namespace {
 
@@ -124,16 +125,18 @@ int main(int argc, char** argv) {
     if (violations == 0) std::cout << "  ok: " << dependencies.size() << " use: entries resolved\n";
 
     std::cout << "\nBuild completeness\n";
-    const auto bin_dir = root / "out" / "bin";
+    const auto tools = loaded.tools();
     int missing = 0;
-    for (const auto* node : apps) {
-        const auto binary = bin_dir / std::string(node->name());
+    for (const auto* tool : tools) {
+        const auto binary = root / tool->invocation();
         if (std::filesystem::exists(binary)) continue;
-        std::cout << "  FAIL " << node->name() << " has no installed binary at "
+        std::cout << "  FAIL " << tool->name() << " has no installed binary at "
                   << binary.string() << "\n";
         ++missing;
     }
-    if (missing == 0) std::cout << "  ok: " << apps.size() << " app(s) installed under " << bin_dir.string() << "\n";
+    if (missing == 0)
+        std::cout << "  ok: " << tools.size() << " tool(s) installed under "
+                  << (root / "out" / "bin").string() << "\n";
     violations += missing;
 
     std::cout << "\n";

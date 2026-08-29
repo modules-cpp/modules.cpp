@@ -83,3 +83,4 @@ echo test test
 echo
 out/tools/test/test tests/mm/build/ || exit $?
 out/tools/test/test tests/mm/mdy/ || exit $?
+out/tools/test/test tests/mm/shell/ || exit $?

@@ -4,5 +4,6 @@ kind: app
 name: model
 use: mm.build
 use: mm.model
+use: models.tool
 file: model.cpp
 ---

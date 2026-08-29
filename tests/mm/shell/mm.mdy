@@ -1,0 +1,11 @@
+---
+mm: 0.1
+kind: test
+name: shell
+use: mm.test
+use: mm.shell
+unit: tests/mm/shell/environment.cpp
+unit: tests/mm/shell/current_shell.cpp
+unit: tests/mm/shell/parse_script.cpp
+unit: tests/main.cpp
+---

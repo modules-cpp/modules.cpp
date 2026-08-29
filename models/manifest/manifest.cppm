@@ -3,10 +3,9 @@
 // templates, enum class, [[nodiscard]] on accessors, and explicit virtual
 // destructors on every base.
 //
-// This module is a design artifact, not a build target: nothing under
-// models/ is registered in any mm.mdy, so build.sh, check.sh, and scan.sh do
-// not reach it. It is compiled and syntax-checked by hand, the same way
-// bootstrap.sh compiles build0 before any manifest exists to drive it.
+// See docs/modules-model.mdy for the full models/ picture: what each
+// module covers, the dependency order between them, and how mm.model and
+// tools/model consume this one.
 //
 // ManifestNode models the six kinds docs/modules.mdy defines: project, dir,
 // module, app, test, and doc. It mirrors mm::build::Node

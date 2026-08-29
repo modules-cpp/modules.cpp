@@ -1,7 +1,6 @@
 // Abstract data model of a resolved C++20 module: the actual import graph
 // node, as opposed to the manifest declaration that produces it. See
-// models.manifest (models/manifest/manifest.cppm) for the note on why this
-// is a design artifact rather than a build target.
+// docs/modules-model.mdy for the full models/ picture.
 //
 // Distinct from models::ModuleNode (models.manifest) the same way
 // models::Tool is distinct from models::AppNode: ModuleNode is a manifest's

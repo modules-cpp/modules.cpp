@@ -1,7 +1,6 @@
 // Abstract data model of a generated artifact, per docs/modules.mdy's
-// "Generated artifacts" section. See models.manifest
-// (models/manifest/manifest.cppm) for the note on why this is a design
-// artifact rather than a build target.
+// "Generated artifacts" section. See docs/modules-model.mdy for the full
+// models/ picture.
 //
 // ArtifactKind is that section's bullet list, one variant each. produced_by()
 // points at the Operation (models.workflow) whose script writes that kind of

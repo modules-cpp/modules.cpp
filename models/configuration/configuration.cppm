@@ -1,6 +1,5 @@
-// Abstract data model of a compiler configuration. See models.manifest
-// (models/manifest/manifest.cppm) for the note on why this is a design
-// artifact rather than a build target.
+// Abstract data model of a compiler configuration. See docs/modules-model.mdy
+// for the full models/ picture.
 //
 // Mirrors mm::build::Toolchain (modules/mm/build/build.cppm): the compiler
 // command and flags a build or test run uses, honoring $CXX when set.

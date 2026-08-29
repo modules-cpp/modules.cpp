@@ -16,6 +16,7 @@ import mm.build;
 import mm.mdy;
 import models.document;
 import models.manifest;
+import models.tool;
 
 namespace mm::model {
 
@@ -295,10 +296,38 @@ void collect(const mm::build::Tree& tree, std::vector<std::unique_ptr<RealModule
     }
 }
 
+// One models::Tool per kind:app manifest, matching what build.sh installs:
+// every app is written to out/bin/<name>. See model.cppm for what this
+// deliberately leaves out (build0, build1, third party tools).
+class RealTool : public models::Tool {
+public:
+    explicit RealTool(const models::AppNode& app)
+        : name_(app.name()), invocation_(std::filesystem::path("out") / "bin" / name_),
+          app_(&app) {}
+
+    [[nodiscard]] std::string_view name() const override { return name_; }
+    [[nodiscard]] models::Provenance provenance() const override { return models::Provenance::BuiltIn; }
+    [[nodiscard]] std::filesystem::path invocation() const override { return invocation_; }
+    [[nodiscard]] const models::AppNode* declared_by() const override { return app_; }
+
+private:
+    std::string name_;
+    std::filesystem::path invocation_;
+    const models::AppNode* app_;
+};
+
+std::vector<std::unique_ptr<RealTool>> build_tools(const std::vector<const models::AppNode*>& apps) {
+    std::vector<std::unique_ptr<RealTool>> result;
+    result.reserve(apps.size());
+    for (const auto* app : apps) result.push_back(std::make_unique<RealTool>(*app));
+    return result;
+}
+
 }  // namespace
 
 struct Loaded::Impl {
     RealRepository repository;
+    std::vector<std::unique_ptr<RealTool>> tools;
 };
 
 Loaded::Loaded() = default;
@@ -345,9 +374,11 @@ Loaded Loaded::load(const std::filesystem::path& root_dir, bool& ok) {
 
     auto root = std::make_unique<RealProjectNode>("modules.cpp", ".");
 
-    loaded.impl_ = std::make_unique<Impl>(Impl{
-        RealRepository(std::move(root), std::move(modules), std::move(apps),
-                        std::move(tests), std::move(docs))});
+    RealRepository repository(std::move(root), std::move(modules), std::move(apps),
+                               std::move(tests), std::move(docs));
+    auto tools = build_tools(repository.apps());
+
+    loaded.impl_ = std::make_unique<Impl>(Impl{std::move(repository), std::move(tools)});
 
     std::filesystem::current_path(previous, ec);
     ok = true;
@@ -355,5 +386,12 @@ Loaded Loaded::load(const std::filesystem::path& root_dir, bool& ok) {
 }
 
 const models::Repository& Loaded::repository() const { return impl_->repository; }
+
+std::vector<const models::Tool*> Loaded::tools() const {
+    std::vector<const models::Tool*> result;
+    result.reserve(impl_->tools.size());
+    for (const auto& tool : impl_->tools) result.push_back(tool.get());
+    return result;
+}
 
 }  // namespace mm::model

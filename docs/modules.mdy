@@ -93,19 +93,33 @@ The source tree is organized by responsibility.
 +-- test.sh                   smoke and target tests
 +-- document.sh               HTML documentation
 +-- check.sh                  optional: docs/modules-c++20.mdy via cppcheck
++-- model.sh                  optional: checks the manifest tree against itself
 +-- clean.sh                  generated-file cleanup
 +-- apps/
 |   +-- main/                 minimal application
 |   +-- mdy/                  MDY and documentation application
++-- models/                   the abstract data model; see docs/modules-model.mdy
+|   +-- document/             models.document
+|   +-- configuration/        models.configuration
+|   +-- manifest/             models.manifest
+|   +-- repository/           models.repository
+|   +-- tool/                 models.tool
+|   +-- module/               models.module
+|   +-- workflow/             models.workflow
+|   +-- artifacts/            models.artifacts
 +-- modules/mm/
 |   +-- app/                  mm.app
 |   +-- build/                mm.build
 |   +-- mdy/                  mm.mdy and white-box tests
+|   +-- model/                mm.model, the models/ adapter
+|   +-- shell/                mm.shell
 |   +-- test/                 mm.test
 +-- tools/
 |   +-- build/                bootstrap and build front ends
 |   +-- test/                 test front end
 |   +-- check/                cppcheck front end and addon; see check.sh
+|   +-- model/                consistency front end; see docs/modules-model.mdy
+|   +-- shell/                system shell front end over mm.build and mm.shell
 +-- tests/mm/
 |   +-- build/                mm.build tests
 |   +-- mdy/                  mm.mdy public and regression tests
@@ -114,6 +128,7 @@ The source tree is organized by responsibility.
 |   +-- mdy.mdy               MDY format reference
 |   +-- modules.mdy           this guide
 |   +-- modules-c++20.mdy     C++20 language subset specification
+|   +-- modules-model.mdy     the abstract data model
 |
 +-- out/                      all of the output and generated files
 +-- gcm.cache/                gcc modules cache
@@ -202,6 +217,37 @@ An expected failure is reported as xfail and does not fail the run. If it starts
 passing, it becomes xpass and fails the run until the stale marker is removed.
 This turns known defects into executable records without weakening regressions.
 
+## models/ and mm.model
+models/ is a second, independent description of this project's own
+structure: eight small modules (models.document, models.configuration,
+models.manifest, models.repository, models.tool, models.module,
+models.workflow, models.artifacts) that model the manifest kind taxonomy,
+tools, workflow, and generated output as abstract C++20 interfaces, rather
+than the flat structs mm.build uses to do the same job internally.
+
+mm.model (modules/mm/model) adapts mm.build's and mm.mdy's real data onto
+that interface. Its one exported type, Loaded, owns every concrete node it
+builds and hands back a models::Repository and, for every kind:app manifest,
+a models::Tool. tools/model is model's first consumer.
+
+The full picture, including why a declaration (such as ModuleNode) and the
+thing it declares (such as Module) are modeled as separate types, is in
+docs/modules-model.mdy.
+
+## mm.shell
+mm.shell wraps shell and environment concerns other modules or tools might
+otherwise each reach past their own interface for: current_shell reads
+$SHELL, get/set/unset wrap the POSIX getenv/setenv/unsetenv functions
+against this process's real environment, and parse_script classifies a
+script's lines as a comment, an assignment, or a command.
+
+current_shell is not what mm::build::run invokes: POSIX system(), which run
+wraps, always uses /bin/sh regardless of $SHELL. parse_script recognizes
+only this project's own script style; it does not parse real shell grammar
+such as quoting across lines, command substitution, or control flow.
+
+tools/shell is mm.shell's first consumer beyond its own module.
+
 # Tools
 ## build0
 tools/build/main.cpp is compiled as out/build0 without importing project
@@ -244,6 +290,44 @@ Common commands are:
 - ./out/bin/test tests/mm/build/mm.mdy
 - ./out/bin/test tests/mm/mdy/mm.mdy
 - ./out/bin/test -v tests/mm/build
+
+## model
+tools/model/model.cpp is installed as out/bin/model. It loads the manifest
+tree through mm.model and checks the resulting models::Repository and
+models::Tool against each other, never touching mm.build's own structures
+directly:
+
+- dependency resolution: every use: entry on a module, app, or test names a
+  module: some kind:module manifest actually exports.
+- build completeness: every models::Tool's invocation() has an installed
+  binary under out/bin.
+
+Both checks are structural, derived from the loaded model, rather than
+textual parsing of this guide's prose. See docs/modules-model.mdy for what
+model does not check yet.
+
+Common commands are:
+
+- ./model.sh
+- ./out/bin/model -v
+- ./out/bin/model modules/mm.mdy
+
+## shell
+tools/shell/shell.cpp is installed as out/bin/shell. It resolves a project
+root the same way build, test, and check do, then hands command to
+mm::build::run, which wraps it in /bin/sh: shell is a thin front end over
+mm.build's process execution and mm.shell's environment functions, not its
+own implementation of either.
+
+-e NAME=VALUE, repeatable, calls mm.shell's set before running command, so
+the child process command launches inherits it. Verbose mode prints
+mm.shell's current_shell.
+
+Common commands are:
+
+- ./out/bin/shell "ls modules"
+- ./out/bin/shell -e MM_TEST=1 'echo "$MM_TEST"'
+- ./out/bin/shell -v modules/mm.mdy "ls tools"
 
 # Applications
 ## main
@@ -296,6 +380,15 @@ sequence, it depends on a third-party tool: cppcheck must already be
 installed, and check.sh is not part of the self-hosting chain above. It is
 therefore not required to build, test, or document the project, and skipping
 it changes nothing else in this sequence.
+
+A second, unrelated optional step can also follow test.sh:
+
+- ./model.sh
+
+model.sh runs tools/model, which checks the manifest tree against itself
+through models::Repository (docs/modules-model.mdy). Unlike check.sh, it
+depends on nothing outside the project; it is optional because it is an
+additional cross-check, not because anything else is missing to run it.
 
 For TDD, run the smallest relevant test target first:
 

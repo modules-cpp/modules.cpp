@@ -6,5 +6,6 @@ folder: app
 folder: build
 folder: mdy
 folder: model
+folder: shell
 folder: test
 ---

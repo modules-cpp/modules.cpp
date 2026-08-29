@@ -1,7 +1,6 @@
 // Abstract data model of a loaded manifest tree. See models.manifest
 // (models/manifest/manifest.cppm) for the node hierarchy this aggregates,
-// and for the note on why this is a design artifact rather than a build
-// target.
+// and docs/modules-model.mdy for the full models/ picture.
 //
 // Mirrors mm::build::Tree (modules/mm/build/build.cppm): a project's root
 // plus every module, app, test, and doc reachable from it. Unlike Tree,

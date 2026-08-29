@@ -10,8 +10,15 @@
 // not yet resolve ManifestNode::parent()/children(): every node built here
 // returns nullptr/empty for those, since load_tree's Target does not carry
 // the structural nesting mm::build::Node does. A future revision that also
-// walks mm::build::load_nodes could fill them in; tools/consistency, the
-// first consumer of this adapter, does not need them.
+// walks mm::build::load_nodes could fill them in; tools/model, the first
+// consumer of this adapter, does not need them.
+//
+// tools() gives one models::Tool per kind:app manifest, each
+// Provenance::BuiltIn with declared_by() pointing at that app's AppNode.
+// build0, build1, and third party tools (cppcheck, semgrep) have no
+// declaring manifest and are not represented here yet: populating those
+// would mean inventing data this adapter cannot derive from a manifest
+// walk, rather than adapting data that is already there.
 //
 // Pawel Wodnicki (C) 2026
 // 32bitmicro LLC (C) 2026
@@ -19,10 +26,12 @@ module;
 
 #include <filesystem>
 #include <memory>
+#include <vector>
 
 export module mm.model;
 
 import models.repository;
+import models.tool;
 
 export namespace mm::model {
 
@@ -42,6 +51,10 @@ public:
     [[nodiscard]] static Loaded load(const std::filesystem::path& root_dir, bool& ok);
 
     [[nodiscard]] const models::Repository& repository() const;
+
+    // One Tool per kind:app manifest; see the note above the class for what
+    // is not covered.
+    [[nodiscard]] std::vector<const models::Tool*> tools() const;
 
 private:
     Loaded();

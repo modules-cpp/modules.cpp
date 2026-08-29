@@ -5,6 +5,7 @@ name: docs
 file: mdy.mdy
 file: modules.mdy
 file: modules-c++20.mdy
+file: modules-model.mdy
 ---
 
 # Documentation

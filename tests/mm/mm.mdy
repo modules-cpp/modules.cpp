@@ -4,4 +4,5 @@ kind: dir
 name: mm
 folder: mdy
 folder: build
+folder: shell
 ---

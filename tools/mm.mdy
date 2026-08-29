@@ -6,4 +6,5 @@ folder: build
 folder: test
 folder: check
 folder: model
+folder: shell
 ---

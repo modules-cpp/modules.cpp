@@ -1,0 +1,138 @@
+---
+mm: 0.1
+kind: doc
+name: modules.cpp abstract data model
+---
+
+# Purpose
+models/ is an abstract C++20 module hierarchy that models this project's own
+manifest-driven structure, tools, workflow, and generated output as data. It
+is a second, independent description of the same facts docs/modules.mdy
+gives in prose: an abstract interface a program can query, rather than a
+document a person reads. mm.model (modules/mm/model) adapts the real project
+onto that interface, and tools/model uses it to check the project against
+itself.
+
+Like everything else in the project, models/ follows docs/modules-c++20.mdy:
+modules instead of headers, no exceptions, no new templates, enum class,
+[[nodiscard]] on accessors, and explicit virtual destructors on every base.
+
+# The eight modules
+Eight modules, each under models/<name>/<name>.cppm with its own mm.mdy, in
+dependency order:
+
+- models.document — front matter and body blocks for one MDY file
+  (models::Document, models::Block). Foundational: every MDY file is a
+  document, including a manifest, so everything else sits above this.
+- models.configuration — a compiler configuration (models::Configuration),
+  mirroring mm::build::Toolchain. Foundational and independent: a
+  Configuration is an input to running a tool, not a structural fact about
+  the repository.
+- models.manifest — the manifest kind taxonomy docs/modules.mdy defines:
+  project, dir, module, app, test, doc (models::Kind, models::ManifestNode,
+  models::BuildableNode, and one class per kind). Imports models.document,
+  because every manifest is one.
+- models.repository — the aggregate view over a whole manifest tree
+  (models::Repository): a project's root plus every module, app, test, and
+  doc reachable from it. Imports models.manifest.
+- models.tool — an invocable tool (models::Tool), distinct from
+  models::ModuleNode's declaration: a Tool may have no declaring manifest at
+  all, such as a third party tool or the pre-manifest bootstrap artifacts
+  build0/build1. Imports models.manifest.
+- models.module — a resolved C++20 module (models::Module), distinct from
+  models::ModuleNode the same way: ModuleNode's uses() is dependency names as
+  text, Module's imports() is those names resolved to other Module objects.
+  Imports models.manifest.
+- models.workflow — a workflow step (models::Operation): one of the top
+  level *.sh scripts, its prerequisites, whether it is optional, and the
+  Tool it drives, if any. Imports models.tool.
+- models.artifacts — a generated artifact (models::GeneratedArtifact,
+  models::ArtifactKind), one variant per bullet in docs/modules.mdy's
+  "Generated artifacts" section, and the Operation whose script produces it.
+  Imports models.workflow.
+
+# Design choices worth knowing
+- Every module is a single export module, not one class per module,
+  following mm.build's own precedent of bundling a tightly coupled family of
+  types together rather than splitting each class out.
+- A declaration is not the thing it declares. models::AppNode and
+  models::Tool both exist because a manifest saying an app should exist is
+  not the same fact as a binary existing to run; models::ModuleNode and
+  models::Module split the same way, for uses: as text versus imports() as a
+  resolved graph. This is the recurring shape across models.tool and
+  models.module.
+- Nothing here executes anything. There is deliberately no run() on Tool or
+  Operation: invoking things is mm.build's and mm.test's job. models/
+  describes what exists and how it relates, not how to act on it.
+
+# mm.model: the adapter
+modules/mm/model adapts mm::build's and mm::mdy's real data onto
+models::Repository and models::Tool, rather than duplicating either. Its one
+exported type, mm::model::Loaded, owns every concrete node, document, and
+tool it builds, so pointers returned through the models:: interfaces stay
+valid for Loaded's lifetime.
+
+Loaded::tools() gives one models::Tool per kind:app manifest, each
+Provenance::BuiltIn with declared_by() pointing at that app's AppNode and
+invocation() set to out/bin/<name>, matching what build.sh actually
+installs. build0, build1, and third party tools (cppcheck, semgrep) are not
+represented: none has a declaring manifest this adapter can walk to, so
+populating them would mean inventing data rather than adapting it.
+
+`Loaded::load(root, ok)` walks the project the same way tools/check does:
+the manifest tree from root, plus the tests/ subtree loaded separately,
+since the root manifest has no folder: tests entry. Each node is given a
+real document() by re-parsing its own mm.mdy through mm::mdy::Parser, since
+mm::build::Target does not keep the MDYDocument it read.
+
+This adapter does not yet resolve ManifestNode::parent() or children():
+every node it builds returns nullptr or empty for those, because
+mm::build::load_tree's Target does not carry the structural nesting
+mm::build::Node does. Filling them in would mean also walking load_nodes and
+cross-referencing the two by directory; nothing that currently imports
+mm.model needs it.
+
+# tools/model: the consistency tool
+tools/model is a kind:app target, use: mm.model, installed as out/bin/model.
+It checks the real project against itself through models::Repository and
+models::Tool alone, never touching mm::build's structures directly, so what
+it reports is whatever the abstract model itself would tell a reader:
+
+- dependency resolution — every use: entry on a module, app, or test names a
+  module: some kind:module manifest actually exports. mm::build::order
+  already rejects an unknown module at build time; this re-derives the same
+  fact independently, through the model, as a check that does not require a
+  full build to run.
+- build completeness — every models::Tool's invocation() exists under
+  out/bin: what is declared matches what has actually been built. Because
+  this is expressed over Tool rather than AppNode directly, the same check
+  would cover build0, build1, or a third party tool too, the day mm.model
+  represents them.
+
+Common commands are:
+
+- ./out/bin/model
+- ./out/bin/model -v
+- ./out/bin/model modules/mm.mdy
+
+Both checks are structural, derived from models::Repository, rather than
+textual parsing of docs/modules.mdy's prose. A textual check against that
+prose (for example, "is every *.sh script mentioned in the Repository layout
+tree") is future work, not something tools/model does today.
+
+# Boundaries
+- models/ has no children()/parent() resolution yet, as above; nothing here
+  currently needs a full structural walk, only the flat sets
+  Repository::modules()/apps()/tests()/docs() already provide.
+- models.workflow and models.artifacts have no adapter yet: mm.model builds
+  models.document, models.manifest, models.repository, and, for kind:app
+  manifests only, models.tool. A tool that needs Operation or
+  GeneratedArtifact data must extend mm.model first.
+- mm.model's models.tool coverage is manifest-only: build0, build1, and
+  third party tools such as cppcheck and semgrep are real Tools this project
+  uses but have no kind:app manifest, so they are absent from
+  Loaded::tools() rather than represented with a null declared_by().
+- tools/model does not check docs/modules.mdy's prose against reality (for
+  example, its Repository layout tree, or the Build and development
+  workflow script list); it checks only what models::Repository can already
+  answer.

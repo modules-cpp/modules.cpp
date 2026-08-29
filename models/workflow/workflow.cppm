@@ -1,7 +1,7 @@
 // Abstract data model of a workflow step: one of the top level *.sh scripts
 // and how it relates to the others, per docs/modules.mdy's "Build and
-// development workflow". See models.manifest (models/manifest/manifest.cppm)
-// for the note on why this is a design artifact rather than a build target.
+// development workflow". See docs/modules-model.mdy for the full models/
+// picture.
 //
 // Operation is the script layer, above models.tool: bootstrap.sh, build.sh,
 // test.sh, document.sh, check.sh, and clean.sh are each an Operation, and

@@ -8,6 +8,7 @@ use: mm.mdy
 use: models.document
 use: models.manifest
 use: models.repository
+use: models.tool
 file: model.cppm
 file: src/model.cpp
 ---

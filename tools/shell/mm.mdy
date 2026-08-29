@@ -1,0 +1,8 @@
+---
+mm: 0.1
+kind: app
+name: shell
+use: mm.build
+use: mm.shell
+file: shell.cpp
+---

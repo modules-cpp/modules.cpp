@@ -1,7 +1,6 @@
 // Abstract data model of an MDY document: front matter plus body blocks, as
-// docs/mdy.mdy defines the format. See models.manifest
-// (models/manifest/manifest.cppm) for the note on why this is a design
-// artifact rather than a build target.
+// docs/mdy.mdy defines the format. See docs/modules-model.mdy for the full
+// models/ picture.
 //
 // Every MDY file is a Document, per docs/modules.mdy's "MDY manifests": a
 // manifest is a Document named mm.mdy that happens to declare a

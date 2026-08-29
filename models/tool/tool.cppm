@@ -1,7 +1,6 @@
 // Abstract data model of an invocable tool: something a script can run,
 // whether this project builds it or an installed third-party binary
-// provides it. See models.manifest (models/manifest/manifest.cppm) for the
-// note on why this is a design artifact rather than a build target.
+// provides it. See docs/modules-model.mdy for the full models/ picture.
 //
 // Distinct from models::AppNode (models.manifest): AppNode is a manifest's
 // declaration that a binary should exist; Tool is the binary itself, which
