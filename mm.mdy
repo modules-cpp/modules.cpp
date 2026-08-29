@@ -4,6 +4,7 @@ kind: project
 name: modules.cpp
 folder: apps
 folder: docs
+folder: models
 folder: modules
 folder: tools
 ---

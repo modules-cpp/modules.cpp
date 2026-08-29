@@ -1,0 +1,7 @@
+---
+mm: 0.1
+kind: module
+name: configuration
+module: models.configuration
+file: configuration.cppm
+---

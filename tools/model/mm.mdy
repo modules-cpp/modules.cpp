@@ -1,0 +1,8 @@
+---
+mm: 0.1
+kind: app
+name: model
+use: mm.build
+use: mm.model
+file: model.cpp
+---

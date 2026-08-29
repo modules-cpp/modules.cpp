@@ -1,0 +1,8 @@
+---
+mm: 0.1
+kind: module
+name: manifest
+module: models.manifest
+use: models.document
+file: manifest.cppm
+---

@@ -1,0 +1,8 @@
+---
+mm: 0.1
+kind: module
+name: module
+module: models.module
+use: models.manifest
+file: module.cppm
+---

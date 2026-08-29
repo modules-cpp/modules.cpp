@@ -1,0 +1,13 @@
+---
+mm: 0.1
+kind: dir
+name: models
+folder: document
+folder: configuration
+folder: manifest
+folder: repository
+folder: tool
+folder: module
+folder: workflow
+folder: artifacts
+---

@@ -1,0 +1,8 @@
+---
+mm: 0.1
+kind: module
+name: artifacts
+module: models.artifacts
+use: models.workflow
+file: artifacts.cppm
+---

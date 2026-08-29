@@ -1,0 +1,7 @@
+---
+mm: 0.1
+kind: module
+name: document
+module: models.document
+file: document.cppm
+---

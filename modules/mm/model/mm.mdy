@@ -1,0 +1,13 @@
+---
+mm: 0.1
+kind: module
+name: model
+module: mm.model
+use: mm.build
+use: mm.mdy
+use: models.document
+use: models.manifest
+use: models.repository
+file: model.cppm
+file: src/model.cpp
+---

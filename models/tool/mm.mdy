@@ -1,0 +1,8 @@
+---
+mm: 0.1
+kind: module
+name: tool
+module: models.tool
+use: models.manifest
+file: tool.cppm
+---
