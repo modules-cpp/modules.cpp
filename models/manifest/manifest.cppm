@@ -43,7 +43,14 @@ public:
     // Root relative.
     [[nodiscard]] virtual std::filesystem::path path() const = 0;
 
-    // The module: name this unit exports, or empty when it produces no BMI.
+    // An optional per-unit module: hint, distinct from a target's own
+    // module: field (ModuleNode::exported_module_name()): a file: or unit:
+    // value may name a module after the path, separated by whitespace, for
+    // a compiler that needs to be told which name a specific interface unit
+    // defines. No manifest in this project uses that second word today, so
+    // this is empty for every current SourceUnit, including interface units
+    // such as mdy.cppm that do produce a BMI; emptiness here is silence, not
+    // evidence that a unit produces no BMI.
     [[nodiscard]] virtual std::string_view module_name() const = 0;
 };
 
@@ -66,8 +73,11 @@ public:
     // nullptr at the root.
     [[nodiscard]] virtual const ManifestNode* parent() const = 0;
 
-    // folder: entries for project/dir; nested file: pages for doc; empty
-    // for module/app/test, which have no children of their own.
+    // folder: entries for project/dir; empty for every other kind.
+    // mm::build::load_nodes (modules/mm/build/build.cppm) only recurses
+    // through folder: on a project or dir manifest, so a doc manifest's
+    // file: entries are never walked into ManifestNodes of their own: see
+    // DocNode::files() for those.
     [[nodiscard]] virtual std::vector<const ManifestNode*> children() const = 0;
 
     // The MDY document at manifest_path(): front matter and, for a doc
@@ -133,13 +143,18 @@ public:
 };
 
 // A prose document, such as docs/modules.mdy. Reached by a manifest walk so
-// it is not invisible to the tools, but nothing compiles or links it.
-// children() holds its file: entries, i.e. nested doc pages such as
-// docs/mm.mdy listing docs/modules.mdy and docs/mdy.mdy. Its prose is
-// document().body(); DocNode adds nothing of its own beyond kind().
+// it is not invisible to the tools, but nothing compiles or links it. Its
+// own prose is document().body().
 class DocNode : public ManifestNode {
 public:
     [[nodiscard]] Kind kind() const override { return Kind::Doc; }
+
+    // Root relative paths from this doc's file: entries, in declaration
+    // order, e.g. docs/mm.mdy listing docs/modules.mdy and docs/mdy.mdy.
+    // These are plain paths, not ManifestNodes: unlike folder:, mm::build
+    // never walks a doc's file: entries into nodes of their own, so there
+    // is nothing here for children() to return (see ManifestNode).
+    [[nodiscard]] virtual std::vector<std::filesystem::path> files() const = 0;
 };
 
 }  // namespace models

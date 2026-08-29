@@ -4,11 +4,15 @@
 // picture.
 //
 // Operation is the script layer, above models.tool: bootstrap.sh, build.sh,
-// test.sh, document.sh, check.sh, and clean.sh are each an Operation, and
-// each but clean.sh drives a Tool. Modeling this separately from Tool keeps
-// "what can run" (models.tool) apart from "in what order, and is it
-// required" (this module): clean.sh is an Operation with no Tool, and
-// check.sh is a Tool-driving Operation that happens to be optional.
+// test.sh, document.sh, check.sh, model.sh, and clean.sh are each an
+// Operation. How many Tools one drives varies: clean.sh drives none, it
+// only removes generated files; build.sh, document.sh, check.sh, and
+// model.sh each drive exactly one; test.sh drives several in sequence
+// (build0, build1, main, mdy, and the test runner); bootstrap.sh drives the
+// compiler directly, repeatedly, producing the two staged executables
+// build0 and build1 rather than running a single named tool at all.
+// Modeling this separately from Tool keeps "what can run" (models.tool)
+// apart from "in what order, and is it required" (this module).
 //
 // Pawel Wodnicki (C) 2026
 // 32bitmicro LLC (C) 2026
@@ -41,10 +45,11 @@ public:
     // as check.sh: skipping it changes nothing else in the sequence.
     [[nodiscard]] virtual bool optional() const = 0;
 
-    // The tool this script drives, or nullptr for a script with no
-    // corresponding tool of its own, such as clean.sh, which only removes
-    // generated files.
-    [[nodiscard]] virtual const Tool* tool() const = 0;
+    // The tools this script drives, in the order it drives them. Empty for
+    // a script with no tool of its own, such as clean.sh. Most operations
+    // return exactly one; test.sh returns several; see the note above the
+    // class.
+    [[nodiscard]] virtual std::vector<const Tool*> tools() const = 0;
 };
 
 }  // namespace models

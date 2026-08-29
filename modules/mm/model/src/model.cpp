@@ -22,16 +22,20 @@ namespace mm::model {
 
 namespace {
 
+// mm::mdy::Parser::parse_file never puts an Empty block into
+// MDYDocument::body (modules/mm/mdy/src/mdy.cpp skips blank lines while
+// parsing the body), so models::BlockType has no Empty variant to map that
+// case to; this function is only ever called on the blocks that do appear.
 models::BlockType to_models_block_type(mm::mdy::BlockType type) {
     switch (type) {
-        case mm::mdy::BlockType::Heading1:     return models::BlockType::Heading1;
-        case mm::mdy::BlockType::Heading2:     return models::BlockType::Heading2;
-        case mm::mdy::BlockType::Heading3:     return models::BlockType::Heading3;
-        case mm::mdy::BlockType::Paragraph:    return models::BlockType::Paragraph;
-        case mm::mdy::BlockType::UnorderedList: return models::BlockType::List;
-        case mm::mdy::BlockType::Empty:        return models::BlockType::Empty;
+        case mm::mdy::BlockType::Heading1:      return models::BlockType::Heading1;
+        case mm::mdy::BlockType::Heading2:      return models::BlockType::Heading2;
+        case mm::mdy::BlockType::Heading3:      return models::BlockType::Heading3;
+        case mm::mdy::BlockType::Paragraph:     return models::BlockType::Paragraph;
+        case mm::mdy::BlockType::UnorderedList: return models::BlockType::UnorderedList;
+        case mm::mdy::BlockType::Empty:         return models::BlockType::Paragraph;
     }
-    return models::BlockType::Empty;
+    return models::BlockType::Paragraph;
 }
 
 class RealBlock : public models::Block {
@@ -175,6 +179,12 @@ public:
     [[nodiscard]] const models::ManifestNode* parent() const override { return data_.parent(); }
     [[nodiscard]] std::vector<const models::ManifestNode*> children() const override { return data_.children(); }
     [[nodiscard]] const models::Document& document() const override { return data_.document(); }
+
+    [[nodiscard]] std::vector<std::filesystem::path> files() const override {
+        std::vector<std::filesystem::path> result;
+        for (const auto value : data_.document().values("file")) result.emplace_back(value);
+        return result;
+    }
 
 private:
     NodeData data_;

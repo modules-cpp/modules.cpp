@@ -7,9 +7,15 @@
 // declaration that a module should exist, with uses() holding the
 // dependency module names as plain text; Module is that module resolved
 // against the rest of a Repository, with imports() holding the actual
-// Module objects those names name. mm::build::order_from
-// (modules/mm/build/build.cppm) performs the resolution this type's
-// imports() is the result of.
+// Module objects those names name, one edge per use: entry.
+//
+// imports() is direct dependencies only, not a topological order:
+// mm::build::order_from (modules/mm/build/build.cppm) returns the full
+// transitive closure of a target's dependencies plus the target itself,
+// dependencies first; imports() returns none of that recursion or
+// self-inclusion; it is the direct edge list order_from's own recursion
+// walks one level at a time. A caller that wants order_from's result can
+// get it by walking imports() transitively.
 //
 // Pawel Wodnicki (C) 2026
 // 32bitmicro LLC (C) 2026
@@ -36,9 +42,10 @@ public:
     // may have no declaring manifest at all.
     [[nodiscard]] virtual const ModuleNode& declared_by() const = 0;
 
-    // Other modules this one imports, resolved from declared_by().uses()
-    // against the modules known to the same Repository, dependencies first,
-    // matching mm::build::order_from's order.
+    // The modules named by declared_by().uses(), resolved against the
+    // modules known to the same Repository, in use: declaration order.
+    // Direct dependencies only; see the note above the class for how this
+    // differs from mm::build::order_from.
     [[nodiscard]] virtual std::vector<const Module*> imports() const = 0;
 };
 
