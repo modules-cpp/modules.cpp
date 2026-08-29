@@ -62,10 +62,18 @@ The architecture has three cooperating layers.
   and expose build, test, example, inspection, and documentation behavior.
 
 ## Core module dependency graph
-- mm.app is independent and provides the minimal application abstraction used by example applications.
-- mm.mdy is independent and parses MDY front matter and document body blocks.
-- mm.build imports mm.mdy because manifests are MDY documents.
-- mm.test is independent and provides the test registry and assertion API.
+mm.app, mm.mdy, and mm.test have no dependencies on other core modules.
+mm.build imports mm.mdy because manifests are MDY documents.
+
+    mm.app <-- main application
+    mm.app <-- mdy application
+    mm.mdy <-- mm.build
+    mm.mdy <-- mdy application
+    mm.build <-- build tool
+    mm.build <-- test tool
+    mm.build <-- mdy application
+    mm.test (independent; used by test targets)
+
 - the build tool imports mm.build.
 - the test tool imports mm.build.
 - the mdy application imports mm.app, mm.mdy, and mm.build.
@@ -131,9 +139,7 @@ target order is calculated from use dependencies.
 mm.app exports the App base class. App accepts argc and argv, provides a
 virtual run function, and exposes a main-style forwarding member.
 
-The current base class stores no state and run returns success. It defines the
-application boundary where shared lifecycle, context, logging, or argument
-services can be added without coupling them to build policy.
+The current base class stores no state and run returns success.
 
 ## mm.mdy
 mm.mdy exports the document model and parser:
@@ -294,6 +300,9 @@ defects and become ordinary regression tests when fixed.
 - gcm.cache contains GCC compiled-module state.
 
 # Current boundaries
+- App defines the application boundary but stores no state; shared lifecycle,
+  context, logging, or argument services can be added there without coupling
+  them to build policy.
 - The compiler driver currently follows GCC modules-ts conventions.
 - Process execution and bootstrap scripts currently require POSIX services.
 - Builds are full rebuilds rather than incremental builds.
