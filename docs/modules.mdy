@@ -1,0 +1,304 @@
+---
+mm: 0.1
+kind: doc
+name: modules.cpp developer guide
+---
+
+# Introduction
+modules.cpp is modern and minimal, self-contained codebase built with C++20 modules.
+It describes, builds, tests, and documents itself from source.
+
+The project has no third-party build system, runtime library, test framework,
+package manager, or documentation generator. It requires a host C++20
+compiler, the C++ standard library, and basic platform services. The current
+implementation uses host compiler (GCC) with C++ module support and a POSIX shell.
+
+Every participating directory contains an mm.mdy manifest. These manifests
+define the project tree, targets, source order, and module dependencies. The
+repository contains the parser, graph model, compiler driver, test framework,
+tools, applications, tests, documentation renderer, and bootstrap scripts.
+
+The codebase supports test-driven development. A change can begin with a
+focused failing test, proceed through a small implementation change, and end
+with regression coverage and updated documentation.
+
+# Design
+The architecture separates declarations, reusable policy, and workflows.
+
+- Manifests declare structure, targets, sources, and dependencies.
+- Core modules implement parsing, building, and testing policy.
+- Tools and applications expose focused command-line workflows.
+
+Shared behavior belongs in a module. Front ends handle arguments, select a
+workflow, and report results. This keeps policy reusable and interfaces small.
+
+## Design goals
+- Modular — use C++20 modules with explicit interfaces and dependencies.
+- Stable APIs — publish versioned module contracts and evolve them compatibly.
+- Manifest-driven — model targets and artifacts in versioned MDY graphs.
+- Extensible — add components through the shared manifest and artifact model.
+- Deterministic — derive build order from dependencies and source order.
+- Inspectable — expose commands, relationships, decisions, and artifacts.
+- Self-contained — require no third-party project-specific dependencies.
+- Recoverable — bootstrap from source without existing generated artifacts.
+- Self-hosting — use reusable C++ modules to rebuild project tools.
+- Self-verifying — support TDD, regression tests, and expected failures.
+- Self-documenting — build documentation from project manifests and MDY.
+- Safe — confine traversal and quote paths passed to external processes.
+- Portable — isolate compiler and operating-system behavior behind interfaces.
+
+Stable and portable interfaces are design goals. The current public code has
+an MDY format version, but it does not yet enforce module API compatibility.
+The current compiler and process driver is GCC- and POSIX-oriented.
+
+## Architectural model
+The architecture has three cooperating layers.
+
+- Manifests describe intent. The mm.mdy files form a rooted project tree and 
+  declare targets, sources, and module dependencies.
+- Core modules implement policy. The modules under modules/mm parse documents, build dependency graphs,
+  drive compilation, and provide testing support.
+- Tools and applications perform workflows. Small programs under tools and apps import the core modules
+  and expose build, test, example, inspection, and documentation behavior.
+
+## Core module dependency graph
+- mm.app is independent and provides the minimal application abstraction used by example applications.
+- mm.mdy is independent and parses MDY front matter and document body blocks.
+- mm.build imports mm.mdy because manifests are MDY documents.
+- mm.test is independent and provides the test registry and assertion API.
+- the build tool imports mm.build.
+- the test tool imports mm.build.
+- the mdy application imports mm.app, mm.mdy, and mm.build.
+- the main application imports mm.app.
+
+
+# Repository layout
+The source tree is organized by responsibility.
+
+.
++-- mm.mdy                    project manifest
++-- bootstrap.sh              bootstrap build
++-- build.sh                  full project build
++-- test.sh                   smoke and target tests
++-- document.sh               HTML documentation
++-- clean.sh                  generated-file cleanup
++-- apps/
+|   +-- main/                 minimal application
+|   +-- mdy/                  MDY and documentation application
++-- modules/mm/
+|   +-- app/                  mm.app
+|   +-- build/                mm.build
+|   +-- mdy/                  mm.mdy and white-box tests
+|   +-- test/                 mm.test
++-- tools/
+|   +-- build/                bootstrap and build front ends
+|   +-- test/                 test front end
++-- tests/mm/
+|   +-- build/                mm.build tests
+|   +-- mdy/                  mm.mdy public and regression tests
++-- docs/
+    +-- mm.mdy                documentation manifest
+    +-- mdy.mdy               MDY format reference
+    +-- modules-4.mdy         this guide
+
+Generated objects and programs live under out. GCC compiled-module state lives
+under gcm.cache. Neither directory is part of the source model.
+
+# MDY manifests
+MDY is the line-oriented format used for manifests and prose. See docs/mdy.mdy
+for its syntax, metadata rules, body blocks, usage, and parser limitations.
+
+For this guide, the important manifest fields are:
+
+- folder connects a project or directory to a child directory.
+- file lists a module or application source in compiler order.
+- unit lists a test-owned translation unit in compiler order.
+- module assigns an importable name to a module target.
+- use declares a dependency on an importable module.
+
+The supported target kinds are project, dir, module, app, test, and doc.
+Project and dir targets organize the tree. The build tool compiles module and
+app targets. The test tool builds test targets. The mdy app renders docs.
+
+Repeated manifest values retain declaration order. Source order is explicit;
+target order is calculated from use dependencies.
+
+# Core modules
+## mm.app
+mm.app exports the App base class. App accepts argc and argv, provides a
+virtual run function, and exposes a main-style forwarding member.
+
+The current base class stores no state and run returns success. It defines the
+application boundary where shared lifecycle, context, logging, or argument
+services can be added without coupling them to build policy.
+
+## mm.mdy
+mm.mdy exports the document model and parser:
+
+- BlockType identifies headings, paragraphs, lists, and empty blocks.
+- Block stores a type and its text.
+- MDYDocument stores repeated metadata values and body blocks.
+- Parser reads a complete MDY file or parses body lines.
+
+mm.build uses this module to read manifests. apps/mdy uses it for inspection
+and HTML rendering. Parsing remains independent from build policy.
+
+Tests cover internal line parsing, public file parsing, regressions, and known
+defects. The exact format contract is in docs/mdy.mdy.
+
+## mm.build
+mm.build contains the shared project and build model. Its main types are:
+
+- Toolchain stores compiler commands, flags, and verbosity.
+- Unit identifies a source path and optional module name.
+- Target describes a module, application, test, or document.
+- Tree separates build targets from discovered tests and documents.
+- Node preserves manifest parent-child structure for documentation.
+
+The manifest walker starts at a selected directory and follows folder entries.
+Canonical paths detect cycles, repeated visits, symlink aliases, and paths that
+escape the project root. Validation rejects missing manifests, unknown kinds,
+unnamed targets, missing sources, and unnamed modules.
+
+The graph layer resolves use entries against module names. A topological walk
+places dependencies before consumers and rejects unknown modules and cycles.
+order covers the full project. order_from selects one target and its reachable
+dependencies. closure collects objects without repeating shared dependencies.
+
+The execution layer compiles units, links programs, and installs applications.
+Generated paths mirror source paths under out. shell_quote protects paths sent
+through the shell. Child exit and signal states become tool exit codes.
+
+The current Toolchain uses c++ with C++20 and GCC modules-ts flags. A full
+build clears gcm.cache before compiling.
+
+## mm.test
+mm.test provides the project test framework. It exports assertions, test cases,
+suites, a static registrar, expected-failure support, and the test runner.
+
+Tests are ordinary functions. Static registrars collect their suites before
+main calls run_all. expect reports failures with source_location, so tests do
+not need assertion macros.
+
+An expected failure is reported as xfail and does not fail the run. If it starts
+passing, it becomes xpass and fails the run until the stale marker is removed.
+This turns known defects into executable records without weakening regressions.
+
+# Tools
+## build0
+tools/build/main.cpp is compiled as out/build0 without importing project
+modules. It creates a recovery boundary that only needs the host compiler.
+
+The current bootstrap uses build0 as a bootstrap and smoke-test artifact. It
+then uses explicit compiler commands to build mm.mdy, mm.build, and build1.
+
+## build1 and build
+tools/build/build.cpp is the manifest-driven build front end. bootstrap.sh
+links it as out/build1. A full build also installs it as out/bin/build.
+
+The tool resolves a manifest, enters its root, validates the project tree,
+orders dependencies, compiles modules and applications, links programs, and
+installs applications under out/bin.
+
+Tests and documentation are discovered but remain separate workflows. This
+allows code to be rebuilt without requiring tests or docs to run first.
+
+Common commands are:
+
+- ./build.sh
+- ./out/build1
+- ./out/bin/build mm.mdy
+- ./out/bin/build -v modules/mm.mdy
+
+## test
+tools/test/main.cpp is installed as out/bin/test. It accepts one kind:test
+manifest, finds the project root, and loads the project module graph.
+
+The selected test target is appended to that graph. order_from selects only
+the test and its transitive module dependencies. The tool compiles them under
+out/tests, links the objects directly, runs the binary, and returns its status.
+
+Direct object linking preserves static test registrars that an archive linker
+might otherwise discard.
+
+Common commands are:
+
+- ./out/bin/test tests/mm/build/mm.mdy
+- ./out/bin/test tests/mm/mdy/mm.mdy
+- ./out/bin/test -v tests/mm/build
+
+# Applications
+## main
+apps/main imports mm.app, constructs App, calls run, and returns its result.
+The base implementation returns success and produces no output.
+
+The executable is written to out/apps/main/main and installed as out/bin/main.
+
+## mdy
+apps/mdy imports mm.mdy and mm.build. It inspects MDY documents and generates
+HTML documentation.
+
+Verbose mode prints metadata and body blocks. The -s option creates and parses
+a sample document for smoke testing. The -h option writes escaped HTML.
+
+For a project or dir manifest, HTML mode calls mm.build::load_nodes and writes
+one index.html page per reachable manifest. Output mirrors the manifest tree
+and includes metadata, breadcrumbs, child links, and prose.
+
+Common commands are:
+
+- ./out/bin/mdy -s
+- ./out/bin/mdy docs/modules-4.mdy -h > modules-4.html
+- ./document.sh
+- ./document.sh -o=site
+
+The renderer supports MDY headings, paragraphs, and unordered lists. It is not
+a Markdown engine and has no stylesheet, template, search, or asset pipeline.
+
+# Build and development workflow
+A clean repository can produce all project tools with this sequence:
+
+- ./clean.sh
+- ./bootstrap.sh
+- ./build.sh
+- ./test.sh
+- ./document.sh
+
+bootstrap.sh creates out/build0 and out/build1. build.sh uses build1 to build
+the complete project. The installed out/bin/build can then rebuild the project,
+which makes the toolchain self-hosting.
+
+For TDD, run the smallest relevant test target first:
+
+- Add a case that defines the behavior or reproduces the defect.
+- Run out/bin/test for the selected target and confirm the failure.
+- Make the smallest implementation change that satisfies the case.
+- Run the focused target until it passes.
+- Run test.sh for full regression coverage.
+- Update interfaces, manifests, and docs when their contracts change.
+
+White-box tests may live with a module. Public integration and regression tests
+live under tests. Expected failures are reserved for understood, deferred
+defects and become ordinary regression tests when fixed.
+
+# Generated artifacts
+- out/modules contains module objects.
+- out/apps contains application objects and executables.
+- out/tools contains tool objects and executables.
+- out/bin contains installed commands.
+- out/tests contains isolated test builds.
+- out/index.html and nested pages contain generated documentation.
+- gcm.cache contains GCC compiled-module state.
+
+# Current boundaries
+- The compiler driver currently follows GCC modules-ts conventions.
+- Process execution and bootstrap scripts currently require POSIX services.
+- Builds are full rebuilds rather than incremental builds.
+- Source order is declared rather than inferred from import statements.
+- use dependencies resolve only to module targets.
+- Tests and documentation are separate build stages.
+- MDY is intentionally smaller than YAML or Markdown.
+
+These boundaries keep the core model small. Compiler adapters, incremental
+scheduling, richer rendering, and broader platforms can evolve behind the
+interfaces without changing the manifest-driven architecture.

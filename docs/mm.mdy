@@ -3,6 +3,7 @@ mm: 0.1
 kind: doc
 name: docs
 file: mdy.mdy
+file: modules.mdy
 ---
 
 # Documentation
