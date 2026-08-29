@@ -322,3 +322,44 @@ These are the gaps between the Design goals and today's implementation.
 These boundaries keep the core model small. Compiler adapters, incremental
 scheduling, richer rendering, and broader platforms can evolve behind the
 interfaces without changing the manifest-driven architecture.
+
+# Glossary
+Terms used above that are not standard C++ vocabulary.
+
+- translation unit — one source file plus everything it imports, as the
+  compiler sees it for a single compile step. Each .cpp or .cppm file listed
+  in a manifest's file or unit entries is compiled as its own translation
+  unit.
+- module interface / .cppm — the file that declares export module and lists
+  what a module exposes. Consumers import the module name; they do not read
+  this file's text directly the way #include copies a header's text.
+- static registrar — an object whose constructor runs before main, used here
+  to record a test case or suite into a global registry without requiring
+  the test file to be listed anywhere by hand. This is why mm.test tests are
+  "ordinary functions" that still get discovered automatically.
+- topological walk — visiting a dependency graph so that every node is
+  visited only after all the nodes it depends on. mm.build uses this to
+  compile dependencies before the modules that use them.
+- closure (graph sense) — the full set of nodes reachable from a starting
+  node by following dependency edges. Unrelated to a C++ lambda closure;
+  mm.build's closure function computes this reachable set so shared
+  dependencies are not compiled or linked twice.
+- canonical path — a filesystem path with symlinks resolved and relative
+  segments removed, so two different-looking paths that name the same file
+  compare equal. mm.build uses this to detect cycles and repeated visits
+  when walking manifests.
+- shell injection / shell_quote — shell injection is when untrusted text
+  (such as a path) is passed to a shell command and interpreted as extra
+  commands instead of plain data. shell_quote escapes a path so it is always
+  treated as data when mm.build passes it to an external process.
+- GCC modules-ts — the compiler flag family (-fmodules-ts) GCC currently
+  uses for C++20 module support. It predates GCC's later, more standard
+  module support and is one reason the compiler driver is described as
+  GCC-oriented rather than portable across compilers today.
+- front end (tool) — a small program (build, test, mdy) that parses
+  arguments and calls into a core module to do the real work. Not to be
+  confused with a compiler front end, which parses source code.
+- expected failure / xfail / xpass — an expected failure is a test known to
+  fail today; mm.test reports it as xfail instead of failing the run. If a
+  marked test starts passing, mm.test reports it as xpass and fails the run
+  until the stale marker is removed, so fixed defects cannot be forgotten.
