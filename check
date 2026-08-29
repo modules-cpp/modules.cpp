@@ -1,0 +1,9 @@
+#
+# shell script to run the check tool through the shell tool instead of the
+# system shell directly; see check.sh for the plain version
+#
+
+MM_BUILD="out"
+echo "Run check"
+echo
+${MM_BUILD}/bin/shell "${MM_BUILD}/bin/check $*"

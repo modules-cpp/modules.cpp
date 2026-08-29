@@ -1,0 +1,10 @@
+#
+# shell script to run the mdy documentation tool through the shell tool
+# instead of the system shell directly; see document.sh for the plain
+# version
+#
+
+MM_BUILD="out"
+echo "Run document"
+echo
+${MM_BUILD}/bin/shell "${MM_BUILD}/bin/mdy -h mm.mdy $*"

@@ -1,0 +1,9 @@
+#
+# shell script to run the model tool through the shell tool instead of the
+# system shell directly; see model.sh for the plain version
+#
+
+MM_BUILD="out"
+echo "Run model"
+echo
+${MM_BUILD}/bin/shell "${MM_BUILD}/bin/model $*"
