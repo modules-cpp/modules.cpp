@@ -65,7 +65,6 @@ int main(int argc, char** argv)
     std::cout << "reads file" << "\n";
     std::string line;
     bool bHeader = false;
-    bool bHeaderDone = false;
     while (std::getline(mmfile, line)) {
         std::cout << line << "\n";
         auto pos = line.find(':');
@@ -85,7 +84,6 @@ int main(int argc, char** argv)
                 } else {
                     std::cout << "header ends" << "\n";
                     bHeader = false;
-                    bHeaderDone = true;
                 }
             }
         }
