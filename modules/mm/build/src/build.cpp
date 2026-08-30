@@ -94,6 +94,26 @@ Enter enter_manifest(const std::filesystem::path& dir, WalkState& state,
     return Enter::ok;
 }
 
+// The kind and name every manifest must declare to be usable further,
+// independent of whether the walk that reached it builds a Target (walk) or
+// only records a Node (load_nodes' walk_nodes). Both walks share it: without
+// this, load_nodes recorded whatever a manifest's front matter said, kind
+// included, with no check that it named one of the six kinds this project
+// defines at all.
+bool valid_manifest(std::string_view kind, std::string_view name,
+                    const std::filesystem::path& manifest) {
+    if (kind != "project" && kind != "dir" && kind != "module" &&
+        kind != "app" && kind != "test" && kind != "doc") {
+        std::cerr << "build: unknown kind \"" << kind << "\" in " << manifest.string() << "\n";
+        return false;
+    }
+    if (name.empty()) {
+        std::cerr << "build: manifest has no name: " << manifest.string() << "\n";
+        return false;
+    }
+    return true;
+}
+
 void walk(const std::filesystem::path& dir, Tree& tree, WalkState& state) {
     std::filesystem::path manifest;
     std::filesystem::path canonical;
@@ -106,6 +126,13 @@ void walk(const std::filesystem::path& dir, Tree& tree, WalkState& state) {
 
     const auto doc = mm::mdy::Parser::parse_file(manifest);
     const auto kind = first(doc, "kind");
+    const auto name = first(doc, "name");
+
+    if (!valid_manifest(kind, name, manifest)) {
+        tree.ok = false;
+        state.visited.push_back(canonical);
+        return;
+    }
 
     if (kind == "project" || kind == "dir") {
         state.visiting.push_back(canonical);
@@ -117,24 +144,12 @@ void walk(const std::filesystem::path& dir, Tree& tree, WalkState& state) {
 
     state.visited.push_back(canonical);
 
-    if (kind != "module" && kind != "app" && kind != "test" && kind != "doc") {
-        std::cerr << "build: unknown kind \"" << kind << "\" in " << manifest.string() << "\n";
-        tree.ok = false;
-        return;
-    }
-
     Target target;
     target.kind = kind;
-    target.name = first(doc, "name");
+    target.name = name;
     target.module_name = first(doc, "module");
     target.dir = dir.lexically_normal();
     target.uses = all(doc, "use");
-
-    if (target.name.empty()) {
-        std::cerr << "build: manifest has no name: " << manifest.string() << "\n";
-        tree.ok = false;
-        return;
-    }
 
     if (kind == "doc") {
         // Prose. Listed so a walk sees it, but nothing compiles or links it, so
@@ -196,12 +211,20 @@ void walk_nodes(const std::filesystem::path& dir, std::size_t parent,
     }
 
     const auto doc = mm::mdy::Parser::parse_file(manifest);
+    const auto kind = first(doc, "kind");
+    const auto name = first(doc, "name");
+
+    if (!valid_manifest(kind, name, manifest)) {
+        ok = false;
+        state.visited.push_back(canonical);
+        return;
+    }
 
     Node node;
     node.manifest = manifest;
     node.dir = dir.lexically_normal();
-    node.kind = first(doc, "kind");
-    node.name = first(doc, "name");
+    node.kind = kind;
+    node.name = name;
     node.parent = parent;
 
     nodes.push_back(std::move(node));
