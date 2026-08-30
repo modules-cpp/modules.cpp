@@ -104,7 +104,7 @@ The source tree is organized by responsibility.
 |   +-- manifest/             models.manifest
 |   +-- repository/           models.repository
 |   +-- tool/                 models.tool
-|   +-- module/               models.module
+|   +-- modules/              models.modules
 |   +-- workflow/             models.workflow
 |   +-- artifacts/            models.artifacts
 +-- modules/mm/
@@ -220,7 +220,7 @@ This turns known defects into executable records without weakening regressions.
 ## models/ and mm.model
 models/ is a second, independent description of this project's own
 structure: eight small modules (models.document, models.configuration,
-models.manifest, models.repository, models.tool, models.module,
+models.manifest, models.repository, models.tool, models.modules,
 models.workflow, models.artifacts) that model the manifest kind taxonomy,
 tools, workflow, and generated output as abstract C++20 interfaces, rather
 than the flat structs mm.build uses to do the same job internally.

@@ -2,6 +2,12 @@
 // node, as opposed to the manifest declaration that produces it. See
 // docs/modules-model.mdy for the full models/ picture.
 //
+// Named models.modules, not models.module: Clang rejects "module" as the
+// final segment of a dotted module name ('module' is an invalid name for a
+// module), even though GCC accepts it. gen-diagrams.sh and gen-tidy.sh both
+// need Clang to build this module, so the name avoids the collision rather
+// than working around it per tool.
+//
 // Distinct from models::ModuleNode (models.manifest) the same way
 // models::Tool is distinct from models::AppNode: ModuleNode is a manifest's
 // declaration that a module should exist, with uses() holding the
@@ -24,7 +30,7 @@ module;
 #include <string_view>
 #include <vector>
 
-export module models.module;
+export module models.modules;
 
 import models.manifest;
 

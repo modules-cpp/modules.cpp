@@ -39,7 +39,7 @@ dependency order:
   models::ModuleNode's declaration: a Tool may have no declaring manifest at
   all, such as a third party tool or the pre-manifest bootstrap artifacts
   build0/build1. Imports models.manifest.
-- models.module — a resolved C++20 module (models::Module), distinct from
+- models.modules — a resolved C++20 module (models::Module), distinct from
   models::ModuleNode the same way: ModuleNode's uses() is dependency names as
   text, Module's imports() is those names resolved to other Module objects.
   Imports models.manifest.
@@ -63,7 +63,7 @@ dependency order:
   not the same fact as a binary existing to run; models::ModuleNode and
   models::Module split the same way, for uses: as text versus imports() as a
   resolved graph. This is the recurring shape across models.tool and
-  models.module.
+  models.modules.
 - Nothing here executes anything. There is deliberately no run() on Tool or
   Operation: invoking things is mm.build's and mm.test's job. models/
   describes what exists and how it relates, not how to act on it.
