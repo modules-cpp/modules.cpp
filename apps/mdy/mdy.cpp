@@ -135,8 +135,9 @@ std::string title_of(const mm::mdy::MDYDocument& doc, const std::filesystem::pat
 
 // Front matter is document content, not decoration: for most manifests it is
 // the only content there is. folder: values link to the child page, because
-// that is the whole point of walking a tree.
-std::string to_metadata(const mm::mdy::MDYDocument& doc, bool link_folders) {
+// that is the whole point of walking a tree; file: values do the same for a
+// doc manifest, linking to the page render_doc_files writes for that entry.
+std::string to_metadata(const mm::mdy::MDYDocument& doc, bool link_folders, bool link_files) {
     if (doc.metadata.empty()) return {};
 
     std::string out = "<dl>\n";
@@ -148,6 +149,9 @@ std::string to_metadata(const mm::mdy::MDYDocument& doc, bool link_folders) {
             out += "  <dd>";
             if (link_folders && key == "folder" && !value.empty())
                 out += "<a href=\"" + escape(value) + "/index.html\">" + escape(value) + "</a>";
+            else if (link_files && key == "file" && !value.empty())
+                out += "<a href=\"" + escape(std::filesystem::path(value).stem().string()) +
+                       ".html\">" + escape(value) + "</a>";
             else
                 out += escape(value);
             out += "</dd>\n";
@@ -161,7 +165,8 @@ std::string to_metadata(const mm::mdy::MDYDocument& doc, bool link_folders) {
 // A complete document rather than a fragment, so the output can be written
 // straight to a file and opened.
 std::string to_document(const mm::mdy::MDYDocument& doc, const std::filesystem::path& file,
-                        std::string_view nav = {}, bool link_folders = false) {
+                        std::string_view nav = {}, bool link_folders = false,
+                        bool link_files = false) {
     std::string out;
 
     out += "<!DOCTYPE html>\n";
@@ -172,7 +177,7 @@ std::string to_document(const mm::mdy::MDYDocument& doc, const std::filesystem::
     out += "</head>\n";
     out += "<body>\n";
     out += nav;
-    out += to_metadata(doc, link_folders);
+    out += to_metadata(doc, link_folders, link_files);
     out += to_html(doc.body);
     out += "</body>\n";
     out += "</html>\n";
@@ -236,6 +241,49 @@ std::string to_nav(const std::vector<mm::build::Node>& nodes, std::size_t index,
     return out;
 }
 
+// A doc manifest's file: entries are prose files, not manifests: nothing
+// walks them into a Node of their own (mm::build::load_nodes only recurses
+// through folder: on a project or dir manifest), so nothing else in this
+// walk would ever render them. Each is written as a page beside the doc
+// node's own page, in the same directory, so the link to_metadata writes
+// ("<stem>.html") and the link back here ("index.html") both need no path
+// computation.
+void render_doc_files(const mm::build::Node& node, const mm::mdy::MDYDocument& doc,
+                      const std::filesystem::path& out_dir, const std::filesystem::path& base,
+                      std::size_t& written) {
+    const auto it = doc.metadata.find("file");
+    if (it == doc.metadata.end()) return;
+
+    const auto page_dir = (out_dir / page_of(node, base)).parent_path();
+
+    for (const auto& value : it->second) {
+        const auto source = node.dir / value;
+        if (!std::filesystem::exists(source)) {
+            std::cerr << "mdy: " << node.manifest.string() << " lists missing file: " << value << "\n";
+            continue;
+        }
+
+        const auto file_doc = mm::mdy::Parser::parse_file(source);
+        const auto page = page_dir / (std::filesystem::path(value).stem().string() + ".html");
+
+        std::error_code ec;
+        std::filesystem::create_directories(page.parent_path(), ec);
+
+        std::ofstream file(page);
+        if (!file) {
+            std::cerr << "mdy: cannot write " << page.string() << "\n";
+            continue;
+        }
+
+        const std::string nav = "<nav>\n<a href=\"index.html\">" + escape(node.name) +
+                                "</a> / \n<span>" + escape(value) + "</span>\n</nav>\n";
+        file << to_document(file_doc, source, nav);
+        ++written;
+
+        std::cout << page.string() << "\n";
+    }
+}
+
 // Walks the manifest tree and writes one page per manifest, mirroring the
 // source layout so relative links need no rewriting.
 int generate_site(const std::filesystem::path& root_manifest, const std::filesystem::path& out_dir) {
@@ -252,6 +300,7 @@ int generate_site(const std::filesystem::path& root_manifest, const std::filesys
 
     std::error_code ec;
     const auto base = nodes.front().dir.lexically_normal();
+    std::size_t written = 0;
 
     for (std::size_t i = 0; i < nodes.size(); ++i) {
         const auto& node = nodes[i];
@@ -267,12 +316,16 @@ int generate_site(const std::filesystem::path& root_manifest, const std::filesys
         }
 
         const bool structural = node.kind == "project" || node.kind == "dir";
-        file << to_document(doc, node.manifest, to_nav(nodes, i, base), structural);
+        const bool is_doc = node.kind == "doc";
+        file << to_document(doc, node.manifest, to_nav(nodes, i, base), structural, is_doc);
 
         std::cout << page.string() << "\n";
+        ++written;
+
+        if (is_doc) render_doc_files(node, doc, out_dir, base, written);
     }
 
-    std::cout << nodes.size() << " page(s) written to " << out_dir.string() << "\n";
+    std::cout << written << " page(s) written to " << out_dir.string() << "\n";
     return 0;
 }
 

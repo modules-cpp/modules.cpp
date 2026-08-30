@@ -345,7 +345,10 @@ a sample document for smoke testing. The -h option writes escaped HTML.
 
 For a project or dir manifest, HTML mode calls mm.build::load_nodes and writes
 one index.html page per reachable manifest. Output mirrors the manifest tree
-and includes metadata, breadcrumbs, child links, and prose.
+and includes metadata, breadcrumbs, child links, and prose. A doc manifest's
+file: entries are prose files, not manifests, so load_nodes never reaches
+them; generate_site renders each as its own page beside that doc's index.html
+and links it from there, rather than leaving it as inert front matter text.
 
 Common commands are:
 
