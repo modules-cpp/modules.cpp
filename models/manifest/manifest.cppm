@@ -142,9 +142,10 @@ public:
     [[nodiscard]] Kind kind() const override { return Kind::Test; }
 };
 
-// A prose document, such as docs/modules.mdy. Reached by a manifest walk so
-// it is not invisible to the tools, but nothing compiles or links it. Its
-// own prose is document().body().
+// A prose document, such as docs/mm.mdy, the kind:doc manifest that lists
+// docs/modules.mdy and the guide's other pages via file:. Reached by a
+// manifest walk so it is not invisible to the tools, but nothing compiles
+// or links it. Its own prose is document().body().
 class DocNode : public ManifestNode {
 public:
     [[nodiscard]] Kind kind() const override { return Kind::Doc; }

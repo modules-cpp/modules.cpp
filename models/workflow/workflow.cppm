@@ -8,9 +8,12 @@
 // Operation. How many Tools one drives varies: clean.sh drives none, it
 // only removes generated files; build.sh, document.sh, check.sh, and
 // model.sh each drive exactly one; test.sh drives several in sequence
-// (build0, build1, main, mdy, and the test runner); bootstrap.sh drives the
-// compiler directly, repeatedly, producing the two staged executables
-// build0 and build1 rather than running a single named tool at all.
+// (build0, build1, main, mdy, and the test runner). bootstrap.sh drives the
+// host compiler directly and repeatedly, producing two staged executables,
+// build0 and build1, that have no declaring manifest of their own (see
+// models.tool). The compiler itself is a Tool too, the same
+// Provenance::ThirdParty way cppcheck and semgrep are; bootstrap.sh's
+// tools() would include it, once mm.model represents a compiler as a Tool.
 // Modeling this separately from Tool keeps "what can run" (models.tool)
 // apart from "in what order, and is it required" (this module).
 //

@@ -45,11 +45,14 @@ dependency order:
   Imports models.manifest.
 - models.workflow — a workflow step (models::Operation): one of the top
   level *.sh scripts, its prerequisites, whether it is optional, and the
-  Tool it drives, if any. Imports models.tool.
+  Tools it drives, in order. Most operations drive exactly one; test.sh
+  drives several. Imports models.tool.
 - models.artifacts — a generated artifact (models::GeneratedArtifact,
-  models::ArtifactKind), one variant per bullet in docs/modules.mdy's
-  "Generated artifacts" section, and the Operation whose script produces it.
-  Imports models.workflow.
+  models::ArtifactKind), starting from docs/modules.mdy's "Generated
+  artifacts" section but splitting AppObject and ToolObject each into an
+  object-file and an executable variant, plus Staged for out/build0 and
+  out/build1, and the Operation whose script produces it. Imports
+  models.workflow.
 
 # Design choices worth knowing
 - Every module is a single export module, not one class per module,

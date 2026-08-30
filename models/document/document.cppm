@@ -21,11 +21,12 @@ export module models.document;
 
 export namespace models {
 
-// Matches mm::mdy::BlockType (modules/mm/mdy/mdy.cppm) exactly, including
-// the name UnorderedList: there is no Empty variant here because
-// mm.mdy's own body parser skips blank lines rather than emitting them as
-// blocks (modules/mm/mdy/src/mdy.cpp), so a real Document's body() never
-// contains one to represent.
+// Matches the body-reachable subset of mm::mdy::BlockType (modules/mm/mdy/
+// mdy.cppm), including its name UnorderedList: mm.mdy's own enum also has
+// an Empty variant, but its body parser skips blank lines rather than
+// emitting them as blocks (modules/mm/mdy/src/mdy.cpp), so a real
+// Document's body() never contains one, and this type has no Empty
+// variant to represent it with.
 enum class BlockType { Heading1, Heading2, Heading3, Paragraph, UnorderedList };
 
 // One body block: a heading, a paragraph, or a list item.

@@ -171,7 +171,15 @@ private:
 
 class RealDocNode : public models::DocNode {
 public:
-    explicit RealDocNode(const mm::build::Target& target) : data_(target.name, target.dir) {}
+    explicit RealDocNode(const mm::build::Target& target) : data_(target.name, target.dir) {
+        // target.sources is already root relative for a kind:doc target
+        // (mm::build joins each file: value with target.dir and normalizes
+        // it before storing it), so files() reuses that rather than
+        // re-deriving paths from document().values("file"), which holds
+        // the unjoined values as written in the manifest.
+        files_.reserve(target.sources.size());
+        for (const auto& unit : target.sources) files_.emplace_back(unit.path);
+    }
 
     [[nodiscard]] std::string_view name() const override { return data_.name(); }
     [[nodiscard]] std::filesystem::path manifest_path() const override { return data_.manifest_path(); }
@@ -179,15 +187,11 @@ public:
     [[nodiscard]] const models::ManifestNode* parent() const override { return data_.parent(); }
     [[nodiscard]] std::vector<const models::ManifestNode*> children() const override { return data_.children(); }
     [[nodiscard]] const models::Document& document() const override { return data_.document(); }
-
-    [[nodiscard]] std::vector<std::filesystem::path> files() const override {
-        std::vector<std::filesystem::path> result;
-        for (const auto value : data_.document().values("file")) result.emplace_back(value);
-        return result;
-    }
+    [[nodiscard]] std::vector<std::filesystem::path> files() const override { return files_; }
 
 private:
     NodeData data_;
+    std::vector<std::filesystem::path> files_;
 };
 
 class RealModuleNode : public models::ModuleNode {
