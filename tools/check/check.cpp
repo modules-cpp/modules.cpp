@@ -91,7 +91,8 @@ int main(int argc, char** argv) {
 
     if (std::filesystem::exists("tests")) {
         auto test_tree = mm::build::load_tree("tests");
-        if (test_tree.ok) collect(test_tree, seen, files);
+        if (!test_tree.ok) return mm::build::exit_manifest;
+        collect(test_tree, seen, files);
     }
 
     if (files.empty()) {

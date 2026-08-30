@@ -379,11 +379,14 @@ Loaded Loaded::load(const std::filesystem::path& root_dir, bool& ok) {
     // tests/ subtree needs its own walk, same as tools/check.
     if (std::filesystem::exists("tests")) {
         auto test_tree = mm::build::load_tree("tests");
-        if (test_tree.ok) {
-            collect(test_tree, modules, apps);
-            for (const auto& target : test_tree.tests)
-                tests.push_back(std::make_unique<RealTestNode>(target));
+        if (!test_tree.ok) {
+            ok = false;
+            std::filesystem::current_path(previous, ec);
+            return loaded;
         }
+        collect(test_tree, modules, apps);
+        for (const auto& target : test_tree.tests)
+            tests.push_back(std::make_unique<RealTestNode>(target));
     }
 
     auto root = std::make_unique<RealProjectNode>("modules.cpp", ".");
