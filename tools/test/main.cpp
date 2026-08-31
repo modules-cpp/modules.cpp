@@ -90,8 +90,13 @@ int main(int argc, char** argv) {
     std::vector<std::size_t> order;
     if (!mm::build::order_from(tree, index, order)) return mm::build::exit_manifest;
 
-    mm::build::clear_module_cache();
+    if (!mm::build::clear_module_cache()) return mm::build::exit_compile;
+
     std::filesystem::remove_all(build_dir, ec);
+    if (ec) {
+        std::cerr << "test: cannot clear " << build_dir.string() << ": " << ec.message() << "\n";
+        return mm::build::exit_compile;
+    }
 
     const auto toolchain = mm::build::default_toolchain(verbose);
 

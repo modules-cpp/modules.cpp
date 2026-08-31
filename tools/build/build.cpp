@@ -75,7 +75,7 @@ int main(int argc, char** argv) {
     const auto toolchain = mm::build::default_toolchain(verbose);
     const std::filesystem::path build_dir = "out";
 
-    mm::build::clear_module_cache();
+    if (!mm::build::clear_module_cache()) return mm::build::exit_compile;
 
     std::cout << "Compile\n";
     for (const auto index : order) {

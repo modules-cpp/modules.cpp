@@ -34,6 +34,13 @@ std::vector<std::string> all(const mm::mdy::MDYDocument& doc, std::string_view k
     return values == nullptr ? std::vector<std::string>{} : *values;
 }
 
+bool safe_exists(const std::filesystem::path& path) {
+    std::error_code ec;
+    const bool found = std::filesystem::exists(path, ec);
+    if (ec) std::cerr << "build: cannot check " << path.string() << ": " << ec.message() << "\n";
+    return found;
+}
+
 // A folder: entry can name any path, including "." or one that climbs out of the
 // project or loops back through a symlink. Manifests are therefore identified by
 // their canonical path, and the walk keeps two sets: the chain currently being
@@ -62,7 +69,7 @@ Enter enter_manifest(const std::filesystem::path& dir, WalkState& state,
                      std::filesystem::path& manifest, std::filesystem::path& canonical) {
     manifest = (dir / "mm.mdy").lexically_normal();
 
-    if (!std::filesystem::exists(manifest)) {
+    if (!safe_exists(manifest)) {
         std::cerr << "build: missing manifest: " << manifest.string() << "\n";
         return Enter::error;
     }
@@ -115,9 +122,9 @@ bool is_safe_relative_path(const std::filesystem::path& raw, const std::filesyst
 
 bool within_root(const std::filesystem::path& path) {
     std::error_code ec;
-    const auto root = std::filesystem::weakly_canonical(std::filesystem::current_path(ec), ec);
+    const auto root = std::filesystem::current_path(ec);
     if (ec) return false;
-    const auto resolved = std::filesystem::weakly_canonical(path, ec);
+    const auto resolved = std::filesystem::absolute(path, ec).lexically_normal();
     if (ec) return false;
     const auto relative = resolved.lexically_relative(root);
     return !relative.empty() && *relative.begin() != "..";
@@ -370,7 +377,7 @@ std::filesystem::path resolve_manifest(std::filesystem::path path) {
 std::filesystem::path find_project_root(std::filesystem::path dir) {
     for (; !dir.empty(); dir = dir.parent_path()) {
         const auto candidate = dir / "mm.mdy";
-        if (std::filesystem::exists(candidate) &&
+        if (safe_exists(candidate) &&
             first(mm::mdy::Parser::parse_file(candidate), "kind") == "project") {
             return dir;
         }
@@ -470,7 +477,7 @@ Target load_test(const std::filesystem::path& manifest_path, bool& ok) {
     ok = false;
     Target target;
 
-    if (!std::filesystem::exists(manifest_path)) {
+    if (!safe_exists(manifest_path)) {
         std::cerr << "build: manifest does not exist: " << manifest_path.string() << "\n";
         return target;
     }
@@ -585,7 +592,7 @@ int compile(const Toolchain& toolchain, Target& target, const std::filesystem::p
     std::error_code ec;
 
     for (const auto& source : target.sources) {
-        if (!std::filesystem::exists(source.path)) {
+        if (!safe_exists(source.path)) {
             std::cerr << "build: source does not exist: " << source.path << "\n";
             return exit_manifest;
         }
@@ -596,6 +603,11 @@ int compile(const Toolchain& toolchain, Target& target, const std::filesystem::p
             return exit_manifest;
         }
         std::filesystem::create_directories(object.parent_path(), ec);
+        if (ec) {
+            std::cerr << "build: cannot create " << object.parent_path().string() << ": "
+                      << ec.message() << "\n";
+            return exit_compile;
+        }
 
         std::cout << "    " << source.path << "\n";
 
@@ -622,19 +634,30 @@ int link(const Toolchain& toolchain,
 
     std::error_code ec;
     std::filesystem::create_directories(output.parent_path(), ec);
+    if (ec) {
+        std::cerr << "build: cannot create " << output.parent_path().string() << ": "
+                  << ec.message() << "\n";
+        return exit_link;
+    }
 
-    // Unlink before writing: a tool can be rebuilding the very binary it is
-    // running from, and overwriting a running executable fails with ETXTBSY.
-    // Safe only because within_root already confirmed output resolves
-    // inside the project, so this can never remove anything else.
-    std::filesystem::remove(output, ec);
+    auto temp = output;
+    temp += ".link-tmp";
+    std::filesystem::remove(temp, ec);
 
     std::string command = toolchain.cxx + " " + toolchain.ldflags;
     for (const auto& object : objects) command += " " + shell_quote(object);
-    command += " -o " + shell_quote(output);
+    command += " -o " + shell_quote(temp);
 
     if (run(toolchain, command) != 0) {
         std::cerr << "build: failed to link " << output.string() << "\n";
+        std::filesystem::remove(temp, ec);
+        return exit_link;
+    }
+
+    std::filesystem::rename(temp, output, ec);
+    if (ec) {
+        std::cerr << "build: failed to install " << output.string() << ": " << ec.message() << "\n";
+        std::filesystem::remove(temp, ec);
         return exit_link;
     }
 
@@ -649,13 +672,17 @@ int install(const std::filesystem::path& from, const std::filesystem::path& bin_
     }
 
     const auto installed = bin_dir / name;
-        if (!within_root(installed)) {
+    if (!within_root(installed)) {
         std::cerr << "build: refusing to install outside the project: " << installed.string() << "\n";
         return exit_link;
     }
 
     std::error_code ec;
     std::filesystem::create_directories(bin_dir, ec);
+    if (ec) {
+        std::cerr << "build: cannot create " << bin_dir.string() << ": " << ec.message() << "\n";
+        return exit_link;
+    }
 
     // Written to a temporary file and renamed into place, rather than
     // removed and copied: rename() replaces the destination atomically, so
@@ -680,9 +707,14 @@ int install(const std::filesystem::path& from, const std::filesystem::path& bin_
     return exit_ok;
 }
 
-void clear_module_cache() {
+bool clear_module_cache() {
     std::error_code ec;
     std::filesystem::remove_all("gcm.cache", ec);
+    if (ec) {
+        std::cerr << "build: cannot clear gcm.cache: " << ec.message() << "\n";
+        return false;
+    }
+    return true;
 }
 
 }

@@ -127,6 +127,8 @@ int install(const std::filesystem::path& from, const std::filesystem::path& bin_
             const std::string& name);
 
 // A stale module interface silently contradicts the sources being compiled.
-void clear_module_cache();
+// False if gcm.cache exists but could not be removed, so a caller can stop
+// rather than compile against a cache it failed to actually clear.
+[[nodiscard]] bool clear_module_cache();
 
 }
