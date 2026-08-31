@@ -16,15 +16,25 @@
 //
 // tools() gives one models::Tool per kind:app manifest, each
 // Provenance::BuiltIn with declared_by() pointing at that app's AppNode,
-// plus two fixed entries neither manifest walk can produce: build0
-// (declared_by() == nullptr, tools/build/main.cpp has no manifest at all)
-// and build1 (declared_by() pointing at the same AppNode as out/bin/build:
-// bootstrap.sh compiles build1 from tools/build/build.cpp, the exact file
-// tools/build/mm.mdy declares, so build1 and out/bin/build are two Tools
-// for one declared app). Third party tools (cppcheck, semgrep) still have
-// no representation: they are not fixed, project-known paths the way
-// build0/build1 are, so populating them would mean inventing data instead
-// of stating a fact this adapter already knows.
+// general the same way the rest of Repository is: this part works for any
+// valid project load() accepts, not only this one. On top of that, when
+// the loaded tree declares a "build" app the way tools/build/mm.mdy does,
+// tools() also adds three fixed entries neither manifest walk can produce
+// on its own: build0 (declared_by() == nullptr, tools/build/main.cpp has
+// no manifest at all), build1 (declared_by() pointing at that same "build"
+// AppNode: bootstrap.sh compiles build1 from tools/build/build.cpp, the
+// exact file tools/build/mm.mdy declares, so build1 and out/bin/build are
+// two Tools for one declared app), and c++ (Provenance::ThirdParty, the
+// host compiler bootstrap.sh's fallback branch drives directly). These
+// three describe a fact about this repository's own bootstrap.sh, not
+// something true of an arbitrary project, so they are gated on that "build"
+// app existing rather than added unconditionally: load()'s contract stays
+// "any valid project", and what varies is how much of tools() a given
+// project's topology can support, not whether load() accepts it. Third
+// party tools such as cppcheck and semgrep still have no representation
+// regardless: unlike c++, nothing in this project's own scripts names them
+// at a fixed path, so populating them would mean inventing data rather
+// than stating a known fact.
 //
 // default_configuration() is unrelated to a Loaded tree: it needs no
 // manifest, so it is a free function rather than a Loaded member. It stays
@@ -33,14 +43,19 @@
 // is read by tools/model, never by the build path itself.
 //
 // operations() is fixed, hand authored data, the same reasoning as
-// build0/build1 in tools(): docs/modules.mdy's seven *.sh scripts and how
-// they relate are not something any manifest declares, so nothing here is
-// derived from a walk. It is a Loaded member rather than a free function
-// like default_configuration(), because invokes() needs real Tool*
-// pointers resolved by name against this Loaded's own tools().
+// build0/build1/c++ in tools(): docs/modules.mdy's seven *.sh scripts and
+// how they relate are not something any manifest declares, so nothing here
+// is derived from a walk, and none of it is meaningful for a project other
+// than this one. Rather than embed a null Tool* for whichever of the nine
+// fixed tools an unrelated project's tools() does not happen to contain,
+// operations() returns empty unless every one of them resolved to a real
+// Tool - which in practice means operations() is non-empty only when
+// loading this project itself. It is a Loaded member rather than a free
+// function like default_configuration(), because invokes() needs real
+// Tool* pointers resolved by name against this Loaded's own tools().
 // recommended_sequence() is the one part of the old workflow model that
 // stays a free function: it only reorders whatever operations() returns,
-// so it needs no state of its own.
+// so it needs no state of its own, and is a no-op on an empty list.
 //
 // resolved_modules() builds one models::Module per ModuleNode, then a
 // second pass resolves each declared_by().uses() entry against the others
@@ -82,12 +97,14 @@ public:
 
     [[nodiscard]] const models::Repository& repository() const;
 
-    // One Tool per kind:app manifest, plus build0, build1, and c++; see the
-    // note above the class for what is still not covered.
+    // One Tool per kind:app manifest, plus build0, build1, and c++ when the
+    // tree declares a "build" app; see the note above the class for what is
+    // still not covered.
     [[nodiscard]] std::vector<const models::Tool*> tools() const;
 
     // The seven documented *.sh scripts as Operations, invokes() resolved
-    // against this Loaded's own tools().
+    // against this Loaded's own tools(); empty for a tree that is not this
+    // project, rather than Operations holding a null Tool*.
     [[nodiscard]] std::vector<const models::Operation*> operations() const;
 
     // The resolved counterpart to repository().modules(): one Module per

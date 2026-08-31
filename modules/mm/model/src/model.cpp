@@ -426,9 +426,22 @@ std::vector<std::unique_ptr<models::Tool>> build_tools(const std::vector<const m
     for (const auto* app : apps)
         if (app->name() == "build") build_app = app;
 
-    result.push_back(std::make_unique<FixedTool>("build0", "out/build0", nullptr));
-    result.push_back(std::make_unique<FixedTool>("build1", "out/build1", build_app));
-    result.push_back(std::make_unique<FixedTool>("c++", "c++", nullptr, models::Provenance::ThirdParty));
+    // build0, build1, and c++ are fixed facts about this repository's own
+    // bootstrap.sh, not something Loaded::load() can derive for an
+    // arbitrary tree: load() accepts any valid project (Repository and
+    // RealTool above are genuinely general), but these three describe a
+    // script that only exists here. Adding them unconditionally would make
+    // Loaded report a build0/build1/c++ for a foreign project that has no
+    // such thing, so they are gated on this tree actually declaring a
+    // "build" app the way tools/build/mm.mdy does - the one real,
+    // structural signal (not just a name check) that build1 shares an
+    // identity with.
+    if (build_app != nullptr) {
+        result.push_back(std::make_unique<FixedTool>("build0", "out/build0", nullptr));
+        result.push_back(std::make_unique<FixedTool>("build1", "out/build1", build_app));
+        result.push_back(
+            std::make_unique<FixedTool>("c++", "c++", nullptr, models::Provenance::ThirdParty));
+    }
 
     return result;
 }
@@ -490,6 +503,21 @@ std::vector<std::unique_ptr<models::Operation>> build_operations(
     const auto* test_runner = find_tool(tools, "test");
     const auto* check = find_tool(tools, "check");
     const auto* model = find_tool(tools, "model");
+
+    // operations() is fixed data describing this repository's own seven
+    // *.sh scripts (see the class comment above), not something meaningful
+    // for an arbitrary tree Loaded::load() also accepts. find_tool()
+    // returns nullptr for any of the above that a foreign project's tools()
+    // does not happen to name, and a null Tool* has no honest place inside
+    // invokes()/requires_artifacts()/produces() - not "no requirement",
+    // which those already express as an empty vector, but a caller
+    // dereferencing garbage. Rather than embed a null or invent a
+    // placeholder Tool, this returns no operations at all unless every one
+    // of the above resolved to a real Tool.
+    if (cxx == nullptr || build0 == nullptr || build1 == nullptr || build == nullptr ||
+        main_tool == nullptr || mdy == nullptr || test_runner == nullptr || check == nullptr ||
+        model == nullptr)
+        return {};
 
     // Every kind:app manifest's compiled/linked/installed output, the
     // common shape of "a full build happened": bootstrap.sh's final build1
