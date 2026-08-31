@@ -1,13 +1,18 @@
 #!/usr/bin/env python3
 #
-# cppcheck addon enforcing docs/modules-c++20.mdy's MUST rules.
+# cppcheck addon enforcing a selected subset of docs/modules-c++20.mdy's
+# MUST rules: throw/try/catch, new template declarations, manual new/delete,
+# std::function, enum (must be enum class), any preprocessor directive
+# other than #include, and assert()/__FILE__/__LINE__/__func__. This is
+# not full enforcement of the specification - see docs/modules-c++20.mdy's
+# own "Enforcement" section for what is and is not covered, and
+# tools/check's own doc comment for how this addon's result should be
+# described.
 #
 # Invoked automatically by tools/check as:
 #   cppcheck --addon=tools/check/cppcheck/cpp20_rules.py ...
 #
-# Each check below mirrors a rule in semgrep/cpp20-spec.yml and, through it,
-# a section of docs/modules-c++20.mdy; keep the two in step when either
-# changes. This addon walks CppcheckData.rawTokens rather than the
+# This addon walks CppcheckData.rawTokens rather than the
 # configured token list (cfg.tokenlist): rawTokens preserves the source
 # exactly as written (a "template <>" specialization header, for example,
 # is simplified away in cfg.tokenlist by cppcheck's own analysis passes),
@@ -30,36 +35,66 @@ import cppcheckdata
 ADDON = 'cpp20'
 
 # docs/modules-c++20.mdy, "Known non-conformance": the one place a MUST
-# violation is permitted, and only for the files listed here. Matched
-# against the basename cppcheck reports, since dump file paths are
-# otherwise whatever form they were invoked with (relative, absolute, ...).
-EXCEPT_EXCEPTIONS = {'test.cpp'}          # mm.test's expect/failure: throw, try, catch
-EXCEPT_TEMPLATES = {'test.cppm', 'test.cpp'}  # mm.test's registrar constructor template
+# violation is permitted, and only for the specific files listed here.
+# Matched against the project-relative path's suffix, not the bare
+# basename: a basename-only match would let any future file anywhere in
+# the tree named exactly "test.cpp" inherit mm.test's exception, regardless
+# of directory.
+EXCEPT_EXCEPTIONS = {'modules/mm/test/src/test.cpp'}  # mm.test's expect/failure: throw, try, catch
+EXCEPT_TEMPLATES = {
+    'modules/mm/test/test.cppm',      # mm.test's registrar constructor template
+    'modules/mm/test/src/test.cpp',
+}
 
 
-def basename(tok):
-    return tok.file.replace('\\', '/').rsplit('/', 1)[-1]
+def matches_known_path(tok, known_paths):
+    # Dump file paths are whatever form cppcheck was invoked with (relative
+    # to the project root in normal use, but this tolerates an absolute
+    # path too), so a suffix match on "/" + the known relative path is what
+    # actually pins it to that one file rather than any file sharing its
+    # name.
+    path = tok.file.replace('\\', '/')
+    return any(path == known or path.endswith('/' + known) for known in known_paths)
 
 
 def report(tok, message, error_id):
     cppcheckdata.reportError(tok, 'error', message, ADDON, error_id)
 
 
-def is_type_name(tok):
-    # A (possibly qualified) type name: NAME ("::" NAME)*
-    return tok is not None and (tok.isName or tok.str == '::')
+# Raw tokens carry none of cfg.tokenlist's semantic attributes: a real
+# cppcheck dump's <rawtokens> elements have only fileIndex/linenr/column/str
+# (verified directly), never a 'type' attribute, so Token.isName - which
+# cppcheckdata derives from that attribute - is always False here. A prior
+# version of skip_type_name relied on tok.isName and so never advanced past
+# an ordinary type name at all, which silently made check_new stop matching
+# any new $TYPE(...) or new $TYPE[...] with a real, single-token type name
+# (verified live: new int(); new Foo(); new int[5]; produced no report).
+#
+# A type name (possibly qualified, possibly a template instantiation, such
+# as std::vector<int>) cannot itself contain any of these terminators, so
+# walking until one is reached is sufficient without needing to classify
+# each token along the way.
+TYPE_NAME_TERMINATORS = {'(', '[', ';', ',', ')', ']', '{', '}'}
 
 
 def skip_type_name(tok):
-    while is_type_name(tok):
+    while tok is not None and tok.str not in TYPE_NAME_TERMINATORS:
         tok = tok.next
     return tok
+
+
+def looks_like_identifier(tok):
+    # Same root cause as skip_type_name above: tok.isName cannot be used on
+    # a raw token, so this treats anything starting with a letter or
+    # underscore as a name instead, which is what follows delete/delete[]
+    # in valid C++.
+    return tok is not None and len(tok.str) > 0 and (tok.str[0].isalpha() or tok.str[0] == '_')
 
 
 def check_throw(tok):
     if tok.str != 'throw':
         return
-    if basename(tok) in EXCEPT_EXCEPTIONS:
+    if matches_known_path(tok, EXCEPT_EXCEPTIONS):
         return
     report(
         tok,
@@ -74,7 +109,7 @@ def check_throw(tok):
 def check_try(tok):
     if not cppcheckdata.simpleMatch(tok, 'try {'):
         return
-    if basename(tok) in EXCEPT_EXCEPTIONS:
+    if matches_known_path(tok, EXCEPT_EXCEPTIONS):
         return
     report(
         tok,
@@ -88,7 +123,7 @@ def check_try(tok):
 def check_catch(tok):
     if not cppcheckdata.simpleMatch(tok, 'catch ('):
         return
-    if basename(tok) in EXCEPT_EXCEPTIONS:
+    if matches_known_path(tok, EXCEPT_EXCEPTIONS):
         return
     report(
         tok,
@@ -102,7 +137,7 @@ def check_catch(tok):
 def check_template(tok):
     if tok.str != 'template':
         return
-    if basename(tok) in EXCEPT_TEMPLATES:
+    if matches_known_path(tok, EXCEPT_TEMPLATES):
         return
     report(
         tok,
@@ -140,11 +175,17 @@ def check_new(tok):
 def check_delete(tok):
     # Anchored to a statement boundary so this does not flag `= delete;` on a
     # deleted special member function.
+    #
+    # delete[] arr; is not matched: the token after delete is '[', not an
+    # identifier, so looks_like_identifier(tok.next) is false and this
+    # returns before reporting. Manual array delete is exactly as disallowed
+    # as the scalar form; this is a real gap in this check, not a
+    # deliberate exemption the way empty-paren new is in check_new.
     if tok.str != 'delete':
         return
     if tok.previous is not None and tok.previous.str not in (';', '{', '}', None):
         return
-    if tok.next is None or not tok.next.isName:
+    if not looks_like_identifier(tok.next):
         return
     report(
         tok,
@@ -179,6 +220,46 @@ def check_enum(tok):
     )
 
 
+def check_preprocessor(tok):
+    # rawTokens gives back '#' and the directive name as two separate
+    # tokens (verified against a real cppcheck dump; raw tokens carry no
+    # 'type' attribute at all, unlike cfg.tokenlist, so this checks .str
+    # directly rather than relying on .isName, which is always False here).
+    if tok.str != '#':
+        return
+    directive = tok.next
+    if directive is not None and directive.str == 'include':
+        return
+    name = directive.str if directive is not None else '?'
+    report(
+        tok,
+        '#%s is disallowed by docs/modules-c++20.mdy, "Disallowed: macros and '
+        'the preprocessor". #include is the only preprocessor directive project '
+        'code may use.' % name,
+        'noPreprocessorDirective',
+    )
+
+
+# docs/modules-c++20.mdy, "Disallowed: macros and the preprocessor":
+# std::source_location::current() replaces __FILE__/__LINE__/__func__, and
+# failure MUST be reported through a function's return type rather than
+# asserted away.
+DISALLOWED_STANDARD_MACROS = {'assert', '__FILE__', '__LINE__', '__func__'}
+
+
+def check_standard_macro(tok):
+    if tok.str not in DISALLOWED_STANDARD_MACROS:
+        return
+    report(
+        tok,
+        '%s is disallowed by docs/modules-c++20.mdy, "Disallowed: macros and the '
+        'preprocessor". std::source_location::current() is the normative '
+        'replacement for call-site information, and failure MUST be reported '
+        'through a function\'s return type, not asserted away.' % tok.str,
+        'noStandardMacro',
+    )
+
+
 CHECKS = (
     check_throw,
     check_try,
@@ -188,6 +269,8 @@ CHECKS = (
     check_delete,
     check_std_function,
     check_enum,
+    check_preprocessor,
+    check_standard_macro,
 )
 
 

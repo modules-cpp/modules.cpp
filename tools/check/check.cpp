@@ -2,15 +2,24 @@
 //
 // Usage: check [-v] [<path to mm.mdy>]     (default: mm.mdy in the current dir)
 //
-// Wraps the installed cppcheck tool to enforce docs/modules-c++20.mdy's rules
-// over every module, application, and test source file in the manifest tree.
-// The rules themselves live in tools/check/cppcheck/cpp20_rules.py, a cppcheck
-// addon; this file only collects the file list and drives the process. All
-// the file collection lives in mm.build; this file is the front end.
+// Wraps the installed cppcheck tool to run a selected subset of
+// docs/modules-c++20.mdy's rules (see that document's "Enforcement" section
+// for exactly which) over every module, application, and test source file
+// in the manifest tree. This is not full enforcement of the specification:
+// checks not implemented in the addon, and any source file outside the
+// manifest tree that the addon does not get a fixed exception for, are not
+// covered by a clean result here. The rules themselves live in
+// tools/check/cppcheck/cpp20_rules.py, a cppcheck addon; this file only
+// collects the file list and drives the process. All the file collection
+// lives in mm.build; this file is the front end.
 //
 // The root manifest's folder: tests entry puts kind:test manifests in the
 // same single walk as everything else, so tree.tests already covers them;
-// this tool does not load a second tree.
+// this tool does not load a second tree. tools/build/main.cpp is added
+// separately, below: it is deliberately unmanifested (build0's source,
+// compiled before any manifest exists to declare it; see docs/modules.mdy),
+// so the manifest walk alone would silently exclude it despite it being
+// among the most security-sensitive files in the project.
 //
 // Pawel Wodnicki (C) 2026
 // 32bitmicro LLC (C) 2026
@@ -88,11 +97,6 @@ int main(int argc, char** argv) {
     std::vector<std::filesystem::path> files;
     collect(tree, seen, files);
 
-    if (files.empty()) {
-        std::cerr << "check: manifest tree declares no source files\n";
-        return mm::build::exit_manifest;
-    }
-
     // The addon lives at a fixed path under the project root, not under
     // root: root is wherever the given manifest lives, which is the project
     // root for a plain `check` but a subdirectory for a partial check such
@@ -102,6 +106,25 @@ int main(int argc, char** argv) {
         std::cerr << "check: no kind:project mm.mdy above " << root.string() << "\n";
         return mm::build::exit_manifest;
     }
+
+    // Only for a full project check, not a partial one: tools/build/main.cpp
+    // has no manifest anywhere (see the note above main()), so the walk
+    // above never reaches it regardless of root, but reaching outside a
+    // deliberately narrowed `check modules/mm.mdy` would be surprising.
+    if (root == project_root) {
+        const auto stage_zero = project_root / "tools/build/main.cpp";
+        std::error_code ec;
+        const auto relative_stage_zero = std::filesystem::relative(stage_zero, root, ec);
+        if (!ec && std::filesystem::exists(stage_zero) &&
+            seen.insert(relative_stage_zero.string()).second)
+            files.push_back(relative_stage_zero);
+    }
+
+    if (files.empty()) {
+        std::cerr << "check: manifest tree declares no source files\n";
+        return mm::build::exit_manifest;
+    }
+
     const auto addon = project_root / "tools/check/cppcheck/cpp20_rules.py";
     if (!std::filesystem::exists(addon)) {
         std::cerr << "check: addon not found: " << addon.string() << "\n";

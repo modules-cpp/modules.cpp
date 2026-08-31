@@ -96,6 +96,31 @@ bounded exception.
   value must be guaranteed to evaluate at compile time. Neither MAY be
   combined with template parameters to perform compile-time dispatch.
 
+# Disallowed: macros and the preprocessor
+- Project code MUST NOT define object-like or function-like macros with
+  #define, and MUST NOT #undef one.
+- Project code MUST NOT use conditional compilation (#if, #ifdef, #ifndef,
+  #elif, #else, #endif). The one documented compiler-specific dependency
+  (GCC's -fmodules-ts, see "Baseline compiler and standard") is a build
+  flag, not something project code branches on at preprocessor time; no
+  code in this project may branch at preprocessor time on platform,
+  compiler, or configuration.
+- Project code MUST NOT use the stringizing (#) or token-pasting (##)
+  preprocessor operators, and MUST NOT generate code through repeated
+  macro expansion (an "X-macro" list or similar).
+- Project code MUST NOT invoke a macro the standard library defines, such
+  as assert() from <cassert>, and MUST NOT rely on predefined macros such
+  as __FILE__, __LINE__, or __func__. std::source_location::current() is
+  the normative replacement for call-site information (see "Permitted
+  language features"), and failure MUST be reported through a function's
+  return type (see "Disallowed: exceptions"), not asserted away.
+- #include MUST remain the only preprocessor directive appearing in
+  project code, confined to the global module fragment as already
+  required by "Permitted language features", and used only to pull in
+  standard library headers. A standard library header MAY itself define
+  macros internally; this rule governs what project code writes and
+  invokes, not the standard library's own implementation.
+
 # Standard library usage
 - std::filesystem MUST be used for path and filesystem operations, using the
   std::error_code overloads wherever an operation can fail. mm.build and the
@@ -138,10 +163,23 @@ and only for the entries listed here.
 - Code review MUST check new and changed code against this specification
   before merge. A MUST violation outside the Known non-conformance list MUST
   block merge.
-- A text search for throw, try, catch, and template over modules/, tools/,
-  and apps/, excluding the lines listed in Known non-conformance, SHOULD run
-  as part of test.sh or a dedicated lint step, so violations are caught
-  mechanically rather than relying on review alone.
+- ./check.sh runs tools/check, which wraps cppcheck with the addon at
+  tools/check/cppcheck/cpp20_rules.py, over every source file the manifest
+  tree declares plus tools/build/main.cpp (deliberately unmanifested; see
+  docs/modules.mdy). This is selected syntactic enforcement, not full
+  coverage of this document: the addon currently checks throw/try/catch,
+  new template declarations, manual new/delete, std::function, enum (must
+  be enum class), any preprocessor directive other than #include, and
+  assert()/__FILE__/__LINE__/__func__, against the files above. It does
+  not check, for example, [[nodiscard]], explicit special members,
+  string_view preferences, filesystem error_code-overload usage, include
+  or global-module-fragment placement, the stringizing/token-pasting
+  operators or macro-generated code (harder to isolate on rawTokens than a
+  directive line; see cpp20_rules.py), manual array delete (delete[] arr;
+  is not matched by check_delete; see its comment in cpp20_rules.py), or
+  whether a source file exists outside the manifest tree entirely.
+  Extending coverage means adding a check function to cpp20_rules.py;
+  there is no tracking issue for the gap beyond this paragraph.
 - Adding an entry to Known non-conformance requires the same justification
   this document gives for its existing entries: what the exception buys, and
   what would need to happen to remove it.
