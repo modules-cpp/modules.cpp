@@ -120,12 +120,25 @@ bool is_safe_relative_path(const std::filesystem::path& raw, const std::filesyst
     return true;
 }
 
+// weakly_canonical resolves symlinks in whatever prefix of path already
+// exists (a real fix for a symlink planted under out/ that would otherwise
+// redirect a write outside the project), but when nothing on path exists
+// at all it returns path unchanged and still relative rather than an
+// absolute fallback, the bug fixed earlier by switching to absolute() +
+// lexically_normal() alone. That case is safe to fall back to lexical
+// resolution: a path cannot be escaped through a symlink that does not
+// exist yet.
 bool within_root(const std::filesystem::path& path) {
     std::error_code ec;
     const auto root = std::filesystem::current_path(ec);
     if (ec) return false;
-    const auto resolved = std::filesystem::absolute(path, ec).lexically_normal();
+
+    auto resolved = std::filesystem::weakly_canonical(path, ec);
     if (ec) return false;
+    if (!resolved.is_absolute())
+        resolved = std::filesystem::absolute(path, ec).lexically_normal();
+    if (ec) return false;
+
     const auto relative = resolved.lexically_relative(root);
     return !relative.empty() && *relative.begin() != "..";
 }

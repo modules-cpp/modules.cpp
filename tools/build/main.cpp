@@ -65,6 +65,28 @@ int run(const std::string& command)
     return -1;
 }
 
+// name: is joined to buildpath as a single path segment (never a directory
+// component of it), so a "/" in it is as unsafe as ".." or an absolute
+// value: any of the three lets an attacker-controlled manifest write
+// outside out/.
+bool is_safe_name(const std::string& name)
+{
+    return !name.empty() && name != "." && name != ".." && name.find('/') == std::string::npos;
+}
+
+// file: is joined to basepath and may legitimately contain directory
+// separators (a source file in a subdirectory), so this only rejects what
+// name: also rejects for other reasons: absolute values discard basepath
+// entirely (std::filesystem::path::operator/ replaces its left operand
+// when the right one is absolute), and ".." can climb back out of it.
+bool is_safe_relative_path(const std::filesystem::path& raw)
+{
+    if (raw.empty() || raw.is_absolute()) return false;
+    for (const auto& part : raw.lexically_normal())
+        if (part == "..") return false;
+    return true;
+}
+
 // Compiles and links build1 through the exact fixed steps as bootstrap.sh.
 // The mm.mdy and mm.build module interfaces and their
 // implementation units, then tools/build/build.cpp (the same source
@@ -178,6 +200,14 @@ int main(int argc, char** argv)
                 auto val = trim(line.substr(pos+1));
                 std::cout << "key " << key << "\n";
                 std::cout << "val " << val << "\n";
+                // settings is a map: a second "file:" or "name:" entry
+                // would silently replace the first rather than being an
+                // error, so a manifest declaring either twice is rejected
+                // outright instead of picking one arbitrarily.
+                if (settings.find(key) != settings.end()) {
+                    std::cerr << "duplicate key in front matter: " << key << "\n";
+                    exit(6);
+                }
                 settings[key] = val;
             }
         } else {
@@ -197,6 +227,14 @@ int main(int argc, char** argv)
     std::string mmcppflags="-std=c++20";
     std::string sourcefile = settings["file"];
     std::string outfile = settings["name"];
+    if (!is_safe_relative_path(sourcefile)) {
+        std::cerr << "unsafe file: value: " << sourcefile << "\n";
+        exit(7);
+    }
+    if (!is_safe_name(outfile)) {
+        std::cerr << "unsafe name: value: " << outfile << "\n";
+        exit(8);
+    }
     std::filesystem::path basepath = path.remove_filename();
     std::filesystem::path sourcepath = cwd / basepath / sourcefile;
     std::filesystem::path buildpath = cwd / "out";
