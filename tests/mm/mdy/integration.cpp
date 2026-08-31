@@ -64,7 +64,7 @@ std::string first_value(const MDYDocument& doc, std::string_view key) {
 void reads_front_matter_and_body() {
     const auto doc = parse_text(
         "---\n"
-        "mm: 0.1\n"
+        "mm: 1.0\n"
         "kind: file\n"
         "name: sample.mdy\n"
         "---\n"
@@ -72,7 +72,7 @@ void reads_front_matter_and_body() {
         "- item\n");
 
     mm::test::expect(doc.metadata.size() == 3, "expected three front matter keys");
-    mm::test::expect(first_value(doc, "mm") == "0.1", "expected mm to be 0.1");
+    mm::test::expect(first_value(doc, "mm") == "1.0", "expected mm to be 1.0");
     mm::test::expect(first_value(doc, "kind") == "file", "expected kind to be file");
     mm::test::expect(first_value(doc, "name") == "sample.mdy", "expected name to be sample.mdy");
 
@@ -125,7 +125,7 @@ void keeps_colon_inside_value() {
 void ignores_front_matter_line_without_colon() {
     const auto doc = parse_text(
         "---\n"
-        "mm: 0.1\n"
+        "mm: 1.0\n"
         "bare line\n"
         "---\n");
 
@@ -145,7 +145,7 @@ void document_without_front_matter_is_all_body() {
 void fence_in_body_is_not_front_matter() {
     const auto doc = parse_text(
         "---\n"
-        "mm: 0.1\n"
+        "mm: 1.0\n"
         "---\n"
         "before\n"
         "---\n"
@@ -158,7 +158,7 @@ void fence_in_body_is_not_front_matter() {
 void blank_body_lines_are_skipped() {
     const auto doc = parse_text(
         "---\n"
-        "mm: 0.1\n"
+        "mm: 1.0\n"
         "---\n"
         "one\n"
         "\n"
@@ -170,11 +170,11 @@ void blank_body_lines_are_skipped() {
 void handles_crlf_line_endings() {
     const auto doc = parse_text(
         "---\r\n"
-        "mm: 0.1\r\n"
+        "mm: 1.0\r\n"
         "---\r\n"
         "# Title\r\n");
 
-    mm::test::expect(first_value(doc, "mm") == "0.1", "expected CRLF front matter to parse");
+    mm::test::expect(first_value(doc, "mm") == "1.0", "expected CRLF front matter to parse");
     mm::test::expect(doc.body.size() == 1, "expected one body block from a CRLF file");
     mm::test::expect(doc.body[0].content == "Title", "expected no stray carriage return in content");
 }
@@ -191,7 +191,7 @@ void empty_input_yields_empty_document() {
 void parse_file_reads_from_disk() {
     const scoped_file file{"mm_mdy_test_basic.mdy",
         "---\n"
-        "mm: 0.1\n"
+        "mm: 1.0\n"
         "kind: file\n"
         "---\n"
         "# Title\n"};

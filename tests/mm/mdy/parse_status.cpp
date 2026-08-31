@@ -41,7 +41,7 @@ private:
 };
 
 void parse_file_of_a_valid_document_is_ok() {
-    const scoped_file file{"mm_mdy_test_status_ok.mdy", "---\nmm: 0.1\n---\n# Heading\n"};
+    const scoped_file file{"mm_mdy_test_status_ok.mdy", "---\nmm: 1.0\n---\n# Heading\n"};
     const auto doc = Parser::parse_file(file.path());
     mm::test::expect(doc.status == ParseStatus::Ok, "expected a valid document to parse as Ok");
 }

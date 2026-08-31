@@ -14,7 +14,7 @@ import mm.build;
 void create_dummy_mdy(const std::filesystem::path& path) {
     std::ofstream out(path);
     out << "---\n";
-    out << "mm: 0.1\n";
+    out << "mm: 1.0\n";
     out << "kind: file\n";
     out << "name: sample.mdy\n";
     out << "---\n";

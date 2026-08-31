@@ -69,7 +69,7 @@ echo test app mdy
 echo
 expected='=== METADATA EXTRACTED ===
 kind -> file
-mm -> 0.1
+mm -> 1.0
 name -> sample.mdy
 
 === BODY CONTENT TRAVERSAL ===

@@ -71,7 +71,7 @@ MDYDocument parse_text(std::string_view text)
 void unterminated_front_matter_keeps_body() {
     const auto doc = parse_text(
         "---\n"
-        "mm: 0.1\n"
+        "mm: 1.0\n"
         "# not metadata\n");
 
     mm::test::expect(doc.body.size() == 1,

@@ -51,7 +51,7 @@ public:
         std::filesystem::create_directories(dir, ec);
 
         std::ofstream out(dir / "mm.mdy");
-        out << "---\nmm: 0.1\n" << front_matter << "---\n";
+        out << "---\nmm: 1.0\n" << front_matter << "---\n";
     }
 
     [[nodiscard]] const std::filesystem::path& root() const { return root_; }

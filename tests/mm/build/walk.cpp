@@ -46,10 +46,10 @@ public:
         std::filesystem::create_directories(dir, ec);
 
         std::ofstream out(dir / "mm.mdy");
-        out << "---\nmm: 0.1\n" << front_matter << "---\n";
+        out << "---\nmm: 1.0\n" << front_matter << "---\n";
     }
 
-    // Like manifest(), but without the mm: 0.1 line automatically prepended:
+    // Like manifest(), but without the mm: 1.0 line automatically prepended:
     // for cases that need to control the mm: key themselves (missing,
     // unsupported, or duplicated).
     void manifest_raw(std::string_view relative, std::string_view front_matter) const {
@@ -219,7 +219,7 @@ void rejects_unsupported_mm_version() {
 
 void rejects_duplicate_mm_version() {
     const scoped_tree tree{"dupmmversion"};
-    tree.manifest_raw("", "mm: 0.1\nmm: 0.1\nkind: project\nname: p\n");
+    tree.manifest_raw("", "mm: 1.0\nmm: 1.0\nkind: project\nname: p\n");
 
     const auto loaded = mm::build::load_tree(tree.root());
 

@@ -1,5 +1,5 @@
 ---
-mm: 0.1
+mm: 1.0
 kind: doc
 name: mdy
 file: mdy.mdy
@@ -27,7 +27,7 @@ Each metadata entry is written as a key, a colon, and a value.
 Although the fences resemble YAML front matter, MDY does not implement YAML.
 
 ## Manifest metadata
-The mm key identifies the format version. Every current repository manifest uses 0.1. mm::build rejects a manifest with a missing, unsupported, or duplicated mm: value; 0.1 is the only version currently understood.
+The mm key identifies the format version. Every current repository manifest uses 1.0. mm::build rejects a manifest with a missing, unsupported, or duplicated mm: value; 1.0 is the only version currently understood.
 
 The kind key identifies the manifest role. Values currently used in the repository are project, dir, module, app, and doc.
 
@@ -61,7 +61,7 @@ Parser::parse is a lower-level body parser. It does not recognize or remove fron
 The following describes an application named example whose source is main.cpp. The markers shown as opening fence and closing fence are literal lines containing three hyphens.
 
 Opening fence
-mm: 0.1
+mm: 1.0
 kind: app
 name: example
 file: main.cpp
@@ -71,4 +71,4 @@ Closing fence
 A documentation MDY file uses kind: doc, names its document with name, identifies its content file with file, closes the metadata header, and then places headings, paragraphs, and unordered-list items in the body.
 
 ## Current limitations
-The parser reports no syntax errors and does not validate required keys, version values, kind values, or referenced paths. It also cannot distinguish a missing file from a valid empty document through the returned MDYDocument alone.
+The parser itself (mm::mdy::Parser) reports no syntax errors and does not validate required keys, version values, kind values, or referenced paths; mm::build performs the mm:, kind:, and name: validation described above. Parser::parse_file can distinguish a missing or unreadable file from a valid empty document, through MDYDocument.status (see "Parser behavior"), but a malformed document that still produces some metadata and body content is not otherwise flagged.

@@ -144,8 +144,8 @@ bool within_root(const std::filesystem::path& path) {
 }
 
 // The one manifest format version this project understands. Every real
-// manifest declares mm: 0.1; nothing else is defined yet.
-constexpr std::string_view supported_mm_version = "0.1";
+// manifest declares mm: 1.0; nothing else is defined yet.
+constexpr std::string_view supported_mm_version = "1.0";
 
 bool valid_mm_version(const mm::mdy::MDYDocument& doc, const std::filesystem::path& manifest) {
     const auto* values = lookup(doc, "mm");
