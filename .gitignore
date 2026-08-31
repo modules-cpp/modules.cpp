@@ -70,3 +70,6 @@ vcpkg_installed/
 Testing/
 .cache/
 gcm.cache/
+
+# drafts
+drafts/
