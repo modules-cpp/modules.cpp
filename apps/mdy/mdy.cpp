@@ -5,7 +5,6 @@
 #include <string_view>
 #include <vector>
 #include <map>
-#include <format>
 
 import mm.mdy;
 import mm.build;
@@ -329,20 +328,6 @@ int generate_site(const std::filesystem::path& root_manifest, const std::filesys
     return 0;
 }
 
-// C++20 vector formatter
-template <>
-struct std::formatter<std::vector<std::string>> : std::formatter<std::string> {
-    auto format(const std::vector<std::string>& v, std::format_context& ctx) const {
-        auto out = ctx.out();
-        bool first = true;
-        for (const auto& s : v) {
-            if (!first) out = std::format_to(out, ", ");
-            out = std::format_to(out, "{}", s);
-            first = false;
-        }
-        return out;
-    }
-};
 
 // read mdy file
 int main(int argc, char** argv) {
@@ -400,8 +385,14 @@ int main(int argc, char** argv) {
             }
         }
 
-        for (const auto& [key, values] : doc.metadata)
-            log << std::format("{} -> {}\n", key, values);
+        for (const auto& [key, values] : doc.metadata) {
+            log << key << " -> ";
+            for (std::size_t i = 0; i < values.size(); ++i) {
+                if (i != 0) log << ", ";
+                log << values[i];
+            }
+            log << "\n";
+        }
 
         log << "\n=== mdy content ===\n";
         for (const auto& block : doc.body) {
