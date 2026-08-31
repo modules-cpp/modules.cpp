@@ -6,3 +6,7 @@ module: mm.mdy
 file: mdy.cppm
 file: src/mdy.cpp
 ---
+
+# mm.mdy
+
+The MDY parser and document model that every manifest and every document in the project is read through. docs/mdy.mdy specifies the format it implements.

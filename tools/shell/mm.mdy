@@ -6,3 +6,7 @@ use: mm.build
 use: mm.shell
 file: shell.cpp
 ---
+
+# shell tool
+
+Runs a command through /bin/sh after resolving a project root the way the other tools do, optionally setting environment variables for it first. It is mm.shell's first consumer outside that module's own tests.

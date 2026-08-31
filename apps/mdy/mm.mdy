@@ -2,8 +2,11 @@
 mm: 1.0
 kind: app
 name: mdy
-use: mm.app
 use: mm.mdy
 use: mm.build
 file: mdy.cpp
 ---
+
+# mdy application
+
+Reads an MDY document and renders it as HTML. Given a kind:project or kind:dir manifest it walks the whole tree instead, writing one page per manifest, which is what document.sh runs.

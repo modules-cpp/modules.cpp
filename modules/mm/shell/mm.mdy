@@ -6,3 +6,7 @@ module: mm.shell
 file: shell.cppm
 file: src/shell.cpp
 ---
+
+# mm.shell
+
+The shell and environment concerns other modules would otherwise each reach past their own interface for: the interactive shell name, this process's environment variables, and a small parser for this project's own scripts.

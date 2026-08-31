@@ -12,5 +12,4 @@ unit: tests/main.cpp
 
 # mm.build test target
 
-`use: mm.build` pulls in mm.mdy transitively, so this manifest never names the
-parser's units or their ordering.
+`use: mm.build` pulls in mm.mdy transitively, so this manifest never names the parser's units or their ordering.

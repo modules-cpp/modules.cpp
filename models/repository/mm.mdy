@@ -6,3 +6,7 @@ module: models.repository
 use: models.manifest
 file: repository.cppm
 ---
+
+# models.repository
+
+A whole loaded manifest tree as data: a project root plus every module, app, test, and doc beneath it. Unlike mm::build::Tree it keeps modules and apps apart, since they are different kinds and only build order ever made them one list.

@@ -5,3 +5,7 @@ name: check
 use: mm.build
 file: check.cpp
 ---
+
+# check tool
+
+Enforces part of docs/modules-c++20.mdy by wrapping the installed cppcheck with the addon under tools/check/cppcheck. It is the only target needing a third-party program, so it sits outside the self-hosting chain and is skippable.

@@ -5,3 +5,7 @@ name: main
 use: mm.app
 file: main.cpp
 ---
+
+# main application
+
+The smallest thing that can be built from a manifest: it constructs an App and returns what run gives back. It exists to keep mm.app usable on its own rather than to do work.

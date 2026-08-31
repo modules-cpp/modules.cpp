@@ -5,3 +5,7 @@ name: test
 file: main.cpp
 use: mm.build
 ---
+
+# test tool
+
+Builds and runs one kind:test target. It appends that target to the project's module graph so use: resolves the target's dependencies transitively, then compiles, links, runs it, and returns the binary's own exit status.

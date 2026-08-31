@@ -7,3 +7,7 @@ use: mm.mdy
 file: build.cppm
 file: src/build.cpp
 ---
+
+# mm.build
+
+The shared project and build model: the manifest walk, the dependency graph, and the compiler and linker driver. Every tool that builds anything goes through it, so the rules keeping a build inside the project live here rather than in each front end.

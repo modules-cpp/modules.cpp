@@ -5,3 +5,7 @@ name: app
 module: mm.app
 file: app.cppm
 ---
+
+# mm.app
+
+The application boundary: a base class taking argc and argv and exposing a virtual run. It deliberately stores no state, so shared lifecycle or argument handling can be added here later without coupling it to build policy.

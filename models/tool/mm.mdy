@@ -6,3 +6,7 @@ module: models.tool
 use: models.manifest
 file: tool.cppm
 ---
+
+# models.tool
+
+An invocable program as data, kept distinct from the manifest that declares one: a Tool may have no declaring manifest at all, as build0 and any third-party program do.

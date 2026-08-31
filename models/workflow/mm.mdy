@@ -6,3 +6,7 @@ module: models.workflow
 use: models.tool
 file: workflow.cppm
 ---
+
+# models.workflow
+
+The workflow scripts as data: what each one invokes, what must already exist for it, what it produces, and what part it plays in the sequence. ArtifactKind lives here too, because models.artifacts depends on this module and the reverse would be a cycle.

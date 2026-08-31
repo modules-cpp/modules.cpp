@@ -7,3 +7,7 @@ use: mm.model
 use: models.tool
 file: model.cpp
 ---
+
+# model tool
+
+Checks the project against its own abstract description in models/, reached through mm.model, rather than against mm.build's structures directly. It needs nothing outside the project; it is optional only in being an extra cross-check.

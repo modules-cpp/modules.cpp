@@ -6,3 +6,7 @@ module: models.manifest
 use: models.document
 file: manifest.cppm
 ---
+
+# models.manifest
+
+The manifest kind taxonomy as data: one interface per kind over a common node carrying a parent, children, and its own document. It imports models.document because every manifest is a document.

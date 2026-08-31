@@ -5,3 +5,7 @@ name: document
 module: models.document
 file: document.cppm
 ---
+
+# models.document
+
+An MDY document as data: front matter and body blocks. Foundational, because every MDY file is one, a manifest included, so every other models module sits above this.

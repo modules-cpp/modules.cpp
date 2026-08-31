@@ -9,3 +9,7 @@ unit: tests/mm/shell/current_shell.cpp
 unit: tests/mm/shell/parse_script.cpp
 unit: tests/main.cpp
 ---
+
+# mm.shell test target
+
+Covers the three parts of mm.shell separately: the environment accessors, the interactive shell name, and the script parser. The environment cases act on this process's own variables, so each one clears the name it uses before and after.

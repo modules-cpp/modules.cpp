@@ -6,3 +6,7 @@ module: models.artifacts
 use: models.workflow
 file: artifacts.cppm
 ---
+
+# models.artifacts
+
+A generated file as data, tied to the operation that writes it. Declared but not yet adapted: mm.model builds every other models module, and a tool needing artifact data has to extend it first.

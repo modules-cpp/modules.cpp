@@ -15,5 +15,4 @@ unit: tests/main.cpp
 
 # mm.model test target
 
-`use: mm.model` pulls in mm.build, mm.mdy, and every models.* module it
-depends on transitively, so this manifest never names them.
+`use: mm.model` pulls in mm.build, mm.mdy, and every models.* module it depends on transitively, so this manifest never names them.

@@ -5,3 +5,7 @@ name: build
 use: mm.build
 file: build.cpp
 ---
+
+# build tool
+
+The manifest-driven build front end. bootstrap.sh links this same source as out/build1 before any manifest can be walked, and a full build then installs it as out/bin/build, so the two are one program at two stages.

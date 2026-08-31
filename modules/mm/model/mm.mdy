@@ -15,3 +15,7 @@ use: models.workflow
 file: model.cppm
 file: src/model.cpp
 ---
+
+# mm.model
+
+Adapts mm.build's and mm.mdy's real data onto the abstract interfaces in models/, rather than duplicating either. Its use: list names every models module it maps onto, which is why it is the longest in the project.

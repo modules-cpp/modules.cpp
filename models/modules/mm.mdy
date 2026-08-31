@@ -6,3 +6,7 @@ module: models.modules
 use: models.manifest
 file: modules.cppm
 ---
+
+# models.modules
+
+A resolved C++20 module as data: its imports are other modules, not the dependency names a manifest carries as text. Named models.modules rather than models.module because Clang rejects module as the last segment of a module name.

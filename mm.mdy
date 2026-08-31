@@ -9,3 +9,7 @@ folder: modules
 folder: tests
 folder: tools
 ---
+
+# modules.cpp
+
+The root manifest. Its folder: entries are the whole project: every other manifest is reached by walking from here, so a directory not named here, directly or through another manifest, is invisible to every tool.

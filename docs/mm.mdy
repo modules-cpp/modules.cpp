@@ -10,5 +10,4 @@ file: modules-model.mdy
 
 # Documentation
 
-`kind: doc` targets are prose. A manifest walk reaches them so they are not
-invisible to the tools, but nothing compiles or links them.
+`kind: doc` targets are prose. A manifest walk reaches them so they are not invisible to the tools, but nothing compiles or links them.

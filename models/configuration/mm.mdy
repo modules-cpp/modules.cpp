@@ -5,3 +5,7 @@ name: configuration
 module: models.configuration
 file: configuration.cppm
 ---
+
+# models.configuration
+
+The build configuration as data: compiler and flags, plus the fixed platform, locale, and shell policy. Every accessor is declared policy rather than a measurement of any particular run.

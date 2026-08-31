@@ -6,3 +6,7 @@ module: mm.test
 file: test.cppm
 file: src/test.cpp
 ---
+
+# mm.test
+
+The project's test framework: assertions, cases, suites, a static registrar, expected failures, and the runner. It is the one module permitted to use exceptions, which docs/modules-c++20.mdy records as a bounded exception rather than a precedent.
