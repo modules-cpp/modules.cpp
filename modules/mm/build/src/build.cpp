@@ -101,6 +101,28 @@ Enter enter_manifest(const std::filesystem::path& dir, WalkState& state,
 // this, load_nodes recorded whatever a manifest's front matter said, kind
 // included, with no check that it named one of the six kinds this project
 // defines at all.
+bool is_safe_name(std::string_view name) {
+    return !name.empty() && name != "." && name != ".." &&
+           name.find('/') == std::string_view::npos;
+}
+
+bool is_safe_relative_path(const std::filesystem::path& raw, const std::filesystem::path& joined) {
+    if (raw.is_absolute()) return false;
+    for (const auto& part : joined.lexically_normal())
+        if (part == "..") return false;
+    return true;
+}
+
+bool within_root(const std::filesystem::path& path) {
+    std::error_code ec;
+    const auto root = std::filesystem::weakly_canonical(std::filesystem::current_path(ec), ec);
+    if (ec) return false;
+    const auto resolved = std::filesystem::weakly_canonical(path, ec);
+    if (ec) return false;
+    const auto relative = resolved.lexically_relative(root);
+    return !relative.empty() && *relative.begin() != "..";
+}
+
 bool valid_manifest(std::string_view kind, std::string_view name,
                     const std::filesystem::path& manifest) {
     if (kind != "project" && kind != "dir" && kind != "module" &&
@@ -110,6 +132,10 @@ bool valid_manifest(std::string_view kind, std::string_view name,
     }
     if (name.empty()) {
         std::cerr << "build: manifest has no name: " << manifest.string() << "\n";
+        return false;
+    }
+    if (!is_safe_name(name)) {
+        std::cerr << "build: unsafe name \"" << name << "\" in " << manifest.string() << "\n";
         return false;
     }
     return true;
@@ -152,14 +178,26 @@ void walk(const std::filesystem::path& dir, Tree& tree, WalkState& state) {
     target.dir = dir.lexically_normal();
     target.uses = all(doc, "use");
 
+    const auto push_source = [&](std::string_view value, bool join_with_dir) {
+        auto unit = parse_unit(value);
+        const std::filesystem::path raw = unit.path;
+        const std::filesystem::path joined = join_with_dir ? dir / raw : raw;
+        if (!is_safe_relative_path(raw, joined)) {
+            std::cerr << "build: unsafe source path \"" << unit.path << "\" in "
+                      << manifest.string() << "\n";
+            tree.ok = false;
+            return false;
+        }
+        unit.path = joined.lexically_normal().string();
+        target.sources.push_back(std::move(unit));
+        return true;
+    };
+
     if (kind == "doc") {
         // Prose. Listed so a walk sees it, but nothing compiles or links it, so
         // an empty file: list is not an error.
-        for (const auto& file : all(doc, "file")) {
-            auto unit = parse_unit(file);
-            unit.path = (dir / unit.path).lexically_normal().string();
-            target.sources.push_back(std::move(unit));
-        }
+        for (const auto& file : all(doc, "file"))
+            if (!push_source(file, true)) return;
 
         tree.docs.push_back(std::move(target));
         return;
@@ -167,7 +205,8 @@ void walk(const std::filesystem::path& dir, Tree& tree, WalkState& state) {
 
     if (kind == "test") {
         // unit: entries are already root relative.
-        for (const auto& unit : all(doc, "unit")) target.sources.push_back(parse_unit(unit));
+        for (const auto& unit : all(doc, "unit"))
+            if (!push_source(unit, false)) return;
 
         if (target.sources.empty()) {
             std::cerr << "build: manifest declares no unit: entries: " << manifest.string() << "\n";
@@ -180,11 +219,8 @@ void walk(const std::filesystem::path& dir, Tree& tree, WalkState& state) {
     }
 
     // file: entries are relative to the manifest.
-    for (const auto& file : all(doc, "file")) {
-        auto unit = parse_unit(file);
-        unit.path = (dir / unit.path).lexically_normal().string();
-        target.sources.push_back(std::move(unit));
-    }
+    for (const auto& file : all(doc, "file"))
+        if (!push_source(file, true)) return;
 
     if (target.sources.empty()) {
         std::cerr << "build: manifest declares no file: entries: " << manifest.string() << "\n";
@@ -452,12 +488,27 @@ Target load_test(const std::filesystem::path& manifest_path, bool& ok) {
     target.module_name = first(doc, "module");
     target.dir = manifest_path.parent_path();
     target.uses = all(doc, "use");
-    for (const auto& unit : all(doc, "unit")) target.sources.push_back(parse_unit(unit));
 
     if (target.name.empty()) {
         std::cerr << "build: manifest has no name\n";
         return target;
     }
+    if (!is_safe_name(target.name)) {
+        std::cerr << "build: unsafe name \"" << target.name << "\"\n";
+        return target;
+    }
+
+    // unit: entries are already root relative; see push_source in walk() for
+    // why an absolute or ".."-escaping one is rejected rather than joined.
+    for (const auto& value : all(doc, "unit")) {
+        auto unit = parse_unit(value);
+        if (!is_safe_relative_path(unit.path, unit.path)) {
+            std::cerr << "build: unsafe source path \"" << unit.path << "\"\n";
+            return target;
+        }
+        target.sources.push_back(std::move(unit));
+    }
+
     if (target.sources.empty()) {
         std::cerr << "build: manifest declares no unit: entries\n";
         return target;
@@ -540,6 +591,10 @@ int compile(const Toolchain& toolchain, Target& target, const std::filesystem::p
         }
 
         const auto object = build_dir / (source.path + ".o");
+        if (!within_root(object)) {
+            std::cerr << "build: refusing to write outside the project: " << object.string() << "\n";
+            return exit_manifest;
+        }
         std::filesystem::create_directories(object.parent_path(), ec);
 
         std::cout << "    " << source.path << "\n";
@@ -560,11 +615,18 @@ int compile(const Toolchain& toolchain, Target& target, const std::filesystem::p
 int link(const Toolchain& toolchain,
          const std::vector<std::filesystem::path>& objects,
          const std::filesystem::path& output) {
+    if (!within_root(output)) {
+        std::cerr << "build: refusing to link outside the project: " << output.string() << "\n";
+        return exit_link;
+    }
+
     std::error_code ec;
     std::filesystem::create_directories(output.parent_path(), ec);
 
     // Unlink before writing: a tool can be rebuilding the very binary it is
     // running from, and overwriting a running executable fails with ETXTBSY.
+    // Safe only because within_root already confirmed output resolves
+    // inside the project, so this can never remove anything else.
     std::filesystem::remove(output, ec);
 
     std::string command = toolchain.cxx + " " + toolchain.ldflags;
@@ -581,15 +643,37 @@ int link(const Toolchain& toolchain,
 
 int install(const std::filesystem::path& from, const std::filesystem::path& bin_dir,
             const std::string& name) {
+    if (!is_safe_name(name)) {
+        std::cerr << "build: refusing to install to unsafe name: " << name << "\n";
+        return exit_link;
+    }
+
+    const auto installed = bin_dir / name;
+        if (!within_root(installed)) {
+        std::cerr << "build: refusing to install outside the project: " << installed.string() << "\n";
+        return exit_link;
+    }
+
     std::error_code ec;
     std::filesystem::create_directories(bin_dir, ec);
 
-    const auto installed = bin_dir / name;
-    std::filesystem::remove(installed, ec);
-    std::filesystem::copy_file(from, installed, ec);
-
+    // Written to a temporary file and renamed into place, rather than
+    // removed and copied: rename() replaces the destination atomically, so
+    // there is never a window where installed has just been deleted and not
+    // yet replaced, and a failed copy never removes a working binary.
+    const auto temp = bin_dir / (name + ".install-tmp");
+    std::filesystem::remove(temp, ec);
+    std::filesystem::copy_file(from, temp, std::filesystem::copy_options::overwrite_existing, ec);
     if (ec) {
         std::cerr << "build: failed to install " << name << ": " << ec.message() << "\n";
+        std::filesystem::remove(temp, ec);
+        return exit_link;
+    }
+
+    std::filesystem::rename(temp, installed, ec);
+    if (ec) {
+        std::cerr << "build: failed to install " << name << ": " << ec.message() << "\n";
+        std::filesystem::remove(temp, ec);
         return exit_link;
     }
 
