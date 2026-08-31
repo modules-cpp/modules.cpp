@@ -6,5 +6,6 @@ folder: apps
 folder: docs
 folder: models
 folder: modules
+folder: tests
 folder: tools
 ---

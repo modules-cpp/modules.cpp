@@ -8,10 +8,9 @@
 // addon; this file only collects the file list and drives the process. All
 // the file collection lives in mm.build; this file is the front end.
 //
-// The manifest tree reachable from the project root does not include tests/
-// (the root manifest has no folder: tests entry; tests are run directly by
-// tools/test, one manifest at a time), so this tool loads that subtree
-// separately and adds its sources to the same list.
+// The root manifest's folder: tests entry puts kind:test manifests in the
+// same single walk as everything else, so tree.tests already covers them;
+// this tool does not load a second tree.
 //
 // Pawel Wodnicki (C) 2026
 // 32bitmicro LLC (C) 2026
@@ -88,12 +87,6 @@ int main(int argc, char** argv) {
     std::set<std::string> seen;
     std::vector<std::filesystem::path> files;
     collect(tree, seen, files);
-
-    if (std::filesystem::exists("tests")) {
-        auto test_tree = mm::build::load_tree("tests");
-        if (!test_tree.ok) return mm::build::exit_manifest;
-        collect(test_tree, seen, files);
-    }
 
     if (files.empty()) {
         std::cerr << "check: manifest tree declares no source files\n";
