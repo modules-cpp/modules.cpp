@@ -75,7 +75,12 @@ int main(int argc, char** argv) {
     const auto toolchain = mm::build::default_toolchain(verbose);
     const std::filesystem::path build_dir = "out";
 
-    if (!mm::build::clear_module_cache()) return mm::build::exit_compile;
+    std::cout << "Clear nodule cache\n";
+    if (!mm::build::clear_module_cache()) {
+        std::cerr << "build: failed to clear module cache\n";
+        return mm::build::exit_compile;
+    }
+    std::cout << "\n";
 
     std::cout << "Compile\n";
     for (const auto index : order) {
