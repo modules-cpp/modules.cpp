@@ -115,13 +115,15 @@ int main(int argc, char** argv) {
         // no root_dir, so this is reported even if the tree below fails to
         // load.
         const auto configuration = mm::model::default_configuration(verbose);
-        std::cout << "Configuration\n";
-        std::cout << "  compiler       " << configuration->compiler() << "\n";
+        std::cout << "Configuration (declared policy, not a measurement of this run)\n";
+        std::cout << "  compiler       " << configuration->compiler()
+                  << "  [normal build path only; bootstrap.sh/build0 hardcode c++]\n";
         std::cout << "  compiler flags " << configuration->compiler_flags() << "\n";
         std::cout << "  linker flags   " << configuration->linker_flags() << "\n";
         std::cout << "  verbose        " << (configuration->verbose() ? "true" : "false") << "\n";
         std::cout << "  platform       " << configuration->platform() << "\n";
-        std::cout << "  locale         " << configuration->locale() << "\n";
+        std::cout << "  locale         " << configuration->locale()
+                  << "  [declared, not enforced: no setlocale/LC_ALL/LANG]\n";
         std::cout << "  shell          " << configuration->shell() << "\n\n";
     }
 

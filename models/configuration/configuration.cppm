@@ -1,20 +1,32 @@
 // Abstract data model of the project's build configuration. See
 // docs/modules-model.mdy for the full models/ picture.
 //
-// The model represents the whole project concept, not only what today's
-// tooling happens to enforce at runtime: compiler(), compiler_flags(), and
-// linker_flags() mirror mm::build::Toolchain (modules/mm/build/build.cppm)
-// exactly, honoring $CXX when set, but platform(), locale(), and shell()
-// state fixed project policy that is real and documented even though
-// nothing calls setlocale(3) or execs a shell other than /bin/sh to enforce
-// it. mm::build::run always execs /bin/sh regardless of $SHELL
-// (docs/modules.mdy, mm.shell), and "Process execution and bootstrap
-// scripts require POSIX services" is an existing documented boundary,
-// docs/modules.mdy's "Current boundaries" section; the C locale is what a
-// plain POSIX environment provides absent an override, which is what every
-// script and tool here assumes rather than pins. These three are implied
-// and fixed: they do not vary per invocation the way compiler() and
-// verbose() do.
+// Every accessor here is declared, intended policy, not a measurement of
+// what actually ran: nothing in this type observes or records a real
+// invocation. Two accessors need that distinction spelled out because they
+// could otherwise be mistaken for effective, verified state:
+//
+//   - locale(): "C" is not set, checked, or enforced anywhere in this
+//     repository - nothing calls setlocale(3) or exports LC_ALL/LANG. It
+//     states what a plain POSIX environment provides absent an override,
+//     which every script and tool here assumes rather than pins. Treat it
+//     as declared policy a reader can rely on being the intent, not as
+//     evidence of the process's actual locale at any given run.
+//   - compiler()/compiler_flags()/linker_flags(): these mirror
+//     mm::build::Toolchain (modules/mm/build/build.cppm) exactly, honoring
+//     $CXX when set - but that is only true of the normal build path
+//     (build.sh and the tools it drives). bootstrap.sh and build0
+//     (tools/build/main.cpp) hardcode a plain "c++" and never read $CXX at
+//     all, a second, real compiler-selection behavior this type does not
+//     represent. A Configuration describes the normal build's policy, not
+//     bootstrap.sh's separate one.
+//
+// platform() and shell() are comparatively safe: mm::build::run always
+// execs /bin/sh regardless of $SHELL (docs/modules.mdy, mm.shell), and
+// "Process execution and bootstrap scripts require POSIX services" is an
+// existing documented boundary (docs/modules.mdy's "Current boundaries"
+// section) - both are closer to actually-true-everywhere than locale() is,
+// but still declared policy rather than something this type measures.
 //
 // Foundational, like models.document: a Configuration is an input to
 // running a Tool, not a structural fact about the repository, so nothing
@@ -34,7 +46,9 @@ class Configuration {
 public:
     virtual ~Configuration() = default;
 
-    // e.g. "c++ -fmodules-ts".
+    // e.g. "c++ -fmodules-ts". The normal build path's policy (honors
+    // $CXX); bootstrap.sh and build0 hardcode a plain "c++" instead and are
+    // not described by this value. See the class comment above.
     [[nodiscard]] virtual std::string_view compiler() const = 0;
 
     // e.g. "-std=c++20 -x c++".
@@ -49,7 +63,9 @@ public:
     // Fixed project policy, not derived from the environment: "POSIX".
     [[nodiscard]] virtual std::string_view platform() const = 0;
 
-    // Fixed project policy, not derived from the environment: "C".
+    // Fixed, declared project policy: "C". Not measured or enforced -
+    // nothing in this repository calls setlocale(3) or sets LC_ALL/LANG.
+    // See the class comment above.
     [[nodiscard]] virtual std::string_view locale() const = 0;
 
     // Fixed project policy: "/bin/sh", what mm::build::run always execs

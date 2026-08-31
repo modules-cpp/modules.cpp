@@ -25,15 +25,23 @@ dependency order:
   (models::Document, models::Block). Foundational: every MDY file is a
   document, including a manifest, so everything else sits above this.
 - models.configuration — the project's build configuration
-  (models::Configuration). compiler()/compiler_flags()/linker_flags()/
-  verbose() mirror the live mm::build::Toolchain, honoring $CXX.
-  platform()/locale()/shell() state fixed project policy that is real and
-  documented (POSIX, C, /bin/sh) even though nothing enforces it at runtime
-  (no setlocale(3), no shell other than /bin/sh execed); the model
-  represents the whole project concept, including facts that are implied
-  and fixed rather than actively checked. Foundational and independent: a
-  Configuration is an input to running a tool, not a structural fact about
-  the repository.
+  (models::Configuration). Every accessor is declared policy, not a
+  measurement of an actual run: compiler()/compiler_flags()/linker_flags()/
+  verbose() mirror the live mm::build::Toolchain, honoring $CXX, but that is
+  only the normal build path's policy — bootstrap.sh and build0 hardcode a
+  plain "c++" and never read $CXX, a second real behavior this type does
+  not represent. platform()/locale()/shell() state fixed project policy
+  that is documented (POSIX, C, /bin/sh) but, for locale() specifically,
+  not enforced anywhere (no setlocale(3), no LC_ALL/LANG set); platform()
+  and shell() are closer to actually true everywhere (mm::build::run always
+  execs /bin/sh) but are still policy this type declares rather than
+  measures. The model represents the whole project concept, including
+  facts that are implied and fixed rather than actively checked, but
+  "policy" and "observed invocation configuration" are deliberately not
+  the same claim: see models/configuration/configuration.cppm's own
+  comment for the accessor-by-accessor detail. Foundational and
+  independent: a Configuration is an input to running a tool, not a
+  structural fact about the repository.
 - models.manifest — the manifest kind taxonomy docs/modules.mdy defines:
   project, dir, module, app, test, doc (models::Kind, models::ManifestNode,
   models::BuildableNode, and one class per kind). Imports models.document,
