@@ -1,3 +1,12 @@
+// modules.cpp build tool, stage 0
+//
+// Usage: build0 <path to mm.mdy>     compiles the one file: entry it names
+//        build0 build1               builds out/build1 via the same fixed
+//                                     steps bootstrap.sh performs by hand
+//
+// build0 exists only to prove the host compiler works before any manifest
+// or module exists to build with; see bootstrap.sh and README.md.
+//
 // Pawel Wodnicki (C) 2026
 // 32bitmicro LLC (C) 2026
 #include <iostream>
@@ -56,8 +65,64 @@ int run(const std::string& command)
     return -1;
 }
 
+// Compiles and links build1 through the exact fixed steps as bootstrap.sh.
+// The mm.mdy and mm.build module interfaces and their
+// implementation units, then tools/build/build.cpp (the same source
+// tools/build/mm.mdy declares as the "build" app target), in the order
+// -fmodules-ts needs an interface compiled before whatever imports it.
+//
+int build_1()
+{
+    struct Step {
+        std::filesystem::path source;
+        std::filesystem::path object;
+    };
+
+    const std::vector<Step> steps = {
+        {"modules/mm/mdy/mdy.cppm",         "out/modules/mm/mdy/mdy.o"},
+        {"modules/mm/mdy/src/mdy.cpp",      "out/modules/mm/mdy/src/mdy.o"},
+        {"modules/mm/build/build.cppm",     "out/modules/mm/build/build.o"},
+        {"modules/mm/build/src/build.cpp",  "out/modules/mm/build/src/build.o"},
+        {"tools/build/build.cpp",           "out/tools/build/build.o"},
+    };
+
+    const std::string module_compiler = "c++ -fmodules-ts";
+    const std::string module_flags = "-std=c++20 -x c++";
+
+    for (const auto& step : steps) {
+        std::error_code ec;
+        std::filesystem::create_directories(step.object.parent_path(), ec);
+        if (ec) {
+            std::cerr << "build1: cannot create " << step.object.parent_path().string()
+                      << ": " << ec.message() << "\n";
+            return 5;
+        }
+
+        const std::string cmd = module_compiler + " " + module_flags +
+                                 " -c " + shell_quote(step.source) +
+                                 " -o " + shell_quote(step.object);
+        std::cout << cmd << "\n";
+        if (run(cmd) != 0) {
+            std::cerr << "build1: failed to compile " << step.source.string() << "\n";
+            return 5;
+        }
+    }
+
+    std::string link_cmd = "c++ -std=c++20";
+    for (const auto& step : steps) link_cmd += " " + shell_quote(step.object);
+    link_cmd += " -o " + shell_quote(std::filesystem::path("out/build1"));
+
+    std::cout << link_cmd << "\n";
+    if (run(link_cmd) != 0) {
+        std::cerr << "build1: failed to link out/build1\n";
+        return 5;
+    }
+
+    return 0;
+}
+
 // main
-int main(int argc, char** argv) 
+int main(int argc, char** argv)
 {
     std::cout << "modules.cpp build tool" << "\n";
     // arguments
@@ -67,13 +132,15 @@ int main(int argc, char** argv)
         std::cout << arg << "\n";
     // if no arguments quit
     if (args.size() <= 1) {
-        std::cerr << "no arguments" << "\n"; 
+        std::cerr << "no arguments" << "\n";
         exit(0);
     }
     if (args.size() > 2) {
-        std::cerr << "too many arguments" << "\n"; 
+        std::cerr << "too many arguments" << "\n";
         exit(1);
     }
+    if (args[1] == "build1") return build_1();
+
     std::cout << "check arguments" << "\n";
     std::error_code ec;
     std::filesystem::path cwd = std::filesystem::current_path();
