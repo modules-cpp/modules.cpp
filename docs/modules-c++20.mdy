@@ -15,12 +15,8 @@ flow and hand-written template or metaprogramming machinery.
 This specification uses MUST, MUST NOT, SHOULD, SHOULD NOT, and MAY with the
 following fixed meanings.
 
-- MUST / MUST NOT — an absolute requirement or prohibition. Code that
-  violates a MUST rule does not conform to this specification and is
-  rejected in review, regardless of author intent.
-- SHOULD / SHOULD NOT — a strong recommendation. Deviating requires a
-  written justification in the code review or a comment at the point of
-  deviation.
+- MUST / MUST NOT — an absolute requirement or prohibition. Code that violates a MUST rule does not conform to this specification and is rejected in review, regardless of author intent.
+- SHOULD / SHOULD NOT — a strong recommendation. Deviating requires a written justification in the code review or a comment at the point of deviation.
 - MAY — fully optional; the choice is left to the author.
 
 # Scope
@@ -30,71 +26,33 @@ except where the Known non-conformance section below records an explicit,
 bounded exception.
 
 # Baseline compiler and standard
-- Code MUST compile as ISO C++20, using only language and library features a
-  conforming C++20 compiler and standard library provide.
-- Code MUST NOT depend on compiler-specific extensions beyond the module
-  support flag already documented as a current boundary in docs/modules.mdy
-  (GCC's -fmodules-ts).
-- Code MUST NOT depend on any third-party library, header-only or otherwise.
-  This restates docs/modules.mdy's Self-contained design goal as a hard rule.
+- Code MUST compile as ISO C++20, using only language and library features a conforming C++20 compiler and standard library provide.
+- Code MUST NOT depend on compiler-specific extensions beyond the module support flag already documented as a current boundary in docs/modules.mdy (GCC's -fmodules-ts).
+- Code MUST NOT depend on any third-party library, header-only or otherwise. This restates docs/modules.mdy's Self-contained design goal as a hard rule.
 
 # Permitted language features
 - export module, module, and import MUST be used for all project code;
   #include MUST be confined to the global module fragment (module;) and used
   only for standard library headers.
-- Ordinary classes and structs, with constructors, destructors, and ordinary
-  non-template member functions, MAY be used freely.
-- A single level of virtual dispatch (a base class with a virtual destructor
-  and virtual member functions, and concrete classes that override them) MAY
-  be used where the architecture already relies on it, as with App. New
-  polymorphic hierarchies beyond this pattern SHOULD be justified in review
-  rather than introduced by default.
-- enum class MUST be used in place of unscoped enum for all new enumerated
-  types.
-- [[nodiscard]] SHOULD be applied to any function whose return value must
-  not be silently discarded.
-- Non-capturing or by-reference lambdas MAY be used for short, local
-  callbacks, such as a closing action passed to a single call site. Lambdas
-  MUST NOT be stored as std::function or otherwise used as a substitute for
-  a named function or for virtual dispatch.
-- std::source_location::current() MAY be used as a default argument to
-  attach call-site information to diagnostics, following mm.test's existing
-  use.
-- RAII MUST be used for every owned resource, including files, temporary
-  directories, and file handles. Manual new and delete MUST NOT appear in
-  project code.
-- Copy and move special member functions MUST be declared explicitly,
-  whether defaulted, deleted, or defined, for any type that owns a resource
-  or must not be copied. Implicit generation MUST NOT be relied upon for
-  such types.
+- Ordinary classes and structs, with constructors, destructors, and ordinary non-template member functions, MAY be used freely.
+- A single level of virtual dispatch (a base class with a virtual destructor and virtual member functions, and concrete classes that override them) MAY be used where the architecture already relies on it, as with App. New polymorphic hierarchies beyond this pattern SHOULD be justified in review rather than introduced by default.
+- enum class MUST be used in place of unscoped enum for all new enumerated types.
+- [[nodiscard]] SHOULD be applied to any function whose return value must not be silently discarded.
+- Non-capturing or by-reference lambdas MAY be used for short, local callbacks, such as a closing action passed to a single call site. Lambdas MUST NOT be stored as std::function or otherwise used as a substitute for a named function or for virtual dispatch.
+- std::source_location::current() MAY be used as a default argument to attach call-site information to diagnostics, following mm.test's existing use.
+- RAII MUST be used for every owned resource, including files, temporary directories, and file handles. Manual new and delete MUST NOT appear in project code.
+- Copy and move special member functions MUST be declared explicitly, whether defaulted, deleted, or defined, for any type that owns a resource or must not be copied. Implicit generation MUST NOT be relied upon for such types.
 
 # Disallowed: exceptions
-- throw, try, and catch MUST NOT appear in project code outside the Known
-  non-conformance section below.
-- Functions MUST report failure through their return type: a status enum
-  following the existing Enter::ok / Enter::skip / Enter::error pattern, a
-  bool, or a std::error_code out-parameter for functions wrapping operating
-  system or filesystem calls that themselves report errors that way.
-- Standard library operations that can throw on their own terms, such as a
-  container allocation failure, are unaffected by this rule; it governs
-  throw and catch sites this project authors, not the exception
-  specifications of the standard library itself.
+- throw, try, and catch MUST NOT appear in project code outside the Known non-conformance section below.
+- Functions MUST report failure through their return type: a status enum following the existing Enter::ok / Enter::skip / Enter::error pattern, a bool, or a std::error_code out-parameter for functions wrapping operating system or filesystem calls that themselves report errors that way.
+- Standard library operations that can throw on their own terms, such as a container allocation failure, are unaffected by this rule; it governs throw and catch sites this project authors, not the exception specifications of the standard library itself.
 
 # Disallowed: templates and metaprogramming
-- Project code MUST NOT declare new template functions, template classes, or
-  template aliases.
-- Project code MUST NOT use compile-time dispatch or metaprogramming
-  facilities such as concepts, requires-expressions, std::enable_if, if
-  constexpr on types, variadic templates, or template specialization.
-- Project code MAY instantiate and use templates already provided by the
-  C++20 standard library, such as std::vector, std::map, std::string, and
-  std::optional, exactly as the standard library specifies them. Using a
-  standard container or algorithm is not authoring a template; writing a new
-  one is what this rule prohibits.
-- constexpr functions and variables MAY be used for compile-time constants
-  and simple compile-time-evaluable functions. consteval MAY be used where a
-  value must be guaranteed to evaluate at compile time. Neither MAY be
-  combined with template parameters to perform compile-time dispatch.
+- Project code MUST NOT declare new template functions, template classes, or template aliases.
+- Project code MUST NOT use compile-time dispatch or metaprogramming facilities such as concepts, requires-expressions, std::enable_if, if constexpr on types, variadic templates, or template specialization.
+- Project code MAY instantiate and use templates already provided by the C++20 standard library, such as std::vector, std::map, std::string, and std::optional, exactly as the standard library specifies them. Using a standard container or algorithm is not authoring a template; writing a new one is what this rule prohibits.
+- constexpr functions and variables MAY be used for compile-time constants and simple compile-time-evaluable functions. consteval MAY be used where a value must be guaranteed to evaluate at compile time. Neither MAY be combined with template parameters to perform compile-time dispatch.
 
 # Disallowed: macros and the preprocessor
 - Project code MUST NOT define object-like or function-like macros with
@@ -105,78 +63,25 @@ bounded exception.
   flag, not something project code branches on at preprocessor time; no
   code in this project may branch at preprocessor time on platform,
   compiler, or configuration.
-- Project code MUST NOT use the stringizing (#) or token-pasting (##)
-  preprocessor operators, and MUST NOT generate code through repeated
-  macro expansion (an "X-macro" list or similar).
-- Project code MUST NOT invoke a macro the standard library defines, such
-  as assert() from <cassert>, and MUST NOT rely on predefined macros such
-  as __FILE__, __LINE__, or __func__. std::source_location::current() is
-  the normative replacement for call-site information (see "Permitted
-  language features"), and failure MUST be reported through a function's
-  return type (see "Disallowed: exceptions"), not asserted away.
-- #include MUST remain the only preprocessor directive appearing in
-  project code, confined to the global module fragment as already
-  required by "Permitted language features", and used only to pull in
-  standard library headers. A standard library header MAY itself define
-  macros internally; this rule governs what project code writes and
-  invokes, not the standard library's own implementation.
+- Project code MUST NOT use the stringizing (#) or token-pasting (##) preprocessor operators, and MUST NOT generate code through repeated macro expansion (an "X-macro" list or similar).
+- Project code MUST NOT invoke a macro the standard library defines, such as assert() from <cassert>, and MUST NOT rely on predefined macros such as __FILE__, __LINE__, or __func__. std::source_location::current() is the normative replacement for call-site information (see "Permitted language features"), and failure MUST be reported through a function's return type (see "Disallowed: exceptions"), not asserted away.
+- #include MUST remain the only preprocessor directive appearing in project code, confined to the global module fragment as already required by "Permitted language features", and used only to pull in standard library headers. A standard library header MAY itself define macros internally; this rule governs what project code writes and invokes, not the standard library's own implementation.
 
 # Standard library usage
-- std::filesystem MUST be used for path and filesystem operations, using the
-  std::error_code overloads wherever an operation can fail. mm.build and the
-  test scaffolding already use this pattern correctly, and it is normative
-  going forward.
-- std::vector MUST be the default sequential container. std::map MAY be used
-  where key lookup is genuinely required. Other standard containers MAY be
-  introduced when a vector or map is a clearly poor fit, with the choice
-  justified in review.
-- std::string_view MUST be preferred over std::string for non-owning,
-  read-only string parameters.
-- A plain function-pointer type alias, following mm.test's
-  using fn = void (*)(); pattern, MUST be preferred over std::function for
-  simple, non-capturing callback registration, to avoid the associated type
-  erasure and heap allocation.
+- std::filesystem MUST be used for path and filesystem operations, using the std::error_code overloads wherever an operation can fail. mm.build and the test scaffolding already use this pattern correctly, and it is normative going forward.
+- std::vector MUST be the default sequential container. std::map MAY be used where key lookup is genuinely required. Other standard containers MAY be introduced when a vector or map is a clearly poor fit, with the choice justified in review.
+- std::string_view MUST be preferred over std::string for non-owning, read-only string parameters.
+- A plain function-pointer type alias, following mm.test's using fn = void (*)(); pattern, MUST be preferred over std::function for simple, non-capturing callback registration, to avoid the associated type erasure and heap allocation.
 
 # Known non-conformance
 This section records existing code that predates this specification and
 does not yet conform. It is the only place a MUST violation is permitted,
 and only for the entries listed here.
 
-- mm.test's expect and failure use throw, and run_all catches them, which
-  conflicts with the exceptions rule above. This is deliberate and
-  load-bearing: it is the mechanism by which a failed assertion unwinds out
-  of a test body without the test author writing manual control flow. It is
-  the one permitted exception to the exceptions rule, confined to mm.test,
-  until a non-throwing mechanism replaces it. No other module MAY introduce
-  throw or catch on the strength of this precedent.
-- mm.test's registrar constructor template, declared as
-  template <std::size_t N> registrar(std::string_view name, const case_
-  (&cases)[N]), is a hand-written template and conflicts with the templates
-  rule above. It MAY remain until replaced by a non-template mechanism, such
-  as an explicit count parameter at each call site, tracked as technical
-  debt rather than used as precedent elsewhere.
+- mm.test's expect and failure use throw, and run_all catches them, which conflicts with the exceptions rule above. This is deliberate and load-bearing: it is the mechanism by which a failed assertion unwinds out of a test body without the test author writing manual control flow. It is the one permitted exception to the exceptions rule, confined to mm.test, until a non-throwing mechanism replaces it. No other module MAY introduce throw or catch on the strength of this precedent.
+- mm.test's registrar constructor template, declared as template <std::size_t N> registrar(std::string_view name, const case_ (&cases)[N]), is a hand-written template and conflicts with the templates rule above. It MAY remain until replaced by a non-template mechanism, such as an explicit count parameter at each call site, tracked as technical debt rather than used as precedent elsewhere.
 
 # Enforcement
-- Code review MUST check new and changed code against this specification
-  before merge. A MUST violation outside the Known non-conformance list MUST
-  block merge.
-- ./check.sh runs tools/check, which wraps cppcheck with the addon at
-  tools/check/cppcheck/cpp20_rules.py, over every source file the manifest
-  tree declares plus tools/build/main.cpp (deliberately unmanifested; see
-  docs/modules.mdy). This is selected syntactic enforcement, not full
-  coverage of this document: the addon currently checks throw/try/catch,
-  new template declarations, manual new/delete, std::function, enum (must
-  be enum class), any preprocessor directive other than #include, and
-  assert()/__FILE__/__LINE__/__func__, against the files above. It does
-  not check, for example, [[nodiscard]], explicit special members,
-  string_view preferences, filesystem error_code-overload usage, include
-  or global-module-fragment placement, the stringizing/token-pasting
-  operators or macro-generated code (harder to isolate on rawTokens than a
-  directive line; see cpp20_rules.py), manual array delete (delete[] arr;
-  is not matched by check_delete; see its comment in cpp20_rules.py), or
-  whether a source file exists outside the manifest tree entirely.
-  Extending coverage means adding a check function to cpp20_rules.py;
-  there is no tracking issue for the gap beyond this paragraph.
-- Adding an entry to Known non-conformance requires the same justification
-  this document gives for its existing entries: what the exception buys, and
-  what would need to happen to remove it.
+- Code review MUST check new and changed code against this specification before merge. A MUST violation outside the Known non-conformance list MUST block merge.
+- ./check.sh runs tools/check, which wraps cppcheck with the addon at tools/check/cppcheck/cpp20_rules.py, over every source file the manifest tree declares plus tools/build/main.cpp (deliberately unmanifested; see docs/modules.mdy). This is selected syntactic enforcement, not full coverage of this document: the addon currently checks throw/try/catch, new template declarations, manual new/delete, std::function, enum (must be enum class), any preprocessor directive other than #include, and assert()/__FILE__/__LINE__/__func__, against the files above. It does not check, for example, [[nodiscard]], explicit special members, string_view preferences, filesystem error_code-overload usage, include or global-module-fragment placement, the stringizing/token-pasting operators or macro-generated code (harder to isolate on rawTokens than a directive line; see cpp20_rules.py), manual array delete (delete[] arr; is not matched by check_delete; see its comment in cpp20_rules.py), or whether a source file exists outside the manifest tree entirely. Extending coverage means adding a check function to cpp20_rules.py; there is no tracking issue for the gap beyond this paragraph.
+- Adding an entry to Known non-conformance requires the same justification this document gives for its existing entries: what the exception buys, and what would need to happen to remove it.

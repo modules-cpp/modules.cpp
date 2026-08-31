@@ -21,79 +21,19 @@ modules instead of headers, no exceptions, no new templates, enum class,
 Eight modules, each under models/<name>/<name>.cppm with its own mm.mdy, in
 dependency order:
 
-- models.document — front matter and body blocks for one MDY file
-  (models::Document, models::Block). Foundational: every MDY file is a
-  document, including a manifest, so everything else sits above this.
-- models.configuration — the project's build configuration
-  (models::Configuration). Every accessor is declared policy, not a
-  measurement of an actual run: compiler()/compiler_flags()/linker_flags()/
-  verbose() mirror the live mm::build::Toolchain, honoring $CXX, but that is
-  only the self hosted build's rule — bootstrap.sh and build0 deliberately
-  use a plain "c++" and never read $CXX, so that bootstrap reaches a working
-  build1 the same way on every machine. Those are two intentional rules, not
-  an inconsistency, and this type describes the self hosted one.
-  platform()/locale()/shell() state fixed project policy
-  that is documented (POSIX, C, /bin/sh) but, for locale() specifically,
-  not enforced anywhere (no setlocale(3), no LC_ALL/LANG set); platform()
-  and shell() are closer to actually true everywhere (mm::build::run always
-  execs /bin/sh) but are still policy this type declares rather than
-  measures. The model represents the whole project concept, including
-  facts that are implied and fixed rather than actively checked, but
-  "policy" and "observed invocation configuration" are deliberately not
-  the same claim: see models/configuration/configuration.cppm's own
-  comment for the accessor-by-accessor detail. Foundational and
-  independent: a Configuration is an input to running a tool, not a
-  structural fact about the repository.
-- models.manifest — the manifest kind taxonomy docs/modules.mdy defines:
-  project, dir, module, app, test, doc (models::Kind, models::ManifestNode,
-  models::BuildableNode, and one class per kind). Imports models.document,
-  because every manifest is one.
-- models.repository — the aggregate view over a whole manifest tree
-  (models::Repository): a project's root plus every module, app, test, and
-  doc reachable from it. Imports models.manifest.
-- models.tool — an invocable tool (models::Tool), distinct from
-  models::ModuleNode's declaration: a Tool may have no declaring manifest at
-  all, such as a third party tool or the pre-manifest bootstrap artifacts
-  build0/build1. Imports models.manifest.
-- models.modules — a resolved C++20 module (models::Module), distinct from
-  models::ModuleNode the same way: ModuleNode's uses() is dependency names as
-  text, Module's imports() is those names resolved to other Module objects.
-  Imports models.manifest.
-- models.workflow — a workflow step (models::Operation): one of the top
-  level *.sh scripts. Not a single depends_on() DAG: invokes(branch) is an
-  ordered, possibly repeating sequence of Tools per branch (most operations
-  have one branch; bootstrap.sh has two, since it tries build0 and only
-  falls back to raw compiler calls if that leaves no build1), and
-  requires_artifacts()/produces() are the input and output side of what a
-  single "must run first" edge used to conflate — build.sh's real
-  requirement is that out/bin/build exists, not that bootstrap.sh ran in the
-  current session (bootstrap.sh's own final step already builds and
-  installs it too, which is why build.sh is not the only thing that can
-  satisfy this). role() is a three way Role (Required, Optional,
-  UserInitiated) rather than a bool: clean.sh is not "optional" the way
-  check.sh is, it sits outside the forward sequence entirely.
-  ArtifactKind also lives here, not in models.artifacts: models.artifacts
-  depends on models.workflow for produced_by(), so the reverse dependency
-  is unavailable. Imports models.tool.
-- models.artifacts — a generated artifact (models::GeneratedArtifact),
-  starting from docs/modules.mdy's "Generated artifacts" section but
-  splitting AppObject and ToolObject each into an object-file and an
-  executable variant, plus Staged for out/build0 and out/build1, and the
-  Operation whose script produces it. Imports models.workflow.
+- models.document — front matter and body blocks for one MDY file (models::Document, models::Block). Foundational: every MDY file is a document, including a manifest, so everything else sits above this.
+- models.configuration — the project's build configuration (models::Configuration). Every accessor is declared policy, not a measurement of an actual run: compiler()/compiler_flags()/linker_flags()/ verbose() mirror the live mm::build::Toolchain, honoring $CXX, but that is only the self hosted build's rule — bootstrap.sh and build0 deliberately use a plain "c++" and never read $CXX, so that bootstrap reaches a working build1 the same way on every machine. Those are two intentional rules, not an inconsistency, and this type describes the self hosted one. platform()/locale()/shell() state fixed project policy that is documented (POSIX, C, /bin/sh) but, for locale() specifically, not enforced anywhere (no setlocale(3), no LC_ALL/LANG set); platform() and shell() are closer to actually true everywhere (mm::build::run always execs /bin/sh) but are still policy this type declares rather than measures. The model represents the whole project concept, including facts that are implied and fixed rather than actively checked, but "policy" and "observed invocation configuration" are deliberately not the same claim: see models/configuration/configuration.cppm's own comment for the accessor-by-accessor detail. Foundational and independent: a Configuration is an input to running a tool, not a structural fact about the repository.
+- models.manifest — the manifest kind taxonomy docs/modules.mdy defines: project, dir, module, app, test, doc (models::Kind, models::ManifestNode, models::BuildableNode, and one class per kind). Imports models.document, because every manifest is one.
+- models.repository — the aggregate view over a whole manifest tree (models::Repository): a project's root plus every module, app, test, and doc reachable from it. Imports models.manifest.
+- models.tool — an invocable tool (models::Tool), distinct from models::ModuleNode's declaration: a Tool may have no declaring manifest at all, such as a third party tool or the pre-manifest bootstrap artifacts build0/build1. Imports models.manifest.
+- models.modules — a resolved C++20 module (models::Module), distinct from models::ModuleNode the same way: ModuleNode's uses() is dependency names as text, Module's imports() is those names resolved to other Module objects. Imports models.manifest.
+- models.workflow — a workflow step (models::Operation): one of the top level *.sh scripts. Not a single depends_on() DAG: invokes(branch) is an ordered, possibly repeating sequence of Tools per branch (most operations have one branch; bootstrap.sh has two, since it tries build0 and only falls back to raw compiler calls if that leaves no build1), and requires_artifacts()/produces() are the input and output side of what a single "must run first" edge used to conflate — build.sh's real requirement is that out/bin/build exists, not that bootstrap.sh ran in the current session (bootstrap.sh's own final step already builds and installs it too, which is why build.sh is not the only thing that can satisfy this). role() is a three way Role (Required, Optional, UserInitiated) rather than a bool: clean.sh is not "optional" the way check.sh is, it sits outside the forward sequence entirely. ArtifactKind also lives here, not in models.artifacts: models.artifacts depends on models.workflow for produced_by(), so the reverse dependency is unavailable. Imports models.tool.
+- models.artifacts — a generated artifact (models::GeneratedArtifact), starting from docs/modules.mdy's "Generated artifacts" section but splitting AppObject and ToolObject each into an object-file and an executable variant, plus Staged for out/build0 and out/build1, and the Operation whose script produces it. Imports models.workflow.
 
 # Design choices worth knowing
-- Every module is a single export module, not one class per module,
-  following mm.build's own precedent of bundling a tightly coupled family of
-  types together rather than splitting each class out.
-- A declaration is not the thing it declares. models::AppNode and
-  models::Tool both exist because a manifest saying an app should exist is
-  not the same fact as a binary existing to run; models::ModuleNode and
-  models::Module split the same way, for uses: as text versus imports() as a
-  resolved graph. This is the recurring shape across models.tool and
-  models.modules.
-- Nothing here executes anything. There is deliberately no run() on Tool or
-  Operation: invoking things is mm.build's and mm.test's job. models/
-  describes what exists and how it relates, not how to act on it.
+- Every module is a single export module, not one class per module, following mm.build's own precedent of bundling a tightly coupled family of types together rather than splitting each class out.
+- A declaration is not the thing it declares. models::AppNode and models::Tool both exist because a manifest saying an app should exist is not the same fact as a binary existing to run; models::ModuleNode and models::Module split the same way, for uses: as text versus imports() as a resolved graph. This is the recurring shape across models.tool and models.modules.
+- Nothing here executes anything. There is deliberately no run() on Tool or Operation: invoking things is mm.build's and mm.test's job. models/ describes what exists and how it relates, not how to act on it.
 
 # mm.model: the adapter
 modules/mm/model adapts mm::build's and mm::mdy's real data onto
@@ -151,18 +91,8 @@ It checks the real project against itself through models::Repository and
 models::Tool alone, never touching mm::build's structures directly, so what
 it reports is whatever the abstract model itself would tell a reader:
 
-- dependency resolution — every use: entry on a module, app, or test names a
-  module: some kind:module manifest actually exports. mm::build::order
-  already rejects an unknown module at build time; this re-derives the same
-  fact independently, through the model, as a check that does not require a
-  full build to run.
-- build completeness — every BuiltIn models::Tool's invocation() exists on
-  disk: what is declared matches what has actually been built. Expressed
-  over Tool rather than AppNode, so it covers out/bin/<name> for every
-  kind:app manifest and, now that mm.model represents them, out/build0 and
-  out/build1 too. ThirdParty tools such as c++ are skipped: invocation() is
-  a bare command resolved from $PATH for them, not a root relative path, so
-  checking it against root would always fail.
+- dependency resolution — every use: entry on a module, app, or test names a module: some kind:module manifest actually exports. mm::build::order already rejects an unknown module at build time; this re-derives the same fact independently, through the model, as a check that does not require a full build to run.
+- build completeness — every BuiltIn models::Tool's invocation() exists on disk: what is declared matches what has actually been built. Expressed over Tool rather than AppNode, so it covers out/bin/<name> for every kind:app manifest and, now that mm.model represents them, out/build0 and out/build1 too. ThirdParty tools such as c++ are skipped: invocation() is a bare command resolved from $PATH for them, not a root relative path, so checking it against root would always fail.
 
 Module cache is reported alongside the two checks, but informationally, not
 as a violation: gcm.cache has no declaring Tool or manifest — every compiler
@@ -198,26 +128,7 @@ prose (for example, "is every *.sh script mentioned in the Repository layout
 tree") is future work, not something tools/model does today.
 
 # Boundaries
-- models.artifacts still has no adapter: mm.model builds models.document,
-  models.manifest, models.repository, models.configuration, models.tool,
-  and, as of Loaded::operations(), models.workflow. A tool that needs
-  GeneratedArtifact data (an actual filesystem scan of out/, cross checked
-  against requires_artifacts()/produces()) must extend mm.model first.
-- mm.model's models.tool coverage is kind:app manifests plus three fixed,
-  project-known entries: build0, build1, and c++ (Provenance::ThirdParty).
-  cppcheck and semgrep are still absent: unlike c++, nothing in this
-  project's own scripts names them at a fixed path the way bootstrap.sh
-  names c++, so representing them would mean inventing data rather than
-  stating a known fact.
-- Loaded::operations() is fixed, hand authored data mirroring the seven
-  *.sh scripts, the same reasoning as build0/build1/c++ in tools(): nothing
-  here is derived from a manifest walk. invokes() only names Tools; the
-  fallback branch inside bootstrap's second invokes() sequence is not
-  decomposed further than "c++, invoked six times" — it does not know or
-  care that those six invocations are five compiles and one link, the same
-  abstraction boundary that already applies to how build.sh's own invokes()
-  does not enumerate what build1 compiles internally.
-- tools/model does not check docs/modules.mdy's prose against reality (for
-  example, its Repository layout tree, or the Build and development
-  workflow script list); it checks only what models::Repository can already
-  answer.
+- models.artifacts still has no adapter: mm.model builds models.document, models.manifest, models.repository, models.configuration, models.tool, and, as of Loaded::operations(), models.workflow. A tool that needs GeneratedArtifact data (an actual filesystem scan of out/, cross checked against requires_artifacts()/produces()) must extend mm.model first.
+- mm.model's models.tool coverage is kind:app manifests plus three fixed, project-known entries: build0, build1, and c++ (Provenance::ThirdParty). cppcheck and semgrep are still absent: unlike c++, nothing in this project's own scripts names them at a fixed path the way bootstrap.sh names c++, so representing them would mean inventing data rather than stating a known fact.
+- Loaded::operations() is fixed, hand authored data mirroring the seven *.sh scripts, the same reasoning as build0/build1/c++ in tools(): nothing here is derived from a manifest walk. invokes() only names Tools; the fallback branch inside bootstrap's second invokes() sequence is not decomposed further than "c++, invoked six times" — it does not know or care that those six invocations are five compiles and one link, the same abstraction boundary that already applies to how build.sh's own invokes() does not enumerate what build1 compiles internally.
+- tools/model does not check docs/modules.mdy's prose against reality (for example, its Repository layout tree, or the Build and development workflow script list); it checks only what models::Repository can already answer.
