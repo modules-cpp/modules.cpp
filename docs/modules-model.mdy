@@ -127,10 +127,13 @@ two passes: first one Module per declared module, then each one's
 imports() resolved by matching declared_by().uses() text against every
 other Module's exported_module_name(). Two passes because an import can
 name a module constructed after it — there is no declaration order that
-guarantees otherwise. A use: entry that does not resolve is silently
-omitted rather than represented as a dangling edge; mm::build::order already
-rejects that case at build time, so a tree this adapter can load should
-never have one.
+guarantees otherwise. load() itself never calls mm::build::order() (the
+only other place a use: naming an unknown module is normally caught), so a
+use: entry that does not resolve here fails the whole load() outright
+(ok = false, with a "uses unknown module" diagnostic on stderr) rather than
+coming back as a Module whose imports() is silently shorter than
+declared_by().uses(). tests/mm/model pins this against a scratch tree built
+specifically to have one such edge.
 
 # tools/model: the consistency tool
 tools/model is a kind:app target, use: mm.model, installed as out/bin/model.

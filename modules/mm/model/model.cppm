@@ -60,7 +60,12 @@
 // resolved_modules() builds one models::Module per ModuleNode, then a
 // second pass resolves each declared_by().uses() entry against the others
 // by exported_module_name(), since an import can name a module constructed
-// after it.
+// after it. load() itself never calls mm::build::order(), the only other
+// place a use: naming an unknown module is normally caught, so this pass
+// is where that guarantee is re-derived for resolved_modules() specifically:
+// a use: entry that does not resolve fails the whole load() (ok = false)
+// rather than silently coming back as a Module whose imports() is shorter
+// than declared_by().uses().
 //
 // Pawel Wodnicki (C) 2026
 // 32bitmicro LLC (C) 2026

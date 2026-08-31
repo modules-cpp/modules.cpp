@@ -5,6 +5,7 @@ module;
 #include <array>
 #include <cstddef>
 #include <filesystem>
+#include <iostream>
 #include <map>
 #include <memory>
 #include <string>
@@ -277,8 +278,16 @@ private:
     std::vector<const models::Module*> imports_;
 };
 
+// ok is false if any module's use: entry does not resolve to another
+// module in module_nodes: mm::build::order already rejects this at real
+// build time, but Loaded::load() never calls order(), so nothing else
+// re-derives that guarantee for resolved_modules() specifically. A dropped
+// edge here would otherwise leave imports() silently shorter than
+// declared_by().uses(), with no signal to a caller that anything was lost.
 std::vector<std::unique_ptr<RealModule>> build_modules(
-    const std::vector<std::unique_ptr<RealModuleNode>>& module_nodes) {
+    const std::vector<std::unique_ptr<RealModuleNode>>& module_nodes, bool& ok) {
+    ok = true;
+
     std::vector<std::unique_ptr<RealModule>> result;
     result.reserve(module_nodes.size());
     for (const auto& node : module_nodes) result.push_back(std::make_unique<RealModule>(*node));
@@ -286,15 +295,17 @@ std::vector<std::unique_ptr<RealModule>> build_modules(
     std::map<std::string_view, RealModule*> by_name;
     for (const auto& resolved : result) by_name[resolved->name()] = resolved.get();
 
-    // A use: entry that names something outside this tree (should not
-    // happen in a tree mm::build::order already accepted, but this adapter
-    // does not re-derive that guarantee) is silently omitted rather than
-    // represented as a dangling edge.
     for (const auto& resolved : result) {
         std::vector<const models::Module*> imports;
         for (const auto used : resolved->declared_by().uses()) {
             const auto it = by_name.find(used);
-            if (it != by_name.end()) imports.push_back(it->second);
+            if (it == by_name.end()) {
+                std::cerr << "mm.model: module " << resolved->name() << " uses unknown module "
+                          << used << "\n";
+                ok = false;
+                continue;
+            }
+            imports.push_back(it->second);
         }
         resolved->set_imports(std::move(imports));
     }
@@ -747,7 +758,13 @@ Loaded Loaded::load(const std::filesystem::path& root_dir, bool& ok) {
         impl->projects.front().get(), module_ptrs, app_ptrs, test_ptrs, doc_ptrs);
     impl->tools = build_tools(app_ptrs);
     impl->operations = build_operations(impl->tools);
-    impl->resolved_modules = build_modules(impl->modules);
+
+    bool modules_ok = false;
+    impl->resolved_modules = build_modules(impl->modules, modules_ok);
+    if (!modules_ok) {
+        std::filesystem::current_path(previous, ec);
+        return loaded;
+    }
 
     loaded.impl_ = std::move(impl);
 

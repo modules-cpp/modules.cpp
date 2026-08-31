@@ -9,6 +9,7 @@ unit: tests/mm/model/configuration.cpp
 unit: tests/mm/model/workflow.cpp
 unit: tests/mm/model/modules.cpp
 unit: tests/mm/model/foreign_project.cpp
+unit: tests/mm/model/unresolved_import.cpp
 unit: tests/main.cpp
 ---
 
