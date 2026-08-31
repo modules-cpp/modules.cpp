@@ -100,7 +100,10 @@ also accepted by `build`, `test`, `check`, `model`, and `shell`, but not by
   the `mdy` app. Start with [docs/modules.mdy](docs/modules.mdy) for the full
   developer guide, and [docs/mdy.mdy](docs/mdy.mdy) for the MDY format itself.
 - `*.sh` — the bootstrap, build, test, clean, and document scripts described
-  above.
+  above. Each also has a no-extension counterpart at the project root
+  (`build`, `test`, ...) that runs the same command through the project's
+  own shell tool instead of the system shell directly; see
+  docs/modules.mdy's "Shell tool wrapper scripts".
 
 ## Learn more
 

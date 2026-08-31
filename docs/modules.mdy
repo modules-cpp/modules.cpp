@@ -252,9 +252,16 @@ tools/shell is mm.shell's first consumer beyond its own module.
 ## build0
 tools/build/main.cpp is compiled as out/build0 without importing project
 modules. It creates a recovery boundary that only needs the host compiler.
+build0 has a second mode beyond the single-manifest one its main() usage
+comment describes: `build0 build1` runs the same fixed compile-and-link
+steps bootstrap.sh itself knows how to perform by hand, building mm.mdy,
+mm.build, and build1.
 
-bootstrap.sh uses build0 as a smoke-test artifact, then issues explicit
-compiler commands to build mm.mdy, mm.build, and build1.
+bootstrap.sh tries that mode first (`out/build0 build1`) and only falls
+back to its own hardcoded compiler commands if that does not leave an
+executable out/build1 behind. Either path produces the same build1;
+bootstrap.sh's own commands remain the reference implementation build0's
+mode is checked against.
 
 ## build1 and build
 tools/build/build.cpp is the manifest-driven build front end. bootstrap.sh
@@ -393,6 +400,19 @@ model.sh runs tools/model, which checks the manifest tree against itself
 through models::Repository (docs/modules-model.mdy). Unlike check.sh, it
 depends on nothing outside the project; it is optional because it is an
 additional cross-check, not because anything else is missing to run it.
+
+## Shell tool wrapper scripts
+Each of the seven scripts above (clean, bootstrap, build, test, document,
+check, model) has a second, no-extension counterpart at the project root
+with no shebang: `bootstrap`, `build`, `clean`, `check`, `document`, `model`,
+`test`. Where the `.sh` version runs its work directly through the system
+shell, the no-extension version routes the same command through
+out/bin/shell (mm.shell, tools/shell) instead. Once out/bin/shell exists,
+the two are otherwise equivalent, argument for argument: `./document
+modules/mm.mdy` and `./document.sh modules/mm.mdy` render the same subtree.
+`./bootstrap` is the one exception: it needs out/bin/shell to already
+exist, which is itself a product of a prior bootstrap, so a first-ever
+bootstrap on a fresh checkout must use `./bootstrap.sh`.
 
 For TDD, run the smallest relevant test target first:
 
