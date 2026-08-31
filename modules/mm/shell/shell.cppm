@@ -43,12 +43,17 @@ struct ScriptLine {
     std::string value;  // Assignment only: the right-hand side, quotes stripped
 };
 
-// Recognizes only this project's own script style: a line is Comment if its
-// first non-blank character is #, Assignment if, after leading whitespace,
-// it starts with NAME= for a POSIX-style identifier NAME, and Command
-// otherwise. Real shell grammar (quoting across lines, command
-// substitution, control flow) is not parsed; every *.sh script in this
-// project uses none of it.
+// A line is Comment if its first non-blank character is #, Assignment if,
+// after leading whitespace, it starts with NAME= for a POSIX-style
+// identifier NAME, and Command otherwise. Real shell grammar (quoting
+// across lines, command substitution, control flow) is not parsed: a line
+// using any of that is still classified, just as a plain Command like any
+// other, with none of its internal structure recognized. This function has
+// no caller among the project's own *.sh scripts today (only its own test
+// suite exercises it): several of them use command substitution and
+// control flow (if, for, case), which this classifier does not need to
+// understand for its own purpose, but would not parse in any deeper sense
+// if it were ever pointed at them.
 [[nodiscard]] std::vector<ScriptLine> parse_script(const std::filesystem::path& path);
 
 }  // namespace mm::shell

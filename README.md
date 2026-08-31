@@ -52,16 +52,21 @@ c++ -std=c++20 -fmodules-ts -x c++ -c /dev/null -o /dev/null && echo "modules OK
 From a clean checkout:
 
 ```sh
-./bootstrap.sh    # builds out/build0 and out/build1 using direct compiler commands
-./build.sh        # uses build1 to compile the full project into out/bin
+./bootstrap.sh    # builds out/build0 and out/build1, then runs build1 to
+                   # compile and install the full project, out/bin/build included
+./build.sh        # rebuilds via out/bin/build, e.g. after a later source change
 ./test.sh         # runs the smoke and regression tests
 ./document.sh     # generates HTML docs under out/ from the MDY manifests
 ```
 
 `bootstrap.sh` exists because the real build tool (`build`) is itself part of
 this project and written using modules — bootstrap compiles just enough by
-hand to produce a working `build` binary, which then builds everything else,
-including itself. This is what "self-hosting" means in this project.
+hand to produce a working `build1` binary (trying `build0` first, falling
+back to hardcoded compiler commands only if that does not produce it), then
+runs it, which builds everything else, `out/bin/build` included. This is
+what "self-hosting" means in this project. `build.sh` is not needed on a
+fresh checkout — bootstrap.sh already leaves a fully built project — but is
+what you run afterward, once `out/bin/build` exists, on any later change.
 
 If something fails partway through, `./clean.sh` removes all generated output
 (the `out/` and `gcm.cache/` directories) so you can start over.
@@ -78,8 +83,10 @@ day to day, pointed at a manifest file (`mm.mdy`):
 ./out/bin/test -v tests/mm/mdy       # run a test directory, verbose output
 ```
 
-`-v` / `--verbose` prints extra diagnostic output and is supported by all of
-the project's tools (`build`, `test`, `mdy`).
+`-v` prints extra diagnostic output and is supported by all of the project's
+tools (`build`, `test`, `check`, `model`, `shell`, `mdy`); `--verbose` is
+also accepted by `build`, `test`, `check`, `model`, and `shell`, but not by
+`mdy`, which only recognizes `-v`.
 
 ## Layout
 

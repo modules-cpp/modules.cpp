@@ -354,16 +354,6 @@ Toolchain default_toolchain(bool verbose) {
     return toolchain;
 }
 
-std::string bmi_name(std::string_view module_name) {
-    std::string name;
-    name.reserve(module_name.size() + 4);
-
-    for (const char c : module_name) name += (c == ':' ? '-' : c);
-    name += ".pcm";
-
-    return name;
-}
-
 Unit parse_unit(std::string_view value) {
     Unit unit;
 

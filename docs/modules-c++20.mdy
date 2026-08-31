@@ -155,9 +155,6 @@ and only for the entries listed here.
   rule above. It MAY remain until replaced by a non-template mechanism, such
   as an explicit count parameter at each call site, tracked as technical
   debt rather than used as precedent elsewhere.
-- apps/mdy/mdy.cpp's explicit template specialization MUST be reviewed and
-  either removed or added to this section with the same justification given
-  for the two mm.test entries above.
 
 # Enforcement
 - Code review MUST check new and changed code against this specification

@@ -1,3 +1,4 @@
+#!/bin/sh
 #
 # shell script to run the modules.cpp model tool
 #

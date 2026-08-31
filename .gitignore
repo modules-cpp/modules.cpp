@@ -43,6 +43,9 @@
 out/
 out-*/
 
+# GCC compiled-module cache
+gcm.cache/
+
 # CMake generated files
 CMakeFiles/
 CMakeCache.txt
@@ -66,3 +69,4 @@ vcpkg_installed/
 # test output & cache
 Testing/
 .cache/
+gcm.cache/
