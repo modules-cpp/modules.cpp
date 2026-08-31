@@ -5,22 +5,37 @@
 //
 // Operation is the script layer, above models.tool: bootstrap.sh, build.sh,
 // test.sh, document.sh, check.sh, model.sh, and clean.sh are each an
-// Operation. How many Tools one drives varies: clean.sh drives none, it
-// only removes generated files; build.sh, document.sh, check.sh, and
-// model.sh each drive exactly one; test.sh drives several in sequence
-// (build0, build1, main, mdy, and the test runner). bootstrap.sh drives the
-// host compiler directly and repeatedly, producing two staged executables,
-// build0 and build1, that have no declaring manifest of their own (see
-// models.tool). The compiler itself is a Tool too, the same
-// Provenance::ThirdParty way cppcheck and semgrep are; bootstrap.sh's
-// tools() would include it, once mm.model represents a compiler as a Tool.
+// Operation. A single ordered invokes() sequence is not enough for all
+// seven: bootstrap.sh tries build0 first and only falls back to driving the
+// host compiler directly and repeatedly if that does not produce build1, so
+// an Operation can have more than one branch — most have exactly one.
+// role() replaces a plain optional bool: clean.sh is not "optional" the way
+// check.sh is (skippable within the standard sequence, still recommended);
+// it is something the user chooses to run outside that sequence entirely.
+//
+// requires_artifacts() and produces() are the input and output side of what
+// used to be a single depends_on() "must run first" edge: build.sh's real
+// requirement is that out/build1 (ArtifactKind::Staged) exists, not that
+// bootstrap.sh executed in the current session, so an incremental workflow
+// where build1 already exists from an earlier run is not something this
+// model reports as invalid the way a strict "ran before me" edge would.
+//
+// ArtifactKind lives here rather than in models.artifacts because the
+// dependency runs the other way: models.artifacts models a concrete
+// generated artifact and needs to point at the Operation that produces it
+// (produced_by() : const Operation*), so it already imports models.workflow;
+// putting the kind vocabulary in models.artifacts instead would make the two
+// modules depend on each other, which C++20 modules do not allow.
+//
 // Modeling this separately from Tool keeps "what can run" (models.tool)
-// apart from "in what order, and is it required" (this module).
+// apart from "in what order, under what conditions, and is it required"
+// (this module).
 //
 // Pawel Wodnicki (C) 2026
 // 32bitmicro LLC (C) 2026
 module;
 
+#include <cstddef>
 #include <filesystem>
 #include <string_view>
 #include <vector>
@@ -31,6 +46,27 @@ import models.tool;
 
 export namespace models {
 
+enum class ArtifactKind {
+    ModuleObject,      // out/modules/**/*.o
+    AppObject,         // out/apps/**/*.o
+    AppExecutable,     // out/apps/**/<name>, before install
+    ToolObject,        // out/tools/**/*.o
+    ToolExecutable,    // out/tools/**/<name>, before install
+    Staged,            // out/build0, out/build1
+    InstalledBinary,   // out/bin/<name>
+    TestBuild,         // out/tests
+    Documentation,     // out/index.html and nested pages
+    ModuleCache        // gcm.cache
+};
+
+// Required: part of the standard sequence and nothing after it can
+// meaningfully run without it (bootstrap.sh, build.sh). Optional: part of
+// the standard sequence and skippable without affecting the rest of it
+// (test.sh, document.sh, check.sh, model.sh). UserInitiated: not part of
+// the forward sequence at all; the user runs it deliberately, outside the
+// normal order (clean.sh).
+enum class Role { Required, Optional, UserInitiated };
+
 class Operation {
 public:
     virtual ~Operation() = default;
@@ -40,19 +76,27 @@ public:
     // Root relative, e.g. "build.sh".
     [[nodiscard]] virtual std::filesystem::path script_path() const = 0;
 
-    // Other operations that must run first, e.g. build.sh depends on
-    // bootstrap.sh. Empty for bootstrap.sh itself.
-    [[nodiscard]] virtual std::vector<const Operation*> depends_on() const = 0;
+    [[nodiscard]] virtual Role role() const = 0;
 
-    // True for an operation documented as optional and experimental, such
-    // as check.sh: skipping it changes nothing else in the sequence.
-    [[nodiscard]] virtual bool optional() const = 0;
+    // How many alternative sequences invokes() can describe. 1 for every
+    // operation except bootstrap.sh, which has 2: branch 0 tries build0,
+    // branch 1 is the raw-compiler fallback taken only if that does not
+    // produce build1.
+    [[nodiscard]] virtual std::size_t branch_count() const = 0;
 
-    // The tools this script drives, in the order it drives them. Empty for
-    // a script with no tool of its own, such as clean.sh. Most operations
-    // return exactly one; test.sh returns several; see the note above the
-    // class.
-    [[nodiscard]] virtual std::vector<const Tool*> tools() const = 0;
+    // The tools one branch drives, in the order it drives them. Empty for a
+    // script with no tool of its own, such as clean.sh. branch must be less
+    // than branch_count().
+    [[nodiscard]] virtual std::vector<const Tool*> invokes(std::size_t branch) const = 0;
+
+    // Artifacts that must already exist for this operation to succeed,
+    // regardless of what produced them or when.
+    [[nodiscard]] virtual std::vector<ArtifactKind> requires_artifacts() const = 0;
+
+    // Artifacts this operation writes on success. The same regardless of
+    // which invokes() branch actually ran: bootstrap.sh's two branches
+    // reach the same produces(), just by different means.
+    [[nodiscard]] virtual std::vector<ArtifactKind> produces() const = 0;
 };
 
 }  // namespace models

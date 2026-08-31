@@ -6,6 +6,7 @@ use: mm.test
 use: mm.model
 unit: tests/mm/model/structure.cpp
 unit: tests/mm/model/configuration.cpp
+unit: tests/mm/model/workflow.cpp
 unit: tests/main.cpp
 ---
 

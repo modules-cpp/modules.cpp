@@ -50,15 +50,24 @@ dependency order:
   text, Module's imports() is those names resolved to other Module objects.
   Imports models.manifest.
 - models.workflow — a workflow step (models::Operation): one of the top
-  level *.sh scripts, its prerequisites, whether it is optional, and the
-  Tools it drives, in order. Most operations drive exactly one; test.sh
-  drives several. Imports models.tool.
-- models.artifacts — a generated artifact (models::GeneratedArtifact,
-  models::ArtifactKind), starting from docs/modules.mdy's "Generated
-  artifacts" section but splitting AppObject and ToolObject each into an
-  object-file and an executable variant, plus Staged for out/build0 and
-  out/build1, and the Operation whose script produces it. Imports
-  models.workflow.
+  level *.sh scripts. Not a single depends_on() DAG: invokes(branch) is an
+  ordered, possibly repeating sequence of Tools per branch (most operations
+  have one branch; bootstrap.sh has two, since it tries build0 and only
+  falls back to raw compiler calls if that leaves no build1), and
+  requires_artifacts()/produces() are the input and output side of what a
+  single "must run first" edge used to conflate — build.sh's real
+  requirement is that out/build1 exists, not that bootstrap.sh ran in the
+  current session. role() is a three way Role (Required, Optional,
+  UserInitiated) rather than a bool: clean.sh is not "optional" the way
+  check.sh is, it sits outside the forward sequence entirely.
+  ArtifactKind also lives here, not in models.artifacts: models.artifacts
+  depends on models.workflow for produced_by(), so the reverse dependency
+  is unavailable. Imports models.tool.
+- models.artifacts — a generated artifact (models::GeneratedArtifact),
+  starting from docs/modules.mdy's "Generated artifacts" section but
+  splitting AppObject and ToolObject each into an object-file and an
+  executable variant, plus Staged for out/build0 and out/build1, and the
+  Operation whose script produces it. Imports models.workflow.
 
 # Design choices worth knowing
 - Every module is a single export module, not one class per module,
@@ -153,15 +162,25 @@ prose (for example, "is every *.sh script mentioned in the Repository layout
 tree") is future work, not something tools/model does today.
 
 # Boundaries
-- models.workflow and models.artifacts have no adapter yet: mm.model builds
-  models.document, models.manifest, models.repository, models.configuration,
-  and models.tool. A tool that needs Operation or GeneratedArtifact data
-  must extend mm.model first.
-- mm.model's models.tool coverage is kind:app manifests plus the two fixed,
-  project-known build0/build1 entries. Third party tools such as cppcheck
-  and semgrep are real Tools this project uses but have neither a kind:app
-  manifest nor a fixed project-known path, so they are absent from
-  Loaded::tools() rather than represented with a null declared_by().
+- models.artifacts still has no adapter: mm.model builds models.document,
+  models.manifest, models.repository, models.configuration, models.tool,
+  and, as of Loaded::operations(), models.workflow. A tool that needs
+  GeneratedArtifact data (an actual filesystem scan of out/, cross checked
+  against requires_artifacts()/produces()) must extend mm.model first.
+- mm.model's models.tool coverage is kind:app manifests plus three fixed,
+  project-known entries: build0, build1, and c++ (Provenance::ThirdParty).
+  cppcheck and semgrep are still absent: unlike c++, nothing in this
+  project's own scripts names them at a fixed path the way bootstrap.sh
+  names c++, so representing them would mean inventing data rather than
+  stating a known fact.
+- Loaded::operations() is fixed, hand authored data mirroring the seven
+  *.sh scripts, the same reasoning as build0/build1/c++ in tools(): nothing
+  here is derived from a manifest walk. invokes() only names Tools; the
+  fallback branch inside bootstrap's second invokes() sequence is not
+  decomposed further than "c++, invoked six times" — it does not know or
+  care that those six invocations are five compiles and one link, the same
+  abstraction boundary that already applies to how build.sh's own invokes()
+  does not enumerate what build1 compiles internally.
 - tools/model does not check docs/modules.mdy's prose against reality (for
   example, its Repository layout tree, or the Build and development
   workflow script list); it checks only what models::Repository can already

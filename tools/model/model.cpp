@@ -180,7 +180,14 @@ int main(int argc, char** argv) {
     std::cout << "\nBuild completeness\n";
     const auto tools = loaded.tools();
     int missing = 0;
+    int checked = 0;
     for (const auto* tool : tools) {
+        // ThirdParty tools such as c++ or cppcheck are resolved from $PATH,
+        // not a root relative path: invocation() is a bare command name for
+        // them, and checking it against root would always fail.
+        if (tool->provenance() != models::Provenance::BuiltIn) continue;
+        ++checked;
+
         const auto binary = root / tool->invocation();
         if (std::filesystem::exists(binary)) continue;
         std::cout << "  FAIL " << tool->name() << " has no installed binary at "
@@ -188,7 +195,7 @@ int main(int argc, char** argv) {
         ++missing;
     }
     if (missing == 0)
-        std::cout << "  ok: " << tools.size() << " tool(s) exist at their declared invocation()\n";
+        std::cout << "  ok: " << checked << " tool(s) exist at their declared invocation()\n";
     violations += missing;
 
     std::cout << "\n";

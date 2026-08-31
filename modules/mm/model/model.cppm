@@ -32,6 +32,16 @@
 // nothing in tools/build or the bootstrap chain imports mm.model, so this
 // is read by tools/model, never by the build path itself.
 //
+// operations() is fixed, hand authored data, the same reasoning as
+// build0/build1 in tools(): docs/modules.mdy's seven *.sh scripts and how
+// they relate are not something any manifest declares, so nothing here is
+// derived from a walk. It is a Loaded member rather than a free function
+// like default_configuration(), because invokes() needs real Tool*
+// pointers resolved by name against this Loaded's own tools().
+// recommended_sequence() is the one part of the old workflow model that
+// stays a free function: it only reorders whatever operations() returns,
+// so it needs no state of its own.
+//
 // Pawel Wodnicki (C) 2026
 // 32bitmicro LLC (C) 2026
 module;
@@ -45,6 +55,7 @@ export module mm.model;
 import models.configuration;
 import models.repository;
 import models.tool;
+import models.workflow;
 
 export namespace mm::model {
 
@@ -65,9 +76,13 @@ public:
 
     [[nodiscard]] const models::Repository& repository() const;
 
-    // One Tool per kind:app manifest, plus build0 and build1; see the note
-    // above the class for what is still not covered.
+    // One Tool per kind:app manifest, plus build0, build1, and c++; see the
+    // note above the class for what is still not covered.
     [[nodiscard]] std::vector<const models::Tool*> tools() const;
+
+    // The seven documented *.sh scripts as Operations, invokes() resolved
+    // against this Loaded's own tools().
+    [[nodiscard]] std::vector<const models::Operation*> operations() const;
 
 private:
     Loaded();
@@ -82,5 +97,14 @@ private:
 // caching, so a changed $CXX or a different verbose argument is always
 // reflected.
 [[nodiscard]] std::unique_ptr<models::Configuration> default_configuration(bool verbose = false);
+
+// Reorders operations into the documented recommended order: clean,
+// bootstrap, build, then test, document, check, model (the order they are
+// listed in docs/modules.mdy's "Build and development workflow"). Not
+// authoritative over what may actually run: an operation not present in
+// operations is silently skipped, and this never rejects an order a caller
+// chooses to run operations in on their own.
+[[nodiscard]] std::vector<const models::Operation*> recommended_sequence(
+    const std::vector<const models::Operation*>& operations);
 
 }  // namespace mm::model

@@ -2,6 +2,8 @@
 // 32bitmicro LLC (C) 2026
 module;
 
+#include <array>
+#include <cstddef>
 #include <filesystem>
 #include <map>
 #include <memory>
@@ -18,6 +20,7 @@ import models.configuration;
 import models.document;
 import models.manifest;
 import models.tool;
+import models.workflow;
 
 namespace mm::model {
 
@@ -344,13 +347,19 @@ private:
 //     same AppNode, the one RealTool also builds a Tool for out/bin/build
 //     from: build1 and out/bin/build are two Tools for one declared app,
 //     one built by hand during bootstrap and one built by itself later.
+//   - c++: the host compiler, Provenance::ThirdParty like cppcheck and
+//     semgrep would be. bootstrap.sh's fallback branch (see
+//     models.workflow) invokes it directly and repeatedly; that branch has
+//     no Tool to point invokes() at without this entry.
 class FixedTool : public models::Tool {
 public:
-    FixedTool(std::string name, std::filesystem::path invocation, const models::AppNode* app)
-        : name_(std::move(name)), invocation_(std::move(invocation)), app_(app) {}
+    FixedTool(std::string name, std::filesystem::path invocation, const models::AppNode* app,
+              models::Provenance provenance = models::Provenance::BuiltIn)
+        : name_(std::move(name)), invocation_(std::move(invocation)), app_(app),
+          provenance_(provenance) {}
 
     [[nodiscard]] std::string_view name() const override { return name_; }
-    [[nodiscard]] models::Provenance provenance() const override { return models::Provenance::BuiltIn; }
+    [[nodiscard]] models::Provenance provenance() const override { return provenance_; }
     [[nodiscard]] std::filesystem::path invocation() const override { return invocation_; }
     [[nodiscard]] const models::AppNode* declared_by() const override { return app_; }
 
@@ -358,11 +367,12 @@ private:
     std::string name_;
     std::filesystem::path invocation_;
     const models::AppNode* app_;
+    models::Provenance provenance_;
 };
 
 std::vector<std::unique_ptr<models::Tool>> build_tools(const std::vector<const models::AppNode*>& apps) {
     std::vector<std::unique_ptr<models::Tool>> result;
-    result.reserve(apps.size() + 2);
+    result.reserve(apps.size() + 3);
     for (const auto* app : apps) result.push_back(std::make_unique<RealTool>(*app));
 
     const models::AppNode* build_app = nullptr;
@@ -371,6 +381,133 @@ std::vector<std::unique_ptr<models::Tool>> build_tools(const std::vector<const m
 
     result.push_back(std::make_unique<FixedTool>("build0", "out/build0", nullptr));
     result.push_back(std::make_unique<FixedTool>("build1", "out/build1", build_app));
+    result.push_back(std::make_unique<FixedTool>("c++", "c++", nullptr, models::Provenance::ThirdParty));
+
+    return result;
+}
+
+const models::Tool* find_tool(const std::vector<std::unique_ptr<models::Tool>>& tools,
+                              std::string_view name) {
+    for (const auto& tool : tools)
+        if (tool->name() == name) return tool.get();
+    return nullptr;
+}
+
+// Fixed, hand authored data: the seven *.sh scripts and how they relate are
+// not something any manifest declares, the same reasoning as build0/build1
+// in build_tools(). invokes() is precomputed per branch rather than derived
+// on demand, since it only ever needs to hand back what was given at
+// construction.
+class RealOperation : public models::Operation {
+public:
+    RealOperation(std::string name, std::filesystem::path script_path, models::Role role,
+                 std::vector<std::vector<const models::Tool*>> branches,
+                 std::vector<models::ArtifactKind> requires_artifacts,
+                 std::vector<models::ArtifactKind> produces)
+        : name_(std::move(name)), script_path_(std::move(script_path)), role_(role),
+          branches_(std::move(branches)), requires_artifacts_(std::move(requires_artifacts)),
+          produces_(std::move(produces)) {}
+
+    [[nodiscard]] std::string_view name() const override { return name_; }
+    [[nodiscard]] std::filesystem::path script_path() const override { return script_path_; }
+    [[nodiscard]] models::Role role() const override { return role_; }
+    [[nodiscard]] std::size_t branch_count() const override { return branches_.size(); }
+
+    [[nodiscard]] std::vector<const models::Tool*> invokes(std::size_t branch) const override {
+        return branches_.at(branch);
+    }
+
+    [[nodiscard]] std::vector<models::ArtifactKind> requires_artifacts() const override {
+        return requires_artifacts_;
+    }
+
+    [[nodiscard]] std::vector<models::ArtifactKind> produces() const override { return produces_; }
+
+private:
+    std::string name_;
+    std::filesystem::path script_path_;
+    models::Role role_;
+    std::vector<std::vector<const models::Tool*>> branches_;
+    std::vector<models::ArtifactKind> requires_artifacts_;
+    std::vector<models::ArtifactKind> produces_;
+};
+
+std::vector<std::unique_ptr<models::Operation>> build_operations(
+    const std::vector<std::unique_ptr<models::Tool>>& tools) {
+    const auto* cxx = find_tool(tools, "c++");
+    const auto* build0 = find_tool(tools, "build0");
+    const auto* build1 = find_tool(tools, "build1");
+    const auto* build = find_tool(tools, "build");
+    const auto* main_tool = find_tool(tools, "main");
+    const auto* mdy = find_tool(tools, "mdy");
+    const auto* test_runner = find_tool(tools, "test");
+    const auto* check = find_tool(tools, "check");
+    const auto* model = find_tool(tools, "model");
+
+    // Every kind:app manifest's compiled/linked/installed output, the
+    // common shape of "a full build happened": bootstrap.sh's final build1
+    // invocation and build.sh both produce this.
+    const std::vector<models::ArtifactKind> full_build = {
+        models::ArtifactKind::ModuleObject,   models::ArtifactKind::AppObject,
+        models::ArtifactKind::AppExecutable,  models::ArtifactKind::ToolObject,
+        models::ArtifactKind::ToolExecutable, models::ArtifactKind::InstalledBinary,
+    };
+
+    std::vector<std::unique_ptr<models::Operation>> result;
+    result.reserve(7);
+
+    // bootstrap.sh: compile build0, then either build0 builds build1
+    // (branch 0) or, only if that leaves no executable build1, the same
+    // fixed steps run by hand instead (branch 1); either way the script
+    // finishes by running build1 to build everything, "build" included.
+    {
+        std::vector<models::ArtifactKind> produces = {models::ArtifactKind::Staged};
+        produces.insert(produces.end(), full_build.begin(), full_build.end());
+        result.push_back(std::make_unique<RealOperation>(
+            "bootstrap", "bootstrap.sh", models::Role::Required,
+            std::vector<std::vector<const models::Tool*>>{
+                {cxx, build0, build1},
+                {cxx, build0, cxx, cxx, cxx, cxx, cxx, cxx, build1},
+            },
+            std::vector<models::ArtifactKind>{}, std::move(produces)));
+    }
+
+    result.push_back(std::make_unique<RealOperation>(
+        "build", "build.sh", models::Role::Required,
+        std::vector<std::vector<const models::Tool*>>{{build1}},
+        std::vector<models::ArtifactKind>{models::ArtifactKind::Staged}, full_build));
+
+    result.push_back(std::make_unique<RealOperation>(
+        "test", "test.sh", models::Role::Optional,
+        std::vector<std::vector<const models::Tool*>>{
+            {build0, build1, build, main_tool, mdy, test_runner, test_runner, test_runner,
+             test_runner}},
+        std::vector<models::ArtifactKind>{models::ArtifactKind::Staged,
+                                          models::ArtifactKind::InstalledBinary},
+        std::vector<models::ArtifactKind>{models::ArtifactKind::TestBuild}));
+
+    result.push_back(std::make_unique<RealOperation>(
+        "document", "document.sh", models::Role::Optional,
+        std::vector<std::vector<const models::Tool*>>{{mdy}},
+        std::vector<models::ArtifactKind>{models::ArtifactKind::InstalledBinary},
+        std::vector<models::ArtifactKind>{models::ArtifactKind::Documentation}));
+
+    result.push_back(std::make_unique<RealOperation>(
+        "check", "check.sh", models::Role::Optional,
+        std::vector<std::vector<const models::Tool*>>{{check}},
+        std::vector<models::ArtifactKind>{models::ArtifactKind::InstalledBinary},
+        std::vector<models::ArtifactKind>{}));
+
+    result.push_back(std::make_unique<RealOperation>(
+        "model", "model.sh", models::Role::Optional,
+        std::vector<std::vector<const models::Tool*>>{{model}},
+        std::vector<models::ArtifactKind>{models::ArtifactKind::InstalledBinary},
+        std::vector<models::ArtifactKind>{}));
+
+    result.push_back(std::make_unique<RealOperation>(
+        "clean", "clean.sh", models::Role::UserInitiated,
+        std::vector<std::vector<const models::Tool*>>{{}},
+        std::vector<models::ArtifactKind>{}, std::vector<models::ArtifactKind>{}));
 
     return result;
 }
@@ -431,6 +568,7 @@ struct Loaded::Impl {
 
     std::unique_ptr<RealRepository> repository;
     std::vector<std::unique_ptr<models::Tool>> tools;
+    std::vector<std::unique_ptr<models::Operation>> operations;
 };
 
 Loaded::Loaded() = default;
@@ -528,6 +666,7 @@ Loaded Loaded::load(const std::filesystem::path& root_dir, bool& ok) {
     impl->repository = std::make_unique<RealRepository>(
         impl->projects.front().get(), module_ptrs, app_ptrs, test_ptrs, doc_ptrs);
     impl->tools = build_tools(app_ptrs);
+    impl->operations = build_operations(impl->tools);
 
     loaded.impl_ = std::move(impl);
 
@@ -545,8 +684,30 @@ std::vector<const models::Tool*> Loaded::tools() const {
     return result;
 }
 
+std::vector<const models::Operation*> Loaded::operations() const {
+    std::vector<const models::Operation*> result;
+    result.reserve(impl_->operations.size());
+    for (const auto& operation : impl_->operations) result.push_back(operation.get());
+    return result;
+}
+
 std::unique_ptr<models::Configuration> default_configuration(bool verbose) {
     return std::make_unique<FixedConfiguration>(mm::build::default_toolchain(verbose));
+}
+
+std::vector<const models::Operation*> recommended_sequence(
+    const std::vector<const models::Operation*>& operations) {
+    static constexpr std::array<std::string_view, 7> order = {
+        "clean", "bootstrap", "build", "test", "document", "check", "model",
+    };
+
+    std::vector<const models::Operation*> result;
+    result.reserve(operations.size());
+    for (const auto name : order)
+        for (const auto* operation : operations)
+            if (operation->name() == name) result.push_back(operation);
+
+    return result;
 }
 
 }  // namespace mm::model
