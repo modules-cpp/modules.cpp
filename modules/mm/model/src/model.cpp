@@ -314,8 +314,7 @@ private:
 };
 
 // One models::Tool per kind:app manifest, matching what build.sh installs:
-// every app is written to out/bin/<name>. See model.cppm for what this
-// deliberately leaves out (build0, build1, third party tools).
+// every app is written to out/bin/<name>.
 class RealTool : public models::Tool {
 public:
     explicit RealTool(const models::AppNode& app)
@@ -333,10 +332,46 @@ private:
     const models::AppNode* app_;
 };
 
-std::vector<std::unique_ptr<RealTool>> build_tools(const std::vector<const models::AppNode*>& apps) {
-    std::vector<std::unique_ptr<RealTool>> result;
-    result.reserve(apps.size());
+// build0 and build1 (tools/build/main.cpp and bootstrap.sh's hand compiled
+// build1; see docs/modules.mdy) have no RealAppNode a RealTool can point at,
+// so this is a second, more general Tool: app is nullable, and invocation()
+// is given directly rather than always being out/bin/<name>.
+//
+//   - build0: source is tools/build/main.cpp, which no manifest anywhere
+//     declares. app is nullptr: there is nothing to point declared_by() at.
+//   - build1: source is tools/build/build.cpp, the exact file
+//     tools/build/mm.mdy declares under kind:app name:build. app is that
+//     same AppNode, the one RealTool also builds a Tool for out/bin/build
+//     from: build1 and out/bin/build are two Tools for one declared app,
+//     one built by hand during bootstrap and one built by itself later.
+class FixedTool : public models::Tool {
+public:
+    FixedTool(std::string name, std::filesystem::path invocation, const models::AppNode* app)
+        : name_(std::move(name)), invocation_(std::move(invocation)), app_(app) {}
+
+    [[nodiscard]] std::string_view name() const override { return name_; }
+    [[nodiscard]] models::Provenance provenance() const override { return models::Provenance::BuiltIn; }
+    [[nodiscard]] std::filesystem::path invocation() const override { return invocation_; }
+    [[nodiscard]] const models::AppNode* declared_by() const override { return app_; }
+
+private:
+    std::string name_;
+    std::filesystem::path invocation_;
+    const models::AppNode* app_;
+};
+
+std::vector<std::unique_ptr<models::Tool>> build_tools(const std::vector<const models::AppNode*>& apps) {
+    std::vector<std::unique_ptr<models::Tool>> result;
+    result.reserve(apps.size() + 2);
     for (const auto* app : apps) result.push_back(std::make_unique<RealTool>(*app));
+
+    const models::AppNode* build_app = nullptr;
+    for (const auto* app : apps)
+        if (app->name() == "build") build_app = app;
+
+    result.push_back(std::make_unique<FixedTool>("build0", "out/build0", nullptr));
+    result.push_back(std::make_unique<FixedTool>("build1", "out/build1", build_app));
+
     return result;
 }
 
@@ -395,7 +430,7 @@ struct Loaded::Impl {
     std::vector<std::unique_ptr<RealDocNode>> docs;
 
     std::unique_ptr<RealRepository> repository;
-    std::vector<std::unique_ptr<RealTool>> tools;
+    std::vector<std::unique_ptr<models::Tool>> tools;
 };
 
 Loaded::Loaded() = default;

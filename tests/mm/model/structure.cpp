@@ -12,6 +12,7 @@ import mm.model;
 import mm.test;
 import models.manifest;
 import models.repository;
+import models.tool;
 
 namespace {
 
@@ -91,11 +92,49 @@ void load_of_a_nonexistent_directory_fails() {
     mm::test::expect(!ok, "expected loading a nonexistent directory to fail");
 }
 
-void every_app_has_exactly_one_tool() {
+// Not a count comparison: build0 has no declaring app, and build1 shares
+// its declaring app with out/bin/build, so tools().size() is not
+// apps().size() any more. The real invariant is one directional: every app
+// has at least one tool that declares it, checked per app by identity.
+void every_app_has_a_declared_tool() {
     bool ok = false;
     auto loaded = mm::model::Loaded::load(".", ok);
-    mm::test::expect(loaded.tools().size() == loaded.repository().apps().size(),
-                     "expected one Tool per AppNode");
+    const auto tools = loaded.tools();
+
+    for (const auto* app : loaded.repository().apps()) {
+        bool found = false;
+        for (const auto* tool : tools)
+            if (tool->declared_by() == app) found = true;
+        mm::test::expect(found, "expected every app to have at least one declared tool");
+    }
+}
+
+void build0_and_build1_are_tools_without_and_with_a_declared_app() {
+    bool ok = false;
+    auto loaded = mm::model::Loaded::load(".", ok);
+    const auto tools = loaded.tools();
+
+    const models::Tool* build0 = nullptr;
+    const models::Tool* build1 = nullptr;
+    for (const auto* tool : tools) {
+        if (tool->name() == "build0") build0 = tool;
+        if (tool->name() == "build1") build1 = tool;
+    }
+
+    mm::test::expect(build0 != nullptr, "expected a build0 tool");
+    mm::test::expect(build1 != nullptr, "expected a build1 tool");
+    if (build0 == nullptr || build1 == nullptr) return;
+
+    mm::test::expect(build0->declared_by() == nullptr,
+                     "expected build0 to have no declaring manifest");
+
+    const models::AppNode* build_app = nullptr;
+    for (const auto* app : loaded.repository().apps())
+        if (app->name() == "build") build_app = app;
+
+    mm::test::expect(build_app != nullptr, "expected a declared build app");
+    mm::test::expect(build1->declared_by() == build_app,
+                     "expected build1 to share its declaring app with out/bin/build");
 }
 
 const mm::test::case_ cases[] = {
@@ -105,7 +144,8 @@ const mm::test::case_ cases[] = {
     { "child and parent agree with each other",        &child_and_parent_agree_with_each_other },
     { "every app reaches the root by walking parent",  &every_app_reaches_the_root_by_walking_parent },
     { "load of a nonexistent directory fails",         &load_of_a_nonexistent_directory_fails },
-    { "every app has exactly one tool",                &every_app_has_exactly_one_tool },
+    { "every app has a declared tool",                 &every_app_has_a_declared_tool },
+    { "build0 and build1 declared_by()",               &build0_and_build1_are_tools_without_and_with_a_declared_app },
 };
 
 const mm::test::registrar reg{"mm.model structure", cases};

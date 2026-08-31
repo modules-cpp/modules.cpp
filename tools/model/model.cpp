@@ -1,6 +1,6 @@
 // modules.cpp model tool
 //
-// Usage: model [-v] [--configuration] [<path to mm.mdy>]
+// Usage: model [-v] [--configuration] [--tools] [<path to mm.mdy>]
 //        (default: mm.mdy in the current dir)
 //
 // Checks the real project against itself, through the models.* abstract
@@ -15,15 +15,23 @@
 //     names a module: that some kind:module manifest actually exports.
 //     mm::build::order already rejects an unknown module at build time;
 //     this re-derives the same fact independently, through the model.
-//   - build completeness: every kind:app manifest's name has an installed
-//     binary under out/bin, i.e. the tree that's declared matches what has
-//     actually been built.
+//   - build completeness: every models::Tool's invocation() exists on disk,
+//     i.e. the tree that's declared matches what has actually been built.
+//     This covers every kind:app manifest's installed out/bin/<name>, plus
+//     build0 and build1 (out/build0, out/build1), which mm.model also
+//     represents as Tools despite having no kind:app manifest of their own.
 //
 // --configuration additionally reports the project's build configuration
 // (models.configuration, via mm::model::default_configuration): the live
 // compiler/flags/verbose plus the fixed platform/locale/shell policy.
 // Independent of the manifest tree, so it is reported even when the checks
 // above fail to load one.
+//
+// --tools additionally lists every models::Tool the loaded tree produces:
+// name, provenance, invocation(), and the app that declares it, if any.
+// Unlike --configuration this needs the tree loaded, so it is reported
+// after that succeeds, alongside the two checks rather than independent of
+// them.
 //
 // All the work lives in mm.model; this file is the front end.
 //
@@ -63,6 +71,7 @@ int main(int argc, char** argv) {
     std::filesystem::path manifest_path;
     bool verbose = false;
     bool report_configuration = false;
+    bool report_tools = false;
 
     for (int i = 1; i < argc; ++i) {
         const std::string_view arg = argv[i];
@@ -70,6 +79,8 @@ int main(int argc, char** argv) {
             verbose = true;
         else if (arg == "--configuration")
             report_configuration = true;
+        else if (arg == "--tools")
+            report_tools = true;
         else if (manifest_path.empty())
             manifest_path = arg;
         else {
@@ -122,6 +133,22 @@ int main(int argc, char** argv) {
     const auto apps = repository.apps();
     const auto tests = repository.tests();
 
+    if (report_tools) {
+        const auto tools_list = loaded.tools();
+        std::cout << "Tools\n";
+        for (const auto* tool : tools_list) {
+            std::cout << "  " << tool->name() << "\n";
+            std::cout << "    provenance  "
+                      << (tool->provenance() == models::Provenance::BuiltIn ? "BuiltIn" : "ThirdParty")
+                      << "\n";
+            std::cout << "    invocation  " << tool->invocation().string() << "\n";
+            std::cout << "    declared by "
+                      << (tool->declared_by() != nullptr ? tool->declared_by()->name() : "(none)")
+                      << "\n";
+        }
+        std::cout << "\n";
+    }
+
     if (verbose) {
         std::cout << "  modules " << modules.size() << "\n";
         std::cout << "  apps    " << apps.size() << "\n";
@@ -161,8 +188,7 @@ int main(int argc, char** argv) {
         ++missing;
     }
     if (missing == 0)
-        std::cout << "  ok: " << tools.size() << " tool(s) installed under "
-                  << (root / "out" / "bin").string() << "\n";
+        std::cout << "  ok: " << tools.size() << " tool(s) exist at their declared invocation()\n";
     violations += missing;
 
     std::cout << "\n";

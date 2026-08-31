@@ -84,9 +84,15 @@ valid for Loaded's lifetime.
 Loaded::tools() gives one models::Tool per kind:app manifest, each
 Provenance::BuiltIn with declared_by() pointing at that app's AppNode and
 invocation() set to out/bin/<name>, matching what build.sh actually
-installs. build0, build1, and third party tools (cppcheck, semgrep) are not
-represented: none has a declaring manifest this adapter can walk to, so
-populating them would mean inventing data rather than adapting it.
+installs, plus two fixed entries: build0 (declared_by() == nullptr,
+tools/build/main.cpp has no manifest at all) and build1 (declared_by()
+pointing at the same AppNode as out/bin/build, since bootstrap.sh compiles
+build1 from tools/build/build.cpp, the exact file tools/build/mm.mdy
+declares — build1 and out/bin/build are two Tools for one declared app,
+built at two different bootstrap stages). Third party tools (cppcheck,
+semgrep) are still not represented: they are not fixed, project-known paths
+the way build0/build1 are, so populating them would mean inventing data
+rather than adapting or stating a known fact.
 
 `Loaded::load(root, ok)` walks the project the same way tools/check does: one
 manifest tree from root, which reaches tests/ through the root manifest's
@@ -116,11 +122,11 @@ it reports is whatever the abstract model itself would tell a reader:
   already rejects an unknown module at build time; this re-derives the same
   fact independently, through the model, as a check that does not require a
   full build to run.
-- build completeness — every models::Tool's invocation() exists under
-  out/bin: what is declared matches what has actually been built. Because
-  this is expressed over Tool rather than AppNode directly, the same check
-  would cover build0, build1, or a third party tool too, the day mm.model
-  represents them.
+- build completeness — every models::Tool's invocation() exists on disk:
+  what is declared matches what has actually been built. Expressed over
+  Tool rather than AppNode, so it covers out/bin/<name> for every kind:app
+  manifest and, now that mm.model represents them, out/build0 and
+  out/build1 too.
 
 --configuration additionally reports models::Configuration, via
 mm::model::default_configuration(verbose): the live compiler/flags (honoring
@@ -128,12 +134,18 @@ $CXX) plus the fixed platform/locale/shell policy. Independent of the
 manifest tree — default_configuration() takes no root_dir — so it is
 reported even when the checks above fail to load one.
 
+--tools additionally lists every Loaded::tools() entry: name, provenance(),
+invocation(), and declared_by()'s name or "(none)". Needs the tree loaded,
+unlike --configuration, so it is reported alongside the two checks rather
+than independent of them.
+
 Common commands are:
 
 - ./out/bin/model
 - ./out/bin/model -v
 - ./out/bin/model modules/mm.mdy
 - ./out/bin/model --configuration
+- ./out/bin/model --tools
 
 Both checks are structural, derived from models::Repository, rather than
 textual parsing of docs/modules.mdy's prose. A textual check against that
@@ -142,12 +154,13 @@ tree") is future work, not something tools/model does today.
 
 # Boundaries
 - models.workflow and models.artifacts have no adapter yet: mm.model builds
-  models.document, models.manifest, models.repository, and, for kind:app
-  manifests only, models.tool. A tool that needs Operation or
-  GeneratedArtifact data must extend mm.model first.
-- mm.model's models.tool coverage is manifest-only: build0, build1, and
-  third party tools such as cppcheck and semgrep are real Tools this project
-  uses but have no kind:app manifest, so they are absent from
+  models.document, models.manifest, models.repository, models.configuration,
+  and models.tool. A tool that needs Operation or GeneratedArtifact data
+  must extend mm.model first.
+- mm.model's models.tool coverage is kind:app manifests plus the two fixed,
+  project-known build0/build1 entries. Third party tools such as cppcheck
+  and semgrep are real Tools this project uses but have neither a kind:app
+  manifest nor a fixed project-known path, so they are absent from
   Loaded::tools() rather than represented with a null declared_by().
 - tools/model does not check docs/modules.mdy's prose against reality (for
   example, its Repository layout tree, or the Build and development

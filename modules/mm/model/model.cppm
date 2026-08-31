@@ -15,11 +15,16 @@
 // typed ProjectNode&.
 //
 // tools() gives one models::Tool per kind:app manifest, each
-// Provenance::BuiltIn with declared_by() pointing at that app's AppNode.
-// build0, build1, and third party tools (cppcheck, semgrep) have no
-// declaring manifest and are not represented here yet: populating those
-// would mean inventing data this adapter cannot derive from a manifest
-// walk, rather than adapting data that is already there.
+// Provenance::BuiltIn with declared_by() pointing at that app's AppNode,
+// plus two fixed entries neither manifest walk can produce: build0
+// (declared_by() == nullptr, tools/build/main.cpp has no manifest at all)
+// and build1 (declared_by() pointing at the same AppNode as out/bin/build:
+// bootstrap.sh compiles build1 from tools/build/build.cpp, the exact file
+// tools/build/mm.mdy declares, so build1 and out/bin/build are two Tools
+// for one declared app). Third party tools (cppcheck, semgrep) still have
+// no representation: they are not fixed, project-known paths the way
+// build0/build1 are, so populating them would mean inventing data instead
+// of stating a fact this adapter already knows.
 //
 // default_configuration() is unrelated to a Loaded tree: it needs no
 // manifest, so it is a free function rather than a Loaded member. It stays
@@ -60,8 +65,8 @@ public:
 
     [[nodiscard]] const models::Repository& repository() const;
 
-    // One Tool per kind:app manifest; see the note above the class for what
-    // is not covered.
+    // One Tool per kind:app manifest, plus build0 and build1; see the note
+    // above the class for what is still not covered.
     [[nodiscard]] std::vector<const models::Tool*> tools() const;
 
 private:
