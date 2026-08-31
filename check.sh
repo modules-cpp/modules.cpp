@@ -18,6 +18,12 @@
 #     ./check.sh modules/mm.mdy     a subtree
 #     ./check.sh -v                 verbose, passed through to the tool
 #
+# Known limitation: a subtree that contains a kind:test manifest cannot be
+# checked on its own, so ./check.sh tests/mm.mdy fails with "could not find
+# or open any of the paths given". unit: entries are project relative while
+# a subtree walk is rooted at the subtree, so they resolve one level too
+# deep. Checking the whole tree covers those files; see tools/check.
+#
 # requires cppcheck (https://cppcheck.sourceforge.io/); this script does not
 # build or run the project itself.
 #

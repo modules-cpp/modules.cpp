@@ -13,6 +13,18 @@
 // collects the file list and drives the process. All the file collection
 // lives in mm.build; this file is the front end.
 //
+// Known limitation: a subtree containing a kind:test manifest cannot be
+// checked on its own. A kind:test manifest's unit: entries are project
+// relative, while every kind:module and kind:app file: entry is relative to
+// its own manifest's directory, and a subtree walk is rooted at the
+// subtree. Both kinds end up in one list here, so for a root below the
+// project the unit: paths resolve one level too deep and cppcheck reports
+// "could not find or open any of the paths given". In this tree that means
+// `check tests/mm.mdy` fails while `check modules/mm.mdy` and a whole-tree
+// check both work, and the whole-tree check does cover the test sources.
+// Resolving it means deciding what a unit: path means under a subtree walk,
+// which is an mm.build question rather than a defect in this file.
+//
 // The root manifest's folder: tests entry puts kind:test manifests in the
 // same single walk as everything else, so tree.tests already covers them;
 // this tool does not load a second tree. tools/build/main.cpp is added
