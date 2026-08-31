@@ -73,28 +73,17 @@ void collect_uses(const std::vector<const models::BuildableNode*>& nodes,
 }  // namespace
 
 int main(int argc, char** argv) {
-    std::filesystem::path manifest_path;
-    bool verbose = false;
-    bool report_configuration = false;
-    bool report_tools = false;
+    mm::app::Options options("model");
+    options.flag("--configuration");
+    options.flag("--tools");
+    if (options.parse(argc, argv) != mm::app::Cli::ok) return mm::build::exit_usage;
 
-    for (int i = 1; i < argc; ++i) {
-        const std::string_view arg = argv[i];
-        if (mm::app::verbose_flag(arg))
-            verbose = true;
-        else if (arg == "--configuration")
-            report_configuration = true;
-        else if (arg == "--tools")
-            report_tools = true;
-        else if (manifest_path.empty())
-            manifest_path = arg;
-        else {
-            mm::app::unexpected_argument("model", arg);
-            return mm::build::exit_usage;
-        }
-    }
-
-    if (manifest_path.empty()) manifest_path = "mm.mdy";
+    const bool verbose = options.verbose();
+    const bool report_configuration = options.seen("--configuration");
+    const bool report_tools = options.seen("--tools");
+    auto manifest_path = options.positional().empty()
+                             ? std::filesystem::path("mm.mdy")
+                             : std::filesystem::path(options.positional().front());
     manifest_path = mm::build::resolve_manifest(manifest_path);
 
     // enter_root is false: mm::model::Loaded::load enters and leaves the

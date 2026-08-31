@@ -19,27 +19,18 @@ import mm.app;
 import mm.build;
 
 int main(int argc, char** argv) {
-    std::filesystem::path manifest_path;
-    bool verbose = false;
+    mm::app::Options options("test");
+    if (options.parse(argc, argv) != mm::app::Cli::ok) return mm::build::exit_usage;
 
-    for (int i = 1; i < argc; ++i) {
-        const std::string_view arg = argv[i];
-        if (mm::app::verbose_flag(arg))
-            verbose = true;
-        else if (manifest_path.empty())
-            manifest_path = arg;
-        else {
-            mm::app::unexpected_argument("test", arg);
-            return mm::build::exit_usage;
-        }
-    }
+    const bool verbose = options.verbose();
 
-    if (manifest_path.empty()) {
+    // The one tool with no default manifest: a test target must be named.
+    if (options.positional().empty()) {
         std::cerr << "usage: test [-v] <path to mm.mdy>\n";
         return mm::build::exit_usage;
     }
 
-    manifest_path = mm::build::resolve_manifest(manifest_path);
+    auto manifest_path = mm::build::resolve_manifest(options.positional().front());
 
     // enter_root is false here: the directory this tool needs is not the
     // manifest's own, but the kind:project root found above it below.

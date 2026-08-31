@@ -38,24 +38,15 @@ Assignment split_assignment(std::string_view text) {
 }  // namespace
 
 int main(int argc, char** argv) {
-    bool verbose = false;
-    std::vector<std::string_view> positional;
-    std::vector<std::string_view> assignments;
+    // Two positionals: the command, optionally preceded by a manifest.
+    mm::app::Options options("shell");
+    options.option("-e", "a NAME=VALUE argument");
+    options.positional_limit(2);
+    if (options.parse(argc, argv) != mm::app::Cli::ok) return mm::build::exit_usage;
 
-    for (int i = 1; i < argc; ++i) {
-        const std::string_view arg = argv[i];
-        if (mm::app::verbose_flag(arg)) {
-            verbose = true;
-        } else if (arg == "-e") {
-            if (i + 1 >= argc) {
-                std::cerr << "shell: -e requires a NAME=VALUE argument\n";
-                return mm::build::exit_usage;
-            }
-            assignments.push_back(argv[++i]);
-        } else {
-            positional.push_back(arg);
-        }
-    }
+    const bool verbose = options.verbose();
+    const auto assignments = options.values("-e");
+    const auto& positional = options.positional();
 
     std::filesystem::path manifest_path;
     std::string_view command;

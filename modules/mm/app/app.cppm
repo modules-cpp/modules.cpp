@@ -19,9 +19,13 @@
 // 32bitmicro LLC (C) 2026
 module;
 
+#include <cstddef>
 #include <filesystem>
 #include <iostream>
+#include <map>
+#include <string>
 #include <string_view>
+#include <vector>
 
 export module mm.app;
 
@@ -52,18 +56,134 @@ export namespace mm::app {
 // mm::build::exit_manifest.
 enum class Cli { ok, usage, manifest };
 
-// True for the verbose flag every tool accepts. Kept as a predicate rather
-// than a whole parser because the tools genuinely differ around it: mdy also
-// takes -s, -h and -o=, model takes --configuration and --tools, and shell
-// takes a repeatable -e and up to two positionals. Each keeps its own loop
-// and calls this for the one flag they all share.
+// The message every tool prints for a second positional argument.
+void unexpected_argument(std::string_view tool, std::string_view arg) {
+    std::cerr << tool << ": unexpected argument: " << arg << "\n";
+}
+
+// True for the verbose flag every tool accepts.
 [[nodiscard]] bool verbose_flag(std::string_view arg) {
     return arg == "-v" || arg == "--verbose";
 }
 
-// The message every tool prints for a second positional argument.
-void unexpected_argument(std::string_view tool, std::string_view arg) {
-    std::cerr << tool << ": unexpected argument: " << arg << "\n";
+// One command line, parsed once, for every tool that has one.
+//
+// The tools' flags have little in common beyond -v, so rather than a parser
+// that knows them all, each tool declares the shapes it accepts and then
+// reads the results back. Four shapes cover every tool here:
+//
+//   flag("--tools")           present or absent
+//   option("-e", "NAME=VALUE argument")   takes the next argument, repeatable
+//   assigned("-o=")           the value follows the '=' in the same argument
+//   positional_limit(2)       how many bare arguments are allowed, default 1
+//
+// An argument matching nothing declared becomes a positional, even when it
+// starts with a dash. That is deliberate and preserves what every tool did
+// by hand: "check -x" reports "not an mm.mdy manifest: -x" rather than an
+// unknown-flag error, because -x lands in the manifest position.
+class Options {
+public:
+    explicit Options(std::string_view tool) : tool_(tool) {}
+
+    Options(const Options&) = delete;
+    Options& operator=(const Options&) = delete;
+    Options(Options&&) = delete;
+    Options& operator=(Options&&) = delete;
+
+    void flag(std::string_view name) { flags_.emplace_back(name); }
+
+    void option(std::string_view name, std::string_view requires_hint = "an argument") {
+        options_.emplace_back(name);
+        hints_.emplace_back(requires_hint);
+    }
+
+    void assigned(std::string_view prefix) { assigned_.emplace_back(prefix); }
+
+    void positional_limit(std::size_t limit) { limit_ = limit; }
+
+    [[nodiscard]] Cli parse(int argc, char** argv);
+
+    [[nodiscard]] bool verbose() const { return verbose_; }
+
+    [[nodiscard]] bool seen(std::string_view name) const { return named(seen_, name); }
+
+    // Every value given for an option() or assigned() name, in order.
+    [[nodiscard]] std::vector<std::string> values(std::string_view name) const {
+        const auto it = values_.find(name);
+        return it == values_.end() ? std::vector<std::string>{} : it->second;
+    }
+
+    // The first such value, or empty when the name was not given.
+    [[nodiscard]] std::string value(std::string_view name) const {
+        const auto all = values(name);
+        return all.empty() ? std::string{} : all.front();
+    }
+
+    [[nodiscard]] const std::vector<std::string>& positional() const { return positional_; }
+
+private:
+    [[nodiscard]] static bool named(const std::vector<std::string>& names, std::string_view arg) {
+        for (const auto& name : names)
+            if (name == arg) return true;
+        return false;
+    }
+
+    std::string tool_;
+    std::vector<std::string> flags_;
+    std::vector<std::string> options_;
+    std::vector<std::string> hints_;
+    std::vector<std::string> assigned_;
+    std::size_t limit_ = 1;
+
+    bool verbose_ = false;
+    std::vector<std::string> seen_;
+    std::map<std::string, std::vector<std::string>, std::less<>> values_;
+    std::vector<std::string> positional_;
+};
+
+Cli Options::parse(int argc, char** argv) {
+    for (int i = 1; i < argc; ++i) {
+        const std::string_view arg = argv[i];
+
+        if (verbose_flag(arg)) {
+            verbose_ = true;
+            continue;
+        }
+
+        if (named(flags_, arg)) {
+            if (!seen(arg)) seen_.emplace_back(arg);
+            continue;
+        }
+
+        bool handled = false;
+        for (const auto& prefix : assigned_) {
+            if (arg.size() < prefix.size() || arg.substr(0, prefix.size()) != prefix) continue;
+            values_[prefix].emplace_back(arg.substr(prefix.size()));
+            handled = true;
+            break;
+        }
+        if (handled) continue;
+
+        for (std::size_t n = 0; n < options_.size(); ++n) {
+            if (options_[n] != arg) continue;
+            if (i + 1 >= argc) {
+                std::cerr << tool_ << ": " << arg << " requires " << hints_[n] << "\n";
+                return Cli::usage;
+            }
+            values_[options_[n]].emplace_back(argv[++i]);
+            handled = true;
+            break;
+        }
+        if (handled) continue;
+
+        if (positional_.size() >= limit_) {
+            unexpected_argument(tool_, arg);
+            return Cli::usage;
+        }
+        positional_.emplace_back(arg);
+    }
+
+    return Cli::ok;
 }
 
 // Validates a manifest path that has already been resolved (see

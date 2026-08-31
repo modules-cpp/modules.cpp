@@ -483,36 +483,28 @@ int MdyApp::run() {
     const int argc = argc_;
     char** const argv = argv_;
 
-    std::filesystem::path mdy_file;
+    mm::app::Options options("mdy");
+    options.flag("-s");
+    options.flag("-h");
+    options.assigned("-o=");
+    if (options.parse(argc, argv) != mm::app::Cli::ok) return 2;
+
+    if (options.seen("-s")) return sample();
+
+    const bool verbose = options.verbose();
+    const bool html = options.seen("-h");
+
     // build mirrors the source layout already, so a manifest's page sits beside
     // the objects built from that same directory: docs/mm.mdy -> out/docs/
     // index.html, and the project manifest -> out/index.html.
-    std::filesystem::path out_dir = "out";
-    bool verbose = false;
-    bool html = false;
+    const auto given_out = options.value("-o=");
+    const std::filesystem::path out_dir = given_out.empty() ? "out" : given_out;
 
-    for (int i = 1; i < argc; ++i) {
-        const std::string_view arg = argv[i];
-        if (mm::app::verbose_flag(arg))
-            verbose = true;
-        else if (arg == "-s")
-            return sample();
-        else if (arg == "-h")
-            html = true;
-        else if (arg.starts_with("-o="))
-            out_dir = arg.substr(3);
-        else if (mdy_file.empty())
-            mdy_file = arg;
-        else {
-            mm::app::unexpected_argument("mdy", arg);
-            return 2;
-        }
-    }
-
-    if (mdy_file.empty()) {
+    if (options.positional().empty()) {
         std::cerr << "usage: mdy [-s] | <file.mdy> [-v|--verbose] [-h] [-o=<dir>]\n";
         return 2;
     }
+    const std::filesystem::path mdy_file = options.positional().front();
 
     if (!std::filesystem::exists(mdy_file)) {
         std::cerr << "file not found " << mdy_file << "\n";
