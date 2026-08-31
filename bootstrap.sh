@@ -1,8 +1,13 @@
+#!/bin/sh
 # Pawel Wodnicki (C) 2026
 # 32bitmicro LLC (C) 2026
 #
 # shell script to bootstrap modules.cpp with host c++-20 compiler
 #
+# the shebang above is required: without it "set -e" has no effect when the
+# script is executed directly
+#
+set -e
 
 MCCP="c++"
 MCCP_VERSION=`$MCCP --version`
@@ -17,9 +22,9 @@ echo
 MM_CPPFLAGS="-std=c++20"
 echo "Flags ${MM_CPPFLAGS}"
 echo
-mkdir ${MM_BUILD}
+mkdir -p ${MM_BUILD}
 echo "Compile build0"
-${MCCP} -v ${MM_CPPFLAGS} tools/build/main.cpp -o ${MM_BUILD}/build0
+${MCCP} -v ${MM_CPPFLAGS} tools/build/main.cpp -o ${MM_BUILD}/build0 || exit $?
 echo
 #echo "Build build"
 #${MM_BUILD}/build0 tools/build/mm.mdy

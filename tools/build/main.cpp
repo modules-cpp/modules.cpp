@@ -9,6 +9,8 @@
 #include <map>
 #include <algorithm>
 
+#include <sys/wait.h>
+
 // settigns
 std::map<std::string, std::string> settings;
 // trim whitespace
@@ -17,6 +19,41 @@ std::string trim(std::string s)
 {
     s.erase(std::remove_if(s.begin(), s.end(), ::isspace),s.end());
     return s;
+}
+
+// Single quotes disable every form of shell expansion; a single quote in the
+// text is closed, escaped, and reopened. Matches mm::build::shell_quote,
+// which this stage 0 tool cannot import: it is compiled standalone, before
+// any module exists to import.
+std::string shell_quote(const std::filesystem::path& path)
+{
+    const std::string& text = path.native();
+
+    std::string quoted;
+    quoted.reserve(text.size() + 2);
+
+    quoted += '\'';
+    for (const char c : text) {
+        if (c == '\'')
+            quoted += "'\\''";
+        else
+            quoted += c;
+    }
+    quoted += '\'';
+
+    return quoted;
+}
+
+// Runs command through /bin/sh, returning its exit code rather than the raw
+// wait status std::system() hands back.
+int run(const std::string& command)
+{
+    const int status = std::system(command.c_str());
+    if (status == -1) return -1;
+
+    if (WIFEXITED(status)) return WEXITSTATUS(status);
+    if (WIFSIGNALED(status)) return 128 + WTERMSIG(status);
+    return -1;
 }
 
 // main
@@ -97,7 +134,11 @@ int main(int argc, char** argv)
     std::filesystem::path sourcepath = cwd / basepath / sourcefile;
     std::filesystem::path buildpath = cwd / "out";
     std::filesystem::path outpath = buildpath / outfile;
-    std::string cmd = mmcpp + " " + mmcppflags + " " + sourcepath.string() + " -o " + outpath.string() + "\n";
+    std::string cmd = mmcpp + " " + mmcppflags + " " + shell_quote(sourcepath) + " -o " + shell_quote(outpath);
     std::cout << cmd << "\n";
-    std::system(cmd.c_str());
+    const int status = run(cmd);
+    if (status != 0) {
+        std::cerr << "failed to compile " << sourcepath.string() << "\n";
+        return 4;
+    }
 }

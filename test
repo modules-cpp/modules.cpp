@@ -1,0 +1,19 @@
+#
+# shell script to run test.sh through the shell tool instead of the system
+# shell directly; see test.sh for the plain version
+#
+
+MM_BUILD="out"
+echo "Run test"
+echo
+
+# $* would flatten argument boundaries and let shell metacharacters in an
+# argument reach the /bin/sh -c the shell tool runs the command through, since
+# the whole thing becomes one string passed as one argument. Quoting each "$@"
+# entry individually keeps every argument literal and separate.
+cmd="sh test.sh"
+for arg in "$@"; do
+    cmd="$cmd '$(printf '%s' "$arg" | sed "s/'/'\\\\''/g")'"
+done
+
+${MM_BUILD}/bin/shell "$cmd"

@@ -1,55 +1,59 @@
 #!/bin/sh
 # runs tests
+set -eu
+
+check() {
+    # check <label> <expected status> <actual status> <expected output> <actual output>
+    label=$1
+    expected_status=$2
+    actual_status=$3
+    expected_output=$4
+    actual_output=$5
+
+    printf 'expected: [%s]\n' "$expected_output" >&2
+    printf 'actual:   [%s]\n' "$actual_output" >&2
+    printf 'expected status: %s\n' "$expected_status" >&2
+    printf 'actual status:   %s\n' "$actual_status" >&2
+
+    if [ "$actual_output" != "$expected_output" ]; then
+        echo "FAIL: $label: unexpected output" >&2
+        exit 1
+    fi
+    if [ "$actual_status" != "$expected_status" ]; then
+        echo "FAIL: $label: unexpected exit status" >&2
+        exit 1
+    fi
+    echo "PASS: $label"
+}
+
 echo
 echo test build0
 echo
 expected='modules.cpp build tool
 ./out/build0
 no arguments'
-status=$?
-
-actual=$(./out/build0 2>&1)
-printf 'expected: [%s]\n' "$expected" >&2
-printf 'actual:   [%s]\n' "$actual" >&2
-
-if [ "$actual" = "$expected" ]; then
-    echo "PASS: build0 tool output"
-else
-    echo "FAIL: unexpected output" >&2
-    exit 1
-fi
+expected_status=0
+status=0
+actual=$(./out/build0 2>&1) || status=$?
+check "build0 tool output" "$expected_status" "$status" "$expected" "$actual"
 
 echo
 echo test build1
 echo
 expected='build: not an mm.mdy manifest: -h'
-status=$?
-actual=$(./out/build1 -h    2>&1)
-printf 'expected: [%s]\n' "$expected" >&2
-printf 'actual:   [%s]\n' "$actual" >&2
-
-if [ "$actual" = "$expected" ]; then
-    echo "PASS: build tool output"
-else
-    echo "FAIL: unexpected output" >&2
-    exit 1
-fi
+expected_status=64
+status=0
+actual=$(./out/build1 -h 2>&1) || status=$?
+check "build tool output" "$expected_status" "$status" "$expected" "$actual"
 
 echo
 echo test app main
 echo
 expected=''
-status=$?
-actual=$(./out/apps/main/main 2>&1)
-printf 'expected: [%s]\n' "$expected" >&2
-printf 'actual:   [%s]\n' "$actual" >&2
-
-if [ "$actual" = "$expected" ]; then
-    echo "PASS: build tool output"
-else
-    echo "FAIL: unexpected ou   tput" >&2
-    exit 1
-fi
+expected_status=0
+status=0
+actual=$(./out/apps/main/main 2>&1) || status=$?
+check "app main output" "$expected_status" "$status" "$expected" "$actual"
 
 echo
 echo test app mdy
@@ -66,17 +70,10 @@ Text: Faster compilation speeds than headers
 Text: True logical separation of interface code
 Heading3: Rules
 Text: Modules replace old header-file macro include frameworks entirely.'
-status=$?
-actual=$(./out/apps/mdy/mdy -s 2>&1)
-printf 'expected: [%s]\n' "$expected" >&2
-printf 'actual:   [%s]\n' "$actual" >&2
-
-if [ "$actual" = "$expected" ]; then
-    echo "PASS: build tool output"
-else
-    echo "FAIL: unexpected output" >&2
-    exit 1
-fi
+expected_status=0
+status=0
+actual=$(./out/apps/mdy/mdy -s 2>&1) || status=$?
+check "app mdy output" "$expected_status" "$status" "$expected" "$actual"
 
 echo
 echo test test

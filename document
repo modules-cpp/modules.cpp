@@ -7,4 +7,10 @@
 MM_BUILD="out"
 echo "Run document"
 echo
-${MM_BUILD}/bin/shell "${MM_BUILD}/bin/mdy -h mm.mdy $*"
+
+cmd="${MM_BUILD}/bin/mdy -h mm.mdy"
+for arg in "$@"; do
+    cmd="$cmd '$(printf '%s' "$arg" | sed "s/'/'\\\\''/g")'"
+done
+
+${MM_BUILD}/bin/shell "$cmd"

@@ -1,0 +1,15 @@
+#
+# shell script to run clean.sh through the shell tool instead of the system
+# shell directly; see clean.sh for the plain version
+#
+
+MM_BUILD="out"
+echo "Run clean"
+echo
+
+cmd="sh clean.sh"
+for arg in "$@"; do
+    cmd="$cmd '$(printf '%s' "$arg" | sed "s/'/'\\\\''/g")'"
+done
+
+${MM_BUILD}/bin/shell "$cmd"
