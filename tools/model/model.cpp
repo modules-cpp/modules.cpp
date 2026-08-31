@@ -21,6 +21,10 @@
 //     build0 and build1 (out/build0, out/build1), which mm.model also
 //     represents as Tools despite having no kind:app manifest of their own.
 //
+// Module cache is reported informationally, not as a violation: gcm.cache
+// has no declaring Tool or manifest, and its absence is legitimate any time
+// nothing has compiled a module yet.
+//
 // --configuration additionally reports the project's build configuration
 // (models.configuration, via mm::model::default_configuration): the live
 // compiler/flags/verbose plus the fixed platform/locale/shell policy.
@@ -197,6 +201,15 @@ int main(int argc, char** argv) {
     if (missing == 0)
         std::cout << "  ok: " << checked << " tool(s) exist at their declared invocation()\n";
     violations += missing;
+
+    // Informational, not a violation: unlike a Tool's invocation(), nothing
+    // declares gcm.cache, and its absence is legitimate any time nothing
+    // has compiled a module yet, such as right after clean.sh.
+    std::cout << "\nModule cache\n";
+    if (std::filesystem::exists(root / "gcm.cache"))
+        std::cout << "  present: " << (root / "gcm.cache").string() << "\n";
+    else
+        std::cout << "  absent (nothing has compiled a module yet)\n";
 
     std::cout << "\n";
     if (violations == 0) {

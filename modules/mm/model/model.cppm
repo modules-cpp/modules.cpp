@@ -42,6 +42,11 @@
 // stays a free function: it only reorders whatever operations() returns,
 // so it needs no state of its own.
 //
+// resolved_modules() builds one models::Module per ModuleNode, then a
+// second pass resolves each declared_by().uses() entry against the others
+// by exported_module_name(), since an import can name a module constructed
+// after it.
+//
 // Pawel Wodnicki (C) 2026
 // 32bitmicro LLC (C) 2026
 module;
@@ -53,6 +58,7 @@ module;
 export module mm.model;
 
 import models.configuration;
+import models.modules;
 import models.repository;
 import models.tool;
 import models.workflow;
@@ -83,6 +89,11 @@ public:
     // The seven documented *.sh scripts as Operations, invokes() resolved
     // against this Loaded's own tools().
     [[nodiscard]] std::vector<const models::Operation*> operations() const;
+
+    // The resolved counterpart to repository().modules(): one Module per
+    // ModuleNode, imports() holding actual Module pointers rather than
+    // declared_by().uses()'s plain text.
+    [[nodiscard]] std::vector<const models::Module*> resolved_modules() const;
 
 private:
     Loaded();

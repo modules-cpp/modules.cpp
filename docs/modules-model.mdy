@@ -120,6 +120,16 @@ than invent a project identity, since Repository::root() is typed
 ProjectNode&. tests/mm/model exercises this against the project's own real
 tree.
 
+Loaded::resolved_modules() gives one models::Module per ModuleNode, built in
+two passes: first one Module per declared module, then each one's
+imports() resolved by matching declared_by().uses() text against every
+other Module's exported_module_name(). Two passes because an import can
+name a module constructed after it — there is no declaration order that
+guarantees otherwise. A use: entry that does not resolve is silently
+omitted rather than represented as a dangling edge; mm::build::order already
+rejects that case at build time, so a tree this adapter can load should
+never have one.
+
 # tools/model: the consistency tool
 tools/model is a kind:app target, use: mm.model, installed as out/bin/model.
 It checks the real project against itself through models::Repository and
@@ -131,11 +141,22 @@ it reports is whatever the abstract model itself would tell a reader:
   already rejects an unknown module at build time; this re-derives the same
   fact independently, through the model, as a check that does not require a
   full build to run.
-- build completeness — every models::Tool's invocation() exists on disk:
-  what is declared matches what has actually been built. Expressed over
-  Tool rather than AppNode, so it covers out/bin/<name> for every kind:app
-  manifest and, now that mm.model represents them, out/build0 and
-  out/build1 too.
+- build completeness — every BuiltIn models::Tool's invocation() exists on
+  disk: what is declared matches what has actually been built. Expressed
+  over Tool rather than AppNode, so it covers out/bin/<name> for every
+  kind:app manifest and, now that mm.model represents them, out/build0 and
+  out/build1 too. ThirdParty tools such as c++ are skipped: invocation() is
+  a bare command resolved from $PATH for them, not a root relative path, so
+  checking it against root would always fail.
+
+Module cache is reported alongside the two checks, but informationally, not
+as a violation: gcm.cache has no declaring Tool or manifest — every compiler
+invocation writes to it as a side effect — and its absence is legitimate any
+time nothing has compiled a module yet, such as right after clean.sh. This
+is deliberately not the fuller GeneratedArtifact/models.artifacts machinery
+once considered for this: InstalledBinary and Staged are already fully
+covered by the Tool-based check above, so the only remaining fact worth
+stating for ModuleCache is a single existence check.
 
 --configuration additionally reports models::Configuration, via
 mm::model::default_configuration(verbose): the live compiler/flags (honoring

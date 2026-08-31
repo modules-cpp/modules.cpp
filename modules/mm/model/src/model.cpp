@@ -19,6 +19,7 @@ import mm.mdy;
 import models.configuration;
 import models.document;
 import models.manifest;
+import models.modules;
 import models.tool;
 import models.workflow;
 
@@ -254,6 +255,52 @@ private:
     BuildableData buildable_;
     std::string exported_module_name_;
 };
+
+// The resolved counterpart to a ModuleNode's declaration: imports() holds
+// actual Module pointers rather than declared_by().uses()'s plain text.
+// Built in two passes (build_modules() below), since an import can name any
+// module in the tree, including one constructed after this one.
+class RealModule : public models::Module {
+public:
+    explicit RealModule(const models::ModuleNode& declared_by) : declared_by_(&declared_by) {}
+
+    [[nodiscard]] std::string_view name() const override {
+        return declared_by_->exported_module_name();
+    }
+    [[nodiscard]] const models::ModuleNode& declared_by() const override { return *declared_by_; }
+    [[nodiscard]] std::vector<const models::Module*> imports() const override { return imports_; }
+
+    void set_imports(std::vector<const models::Module*> imports) { imports_ = std::move(imports); }
+
+private:
+    const models::ModuleNode* declared_by_;
+    std::vector<const models::Module*> imports_;
+};
+
+std::vector<std::unique_ptr<RealModule>> build_modules(
+    const std::vector<std::unique_ptr<RealModuleNode>>& module_nodes) {
+    std::vector<std::unique_ptr<RealModule>> result;
+    result.reserve(module_nodes.size());
+    for (const auto& node : module_nodes) result.push_back(std::make_unique<RealModule>(*node));
+
+    std::map<std::string_view, RealModule*> by_name;
+    for (const auto& resolved : result) by_name[resolved->name()] = resolved.get();
+
+    // A use: entry that names something outside this tree (should not
+    // happen in a tree mm::build::order already accepted, but this adapter
+    // does not re-derive that guarantee) is silently omitted rather than
+    // represented as a dangling edge.
+    for (const auto& resolved : result) {
+        std::vector<const models::Module*> imports;
+        for (const auto used : resolved->declared_by().uses()) {
+            const auto it = by_name.find(used);
+            if (it != by_name.end()) imports.push_back(it->second);
+        }
+        resolved->set_imports(std::move(imports));
+    }
+
+    return result;
+}
 
 class RealAppNode : public models::AppNode {
 public:
@@ -569,6 +616,7 @@ struct Loaded::Impl {
     std::unique_ptr<RealRepository> repository;
     std::vector<std::unique_ptr<models::Tool>> tools;
     std::vector<std::unique_ptr<models::Operation>> operations;
+    std::vector<std::unique_ptr<RealModule>> resolved_modules;
 };
 
 Loaded::Loaded() = default;
@@ -667,6 +715,7 @@ Loaded Loaded::load(const std::filesystem::path& root_dir, bool& ok) {
         impl->projects.front().get(), module_ptrs, app_ptrs, test_ptrs, doc_ptrs);
     impl->tools = build_tools(app_ptrs);
     impl->operations = build_operations(impl->tools);
+    impl->resolved_modules = build_modules(impl->modules);
 
     loaded.impl_ = std::move(impl);
 
@@ -688,6 +737,13 @@ std::vector<const models::Operation*> Loaded::operations() const {
     std::vector<const models::Operation*> result;
     result.reserve(impl_->operations.size());
     for (const auto& operation : impl_->operations) result.push_back(operation.get());
+    return result;
+}
+
+std::vector<const models::Module*> Loaded::resolved_modules() const {
+    std::vector<const models::Module*> result;
+    result.reserve(impl_->resolved_modules.size());
+    for (const auto& module : impl_->resolved_modules) result.push_back(module.get());
     return result;
 }
 
