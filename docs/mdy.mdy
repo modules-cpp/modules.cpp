@@ -27,7 +27,7 @@ Each metadata entry is written as a key, a colon, and a value.
 Although the fences resemble YAML front matter, MDY does not implement YAML.
 
 ## Manifest metadata
-The mm key identifies the format version. Every current repository manifest uses 0.1.
+The mm key identifies the format version. Every current repository manifest uses 0.1. mm::build rejects a manifest with a missing, unsupported, or duplicated mm: value; 0.1 is the only version currently understood.
 
 The kind key identifies the manifest role. Values currently used in the repository are project, dir, module, app, and doc.
 
@@ -51,7 +51,7 @@ After the closing front matter fence, every nonempty line becomes one block. Lea
 Only three heading levels are recognized. Inline emphasis, links, code spans, fenced code blocks, ordered lists, nested lists, and paragraph continuation are not parsed specially. Each physical nonempty line is independent.
 
 ## Parser behavior
-Parser::parse_file reads front matter into MDYDocument.metadata and body blocks into MDYDocument.body. If the path does not exist, it returns an empty document.
+Parser::parse_file reads front matter into MDYDocument.metadata and body blocks into MDYDocument.body, and reports how the read went in MDYDocument.status. status is Ok whenever the file was actually read, including a genuinely empty file (an empty file is a valid, if unusual, document, not an error). status is NotFound if the path does not exist, and Unreadable if it exists but could not be opened or read (for example, a directory). All three cases return metadata and body as empty containers; status is what lets a caller tell an empty document apart from one that could not be read at all.
 
 The opening fence must be the first physical line. If it is absent, all nonempty lines are treated as body paragraphs or body block markers. A later fence does not start front matter.
 

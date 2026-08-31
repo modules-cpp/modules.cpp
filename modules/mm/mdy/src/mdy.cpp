@@ -73,9 +73,20 @@ std::vector<Block> Parser::parse(const std::filesystem::path& file_path) {
 
 MDYDocument Parser::parse_file(const std::filesystem::path& file_path) {
     MDYDocument doc;
-    if (!std::filesystem::exists(file_path)) return doc;
+
+    std::error_code ec;
+    const bool exists = std::filesystem::exists(file_path, ec);
+    if (ec || !exists) {
+        doc.status = ParseStatus::NotFound;
+        return doc;
+    }
 
     std::ifstream file(file_path);
+    if (!file.is_open()) {
+        doc.status = ParseStatus::Unreadable;
+        return doc;
+    }
+
     std::string current_line;
 
     // State machine states
@@ -116,13 +127,19 @@ MDYDocument Parser::parse_file(const std::filesystem::path& file_path) {
 
                 doc.metadata[std::string(key)].push_back(std::string(value));
             }
-        } 
+        }
         else {
             // We are in the body. Skip empty spacer lines, parse the rest.
             if (line_view.empty()) continue;
             doc.body.push_back(parse_line(line_view));
         }
     }
+
+    // is_open() is true for a path that opens but cannot actually be read,
+    // such as a directory (POSIX open() on a directory succeeds; the
+    // failure shows up on the first read instead, setting badbit rather
+    // than the eofbit a normal, possibly empty, file ends the loop with).
+    if (file.bad()) doc.status = ParseStatus::Unreadable;
 
     return doc;
 }

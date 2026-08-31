@@ -49,6 +49,19 @@ public:
         out << "---\nmm: 0.1\n" << front_matter << "---\n";
     }
 
+    // Like manifest(), but without the mm: 0.1 line automatically prepended:
+    // for cases that need to control the mm: key themselves (missing,
+    // unsupported, or duplicated).
+    void manifest_raw(std::string_view relative, std::string_view front_matter) const {
+        const auto dir = relative.empty() ? root_ : root_ / relative;
+
+        std::error_code ec;
+        std::filesystem::create_directories(dir, ec);
+
+        std::ofstream out(dir / "mm.mdy");
+        out << "---\n" << front_matter << "---\n";
+    }
+
     [[nodiscard]] const std::filesystem::path& root() const { return root_; }
 
 private:
@@ -183,6 +196,36 @@ void rejects_unknown_kind() {
     mm::test::expect(!loaded.ok, "expected an unknown kind to be rejected");
 }
 
+// A review finding: mm: was declared by every real manifest but never
+// actually checked, so a missing, unsupported, or duplicated version was
+// silently accepted.
+void rejects_missing_mm_version() {
+    const scoped_tree tree{"nommversion"};
+    tree.manifest_raw("", "kind: project\nname: p\n");
+
+    const auto loaded = mm::build::load_tree(tree.root());
+
+    mm::test::expect(!loaded.ok, "expected a manifest with no mm: version to be rejected");
+}
+
+void rejects_unsupported_mm_version() {
+    const scoped_tree tree{"badmmversion"};
+    tree.manifest_raw("", "mm: 0.2\nkind: project\nname: p\n");
+
+    const auto loaded = mm::build::load_tree(tree.root());
+
+    mm::test::expect(!loaded.ok, "expected an unsupported mm: version to be rejected");
+}
+
+void rejects_duplicate_mm_version() {
+    const scoped_tree tree{"dupmmversion"};
+    tree.manifest_raw("", "mm: 0.1\nmm: 0.1\nkind: project\nname: p\n");
+
+    const auto loaded = mm::build::load_tree(tree.root());
+
+    mm::test::expect(!loaded.ok, "expected a manifest declaring mm: twice to be rejected");
+}
+
 void rejects_module_without_module_name() {
     const scoped_tree tree{"nomodule"};
     tree.manifest("", "kind: project\nname: p\nfolder: m\n");
@@ -268,6 +311,9 @@ const mm::test::case_ cases[] = {
     { "accepts a diamond once",               &accepts_a_diamond_once },
     { "rejects missing manifest",             &rejects_missing_manifest },
     { "rejects unknown kind",                 &rejects_unknown_kind },
+    { "rejects missing mm: version",          &rejects_missing_mm_version },
+    { "rejects unsupported mm: version",      &rejects_unsupported_mm_version },
+    { "rejects duplicate mm: version",        &rejects_duplicate_mm_version },
     { "rejects module without module name",   &rejects_module_without_module_name },
     { "rejects target without sources",       &rejects_target_without_sources },
     { "rejects duplicate module name",        &rejects_duplicate_module_name },

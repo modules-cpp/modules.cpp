@@ -143,8 +143,31 @@ bool within_root(const std::filesystem::path& path) {
     return !relative.empty() && *relative.begin() != "..";
 }
 
-bool valid_manifest(std::string_view kind, std::string_view name,
+// The one manifest format version this project understands. Every real
+// manifest declares mm: 0.1; nothing else is defined yet.
+constexpr std::string_view supported_mm_version = "0.1";
+
+bool valid_mm_version(const mm::mdy::MDYDocument& doc, const std::filesystem::path& manifest) {
+    const auto* values = lookup(doc, "mm");
+    if (values == nullptr || values->empty()) {
+        std::cerr << "build: manifest has no mm: version: " << manifest.string() << "\n";
+        return false;
+    }
+    if (values->size() > 1) {
+        std::cerr << "build: manifest declares mm: more than once: " << manifest.string() << "\n";
+        return false;
+    }
+    if (values->front() != supported_mm_version) {
+        std::cerr << "build: unsupported mm: version \"" << values->front() << "\" in "
+                  << manifest.string() << " (supported: " << supported_mm_version << ")\n";
+        return false;
+    }
+    return true;
+}
+
+bool valid_manifest(const mm::mdy::MDYDocument& doc, std::string_view kind, std::string_view name,
                     const std::filesystem::path& manifest) {
+    if (!valid_mm_version(doc, manifest)) return false;
     if (kind != "project" && kind != "dir" && kind != "module" &&
         kind != "app" && kind != "test" && kind != "doc") {
         std::cerr << "build: unknown kind \"" << kind << "\" in " << manifest.string() << "\n";
@@ -175,7 +198,7 @@ void walk(const std::filesystem::path& dir, Tree& tree, WalkState& state) {
     const auto kind = first(doc, "kind");
     const auto name = first(doc, "name");
 
-    if (!valid_manifest(kind, name, manifest)) {
+    if (!valid_manifest(doc, kind, name, manifest)) {
         tree.ok = false;
         state.visited.push_back(canonical);
         return;
@@ -271,7 +294,7 @@ void walk_nodes(const std::filesystem::path& dir, std::size_t parent,
     const auto kind = first(doc, "kind");
     const auto name = first(doc, "name");
 
-    if (!valid_manifest(kind, name, manifest)) {
+    if (!valid_manifest(doc, kind, name, manifest)) {
         ok = false;
         state.visited.push_back(canonical);
         return;
@@ -486,6 +509,8 @@ Target load_test(const std::filesystem::path& manifest_path, bool& ok) {
     }
 
     const auto doc = mm::mdy::Parser::parse_file(manifest_path);
+
+    if (!valid_mm_version(doc, manifest_path)) return target;
 
     const auto kind = first(doc, "kind");
     if (kind != "test") {

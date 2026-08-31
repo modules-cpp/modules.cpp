@@ -8,6 +8,7 @@ unit: modules/mm/mdy/tests/unit.cpp
 unit: tests/mm/mdy/integration.cpp
 unit: tests/mm/mdy/regression.cpp
 unit: tests/mm/mdy/defect.cpp
+unit: tests/mm/mdy/parse_status.cpp
 unit: tests/main.cpp
 ---
 
