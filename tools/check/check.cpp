@@ -31,6 +31,7 @@
 #include <string_view>
 #include <vector>
 
+import mm.app;
 import mm.build;
 
 namespace {
@@ -56,12 +57,12 @@ int main(int argc, char** argv) {
 
     for (int i = 1; i < argc; ++i) {
         const std::string_view arg = argv[i];
-        if (arg == "-v" || arg == "--verbose")
+        if (mm::app::verbose_flag(arg))
             verbose = true;
         else if (manifest_path.empty())
             manifest_path = arg;
         else {
-            std::cerr << "check: unexpected argument: " << arg << "\n";
+            mm::app::unexpected_argument("check", arg);
             return mm::build::exit_usage;
         }
     }
@@ -69,23 +70,10 @@ int main(int argc, char** argv) {
     if (manifest_path.empty()) manifest_path = "mm.mdy";
     manifest_path = mm::build::resolve_manifest(manifest_path);
 
-    if (manifest_path.filename() != "mm.mdy") {
-        std::cerr << "check: not an mm.mdy manifest: " << manifest_path.string() << "\n";
-        return mm::build::exit_usage;
-    }
-    if (!std::filesystem::exists(manifest_path)) {
-        std::cerr << "check: manifest does not exist: " << manifest_path.string() << "\n";
-        return mm::build::exit_manifest;
-    }
-
-    const auto root = std::filesystem::absolute(manifest_path).parent_path();
-
-    std::error_code ec;
-    std::filesystem::current_path(root, ec);
-    if (ec) {
-        std::cerr << "check: cannot enter " << root.string() << ": " << ec.message() << "\n";
-        return mm::build::exit_manifest;
-    }
+    std::filesystem::path root;
+    if (const auto status = mm::app::open_manifest("check", manifest_path, root, true);
+        status != mm::app::Cli::ok)
+        return status == mm::app::Cli::usage ? mm::build::exit_usage : mm::build::exit_manifest;
 
     std::cout << "modules.cpp check tool\n";
     std::cout << "  root " << root.string() << "\n\n";

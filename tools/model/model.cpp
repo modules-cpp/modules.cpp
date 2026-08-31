@@ -48,6 +48,7 @@
 #include <string_view>
 #include <vector>
 
+import mm.app;
 import mm.build;
 import mm.model;
 import models.configuration;
@@ -79,7 +80,7 @@ int main(int argc, char** argv) {
 
     for (int i = 1; i < argc; ++i) {
         const std::string_view arg = argv[i];
-        if (arg == "-v" || arg == "--verbose")
+        if (mm::app::verbose_flag(arg))
             verbose = true;
         else if (arg == "--configuration")
             report_configuration = true;
@@ -88,7 +89,7 @@ int main(int argc, char** argv) {
         else if (manifest_path.empty())
             manifest_path = arg;
         else {
-            std::cerr << "model: unexpected argument: " << arg << "\n";
+            mm::app::unexpected_argument("model", arg);
             return mm::build::exit_usage;
         }
     }
@@ -96,16 +97,12 @@ int main(int argc, char** argv) {
     if (manifest_path.empty()) manifest_path = "mm.mdy";
     manifest_path = mm::build::resolve_manifest(manifest_path);
 
-    if (manifest_path.filename() != "mm.mdy") {
-        std::cerr << "model: not an mm.mdy manifest: " << manifest_path.string() << "\n";
-        return mm::build::exit_usage;
-    }
-    if (!std::filesystem::exists(manifest_path)) {
-        std::cerr << "model: manifest does not exist: " << manifest_path.string() << "\n";
-        return mm::build::exit_manifest;
-    }
-
-    const auto root = std::filesystem::absolute(manifest_path).parent_path();
+    // enter_root is false: mm::model::Loaded::load enters and leaves the
+    // root itself, so this tool must stay where it was invoked.
+    std::filesystem::path root;
+    if (const auto status = mm::app::open_manifest("model", manifest_path, root, false);
+        status != mm::app::Cli::ok)
+        return status == mm::app::Cli::usage ? mm::build::exit_usage : mm::build::exit_manifest;
 
     std::cout << "modules.cpp model tool\n";
     std::cout << "  root " << root.string() << "\n\n";

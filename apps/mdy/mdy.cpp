@@ -493,7 +493,7 @@ int MdyApp::run() {
 
     for (int i = 1; i < argc; ++i) {
         const std::string_view arg = argv[i];
-        if (arg == "-v" || arg == "--verbose")
+        if (mm::app::verbose_flag(arg))
             verbose = true;
         else if (arg == "-s")
             return sample();
@@ -504,7 +504,7 @@ int MdyApp::run() {
         else if (mdy_file.empty())
             mdy_file = arg;
         else {
-            std::cerr << "mdy: unexpected argument: " << arg << "\n";
+            mm::app::unexpected_argument("mdy", arg);
             return 2;
         }
     }

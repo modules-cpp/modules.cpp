@@ -15,6 +15,7 @@
 #include <string_view>
 #include <vector>
 
+import mm.app;
 import mm.build;
 
 int main(int argc, char** argv) {
@@ -23,12 +24,12 @@ int main(int argc, char** argv) {
 
     for (int i = 1; i < argc; ++i) {
         const std::string_view arg = argv[i];
-        if (arg == "-v" || arg == "--verbose")
+        if (mm::app::verbose_flag(arg))
             verbose = true;
         else if (manifest_path.empty())
             manifest_path = arg;
         else {
-            std::cerr << "test: unexpected argument: " << arg << "\n";
+            mm::app::unexpected_argument("test", arg);
             return mm::build::exit_usage;
         }
     }
@@ -40,16 +41,17 @@ int main(int argc, char** argv) {
 
     manifest_path = mm::build::resolve_manifest(manifest_path);
 
-    if (manifest_path.filename() != "mm.mdy") {
-        std::cerr << "test: not an mm.mdy manifest: " << manifest_path.string() << "\n";
-        return mm::build::exit_usage;
-    }
+    // enter_root is false here: the directory this tool needs is not the
+    // manifest's own, but the kind:project root found above it below.
+    std::filesystem::path manifest_dir;
+    if (const auto status = mm::app::open_manifest("test", manifest_path, manifest_dir, false);
+        status != mm::app::Cli::ok)
+        return status == mm::app::Cli::usage ? mm::build::exit_usage : mm::build::exit_manifest;
 
     bool ok = false;
     auto target = mm::build::load_test(manifest_path, ok);
     if (!ok) return mm::build::exit_manifest;
 
-    const auto manifest_dir = std::filesystem::absolute(manifest_path).parent_path();
     const auto root = mm::build::find_project_root(manifest_dir);
     if (root.empty()) {
         std::cerr << "test: no kind:project mm.mdy above " << manifest_dir.string() << "\n";

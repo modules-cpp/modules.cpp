@@ -2,6 +2,7 @@
 mm: 1.0
 kind: app
 name: check
+use: mm.app
 use: mm.build
 file: check.cpp
 ---
