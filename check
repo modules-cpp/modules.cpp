@@ -7,7 +7,10 @@ MM_BUILD="out"
 echo "Run check"
 echo
 
-cmd="${MM_BUILD}/bin/check"
+cmd="sh check.sh"
+# Each argument is single-quoted so it survives the second /bin/sh the
+# shell tool runs the command through: without that, spaces and shell
+# metacharacters in an argument would be re-interpreted there.
 for arg in "$@"; do
     cmd="$cmd '$(printf '%s' "$arg" | sed "s/'/'\\\\''/g")'"
 done

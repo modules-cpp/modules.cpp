@@ -8,22 +8,10 @@ MM_BUILD="out"
 echo "Run document"
 echo
 
-# mm.mdy is only a default manifest, the same way document.sh treats it: a
-# positional (non-flag) argument replaces it rather than being appended
-# alongside it, which would otherwise give the app two positional manifest
-# arguments and fail with "unexpected argument".
-have_manifest=false
-for arg in "$@"; do
-    case "$arg" in
-        -*) ;;
-        *) have_manifest=true ;;
-    esac
-done
-
-cmd="${MM_BUILD}/bin/mdy -h"
-if [ "$have_manifest" = false ]; then
-    cmd="$cmd mm.mdy"
-fi
+cmd="sh document.sh"
+# Each argument is single-quoted so it survives the second /bin/sh the
+# shell tool runs the command through: without that, spaces and shell
+# metacharacters in an argument would be re-interpreted there.
 for arg in "$@"; do
     cmd="$cmd '$(printf '%s' "$arg" | sed "s/'/'\\\\''/g")'"
 done

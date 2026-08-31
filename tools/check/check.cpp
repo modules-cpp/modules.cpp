@@ -123,8 +123,14 @@ int main(int argc, char** argv) {
         " --addon=" + mm::build::shell_quote(addon);
     if (verbose) command += " --verbose";
 
+    // Absolute, not relative to root: the addon recognises its documented
+    // exceptions by project relative path (modules/mm/test/src/test.cpp),
+    // and root is the given manifest's directory, which for a partial check
+    // such as `check modules/mm.mdy` is a subdirectory. Relative paths would
+    // then reach the addon as mm/test/src/test.cpp, matching nothing, and a
+    // partial check would report the very files the specification exempts.
     for (const auto& file : files)
-        command += " " + mm::build::shell_quote(file);
+        command += " " + mm::build::shell_quote(root / file);
 
     std::cout << "Checking " << files.size() << " source file(s) against "
               << addon.string() << "\n\n";
