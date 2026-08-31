@@ -56,8 +56,10 @@ dependency order:
   falls back to raw compiler calls if that leaves no build1), and
   requires_artifacts()/produces() are the input and output side of what a
   single "must run first" edge used to conflate — build.sh's real
-  requirement is that out/build1 exists, not that bootstrap.sh ran in the
-  current session. role() is a three way Role (Required, Optional,
+  requirement is that out/bin/build exists, not that bootstrap.sh ran in the
+  current session (bootstrap.sh's own final step already builds and
+  installs it too, which is why build.sh is not the only thing that can
+  satisfy this). role() is a three way Role (Required, Optional,
   UserInitiated) rather than a bool: clean.sh is not "optional" the way
   check.sh is, it sits outside the forward sequence entirely.
   ArtifactKind also lives here, not in models.artifacts: models.artifacts

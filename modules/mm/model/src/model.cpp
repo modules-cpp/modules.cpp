@@ -519,10 +519,14 @@ std::vector<std::unique_ptr<models::Operation>> build_operations(
             std::vector<models::ArtifactKind>{}, std::move(produces)));
     }
 
+    // build.sh runs out/bin/build, not out/build1: since bootstrap.sh's own
+    // last step now runs a full build too, build.sh is the installed tool
+    // rebuilding itself on every subsequent change, not a second consumer
+    // of the staged bootstrap artifacts.
     result.push_back(std::make_unique<RealOperation>(
         "build", "build.sh", models::Role::Required,
-        std::vector<std::vector<const models::Tool*>>{{build1}},
-        std::vector<models::ArtifactKind>{models::ArtifactKind::Staged}, full_build));
+        std::vector<std::vector<const models::Tool*>>{{build}},
+        std::vector<models::ArtifactKind>{models::ArtifactKind::InstalledBinary}, full_build));
 
     result.push_back(std::make_unique<RealOperation>(
         "test", "test.sh", models::Role::Optional,

@@ -369,9 +369,10 @@ A clean repository can produce all project tools with this sequence:
 - ./test.sh
 - ./document.sh
 
-bootstrap.sh creates out/build0 and out/build1. build.sh uses build1 to build
-the complete project. The installed out/bin/build can then rebuild the project,
-which makes the toolchain self-hosting.
+bootstrap.sh creates out/build0 and out/build1, then runs build1 itself to
+build and install the complete project, out/bin/build included. build.sh
+runs that installed out/bin/build to rebuild the project on every later
+change, which makes the toolchain self-hosting.
 
 An optional, experimental step can follow test.sh:
 

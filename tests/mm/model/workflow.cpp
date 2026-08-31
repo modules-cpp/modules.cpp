@@ -3,6 +3,9 @@
 // tree.
 
 #include <cstddef>
+#include <fstream>
+#include <iterator>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -55,7 +58,14 @@ void bootstrap_has_two_branches_with_the_same_products() {
     mm::test::expect(has_staged, "expected bootstrap to produce Staged regardless of branch");
 }
 
-void build_requires_staged_build1() {
+// A prior version of this test asserted the model's own claim that
+// build.sh invokes build1 and requires Staged, and it kept passing after
+// build.sh actually changed to invoke out/bin/build instead — because it
+// only ever checked the hand authored model against itself, never against
+// build.sh's real content. This version reads the actual script, so a
+// future edit to build.sh that the model is not updated to match fails
+// here instead of silently passing.
+void build_matches_the_real_build_sh() {
     bool ok = false;
     auto loaded = mm::model::Loaded::load(".", ok);
     const auto* build = find_operation(loaded.operations(), "build");
@@ -64,11 +74,23 @@ void build_requires_staged_build1() {
 
     mm::test::expect(build->role() == models::Role::Required, "expected build to be Required");
 
-    const auto requires_artifacts = build->requires_artifacts();
-    bool has_staged = false;
-    for (const auto kind : requires_artifacts)
-        if (kind == models::ArtifactKind::Staged) has_staged = true;
-    mm::test::expect(has_staged, "expected build to require Staged (out/build1)");
+    std::ifstream script("build.sh");
+    const std::string content((std::istreambuf_iterator<char>(script)),
+                              std::istreambuf_iterator<char>());
+    mm::test::expect(content.find("bin/build") != std::string::npos,
+                     "expected build.sh to actually invoke out/bin/build; "
+                     "update the model in build_operations() if this changed");
+
+    bool invokes_build = false;
+    for (const auto* tool : build->invokes(0))
+        if (tool != nullptr && tool->name() == "build") invokes_build = true;
+    mm::test::expect(invokes_build, "expected the model's build operation to invoke the build tool");
+
+    bool requires_installed_binary = false;
+    for (const auto kind : build->requires_artifacts())
+        if (kind == models::ArtifactKind::InstalledBinary) requires_installed_binary = true;
+    mm::test::expect(requires_installed_binary,
+                     "expected build to require InstalledBinary (out/bin/build)");
 }
 
 void clean_is_user_initiated_and_invokes_nothing() {
@@ -128,7 +150,7 @@ void recommended_sequence_matches_the_documented_order() {
 const mm::test::case_ cases[] = {
     { "seven operations are present",                 &seven_operations_are_present },
     { "bootstrap has two branches, same products",     &bootstrap_has_two_branches_with_the_same_products },
-    { "build requires Staged build1",                  &build_requires_staged_build1 },
+    { "build matches the real build.sh",               &build_matches_the_real_build_sh },
     { "clean is UserInitiated and invokes nothing",    &clean_is_user_initiated_and_invokes_nothing },
     { "check and model are Optional",                  &check_and_model_are_optional },
     { "test invokes the test runner four times",       &test_invokes_the_test_runner_four_times },
