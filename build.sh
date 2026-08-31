@@ -6,4 +6,4 @@ MM_BUILD="out"
 echo "Build in ${MM_BUILD}"
 echo
 echo "Build all"
-${MM_BUILD}/build1
+${MM_BUILD}/bin/build

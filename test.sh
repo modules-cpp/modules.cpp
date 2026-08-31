@@ -47,6 +47,15 @@ actual=$(./out/build1 -h 2>&1) || status=$?
 check "build tool output" "$expected_status" "$status" "$expected" "$actual"
 
 echo
+echo test build
+echo
+expected='build: not an mm.mdy manifest: -h'
+expected_status=64
+status=0
+actual=$(./out/bin/build -h 2>&1) || status=$?
+check "build tool output" "$expected_status" "$status" "$expected" "$actual"
+
+echo
 echo test app main
 echo
 expected=''
