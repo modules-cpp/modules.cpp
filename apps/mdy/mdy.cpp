@@ -134,38 +134,44 @@ std::string title_of(const mm::mdy::MDYDocument& doc, const std::filesystem::pat
 }
 
 // Front matter is document content, not decoration: for most manifests it is
-// the only content there is. folder: values link to the child page, because
-// that is the whole point of walking a tree; file: values do the same for a
-// doc manifest, linking to the page render_doc_files writes for that entry.
-std::string to_metadata(const mm::mdy::MDYDocument& doc, bool link_folders, bool link_files) {
-    if (doc.metadata.empty()) return {};
-
-    std::string out = "<dl>\n";
+// the only content there is. file: values on a doc manifest link to the page
+// render_doc_files writes for that entry.
+//
+// children_in_nav drops folder: entries. On a project or dir page the
+// navigation above already lists exactly those children, each with its kind
+// and a relative link computed for that page, so repeating the raw values
+// here put every child on the page twice. The navigation list is the better
+// of the two, so this one goes. A folder: value that is not among those
+// children was reached through another parent first, and is listed on that
+// parent's page instead.
+std::string to_metadata(const mm::mdy::MDYDocument& doc, bool children_in_nav, bool link_files) {
+    std::string body;
 
     for (const auto& [key, values] : doc.metadata) {
-        out += "  <dt>" + escape(key) + "</dt>\n";
+        if (children_in_nav && key == "folder") continue;
+
+        body += "  <dt>" + escape(key) + "</dt>\n";
 
         for (const auto& value : values) {
-            out += "  <dd>";
-            if (link_folders && key == "folder" && !value.empty())
-                out += "<a href=\"" + escape(value) + "/index.html\">" + escape(value) + "</a>";
-            else if (link_files && key == "file" && !value.empty())
-                out += "<a href=\"" + escape(std::filesystem::path(value).stem().string()) +
-                       ".html\">" + escape(value) + "</a>";
+            body += "  <dd>";
+            if (link_files && key == "file" && !value.empty())
+                body += "<a href=\"" + escape(std::filesystem::path(value).stem().string()) +
+                        ".html\">" + escape(value) + "</a>";
             else
-                out += escape(value);
-            out += "</dd>\n";
+                body += escape(value);
+            body += "</dd>\n";
         }
     }
 
-    out += "</dl>\n";
-    return out;
+    if (body.empty()) return {};
+
+    return "<dl>\n" + body + "</dl>\n";
 }
 
 // A complete document rather than a fragment, so the output can be written
 // straight to a file and opened.
 std::string to_document(const mm::mdy::MDYDocument& doc, const std::filesystem::path& file,
-                        std::string_view nav = {}, bool link_folders = false,
+                        std::string_view nav = {}, bool children_in_nav = false,
                         bool link_files = false) {
     std::string out;
 
@@ -177,7 +183,7 @@ std::string to_document(const mm::mdy::MDYDocument& doc, const std::filesystem::
     out += "</head>\n";
     out += "<body>\n";
     out += nav;
-    out += to_metadata(doc, link_folders, link_files);
+    out += to_metadata(doc, children_in_nav, link_files);
     out += to_html(doc.body);
     out += "</body>\n";
     out += "</html>\n";
