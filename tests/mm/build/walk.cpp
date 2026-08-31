@@ -203,6 +203,48 @@ void rejects_target_without_sources() {
     mm::test::expect(!loaded.ok, "expected an app with no file: entries to be rejected");
 }
 
+// A review finding: index_of_module returns the first target with a given
+// module: name, so two modules exporting the same name were silently
+// treated as interchangeable rather than rejected.
+void rejects_duplicate_module_name() {
+    const scoped_tree tree{"dupmodule"};
+    tree.manifest("", "kind: project\nname: p\nfolder: a\nfolder: b\n");
+    tree.manifest("a", "kind: module\nname: a\nmodule: dup\nfile: a.cppm\n");
+    tree.manifest("b", "kind: module\nname: b\nmodule: dup\nfile: b.cppm\n");
+
+    const auto loaded = mm::build::load_tree(tree.root());
+
+    mm::test::expect(!loaded.ok, "expected two modules exporting the same name to be rejected");
+}
+
+// The same finding: install() writes an app's binary to out/bin/<name>, so
+// two apps with the same name would silently overwrite one another there.
+void rejects_duplicate_app_name() {
+    const scoped_tree tree{"dupapp"};
+    tree.manifest("", "kind: project\nname: p\nfolder: a\nfolder: b\n");
+    tree.manifest("a", "kind: app\nname: dup\nfile: a.cpp\n");
+    tree.manifest("b", "kind: app\nname: dup\nfile: b.cpp\n");
+
+    const auto loaded = mm::build::load_tree(tree.root());
+
+    mm::test::expect(!loaded.ok, "expected two apps with the same name to be rejected");
+}
+
+// A module and an app may not share a name either: both would resolve to
+// out/bin/<name>, the same collision as two apps, just across kinds.
+void rejects_duplicate_name_across_kinds() {
+    const scoped_tree tree{"dupkind"};
+    tree.manifest("", "kind: project\nname: p\nfolder: a\nfolder: b\n");
+    tree.manifest("a", "kind: module\nname: dup\nmodule: mm.dup\nfile: a.cppm\n");
+    tree.manifest("b", "kind: app\nname: dup\nfile: b.cpp\n");
+
+    const auto loaded = mm::build::load_tree(tree.root());
+
+    mm::test::expect(loaded.ok,
+                     "a module and an app sharing a name is not itself rejected: "
+                     "only the app installs to out/bin");
+}
+
 // A doc target is prose, so an empty file: list is allowed where it would be an
 // error for anything that gets compiled.
 void accepts_doc_without_files() {
@@ -228,6 +270,9 @@ const mm::test::case_ cases[] = {
     { "rejects unknown kind",                 &rejects_unknown_kind },
     { "rejects module without module name",   &rejects_module_without_module_name },
     { "rejects target without sources",       &rejects_target_without_sources },
+    { "rejects duplicate module name",        &rejects_duplicate_module_name },
+    { "rejects duplicate app name",           &rejects_duplicate_app_name },
+    { "accepts duplicate name across kinds",  &rejects_duplicate_name_across_kinds },
     { "accepts doc without files",            &accepts_doc_without_files },
 };
 

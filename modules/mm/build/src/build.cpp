@@ -4,6 +4,7 @@ module;
 #include <cstdlib>
 #include <filesystem>
 #include <iostream>
+#include <map>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -356,6 +357,58 @@ Tree load_tree(const std::filesystem::path& dir) {
     }
 
     walk(dir, tree, state);
+    if (!tree.ok) return tree;
+
+    // Checked once the whole tree is built, not incrementally during the
+    // walk, since a duplicate can only be found once every candidate name
+    // is known. Without this, index_of_module returns whichever target
+    // with a given module: name it happens to see first, silently treating
+    // two real, different modules as interchangeable; two app: targets with
+    // the same name would silently install() one over the other under
+    // out/bin; and nothing at all currently rules out two different
+    // manifests claiming the same directory.
+    std::map<std::string, const Target*, std::less<>> modules_by_name;
+    std::map<std::string, const Target*, std::less<>> apps_by_name;
+    std::map<std::filesystem::path, const Target*> targets_by_dir;
+
+    auto check_dir = [&](const Target& target) {
+        const auto it = targets_by_dir.find(target.dir);
+        if (it != targets_by_dir.end()) {
+            std::cerr << "build: " << target.dir.string() << " is declared by more than one manifest: "
+                      << it->second->name << " and " << target.name << "\n";
+            tree.ok = false;
+            return;
+        }
+        targets_by_dir[target.dir] = &target;
+    };
+
+    for (const auto& target : tree.targets) {
+        check_dir(target);
+
+        if (target.kind == "module") {
+            const auto it = modules_by_name.find(target.module_name);
+            if (it != modules_by_name.end()) {
+                std::cerr << "build: module: " << target.module_name << " is exported by both "
+                          << it->second->dir.string() << " and " << target.dir.string() << "\n";
+                tree.ok = false;
+            } else {
+                modules_by_name[target.module_name] = &target;
+            }
+        } else if (target.kind == "app") {
+            const auto it = apps_by_name.find(target.name);
+            if (it != apps_by_name.end()) {
+                std::cerr << "build: app name \"" << target.name << "\" is declared by both "
+                          << it->second->dir.string() << " and " << target.dir.string() << "\n";
+                tree.ok = false;
+            } else {
+                apps_by_name[target.name] = &target;
+            }
+        }
+    }
+
+    for (const auto& target : tree.tests) check_dir(target);
+    for (const auto& target : tree.docs) check_dir(target);
+
     return tree;
 }
 
