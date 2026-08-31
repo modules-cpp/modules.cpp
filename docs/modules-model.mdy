@@ -88,12 +88,16 @@ since the root manifest has no folder: tests entry. Each node is given a
 real document() by re-parsing its own mm.mdy through mm::mdy::Parser, since
 mm::build::Target does not keep the MDYDocument it read.
 
-This adapter does not yet resolve ManifestNode::parent() or children():
-every node it builds returns nullptr or empty for those, because
-mm::build::load_tree's Target does not carry the structural nesting
-mm::build::Node does. Filling them in would mean also walking load_nodes and
-cross-referencing the two by directory; nothing that currently imports
-mm.model needs it.
+parent() and children() are resolved for real, by also walking
+mm::build::load_nodes and cross referencing its structural Node list against
+the Target lists by directory: a node built from load_nodes carries its
+parent's and children's indices into a shared table, filled in as every node
+is constructed, so each node's parent()/children() looks up a real sibling
+rather than returning nullptr or empty. root() is the manifest load_nodes
+visited first; if that manifest is not kind:project, load() fails rather
+than invent a project identity, since Repository::root() is typed
+ProjectNode&. tests/mm/model exercises this against the project's own real
+tree.
 
 # tools/model: the consistency tool
 tools/model is a kind:app target, use: mm.model, installed as out/bin/model.
@@ -124,9 +128,6 @@ prose (for example, "is every *.sh script mentioned in the Repository layout
 tree") is future work, not something tools/model does today.
 
 # Boundaries
-- models/ has no children()/parent() resolution yet, as above; nothing here
-  currently needs a full structural walk, only the flat sets
-  Repository::modules()/apps()/tests()/docs() already provide.
 - models.workflow and models.artifacts have no adapter yet: mm.model builds
   models.document, models.manifest, models.repository, and, for kind:app
   manifests only, models.tool. A tool that needs Operation or

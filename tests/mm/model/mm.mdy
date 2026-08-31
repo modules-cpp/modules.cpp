@@ -1,0 +1,14 @@
+---
+mm: 0.1
+kind: test
+name: model
+use: mm.test
+use: mm.model
+unit: tests/mm/model/structure.cpp
+unit: tests/main.cpp
+---
+
+# mm.model test target
+
+`use: mm.model` pulls in mm.build, mm.mdy, and every models.* module it
+depends on transitively, so this manifest never names them.

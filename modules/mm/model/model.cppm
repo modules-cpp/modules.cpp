@@ -5,13 +5,14 @@
 // lifetime.
 //
 // This adapter builds modules(), apps(), tests(), and docs() from
-// mm::build::load_tree's Target lists, and gives every node a real
-// document() by re-parsing its own mm.mdy through mm::mdy::Parser. It does
-// not yet resolve ManifestNode::parent()/children(): every node built here
-// returns nullptr/empty for those, since load_tree's Target does not carry
-// the structural nesting mm::build::Node does. A future revision that also
-// walks mm::build::load_nodes could fill them in; tools/model, the first
-// consumer of this adapter, does not need them.
+// mm::build::load_tree's Target lists, gives every node a real document() by
+// re-parsing its own mm.mdy through mm::mdy::Parser, and resolves
+// parent()/children() from mm::build::load_nodes's structural walk, cross
+// referenced against the Target lists by directory. root() is the manifest
+// load_nodes actually visited first: if it is not kind:project (a subtree
+// load rooted at a kind:dir manifest, for instance), load() fails rather
+// than fabricate a project identity for it, since Repository::root() is
+// typed ProjectNode&.
 //
 // tools() gives one models::Tool per kind:app manifest, each
 // Provenance::BuiltIn with declared_by() pointing at that app's AppNode.

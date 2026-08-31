@@ -84,8 +84,9 @@ private:
     std::vector<std::unique_ptr<RealBlock>> blocks_;
 };
 
-// Every node re-parses its own mm.mdy: load_tree's Target does not keep the
-// MDYDocument it read, only the kind/name/sources/uses extracted from it.
+// Every node re-parses its own mm.mdy: mm::build::Node and mm::build::Target
+// both discard the MDYDocument they read, keeping only the fields each one
+// cares about.
 RealDocument parse_document(const std::filesystem::path& dir) {
     const auto path = dir / "mm.mdy";
     return RealDocument(path, mm::mdy::Parser::parse_file(path));
@@ -104,23 +105,44 @@ private:
     std::string module_name_;
 };
 
-// Shared storage and accessors for every leaf node kind. parent() and
-// children() are not resolved by this adapter; see model.cppm.
+// Shared storage and accessors for every leaf node kind, including
+// parent()/children(): both are resolved against an index table built once
+// all nodes exist (see Loaded::load), which every RealXNode holds a pointer
+// to rather than a copy of, so it does not matter that the table is empty
+// at the moment any individual node's own NodeData is constructed.
 class NodeData {
 public:
-    NodeData(std::string name, std::filesystem::path directory)
-        : name_(std::move(name)), directory_(directory), document_(parse_document(directory)) {}
+    NodeData(std::string name, std::filesystem::path directory, std::size_t parent_index,
+             std::vector<std::size_t> children_indices,
+             const std::vector<const models::ManifestNode*>* index)
+        : name_(std::move(name)), directory_(std::move(directory)), parent_index_(parent_index),
+          children_indices_(std::move(children_indices)), index_(index),
+          document_(parse_document(directory_)) {}
 
     [[nodiscard]] std::string_view name() const { return name_; }
     [[nodiscard]] std::filesystem::path manifest_path() const { return directory_ / "mm.mdy"; }
     [[nodiscard]] std::filesystem::path directory() const { return directory_; }
-    [[nodiscard]] const models::ManifestNode* parent() const { return nullptr; }
-    [[nodiscard]] std::vector<const models::ManifestNode*> children() const { return {}; }
+
+    [[nodiscard]] const models::ManifestNode* parent() const {
+        if (parent_index_ == mm::build::no_parent) return nullptr;
+        return (*index_)[parent_index_];
+    }
+
+    [[nodiscard]] std::vector<const models::ManifestNode*> children() const {
+        std::vector<const models::ManifestNode*> result;
+        result.reserve(children_indices_.size());
+        for (const auto child_index : children_indices_) result.push_back((*index_)[child_index]);
+        return result;
+    }
+
     [[nodiscard]] const models::Document& document() const { return document_; }
 
 private:
     std::string name_;
     std::filesystem::path directory_;
+    std::size_t parent_index_;
+    std::vector<std::size_t> children_indices_;
+    const std::vector<const models::ManifestNode*>* index_;
     RealDocument document_;
 };
 
@@ -155,8 +177,22 @@ private:
 
 class RealProjectNode : public models::ProjectNode {
 public:
-    RealProjectNode(std::string name, std::filesystem::path directory)
-        : data_(std::move(name), std::move(directory)) {}
+    explicit RealProjectNode(NodeData data) : data_(std::move(data)) {}
+
+    [[nodiscard]] std::string_view name() const override { return data_.name(); }
+    [[nodiscard]] std::filesystem::path manifest_path() const override { return data_.manifest_path(); }
+    [[nodiscard]] std::filesystem::path directory() const override { return data_.directory(); }
+    [[nodiscard]] const models::ManifestNode* parent() const override { return data_.parent(); }
+    [[nodiscard]] std::vector<const models::ManifestNode*> children() const override { return data_.children(); }
+    [[nodiscard]] const models::Document& document() const override { return data_.document(); }
+
+private:
+    NodeData data_;
+};
+
+class RealDirectoryNode : public models::DirectoryNode {
+public:
+    explicit RealDirectoryNode(NodeData data) : data_(std::move(data)) {}
 
     [[nodiscard]] std::string_view name() const override { return data_.name(); }
     [[nodiscard]] std::filesystem::path manifest_path() const override { return data_.manifest_path(); }
@@ -171,7 +207,7 @@ private:
 
 class RealDocNode : public models::DocNode {
 public:
-    explicit RealDocNode(const mm::build::Target& target) : data_(target.name, target.dir) {
+    RealDocNode(NodeData data, const mm::build::Target& target) : data_(std::move(data)) {
         // target.sources is already root relative for a kind:doc target
         // (mm::build joins each file: value with target.dir and normalizes
         // it before storing it), so files() reuses that rather than
@@ -196,9 +232,8 @@ private:
 
 class RealModuleNode : public models::ModuleNode {
 public:
-    explicit RealModuleNode(const mm::build::Target& target)
-        : data_(target.name, target.dir), buildable_(target),
-          exported_module_name_(target.module_name) {}
+    RealModuleNode(NodeData data, const mm::build::Target& target)
+        : data_(std::move(data)), buildable_(target), exported_module_name_(target.module_name) {}
 
     [[nodiscard]] std::string_view name() const override { return data_.name(); }
     [[nodiscard]] std::filesystem::path manifest_path() const override { return data_.manifest_path(); }
@@ -218,8 +253,8 @@ private:
 
 class RealAppNode : public models::AppNode {
 public:
-    explicit RealAppNode(const mm::build::Target& target)
-        : data_(target.name, target.dir), buildable_(target) {}
+    RealAppNode(NodeData data, const mm::build::Target& target)
+        : data_(std::move(data)), buildable_(target) {}
 
     [[nodiscard]] std::string_view name() const override { return data_.name(); }
     [[nodiscard]] std::filesystem::path manifest_path() const override { return data_.manifest_path(); }
@@ -237,8 +272,8 @@ private:
 
 class RealTestNode : public models::TestNode {
 public:
-    explicit RealTestNode(const mm::build::Target& target)
-        : data_(target.name, target.dir), buildable_(target) {}
+    RealTestNode(NodeData data, const mm::build::Target& target)
+        : data_(std::move(data)), buildable_(target) {}
 
     [[nodiscard]] std::string_view name() const override { return data_.name(); }
     [[nodiscard]] std::filesystem::path manifest_path() const override { return data_.manifest_path(); }
@@ -256,59 +291,26 @@ private:
 
 class RealRepository : public models::Repository {
 public:
-    RealRepository(std::unique_ptr<RealProjectNode> root,
-                    std::vector<std::unique_ptr<RealModuleNode>> modules,
-                    std::vector<std::unique_ptr<RealAppNode>> apps,
-                    std::vector<std::unique_ptr<RealTestNode>> tests,
-                    std::vector<std::unique_ptr<RealDocNode>> docs)
-        : root_(std::move(root)), modules_(std::move(modules)), apps_(std::move(apps)),
+    RealRepository(const RealProjectNode* root, std::vector<const models::ModuleNode*> modules,
+                    std::vector<const models::AppNode*> apps,
+                    std::vector<const models::TestNode*> tests,
+                    std::vector<const models::DocNode*> docs)
+        : root_(root), modules_(std::move(modules)), apps_(std::move(apps)),
           tests_(std::move(tests)), docs_(std::move(docs)) {}
 
     [[nodiscard]] const models::ProjectNode& root() const override { return *root_; }
-
-    [[nodiscard]] std::vector<const models::ModuleNode*> modules() const override {
-        std::vector<const models::ModuleNode*> result;
-        result.reserve(modules_.size());
-        for (const auto& item : modules_) result.push_back(item.get());
-        return result;
-    }
-
-    [[nodiscard]] std::vector<const models::AppNode*> apps() const override {
-        std::vector<const models::AppNode*> result;
-        result.reserve(apps_.size());
-        for (const auto& item : apps_) result.push_back(item.get());
-        return result;
-    }
-
-    [[nodiscard]] std::vector<const models::TestNode*> tests() const override {
-        std::vector<const models::TestNode*> result;
-        result.reserve(tests_.size());
-        for (const auto& item : tests_) result.push_back(item.get());
-        return result;
-    }
-
-    [[nodiscard]] std::vector<const models::DocNode*> docs() const override {
-        std::vector<const models::DocNode*> result;
-        result.reserve(docs_.size());
-        for (const auto& item : docs_) result.push_back(item.get());
-        return result;
-    }
+    [[nodiscard]] std::vector<const models::ModuleNode*> modules() const override { return modules_; }
+    [[nodiscard]] std::vector<const models::AppNode*> apps() const override { return apps_; }
+    [[nodiscard]] std::vector<const models::TestNode*> tests() const override { return tests_; }
+    [[nodiscard]] std::vector<const models::DocNode*> docs() const override { return docs_; }
 
 private:
-    std::unique_ptr<RealProjectNode> root_;
-    std::vector<std::unique_ptr<RealModuleNode>> modules_;
-    std::vector<std::unique_ptr<RealAppNode>> apps_;
-    std::vector<std::unique_ptr<RealTestNode>> tests_;
-    std::vector<std::unique_ptr<RealDocNode>> docs_;
+    const RealProjectNode* root_;
+    std::vector<const models::ModuleNode*> modules_;
+    std::vector<const models::AppNode*> apps_;
+    std::vector<const models::TestNode*> tests_;
+    std::vector<const models::DocNode*> docs_;
 };
-
-void collect(const mm::build::Tree& tree, std::vector<std::unique_ptr<RealModuleNode>>& modules,
-             std::vector<std::unique_ptr<RealAppNode>>& apps) {
-    for (const auto& target : tree.targets) {
-        if (target.kind == "module") modules.push_back(std::make_unique<RealModuleNode>(target));
-        else if (target.kind == "app") apps.push_back(std::make_unique<RealAppNode>(target));
-    }
-}
 
 // One models::Tool per kind:app manifest, matching what build.sh installs:
 // every app is written to out/bin/<name>. See model.cppm for what this
@@ -337,10 +339,44 @@ std::vector<std::unique_ptr<RealTool>> build_tools(const std::vector<const model
     return result;
 }
 
+// Offsets every index a load_nodes() result carries by base, so a second
+// tree's indices land past the first tree's when the two are appended into
+// one combined vector. no_parent is a sentinel, not a real index, and must
+// pass through unchanged.
+void offset_indices(std::vector<mm::build::Node>& nodes, std::size_t base) {
+    for (auto& node : nodes) {
+        if (node.parent != mm::build::no_parent) node.parent += base;
+        for (auto& child : node.children) child += base;
+    }
+}
+
+using TargetIndex = std::map<std::filesystem::path, const mm::build::Target*>;
+
+TargetIndex index_by_dir(const std::vector<mm::build::Target>& a,
+                         const std::vector<mm::build::Target>& b) {
+    TargetIndex index;
+    for (const auto& target : a) index[target.dir] = &target;
+    for (const auto& target : b) index[target.dir] = &target;
+    return index;
+}
+
 }  // namespace
 
 struct Loaded::Impl {
-    RealRepository repository;
+    // node index (into the combined load_nodes() result) -> pointer. Filled
+    // in as each node below is constructed; every NodeData holds a pointer
+    // to this vector rather than a copy, so parent()/children() see it
+    // fully populated by the time a caller can observe Loaded at all.
+    std::vector<const models::ManifestNode*> index;
+
+    std::vector<std::unique_ptr<RealProjectNode>> projects;
+    std::vector<std::unique_ptr<RealDirectoryNode>> directories;
+    std::vector<std::unique_ptr<RealModuleNode>> modules;
+    std::vector<std::unique_ptr<RealAppNode>> apps;
+    std::vector<std::unique_ptr<RealTestNode>> tests;
+    std::vector<std::unique_ptr<RealDocNode>> docs;
+
+    std::unique_ptr<RealRepository> repository;
     std::vector<std::unique_ptr<RealTool>> tools;
 };
 
@@ -351,58 +387,118 @@ Loaded::~Loaded() = default;
 
 Loaded Loaded::load(const std::filesystem::path& root_dir, bool& ok) {
     Loaded loaded;
+    ok = false;
 
     std::error_code ec;
     const auto previous = std::filesystem::current_path();
     std::filesystem::current_path(root_dir, ec);
-    if (ec) {
-        ok = false;
-        return loaded;
-    }
+    if (ec) return loaded;
 
     auto tree = mm::build::load_tree(".");
-    if (!tree.ok) {
-        ok = false;
+    bool nodes_ok = false;
+    auto nodes = mm::build::load_nodes(".", nodes_ok);
+    if (!tree.ok || !nodes_ok) {
         std::filesystem::current_path(previous, ec);
         return loaded;
     }
 
-    std::vector<std::unique_ptr<RealModuleNode>> modules;
-    std::vector<std::unique_ptr<RealAppNode>> apps;
-    std::vector<std::unique_ptr<RealTestNode>> tests;
-    std::vector<std::unique_ptr<RealDocNode>> docs;
-
-    collect(tree, modules, apps);
-    for (const auto& target : tree.docs) docs.push_back(std::make_unique<RealDocNode>(target));
-
     // The root manifest has no folder: tests entry (docs/modules.mdy), so the
-    // tests/ subtree needs its own walk, same as tools/check.
+    // tests/ subtree needs its own walk of both kinds, same as tools/check.
+    mm::build::Tree test_tree;
     if (std::filesystem::exists("tests")) {
-        auto test_tree = mm::build::load_tree("tests");
-        if (!test_tree.ok) {
-            ok = false;
+        test_tree = mm::build::load_tree("tests");
+        bool test_nodes_ok = false;
+        auto test_nodes = mm::build::load_nodes("tests", test_nodes_ok);
+        if (!test_tree.ok || !test_nodes_ok) {
             std::filesystem::current_path(previous, ec);
             return loaded;
         }
-        collect(test_tree, modules, apps);
-        for (const auto& target : test_tree.tests)
-            tests.push_back(std::make_unique<RealTestNode>(target));
+        offset_indices(test_nodes, nodes.size());
+        nodes.insert(nodes.end(), test_nodes.begin(), test_nodes.end());
     }
 
-    auto root = std::make_unique<RealProjectNode>("modules.cpp", ".");
+    if (nodes.empty() || nodes.front().kind != "project") {
+        // Repository::root() is typed ProjectNode&: a subtree load whose
+        // root is not kind:project (or an empty tree) cannot be represented
+        // truthfully, so this is a load failure rather than a node this
+        // adapter fabricates a project identity for.
+        std::filesystem::current_path(previous, ec);
+        return loaded;
+    }
 
-    RealRepository repository(std::move(root), std::move(modules), std::move(apps),
-                               std::move(tests), std::move(docs));
-    auto tools = build_tools(repository.apps());
+    const auto target_index = index_by_dir(tree.targets, test_tree.targets);
+    const auto doc_index = index_by_dir(tree.docs, test_tree.docs);
+    const auto test_index = index_by_dir(tree.tests, test_tree.tests);
 
-    loaded.impl_ = std::make_unique<Impl>(Impl{std::move(repository), std::move(tools)});
+    auto impl = std::make_unique<Impl>();
+    impl->index.assign(nodes.size(), nullptr);
+
+    for (std::size_t i = 0; i < nodes.size(); ++i) {
+        const auto& node = nodes[i];
+        NodeData data(node.name, node.dir, node.parent, node.children, &impl->index);
+
+        if (node.kind == "project") {
+            impl->projects.push_back(std::make_unique<RealProjectNode>(std::move(data)));
+            impl->index[i] = impl->projects.back().get();
+        } else if (node.kind == "dir") {
+            impl->directories.push_back(std::make_unique<RealDirectoryNode>(std::move(data)));
+            impl->index[i] = impl->directories.back().get();
+        } else if (node.kind == "module") {
+            const auto it = target_index.find(node.dir);
+            if (it == target_index.end()) {
+                std::filesystem::current_path(previous, ec);
+                return loaded;
+            }
+            impl->modules.push_back(std::make_unique<RealModuleNode>(std::move(data), *it->second));
+            impl->index[i] = impl->modules.back().get();
+        } else if (node.kind == "app") {
+            const auto it = target_index.find(node.dir);
+            if (it == target_index.end()) {
+                std::filesystem::current_path(previous, ec);
+                return loaded;
+            }
+            impl->apps.push_back(std::make_unique<RealAppNode>(std::move(data), *it->second));
+            impl->index[i] = impl->apps.back().get();
+        } else if (node.kind == "test") {
+            const auto it = test_index.find(node.dir);
+            if (it == test_index.end()) {
+                std::filesystem::current_path(previous, ec);
+                return loaded;
+            }
+            impl->tests.push_back(std::make_unique<RealTestNode>(std::move(data), *it->second));
+            impl->index[i] = impl->tests.back().get();
+        } else if (node.kind == "doc") {
+            const auto it = doc_index.find(node.dir);
+            if (it == doc_index.end()) {
+                std::filesystem::current_path(previous, ec);
+                return loaded;
+            }
+            impl->docs.push_back(std::make_unique<RealDocNode>(std::move(data), *it->second));
+            impl->index[i] = impl->docs.back().get();
+        }
+    }
+
+    std::vector<const models::ModuleNode*> module_ptrs;
+    for (const auto& m : impl->modules) module_ptrs.push_back(m.get());
+    std::vector<const models::AppNode*> app_ptrs;
+    for (const auto& a : impl->apps) app_ptrs.push_back(a.get());
+    std::vector<const models::TestNode*> test_ptrs;
+    for (const auto& t : impl->tests) test_ptrs.push_back(t.get());
+    std::vector<const models::DocNode*> doc_ptrs;
+    for (const auto& d : impl->docs) doc_ptrs.push_back(d.get());
+
+    impl->repository = std::make_unique<RealRepository>(
+        impl->projects.front().get(), module_ptrs, app_ptrs, test_ptrs, doc_ptrs);
+    impl->tools = build_tools(app_ptrs);
+
+    loaded.impl_ = std::move(impl);
 
     std::filesystem::current_path(previous, ec);
     ok = true;
     return loaded;
 }
 
-const models::Repository& Loaded::repository() const { return impl_->repository; }
+const models::Repository& Loaded::repository() const { return *impl_->repository; }
 
 std::vector<const models::Tool*> Loaded::tools() const {
     std::vector<const models::Tool*> result;
