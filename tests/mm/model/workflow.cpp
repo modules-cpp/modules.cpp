@@ -72,7 +72,10 @@ void build_matches_the_real_build_sh() {
     mm::test::expect(build != nullptr, "expected a build operation");
     if (build == nullptr) return;
 
-    mm::test::expect(build->role() == models::Role::Required, "expected build to be Required");
+    // Optional, not Required: bootstrap.sh's final step already produces
+    // every artifact build.sh would, so nothing after it in the sequence
+    // depends on build.sh having run.
+    mm::test::expect(build->role() == models::Role::Optional, "expected build to be Optional");
 
     std::ifstream script("build.sh");
     const std::string content((std::istreambuf_iterator<char>(script)),

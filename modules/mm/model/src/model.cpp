@@ -562,8 +562,15 @@ std::vector<std::unique_ptr<models::Operation>> build_operations(
     // last step now runs a full build too, build.sh is the installed tool
     // rebuilding itself on every subsequent change, not a second consumer
     // of the staged bootstrap artifacts.
+    //
+    // Optional rather than Required for the same reason: Role::Required
+    // means nothing after it can meaningfully run without it, and
+    // bootstrap.sh already produces every artifact build.sh would. Nothing
+    // in the sequence after it (test, document, check, model) needs
+    // build.sh to have run in this session; what they actually need is
+    // stated by their own requires_artifacts().
     result.push_back(std::make_unique<RealOperation>(
-        "build", "build.sh", models::Role::Required,
+        "build", "build.sh", models::Role::Optional,
         std::vector<std::vector<const models::Tool*>>{{build}},
         std::vector<models::ArtifactKind>{models::ArtifactKind::InstalledBinary}, full_build));
 

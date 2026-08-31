@@ -43,9 +43,6 @@
 out/
 out-*/
 
-# GCC compiled-module cache
-gcm.cache/
-
 # CMake generated files
 CMakeFiles/
 CMakeCache.txt

@@ -9,6 +9,10 @@
 #
 set -e
 
+# Deliberately the literal c++, not $CXX: bootstrap must reach a working
+# build1 the same way on every machine, independent of a caller's
+# environment. $CXX is honoured only afterwards, by the self hosted build
+# (mm::build::default_toolchain); see models/configuration/configuration.cppm.
 MCCP="c++"
 MCCP_VERSION=`$MCCP --version`
 echo
@@ -27,23 +31,36 @@ echo "Compile build0"
 ${MCCP} -v ${MM_CPPFLAGS} tools/build/main.cpp -o ${MM_BUILD}/build0 || exit $?
 echo
 
-# build0 worked (the || exit $? above would have stopped this script
-# otherwise): hand the rest to it rather than repeating the same fixed
-# compile-and-link steps by hand a second time.
+# A build1 left over from an earlier run must not be able to satisfy the
+# check below, or a stale executable would be accepted as this run's output
+# and then used to build everything else.
+rm -f "${MM_BUILD}/build1"
+
+# Stage zero and the fallback below both compile module interfaces with raw
+# compiler commands, and neither goes through mm::build::clear_module_cache.
+# A gcm.cache left from an earlier build can hold BMIs for interfaces that
+# have since changed, so it is cleared here rather than silently consumed.
+rm -rf gcm.cache
+
+# Hand the work to build0 rather than repeating the same fixed steps by hand
+# a second time. The status is captured instead of ending the script,
+# because the hand written commands below are exactly the fallback for
+# build0's mode failing: exiting here would make them unreachable.
 echo "Build build1"
-"${MM_BUILD}/build0" build1 || exit $?
+mm_build1_status=0
+"${MM_BUILD}/build0" build1 || mm_build1_status=$?
 echo
 
-if [ ! -x "${MM_BUILD}/build1" ]; then
-    echo "bootstrap: build0 did not produce ${MM_BUILD}/build1" >&2
+if [ "${mm_build1_status}" -ne 0 ] || [ ! -x "${MM_BUILD}/build1" ]; then
+    echo "bootstrap: build0 build1 failed (status ${mm_build1_status}) or produced no ${MM_BUILD}/build1" >&2
     echo "Build build1 with shell commands"
 
     mkdir -p "${MM_BUILD}/modules/mm/mdy/src"
     mkdir -p "${MM_BUILD}/modules/mm/build/src"
     mkdir -p "${MM_BUILD}/tools/build"
 
-    MCCP_MODULES="c++ -fmodules-ts"
-    MM_MODULE_FLAGS="-std=c++20 -x c++"
+    MCCP_MODULES="${MCCP} -fmodules-ts"
+    MM_MODULE_FLAGS="${MM_CPPFLAGS} -x c++"
 
     ${MCCP_MODULES} ${MM_MODULE_FLAGS} \
         -c modules/mm/mdy/mdy.cppm \
@@ -65,13 +82,18 @@ if [ ! -x "${MM_BUILD}/build1" ]; then
         -c tools/build/build.cpp \
         -o "${MM_BUILD}/tools/build/build.o" || exit $?
 
-    c++ -std=c++20 \
+    # Linked to a temporary and renamed only on success, so a failed link
+    # cannot leave a partial out/build1 behind for the check above, or for
+    # the next run, to mistake for a working one.
+    ${MCCP} ${MM_CPPFLAGS} \
         "${MM_BUILD}/modules/mm/mdy/mdy.o" \
         "${MM_BUILD}/modules/mm/mdy/src/mdy.o" \
         "${MM_BUILD}/modules/mm/build/build.o" \
         "${MM_BUILD}/modules/mm/build/src/build.o" \
         "${MM_BUILD}/tools/build/build.o" \
-        -o "${MM_BUILD}/build1" || exit $?
+        -o "${MM_BUILD}/build1.tmp" || exit $?
+
+    mv "${MM_BUILD}/build1.tmp" "${MM_BUILD}/build1" || exit $?
 fi
 
 # build1 walks the manifest tree from mm.mdy in the current directory,

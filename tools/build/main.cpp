@@ -1,11 +1,17 @@
 // modules.cpp build tool, stage 0
 //
-// Usage: build0 <path to mm.mdy>     compiles the one file: entry it names
-//        build0 build1               builds out/build1 via the same fixed
-//                                     steps bootstrap.sh performs by hand
+// Usage: build0            prints its arguments and exits; the smoke test
+//                          that proves the host compiler produced a
+//                          runnable binary
+//        build0 build1     builds out/build1 via the same fixed steps
+//                          bootstrap.sh performs by hand
 //
-// build0 exists only to prove the host compiler works before any manifest
-// or module exists to build with; see bootstrap.sh and README.md.
+// build0 exists only to prove the host compiler works and to reach build1
+// before any manifest or module exists to build with; see bootstrap.sh and
+// README.md. It deliberately supports nothing else: a general
+// manifest-driven mode here would duplicate mm.build's manifest handling,
+// including every path rule mm.build enforces, in a stage that cannot
+// import it.
 //
 // Pawel Wodnicki (C) 2026
 // 32bitmicro LLC (C) 2026
@@ -13,22 +19,9 @@
 #include <vector>
 #include <string_view>
 #include <filesystem>
-#include <fstream>
 #include <string>
-#include <map>
-#include <algorithm>
 
 #include <sys/wait.h>
-
-// settigns
-std::map<std::string, std::string> settings;
-// trim whitespace
-
-std::string trim(std::string s)
-{
-    s.erase(std::remove_if(s.begin(), s.end(), ::isspace),s.end());
-    return s;
-}
 
 // Single quotes disable every form of shell expansion; a single quote in the
 // text is closed, escaped, and reopened. Matches mm::build::shell_quote,
@@ -63,28 +56,6 @@ int run(const std::string& command)
     if (WIFEXITED(status)) return WEXITSTATUS(status);
     if (WIFSIGNALED(status)) return 128 + WTERMSIG(status);
     return -1;
-}
-
-// name: is joined to buildpath as a single path segment (never a directory
-// component of it), so a "/" in it is as unsafe as ".." or an absolute
-// value: any of the three lets an attacker-controlled manifest write
-// outside out/.
-bool is_safe_name(const std::string& name)
-{
-    return !name.empty() && name != "." && name != ".." && name.find('/') == std::string::npos;
-}
-
-// file: is joined to basepath and may legitimately contain directory
-// separators (a source file in a subdirectory), so this only rejects what
-// name: also rejects for other reasons: absolute values discard basepath
-// entirely (std::filesystem::path::operator/ replaces its left operand
-// when the right one is absolute), and ".." can climb back out of it.
-bool is_safe_relative_path(const std::filesystem::path& raw)
-{
-    if (raw.empty() || raw.is_absolute()) return false;
-    for (const auto& part : raw.lexically_normal())
-        if (part == "..") return false;
-    return true;
 }
 
 // Compiles and links build1 through the exact fixed steps as bootstrap.sh.
@@ -130,13 +101,32 @@ int build_1()
         }
     }
 
+    // Linked to a temporary and renamed only on success, matching
+    // mm::build::link: a failed link must not leave a partial out/build1
+    // that bootstrap.sh's existence check, or a later run, would accept as
+    // a working one.
+    const std::filesystem::path output = "out/build1";
+    const std::filesystem::path temp = "out/build1.tmp";
+
+    std::error_code ec;
+    std::filesystem::remove(temp, ec);
+
     std::string link_cmd = "c++ -std=c++20";
     for (const auto& step : steps) link_cmd += " " + shell_quote(step.object);
-    link_cmd += " -o " + shell_quote(std::filesystem::path("out/build1"));
+    link_cmd += " -o " + shell_quote(temp);
 
     std::cout << link_cmd << "\n";
     if (run(link_cmd) != 0) {
-        std::cerr << "build1: failed to link out/build1\n";
+        std::cerr << "build1: failed to link " << output.string() << "\n";
+        std::filesystem::remove(temp, ec);
+        return 5;
+    }
+
+    std::filesystem::rename(temp, output, ec);
+    if (ec) {
+        std::cerr << "build1: cannot move " << temp.string() << " into place: "
+                  << ec.message() << "\n";
+        std::filesystem::remove(temp, ec);
         return 5;
     }
 
@@ -161,89 +151,11 @@ int main(int argc, char** argv)
         std::cerr << "too many arguments" << "\n";
         exit(1);
     }
-    if (args[1] == "build1") return build_1();
+    if (args[1] != "build1") {
+        std::cerr << "unknown argument: " << args[1] << "\n";
+        std::cerr << "usage: build0 [build1]\n";
+        return 2;
+    }
 
-    std::cout << "check arguments" << "\n";
-    std::error_code ec;
-    std::filesystem::path cwd = std::filesystem::current_path();
-
-    if (std::filesystem::is_directory(args[1], ec))
-        std::cout << "got directory" << "\n";
-    else
-        std::cout << "not a directory" << "\n";
-
-    std::cout << "check file name" << "\n";
-    std::filesystem::path path = args[1];
-    std::cout << path.filename() << "\n";
-    std::cout << path.stem() << "\n";
-    std::cout << path.extension() << "\n";
-    std::cout << path.parent_path() << "\n";
-    if (path.filename() != "mm.mdy") {
-        std::cerr << "file name is not recognized as mm.mdy" << "\n";
-        exit(2);
-    }
-    std::cout << "open file" << "\n";
-    std::ifstream mmfile(path);
-    if (!mmfile) {
-        std::cerr << "failed to open mm.dy file" << "\n";
-        exit(3);
-    }
-    std::cout << "reads file" << "\n";
-    std::string line;
-    bool bHeader = false;
-    while (std::getline(mmfile, line)) {
-        std::cout << line << "\n";
-        auto pos = line.find(':');
-        if (pos != std::string::npos) {
-            if (bHeader) {
-                auto key = trim(line.substr(0, pos));
-                auto val = trim(line.substr(pos+1));
-                std::cout << "key " << key << "\n";
-                std::cout << "val " << val << "\n";
-                // settings is a map: a second "file:" or "name:" entry
-                // would silently replace the first rather than being an
-                // error, so a manifest declaring either twice is rejected
-                // outright instead of picking one arbitrarily.
-                if (settings.find(key) != settings.end()) {
-                    std::cerr << "duplicate key in front matter: " << key << "\n";
-                    exit(6);
-                }
-                settings[key] = val;
-            }
-        } else {
-            if ( line == "---") {
-                if (!bHeader){
-                    std::cout << "header starts" << "\n";
-                    bHeader = true;
-                } else {
-                    std::cout << "header ends" << "\n";
-                    bHeader = false;
-                }
-            }
-        }
-    }
-    std::cout << "compile the file " << "\n";
-    std::string mmcpp="c++";
-    std::string mmcppflags="-std=c++20";
-    std::string sourcefile = settings["file"];
-    std::string outfile = settings["name"];
-    if (!is_safe_relative_path(sourcefile)) {
-        std::cerr << "unsafe file: value: " << sourcefile << "\n";
-        exit(7);
-    }
-    if (!is_safe_name(outfile)) {
-        std::cerr << "unsafe name: value: " << outfile << "\n";
-        exit(8);
-    }
-    std::filesystem::path basepath = path.remove_filename();
-    std::filesystem::path sourcepath = cwd / basepath / sourcefile;
-    std::filesystem::path buildpath = cwd / "out";
-    std::filesystem::path outpath = buildpath / outfile;
-    std::string cmd = mmcpp + " " + mmcppflags + " " + shell_quote(sourcepath) + " -o " + shell_quote(outpath);
-    std::cout << cmd << "\n";
-    const int status = run(cmd);
-    if (status != 0) {
-        std::cerr << "failed to compile " << sourcepath.string() << "\n";
-        return 4;
-    }
+    return build_1();
 }

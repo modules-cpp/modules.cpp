@@ -14,12 +14,15 @@
 //     evidence of the process's actual locale at any given run.
 //   - compiler()/compiler_flags()/linker_flags(): these mirror
 //     mm::build::Toolchain (modules/mm/build/build.cppm) exactly, honoring
-//     $CXX when set - but that is only true of the normal build path
+//     $CXX when set - but that is only true of the self hosted build
 //     (build.sh and the tools it drives). bootstrap.sh and build0
-//     (tools/build/main.cpp) hardcode a plain "c++" and never read $CXX at
-//     all, a second, real compiler-selection behavior this type does not
-//     represent. A Configuration describes the normal build's policy, not
-//     bootstrap.sh's separate one.
+//     (tools/build/main.cpp) deliberately use a plain "c++" and never read
+//     $CXX: bootstrap must reach a working build1 the same way on every
+//     machine, independent of a caller's environment, so the project has
+//     two intentional compiler-selection rules rather than one. A
+//     Configuration describes the self hosted build's rule; bootstrap's
+//     fixed one is stated in bootstrap.sh and docs/modules.mdy, and is not
+//     something this type varies.
 //
 // platform() and shell() are comparatively safe: mm::build::run always
 // execs /bin/sh regardless of $SHELL (docs/modules.mdy, mm.shell), and

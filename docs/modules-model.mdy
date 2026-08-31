@@ -28,9 +28,11 @@ dependency order:
   (models::Configuration). Every accessor is declared policy, not a
   measurement of an actual run: compiler()/compiler_flags()/linker_flags()/
   verbose() mirror the live mm::build::Toolchain, honoring $CXX, but that is
-  only the normal build path's policy — bootstrap.sh and build0 hardcode a
-  plain "c++" and never read $CXX, a second real behavior this type does
-  not represent. platform()/locale()/shell() state fixed project policy
+  only the self hosted build's rule — bootstrap.sh and build0 deliberately
+  use a plain "c++" and never read $CXX, so that bootstrap reaches a working
+  build1 the same way on every machine. Those are two intentional rules, not
+  an inconsistency, and this type describes the self hosted one.
+  platform()/locale()/shell() state fixed project policy
   that is documented (POSIX, C, /bin/sh) but, for locale() specifically,
   not enforced anywhere (no setlocale(3), no LC_ALL/LANG set); platform()
   and shell() are closer to actually true everywhere (mm::build::run always

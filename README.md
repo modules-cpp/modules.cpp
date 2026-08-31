@@ -61,12 +61,17 @@ From a clean checkout:
 
 `bootstrap.sh` exists because the real build tool (`build`) is itself part of
 this project and written using modules — bootstrap compiles just enough by
-hand to produce a working `build1` binary (trying `build0` first, falling
-back to hardcoded compiler commands only if that does not produce it), then
-runs it, which builds everything else, `out/bin/build` included. This is
-what "self-hosting" means in this project. `build.sh` is not needed on a
-fresh checkout — bootstrap.sh already leaves a fully built project — but is
-what you run afterward, once `out/bin/build` exists, on any later change.
+hand to produce a working `build1` binary (trying `build0 build1` first,
+falling back to hardcoded compiler commands if that fails or produces
+nothing), then runs it, which builds everything else, `out/bin/build`
+included. This is what "self-hosting" means in this project. `build.sh` is
+not needed on a fresh checkout — bootstrap.sh already leaves a fully built
+project — but is what you run afterward, once `out/bin/build` exists, on any
+later change.
+
+Bootstrap always uses the compiler named `c++`, so that a fresh checkout
+builds the same way on every machine; `$CXX` is honoured afterwards, by the
+self-hosted build.
 
 If something fails partway through, `./clean.sh` removes all generated output
 (the `out/` and `gcm.cache/` directories) so you can start over.

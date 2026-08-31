@@ -117,7 +117,7 @@ int main(int argc, char** argv) {
         const auto configuration = mm::model::default_configuration(verbose);
         std::cout << "Configuration (declared policy, not a measurement of this run)\n";
         std::cout << "  compiler       " << configuration->compiler()
-                  << "  [normal build path only; bootstrap.sh/build0 hardcode c++]\n";
+                  << "  [self hosted build only; bootstrap.sh/build0 use c++ by design]\n";
         std::cout << "  compiler flags " << configuration->compiler_flags() << "\n";
         std::cout << "  linker flags   " << configuration->linker_flags() << "\n";
         std::cout << "  verbose        " << (configuration->verbose() ? "true" : "false") << "\n";

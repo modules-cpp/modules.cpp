@@ -252,16 +252,22 @@ tools/shell is mm.shell's first consumer beyond its own module.
 ## build0
 tools/build/main.cpp is compiled as out/build0 without importing project
 modules. It creates a recovery boundary that only needs the host compiler.
-build0 has a second mode beyond the single-manifest one its main() usage
-comment describes: `build0 build1` runs the same fixed compile-and-link
-steps bootstrap.sh itself knows how to perform by hand, building mm.mdy,
-mm.build, and build1.
 
-bootstrap.sh tries that mode first (`out/build0 build1`) and only falls
-back to its own hardcoded compiler commands if that does not leave an
-executable out/build1 behind. Either path produces the same build1;
+build0 supports exactly two invocations and nothing else. With no
+arguments it prints them and exits, which is the smoke test proving the
+host compiler produced a runnable binary. With build1 it runs the fixed
+compile-and-link steps that build mm.mdy, mm.build, and out/build1. It has
+no manifest-driven mode: a general one here would duplicate mm.build's
+manifest handling, including every path rule mm.build enforces, in a stage
+that by definition cannot import mm.build.
+
+bootstrap.sh tries `out/build0 build1` first and falls back to its own
+hardcoded compiler commands if that mode fails for any reason, or leaves
+no executable out/build1 behind. Either path produces the same build1, and
 bootstrap.sh's own commands remain the reference implementation build0's
-mode is checked against.
+mode is checked against. Both link through a temporary and rename it into
+place only on success, so a failed link cannot leave a partial out/build1
+that a later run would mistake for a working one.
 
 ## build1 and build
 tools/build/build.cpp is the manifest-driven build front end. bootstrap.sh
@@ -377,9 +383,17 @@ A clean repository can produce all project tools with this sequence:
 - ./document.sh
 
 bootstrap.sh creates out/build0 and out/build1, then runs build1 itself to
-build and install the complete project, out/bin/build included. build.sh
-runs that installed out/bin/build to rebuild the project on every later
-change, which makes the toolchain self-hosting.
+build and install the complete project, out/bin/build included. It clears
+gcm.cache first: stage zero and its fallback both compile module interfaces
+with raw compiler commands, so a cache left from an earlier build could
+otherwise supply BMIs for interfaces that have since changed.
+
+build.sh runs that installed out/bin/build to rebuild the project after a
+later change, which makes the toolchain self-hosting. It is not required on
+a fresh checkout, since bootstrap.sh already produced everything it would;
+models.workflow therefore gives it Role::Optional, and what the steps after
+it actually need is stated by their own requires_artifacts() rather than by
+build.sh having run.
 
 An optional, experimental step can follow test.sh:
 
