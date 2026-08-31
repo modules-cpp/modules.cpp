@@ -14,6 +14,7 @@ module mm.model;
 
 import mm.build;
 import mm.mdy;
+import models.configuration;
 import models.document;
 import models.manifest;
 import models.tool;
@@ -339,26 +340,43 @@ std::vector<std::unique_ptr<RealTool>> build_tools(const std::vector<const model
     return result;
 }
 
-// Offsets every index a load_nodes() result carries by base, so a second
-// tree's indices land past the first tree's when the two are appended into
-// one combined vector. no_parent is a sentinel, not a real index, and must
-// pass through unchanged.
-void offset_indices(std::vector<mm::build::Node>& nodes, std::size_t base) {
-    for (auto& node : nodes) {
-        if (node.parent != mm::build::no_parent) node.parent += base;
-        for (auto& child : node.children) child += base;
-    }
-}
-
 using TargetIndex = std::map<std::filesystem::path, const mm::build::Target*>;
 
-TargetIndex index_by_dir(const std::vector<mm::build::Target>& a,
-                         const std::vector<mm::build::Target>& b) {
+TargetIndex index_by_dir(const std::vector<mm::build::Target>& targets) {
     TargetIndex index;
-    for (const auto& target : a) index[target.dir] = &target;
-    for (const auto& target : b) index[target.dir] = &target;
+    for (const auto& target : targets) index[target.dir] = &target;
     return index;
 }
+
+// compiler()/compiler_flags()/linker_flags()/verbose() copy the live
+// Toolchain rather than pointing into it, since default_configuration()
+// hands the caller ownership and the Toolchain that built this is a local
+// about to go out of scope. platform()/locale()/shell() return string_view
+// into string literals, valid for the program's whole lifetime: they are
+// fixed policy, not derived from anything with a shorter lifetime.
+class FixedConfiguration final : public models::Configuration {
+public:
+    explicit FixedConfiguration(const mm::build::Toolchain& toolchain)
+        : compiler_(toolchain.cxx),
+          compiler_flags_(toolchain.cxxflags),
+          linker_flags_(toolchain.ldflags),
+          verbose_(toolchain.verbose) {}
+
+    [[nodiscard]] std::string_view compiler() const override { return compiler_; }
+    [[nodiscard]] std::string_view compiler_flags() const override { return compiler_flags_; }
+    [[nodiscard]] std::string_view linker_flags() const override { return linker_flags_; }
+    [[nodiscard]] bool verbose() const override { return verbose_; }
+
+    [[nodiscard]] std::string_view platform() const override { return "POSIX"; }
+    [[nodiscard]] std::string_view locale() const override { return "C"; }
+    [[nodiscard]] std::string_view shell() const override { return "/bin/sh"; }
+
+private:
+    std::string compiler_;
+    std::string compiler_flags_;
+    std::string linker_flags_;
+    bool verbose_;
+};
 
 }  // namespace
 
@@ -402,21 +420,6 @@ Loaded Loaded::load(const std::filesystem::path& root_dir, bool& ok) {
         return loaded;
     }
 
-    // The root manifest has no folder: tests entry (docs/modules.mdy), so the
-    // tests/ subtree needs its own walk of both kinds, same as tools/check.
-    mm::build::Tree test_tree;
-    if (std::filesystem::exists("tests")) {
-        test_tree = mm::build::load_tree("tests");
-        bool test_nodes_ok = false;
-        auto test_nodes = mm::build::load_nodes("tests", test_nodes_ok);
-        if (!test_tree.ok || !test_nodes_ok) {
-            std::filesystem::current_path(previous, ec);
-            return loaded;
-        }
-        offset_indices(test_nodes, nodes.size());
-        nodes.insert(nodes.end(), test_nodes.begin(), test_nodes.end());
-    }
-
     if (nodes.empty() || nodes.front().kind != "project") {
         // Repository::root() is typed ProjectNode&: a subtree load whose
         // root is not kind:project (or an empty tree) cannot be represented
@@ -426,9 +429,9 @@ Loaded Loaded::load(const std::filesystem::path& root_dir, bool& ok) {
         return loaded;
     }
 
-    const auto target_index = index_by_dir(tree.targets, test_tree.targets);
-    const auto doc_index = index_by_dir(tree.docs, test_tree.docs);
-    const auto test_index = index_by_dir(tree.tests, test_tree.tests);
+    const auto target_index = index_by_dir(tree.targets);
+    const auto doc_index = index_by_dir(tree.docs);
+    const auto test_index = index_by_dir(tree.tests);
 
     auto impl = std::make_unique<Impl>();
     impl->index.assign(nodes.size(), nullptr);
@@ -505,6 +508,10 @@ std::vector<const models::Tool*> Loaded::tools() const {
     result.reserve(impl_->tools.size());
     for (const auto& tool : impl_->tools) result.push_back(tool.get());
     return result;
+}
+
+std::unique_ptr<models::Configuration> default_configuration(bool verbose) {
+    return std::make_unique<FixedConfiguration>(mm::build::default_toolchain(verbose));
 }
 
 }  // namespace mm::model

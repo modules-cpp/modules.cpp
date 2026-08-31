@@ -5,6 +5,7 @@ name: model
 module: mm.model
 use: mm.build
 use: mm.mdy
+use: models.configuration
 use: models.document
 use: models.manifest
 use: models.repository

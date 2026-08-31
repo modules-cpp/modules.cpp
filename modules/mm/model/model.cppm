@@ -21,6 +21,12 @@
 // would mean inventing data this adapter cannot derive from a manifest
 // walk, rather than adapting data that is already there.
 //
+// default_configuration() is unrelated to a Loaded tree: it needs no
+// manifest, so it is a free function rather than a Loaded member. It stays
+// downstream of mm.build the same way the rest of this adapter does:
+// nothing in tools/build or the bootstrap chain imports mm.model, so this
+// is read by tools/model, never by the build path itself.
+//
 // Pawel Wodnicki (C) 2026
 // 32bitmicro LLC (C) 2026
 module;
@@ -31,6 +37,7 @@ module;
 
 export module mm.model;
 
+import models.configuration;
 import models.repository;
 import models.tool;
 
@@ -45,10 +52,10 @@ public:
     Loaded(const Loaded&) = delete;
     Loaded& operator=(const Loaded&) = delete;
 
-    // Loads the project rooted at root_dir plus its tests/ subtree, the same
-    // two-tree combination tools/check uses (docs/modules.mdy: the root
-    // manifest has no folder: tests entry). ok is false on a malformed
-    // manifest tree, matching mm::build::Tree's own ok flag.
+    // Loads the project rooted at root_dir, one manifest tree reaching
+    // everything including tests/ through the root manifest's ordinary
+    // folder: entries. ok is false on a malformed manifest tree, matching
+    // mm::build::Tree's own ok flag.
     [[nodiscard]] static Loaded load(const std::filesystem::path& root_dir, bool& ok);
 
     [[nodiscard]] const models::Repository& repository() const;
@@ -63,5 +70,12 @@ private:
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };
+
+// Reports the project's build configuration: the live mm::build::Toolchain
+// ($CXX honored, verbose as given) plus the fixed platform/locale/shell
+// policy models.configuration documents. A fresh value every call: no
+// caching, so a changed $CXX or a different verbose argument is always
+// reflected.
+[[nodiscard]] std::unique_ptr<models::Configuration> default_configuration(bool verbose = false);
 
 }  // namespace mm::model

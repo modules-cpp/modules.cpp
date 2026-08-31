@@ -24,8 +24,14 @@ dependency order:
 - models.document — front matter and body blocks for one MDY file
   (models::Document, models::Block). Foundational: every MDY file is a
   document, including a manifest, so everything else sits above this.
-- models.configuration — a compiler configuration (models::Configuration),
-  mirroring mm::build::Toolchain. Foundational and independent: a
+- models.configuration — the project's build configuration
+  (models::Configuration). compiler()/compiler_flags()/linker_flags()/
+  verbose() mirror the live mm::build::Toolchain, honoring $CXX.
+  platform()/locale()/shell() state fixed project policy that is real and
+  documented (POSIX, C, /bin/sh) even though nothing enforces it at runtime
+  (no setlocale(3), no shell other than /bin/sh execed); the model
+  represents the whole project concept, including facts that are implied
+  and fixed rather than actively checked. Foundational and independent: a
   Configuration is an input to running a tool, not a structural fact about
   the repository.
 - models.manifest — the manifest kind taxonomy docs/modules.mdy defines:
@@ -82,10 +88,10 @@ installs. build0, build1, and third party tools (cppcheck, semgrep) are not
 represented: none has a declaring manifest this adapter can walk to, so
 populating them would mean inventing data rather than adapting it.
 
-`Loaded::load(root, ok)` walks the project the same way tools/check does:
-the manifest tree from root, plus the tests/ subtree loaded separately,
-since the root manifest has no folder: tests entry. Each node is given a
-real document() by re-parsing its own mm.mdy through mm::mdy::Parser, since
+`Loaded::load(root, ok)` walks the project the same way tools/check does: one
+manifest tree from root, which reaches tests/ through the root manifest's
+folder: tests entry like every other subtree. Each node is given a real
+document() by re-parsing its own mm.mdy through mm::mdy::Parser, since
 mm::build::Target does not keep the MDYDocument it read.
 
 parent() and children() are resolved for real, by also walking
@@ -116,11 +122,18 @@ it reports is whatever the abstract model itself would tell a reader:
   would cover build0, build1, or a third party tool too, the day mm.model
   represents them.
 
+--configuration additionally reports models::Configuration, via
+mm::model::default_configuration(verbose): the live compiler/flags (honoring
+$CXX) plus the fixed platform/locale/shell policy. Independent of the
+manifest tree — default_configuration() takes no root_dir — so it is
+reported even when the checks above fail to load one.
+
 Common commands are:
 
 - ./out/bin/model
 - ./out/bin/model -v
 - ./out/bin/model modules/mm.mdy
+- ./out/bin/model --configuration
 
 Both checks are structural, derived from models::Repository, rather than
 textual parsing of docs/modules.mdy's prose. A textual check against that

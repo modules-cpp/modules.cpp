@@ -1,6 +1,7 @@
 // modules.cpp model tool
 //
-// Usage: model [-v] [<path to mm.mdy>]     (default: mm.mdy in the current dir)
+// Usage: model [-v] [--configuration] [<path to mm.mdy>]
+//        (default: mm.mdy in the current dir)
 //
 // Checks the real project against itself, through the models.* abstract
 // data model (models/) rather than mm::build's own structures directly:
@@ -18,6 +19,12 @@
 //     binary under out/bin, i.e. the tree that's declared matches what has
 //     actually been built.
 //
+// --configuration additionally reports the project's build configuration
+// (models.configuration, via mm::model::default_configuration): the live
+// compiler/flags/verbose plus the fixed platform/locale/shell policy.
+// Independent of the manifest tree, so it is reported even when the checks
+// above fail to load one.
+//
 // All the work lives in mm.model; this file is the front end.
 //
 // Pawel Wodnicki (C) 2026
@@ -31,6 +38,7 @@
 
 import mm.build;
 import mm.model;
+import models.configuration;
 import models.manifest;
 import models.tool;
 
@@ -54,11 +62,14 @@ void collect_uses(const std::vector<const models::BuildableNode*>& nodes,
 int main(int argc, char** argv) {
     std::filesystem::path manifest_path;
     bool verbose = false;
+    bool report_configuration = false;
 
     for (int i = 1; i < argc; ++i) {
         const std::string_view arg = argv[i];
         if (arg == "-v" || arg == "--verbose")
             verbose = true;
+        else if (arg == "--configuration")
+            report_configuration = true;
         else if (manifest_path.empty())
             manifest_path = arg;
         else {
@@ -83,6 +94,21 @@ int main(int argc, char** argv) {
 
     std::cout << "modules.cpp model tool\n";
     std::cout << "  root " << root.string() << "\n\n";
+
+    if (report_configuration) {
+        // Independent of the manifest tree: default_configuration() needs
+        // no root_dir, so this is reported even if the tree below fails to
+        // load.
+        const auto configuration = mm::model::default_configuration(verbose);
+        std::cout << "Configuration\n";
+        std::cout << "  compiler       " << configuration->compiler() << "\n";
+        std::cout << "  compiler flags " << configuration->compiler_flags() << "\n";
+        std::cout << "  linker flags   " << configuration->linker_flags() << "\n";
+        std::cout << "  verbose        " << (configuration->verbose() ? "true" : "false") << "\n";
+        std::cout << "  platform       " << configuration->platform() << "\n";
+        std::cout << "  locale         " << configuration->locale() << "\n";
+        std::cout << "  shell          " << configuration->shell() << "\n\n";
+    }
 
     bool ok = false;
     auto loaded = mm::model::Loaded::load(root, ok);
