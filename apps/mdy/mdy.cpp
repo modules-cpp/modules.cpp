@@ -1,10 +1,11 @@
 #include <iostream>
 #include <fstream>
 #include <filesystem>
+#include <map>
+#include <set>
 #include <string>
 #include <string_view>
 #include <vector>
-#include <map>
 
 import mm.mdy;
 import mm.build;
@@ -247,35 +248,60 @@ std::string to_nav(const std::vector<mm::build::Node>& nodes, std::size_t index,
 // node's own page, in the same directory, so the link to_metadata writes
 // ("<stem>.html") and the link back here ("index.html") both need no path
 // computation.
-void render_doc_files(const mm::build::Node& node, const mm::mdy::MDYDocument& doc,
+//
+// target.sources comes from mm::build::load_tree, not from re-reading
+// doc.metadata.find("file") here: load_tree already rejects an absolute or
+// ..-climbing file: value the same way it does for every other kind, so
+// this function never joins an unvalidated path the way the doc.metadata
+// approach it replaced did.
+void render_doc_files(const mm::build::Node& node, const mm::build::Target& target,
                       const std::filesystem::path& out_dir, const std::filesystem::path& base,
-                      std::size_t& written) {
-    const auto it = doc.metadata.find("file");
-    if (it == doc.metadata.end()) return;
+                      std::size_t& written, bool& had_error) {
+    if (target.sources.empty()) return;
 
     const auto page_dir = (out_dir / page_of(node, base)).parent_path();
 
-    for (const auto& value : it->second) {
-        const auto source = node.dir / value;
+    // Two file: entries with the same stem (from different subdirectories,
+    // for instance) would otherwise collide into one <stem>.html, one
+    // silently overwriting the other's page.
+    std::set<std::filesystem::path> seen_pages;
+
+    for (const auto& unit : target.sources) {
+        const auto& source = unit.path;
         if (!std::filesystem::exists(source)) {
-            std::cerr << "mdy: " << node.manifest.string() << " lists missing file: " << value << "\n";
+            std::cerr << "mdy: " << node.manifest.string() << " lists missing file: " << source << "\n";
+            had_error = true;
+            continue;
+        }
+
+        const auto page = page_dir / (std::filesystem::path(source).stem().string() + ".html");
+        if (!seen_pages.insert(page).second) {
+            std::cerr << "mdy: " << node.manifest.string() << ": " << source
+                      << " collides with another file: entry at " << page.string() << "\n";
+            had_error = true;
             continue;
         }
 
         const auto file_doc = mm::mdy::Parser::parse_file(source);
-        const auto page = page_dir / (std::filesystem::path(value).stem().string() + ".html");
 
         std::error_code ec;
         std::filesystem::create_directories(page.parent_path(), ec);
+        if (ec) {
+            std::cerr << "mdy: cannot create " << page.parent_path().string() << ": "
+                      << ec.message() << "\n";
+            had_error = true;
+            continue;
+        }
 
         std::ofstream file(page);
         if (!file) {
             std::cerr << "mdy: cannot write " << page.string() << "\n";
+            had_error = true;
             continue;
         }
 
         const std::string nav = "<nav>\n<a href=\"index.html\">" + escape(node.name) +
-                                "</a> / \n<span>" + escape(value) + "</span>\n</nav>\n";
+                                "</a> / \n<span>" + escape(source) + "</span>\n</nav>\n";
         file << to_document(file_doc, source, nav);
         ++written;
 
@@ -287,9 +313,10 @@ void render_doc_files(const mm::build::Node& node, const mm::mdy::MDYDocument& d
 // source layout so relative links need no rewriting.
 int generate_site(const std::filesystem::path& root_manifest, const std::filesystem::path& out_dir) {
     const auto root_dir = root_manifest.parent_path();
+    const auto walk_root = root_dir.empty() ? std::filesystem::path(".") : root_dir;
 
     bool ok = false;
-    const auto nodes = mm::build::load_nodes(root_dir.empty() ? "." : root_dir, ok);
+    const auto nodes = mm::build::load_nodes(walk_root, ok);
     if (!ok) return 65;
 
     if (nodes.empty()) {
@@ -297,9 +324,21 @@ int generate_site(const std::filesystem::path& root_manifest, const std::filesys
         return 65;
     }
 
+    // load_tree, not load_nodes, is what validates file: entries the same
+    // way every other kind's paths are validated (no absolute value, no ..
+    // climbing out of the tree): load_nodes only confirms the manifest
+    // tree's own folder: shape. A doc node's Target is looked up by
+    // directory below, mirroring mm.model's own index_by_dir pattern.
+    const auto tree = mm::build::load_tree(walk_root);
+    if (!tree.ok) return 65;
+
+    std::map<std::filesystem::path, const mm::build::Target*> docs_by_dir;
+    for (const auto& target : tree.docs) docs_by_dir[target.dir] = &target;
+
     std::error_code ec;
     const auto base = nodes.front().dir.lexically_normal();
     std::size_t written = 0;
+    bool had_error = false;
 
     for (std::size_t i = 0; i < nodes.size(); ++i) {
         const auto& node = nodes[i];
@@ -307,6 +346,11 @@ int generate_site(const std::filesystem::path& root_manifest, const std::filesys
 
         const auto page = out_dir / page_of(node, base);
         std::filesystem::create_directories(page.parent_path(), ec);
+        if (ec) {
+            std::cerr << "mdy: cannot create " << page.parent_path().string() << ": "
+                      << ec.message() << "\n";
+            return 1;
+        }
 
         std::ofstream file(page);
         if (!file) {
@@ -321,10 +365,18 @@ int generate_site(const std::filesystem::path& root_manifest, const std::filesys
         std::cout << page.string() << "\n";
         ++written;
 
-        if (is_doc) render_doc_files(node, doc, out_dir, base, written);
+        if (is_doc) {
+            const auto it = docs_by_dir.find(node.dir.lexically_normal());
+            if (it != docs_by_dir.end())
+                render_doc_files(node, *it->second, out_dir, base, written, had_error);
+        }
     }
 
     std::cout << written << " page(s) written to " << out_dir.string() << "\n";
+    if (had_error) {
+        std::cerr << "mdy: site written with errors; see messages above\n";
+        return 1;
+    }
     return 0;
 }
 
