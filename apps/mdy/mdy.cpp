@@ -7,6 +7,7 @@
 #include <string_view>
 #include <vector>
 
+import mm.app;
 import mm.mdy;
 import mm.build;
 
@@ -133,9 +134,16 @@ std::string title_of(const mm::mdy::MDYDocument& doc, const std::filesystem::pat
     return file.stem().string();
 }
 
+// Each file: or unit: value a manifest lists, mapped to the href its page
+// should point at. Built per manifest by generate_site, which is the only
+// caller that knows where the page will be written and so the only one that
+// can make the link relative to it.
+using FileLinks = std::map<std::string, std::string>;
+
 // Front matter is document content, not decoration: for most manifests it is
-// the only content there is. file: values on a doc manifest link to the page
-// render_doc_files writes for that entry.
+// the only content there is. Every file: and unit: value is linked, through
+// the map above, back to the file it names: the rendered page for a doc
+// manifest's prose, and the source file itself for everything else.
 //
 // children_in_nav drops folder: entries. On a project or dir page the
 // navigation above already lists exactly those children, each with its kind
@@ -144,7 +152,8 @@ std::string title_of(const mm::mdy::MDYDocument& doc, const std::filesystem::pat
 // of the two, so this one goes. A folder: value that is not among those
 // children was reached through another parent first, and is listed on that
 // parent's page instead.
-std::string to_metadata(const mm::mdy::MDYDocument& doc, bool children_in_nav, bool link_files) {
+std::string to_metadata(const mm::mdy::MDYDocument& doc, bool children_in_nav,
+                        const FileLinks* links) {
     std::string body;
 
     for (const auto& [key, values] : doc.metadata) {
@@ -154,11 +163,18 @@ std::string to_metadata(const mm::mdy::MDYDocument& doc, bool children_in_nav, b
 
         for (const auto& value : values) {
             body += "  <dd>";
-            if (link_files && key == "file" && !value.empty())
-                body += "<a href=\"" + escape(std::filesystem::path(value).stem().string()) +
-                        ".html\">" + escape(value) + "</a>";
+
+            const std::string* href = nullptr;
+            if (links != nullptr && (key == "file" || key == "unit")) {
+                const auto it = links->find(value);
+                if (it != links->end()) href = &it->second;
+            }
+
+            if (href != nullptr)
+                body += "<a href=\"" + escape(*href) + "\">" + escape(value) + "</a>";
             else
                 body += escape(value);
+
             body += "</dd>\n";
         }
     }
@@ -172,7 +188,7 @@ std::string to_metadata(const mm::mdy::MDYDocument& doc, bool children_in_nav, b
 // straight to a file and opened.
 std::string to_document(const mm::mdy::MDYDocument& doc, const std::filesystem::path& file,
                         std::string_view nav = {}, bool children_in_nav = false,
-                        bool link_files = false) {
+                        const FileLinks* links = nullptr) {
     std::string out;
 
     out += "<!DOCTYPE html>\n";
@@ -183,7 +199,7 @@ std::string to_document(const mm::mdy::MDYDocument& doc, const std::filesystem::
     out += "</head>\n";
     out += "<body>\n";
     out += nav;
-    out += to_metadata(doc, children_in_nav, link_files);
+    out += to_metadata(doc, children_in_nav, links);
     out += to_html(doc.body);
     out += "</body>\n";
     out += "</html>\n";
@@ -315,9 +331,57 @@ void render_doc_files(const mm::build::Node& node, const mm::build::Target& targ
     }
 }
 
+// Where a manifest's own file: and unit: values should point from its page.
+//
+// A doc manifest's file: entries name prose this tool renders, so they link
+// to the page render_doc_files writes beside this one. Every other kind
+// names a source file nothing renders, so those link back to the file
+// itself, relative to the directory the page is written into. That works
+// wherever the output goes, including -o= outside the project, because both
+// sides are made absolute before the relative path is computed.
+//
+// file: is relative to the manifest's own directory, while unit: is already
+// project relative; mm::build joins them that way too, and getting it wrong
+// here would produce links that resolve to nothing. A value naming a file
+// that does not exist is left unlinked rather than pointed somewhere dead.
+FileLinks file_links(const mm::build::Node& node, const mm::mdy::MDYDocument& doc,
+                     const std::filesystem::path& page_dir, bool is_doc) {
+    FileLinks links;
+
+    for (const auto& [key, values] : doc.metadata) {
+        if (key != "file" && key != "unit") continue;
+
+        for (const auto& value : values) {
+            if (value.empty()) continue;
+
+            if (is_doc && key == "file") {
+                links[value] = std::filesystem::path(value).stem().string() + ".html";
+                continue;
+            }
+
+            const auto source = key == "file" ? node.dir / value : std::filesystem::path(value);
+            if (!std::filesystem::exists(source)) continue;
+
+            std::error_code ec;
+            const auto from = std::filesystem::absolute(page_dir, ec).lexically_normal();
+            if (ec) continue;
+            const auto to = std::filesystem::absolute(source, ec).lexically_normal();
+            if (ec) continue;
+
+            const auto rel = std::filesystem::relative(to, from, ec);
+            if (ec || rel.empty()) continue;
+
+            links[value] = rel.generic_string();
+        }
+    }
+
+    return links;
+}
+
 // Walks the manifest tree and writes one page per manifest, mirroring the
 // source layout so relative links need no rewriting.
-int generate_site(const std::filesystem::path& root_manifest, const std::filesystem::path& out_dir) {
+int generate_site(const std::filesystem::path& root_manifest, const std::filesystem::path& out_dir,
+                  bool verbose) {
     const auto root_dir = root_manifest.parent_path();
     const auto walk_root = root_dir.empty() ? std::filesystem::path(".") : root_dir;
 
@@ -366,10 +430,18 @@ int generate_site(const std::filesystem::path& root_manifest, const std::filesys
 
         const bool structural = node.kind == "project" || node.kind == "dir";
         const bool is_doc = node.kind == "doc";
-        file << to_document(doc, node.manifest, to_nav(nodes, i, base), structural, is_doc);
+        const auto links = file_links(node, doc, page.parent_path(), is_doc);
+        file << to_document(doc, node.manifest, to_nav(nodes, i, base), structural, &links);
 
         std::cout << page.string() << "\n";
         ++written;
+
+        if (verbose) {
+            std::cerr << "  " << node.kind << " " << node.name << " from "
+                      << node.manifest.string() << "\n";
+            for (const auto& [value, href] : links)
+                std::cerr << "    " << value << " -> " << href << "\n";
+        }
 
         if (is_doc) {
             const auto it = docs_by_dir.find(node.dir.lexically_normal());
@@ -387,8 +459,30 @@ int generate_site(const std::filesystem::path& root_manifest, const std::filesys
 }
 
 
-// read mdy file
-int main(int argc, char** argv) {
+// The mdy application. App (mm.app) is the project's application boundary:
+// it takes argc and argv and exposes a virtual run, but deliberately stores
+// no state, so this subclass keeps the arguments it was given and does its
+// own parsing in run.
+class MdyApp : public App {
+public:
+    MdyApp(int argc, char** argv) : App(argc, argv), argc_(argc), argv_(argv) {}
+
+    MdyApp(const MdyApp&) = delete;
+    MdyApp& operator=(const MdyApp&) = delete;
+    MdyApp(MdyApp&&) = delete;
+    MdyApp& operator=(MdyApp&&) = delete;
+
+    [[nodiscard]] int run() override;
+
+private:
+    int argc_;
+    char** argv_;
+};
+
+int MdyApp::run() {
+    const int argc = argc_;
+    char** const argv = argv_;
+
     std::filesystem::path mdy_file;
     // build mirrors the source layout already, so a manifest's page sits beside
     // the objects built from that same directory: docs/mm.mdy -> out/docs/
@@ -399,7 +493,7 @@ int main(int argc, char** argv) {
 
     for (int i = 1; i < argc; ++i) {
         const std::string_view arg = argv[i];
-        if (arg == "-v")
+        if (arg == "-v" || arg == "--verbose")
             verbose = true;
         else if (arg == "-s")
             return sample();
@@ -416,7 +510,7 @@ int main(int argc, char** argv) {
     }
 
     if (mdy_file.empty()) {
-        std::cerr << "usage: mdy [-s] | <file.mdy> [-v] [-h] [-o=<dir>]\n";
+        std::cerr << "usage: mdy [-s] | <file.mdy> [-v|--verbose] [-h] [-o=<dir>]\n";
         return 2;
     }
 
@@ -470,10 +564,15 @@ int main(int argc, char** argv) {
         const bool structural = kind != doc.metadata.end() && !kind->second.empty() &&
                                 (kind->second.front() == "project" || kind->second.front() == "dir");
 
-        if (structural) return generate_site(mdy_file, out_dir);
+        if (structural) return generate_site(mdy_file, out_dir, verbose);
 
         std::cout << to_document(doc, mdy_file);
     }
 
     return 0;
+}
+
+int main(int argc, char** argv) {
+    MdyApp app(argc, argv);
+    return app.run();
 }
