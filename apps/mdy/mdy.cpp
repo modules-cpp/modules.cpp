@@ -263,6 +263,30 @@ std::string to_nav(const std::vector<mm::build::Node>& nodes, std::size_t index,
     return out;
 }
 
+// Creates the page's directory, writes it, and reports the path written.
+// False on failure, having already said why: the two callers differ only in
+// what they do next, the site loop treating it as fatal while a doc file:
+// entry records the error and moves on to the next entry.
+bool write_page(const std::filesystem::path& page, const std::string& contents) {
+    std::error_code ec;
+    std::filesystem::create_directories(page.parent_path(), ec);
+    if (ec) {
+        std::cerr << "mdy: cannot create " << page.parent_path().string() << ": "
+                  << ec.message() << "\n";
+        return false;
+    }
+
+    std::ofstream file(page);
+    if (!file) {
+        std::cerr << "mdy: cannot write " << page.string() << "\n";
+        return false;
+    }
+
+    file << contents;
+    std::cout << page.string() << "\n";
+    return true;
+}
+
 // A doc manifest's file: entries are prose files, not manifests: nothing
 // walks them into a Node of their own (mm::build::load_nodes only recurses
 // through folder: on a project or dir manifest), so nothing else in this
@@ -305,29 +329,14 @@ void render_doc_files(const mm::build::Node& node, const mm::build::Target& targ
         }
 
         const auto file_doc = mm::mdy::Parser::parse_file(source);
-
-        std::error_code ec;
-        std::filesystem::create_directories(page.parent_path(), ec);
-        if (ec) {
-            std::cerr << "mdy: cannot create " << page.parent_path().string() << ": "
-                      << ec.message() << "\n";
-            had_error = true;
-            continue;
-        }
-
-        std::ofstream file(page);
-        if (!file) {
-            std::cerr << "mdy: cannot write " << page.string() << "\n";
-            had_error = true;
-            continue;
-        }
-
         const std::string nav = "<nav>\n<a href=\"index.html\">" + escape(node.name) +
                                 "</a> / \n<span>" + escape(source) + "</span>\n</nav>\n";
-        file << to_document(file_doc, source, nav);
-        ++written;
 
-        std::cout << page.string() << "\n";
+        if (!write_page(page, to_document(file_doc, source, nav))) {
+            had_error = true;
+            continue;
+        }
+        ++written;
     }
 }
 
@@ -398,7 +407,6 @@ int generate_site(const std::filesystem::path& root_manifest, const std::filesys
         return 65;
     }
 
-    std::error_code ec;
     const auto base = nodes.front().dir.lexically_normal();
     std::size_t written = 0;
     bool had_error = false;
@@ -408,25 +416,13 @@ int generate_site(const std::filesystem::path& root_manifest, const std::filesys
         const auto& doc = project.documents[i];
 
         const auto page = out_dir / page_of(node, base);
-        std::filesystem::create_directories(page.parent_path(), ec);
-        if (ec) {
-            std::cerr << "mdy: cannot create " << page.parent_path().string() << ": "
-                      << ec.message() << "\n";
-            return 1;
-        }
-
-        std::ofstream file(page);
-        if (!file) {
-            std::cerr << "mdy: cannot write " << page.string() << "\n";
-            return 1;
-        }
-
         const bool structural = node.kind == "project" || node.kind == "dir";
         const bool is_doc = node.kind == "doc";
         const auto links = file_links(node, doc, page.parent_path(), is_doc);
-        file << to_document(doc, node.manifest, to_nav(nodes, i, base), structural, &links);
 
-        std::cout << page.string() << "\n";
+        if (!write_page(page,
+                        to_document(doc, node.manifest, to_nav(nodes, i, base), structural, &links)))
+            return 1;
         ++written;
 
         if (verbose) {
@@ -515,13 +511,9 @@ int MdyApp::run() {
 
     if (verbose) {
         // Print parsed front matter metadata
+        // One representation: key -> value, value. The earlier form printed
+        // the same pairs one per line, saying nothing this does not.
         log << "--- metadata --\n";
-        for (const auto& [key, values] : doc.metadata) {
-            for (const auto& val : values) {
-                log << key << " " << val << "\n";
-            }
-        }
-
         for (const auto& [key, values] : doc.metadata) {
             log << key << " -> ";
             for (std::size_t i = 0; i < values.size(); ++i) {
