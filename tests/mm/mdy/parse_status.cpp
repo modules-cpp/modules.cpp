@@ -17,37 +17,14 @@ namespace {
 using mm::mdy::ParseStatus;
 using mm::mdy::Parser;
 
-// A file that deletes itself when the test case leaves scope.
-class scoped_file {
-public:
-    scoped_file(std::string_view name, std::string_view text)
-        : path_(std::filesystem::temp_directory_path() / name) {
-        std::ofstream out(path_, std::ios::binary);
-        out << text;
-    }
-
-    ~scoped_file() {
-        std::error_code ec;
-        std::filesystem::remove(path_, ec);
-    }
-
-    scoped_file(const scoped_file&) = delete;
-    scoped_file& operator=(const scoped_file&) = delete;
-
-    [[nodiscard]] const std::filesystem::path& path() const { return path_; }
-
-private:
-    std::filesystem::path path_;
-};
-
 void parse_file_of_a_valid_document_is_ok() {
-    const scoped_file file{"mm_mdy_test_status_ok.mdy", "---\nmm: 1.0\n---\n# Heading\n"};
+    const mm::test::scoped_file file{"mm_mdy_test_status_ok.mdy", "---\nmm: 1.0\n---\n# Heading\n"};
     const auto doc = Parser::parse_file(file.path());
     mm::test::expect(doc.status == ParseStatus::Ok, "expected a valid document to parse as Ok");
 }
 
 void parse_file_of_an_empty_file_is_ok() {
-    const scoped_file file{"mm_mdy_test_status_empty.mdy", ""};
+    const mm::test::scoped_file file{"mm_mdy_test_status_empty.mdy", ""};
     const auto doc = Parser::parse_file(file.path());
     mm::test::expect(doc.status == ParseStatus::Ok,
                      "expected an empty file to be a legitimately empty document, not an error");

@@ -25,52 +25,17 @@ import models.workflow;
 
 namespace {
 
-// A manifest tree that deletes itself when the test case leaves scope.
-// Mirrors tests/mm/build/walk.cpp's helper of the same name and shape.
-class scoped_tree {
-public:
-    explicit scoped_tree(std::string_view name)
-        : root_(std::filesystem::temp_directory_path() / ("mm_model_test_" + std::string(name))) {
-        std::error_code ec;
-        std::filesystem::remove_all(root_, ec);
-        std::filesystem::create_directories(root_, ec);
-    }
-
-    ~scoped_tree() {
-        std::error_code ec;
-        std::filesystem::remove_all(root_, ec);
-    }
-
-    scoped_tree(const scoped_tree&) = delete;
-    scoped_tree& operator=(const scoped_tree&) = delete;
-
-    void manifest(std::string_view relative, std::string_view front_matter) const {
-        const auto dir = relative.empty() ? root_ : root_ / relative;
-
-        std::error_code ec;
-        std::filesystem::create_directories(dir, ec);
-
-        std::ofstream out(dir / "mm.mdy");
-        out << "---\nmm: 1.0\n" << front_matter << "---\n";
-    }
-
-    [[nodiscard]] const std::filesystem::path& root() const { return root_; }
-
-private:
-    std::filesystem::path root_;
-};
-
 // Writes the same foreign (not modules.cpp) project into tree: one
 // kind:project with one kind:app named "widget" - deliberately none of the
 // six names (build, main, mdy, test, check, model) operations() and the
 // fixed part of tools() look for.
-void write_foreign_project(const scoped_tree& tree) {
+void write_foreign_project(const mm::test::scoped_tree& tree) {
     tree.manifest("", "kind: project\nname: unrelated-project\nfolder: a\n");
     tree.manifest("a", "kind: app\nname: widget\nfile: a.cpp\n");
 }
 
 void load_of_a_foreign_project_still_succeeds() {
-    const scoped_tree tree{"foreign_load"};
+    const mm::test::scoped_tree tree{"foreign_load"};
     write_foreign_project(tree);
     bool ok = false;
     auto loaded = mm::model::Loaded::load(tree.root(), ok);
@@ -79,7 +44,7 @@ void load_of_a_foreign_project_still_succeeds() {
 }
 
 void a_foreign_project_has_no_bootstrap_tools() {
-    const scoped_tree tree{"foreign_tools"};
+    const mm::test::scoped_tree tree{"foreign_tools"};
     write_foreign_project(tree);
     bool ok = false;
     auto loaded = mm::model::Loaded::load(tree.root(), ok);
@@ -97,7 +62,7 @@ void a_foreign_project_has_no_bootstrap_tools() {
 }
 
 void a_foreign_project_has_no_operations() {
-    const scoped_tree tree{"foreign_operations"};
+    const mm::test::scoped_tree tree{"foreign_operations"};
     write_foreign_project(tree);
     bool ok = false;
     auto loaded = mm::model::Loaded::load(tree.root(), ok);

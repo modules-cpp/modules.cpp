@@ -16,33 +16,9 @@ using mm::mdy::MDYDocument;
 using mm::mdy::Parser;
 
 
-// Writes text to a uniquely named file under the system temp directory and
-// removes it again when the test case leaves scope.
-class scoped_file {
-public:
-    scoped_file(std::string_view name, std::string_view text)
-        : path_(std::filesystem::temp_directory_path() / name) {
-        std::ofstream out(path_, std::ios::binary);
-        out << text;
-    }
-
-    ~scoped_file() {
-        std::error_code ec;
-        std::filesystem::remove(path_, ec);
-    }
-
-    scoped_file(const scoped_file&) = delete;
-    scoped_file& operator=(const scoped_file&) = delete;
-
-    [[nodiscard]] const std::filesystem::path& path() const { return path_; }
-
-private:
-    std::filesystem::path path_;
-};
-
 MDYDocument parse_text(std::string_view text)
 {
-    const scoped_file file{
+    const mm::test::scoped_file file{
         "/tmp/~modueles.cpp_mm_mdy_test_integration.mdy",
         text
     };
@@ -189,7 +165,7 @@ void empty_input_yields_empty_document() {
 // --- file entry points --------------------------------------------------
 
 void parse_file_reads_from_disk() {
-    const scoped_file file{"mm_mdy_test_basic.mdy",
+    const mm::test::scoped_file file{"mm_mdy_test_basic.mdy",
         "---\n"
         "mm: 1.0\n"
         "kind: file\n"
@@ -218,7 +194,7 @@ void parse_file_of_directory_is_empty() {
 }
 
 void parse_returns_every_line_as_a_block() {
-    const scoped_file file{"mm_mdy_test_parse.mdy", "# Title\n- item\nprose\n"};
+    const mm::test::scoped_file file{"mm_mdy_test_parse.mdy", "# Title\n- item\nprose\n"};
 
     const auto blocks = Parser::parse(file.path());
 

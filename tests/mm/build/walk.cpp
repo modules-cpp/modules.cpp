@@ -20,54 +20,6 @@ import mm.test;
 
 namespace {
 
-// A manifest tree that deletes itself when the test case leaves scope.
-class scoped_tree {
-public:
-    explicit scoped_tree(std::string_view name)
-        : root_(std::filesystem::temp_directory_path() / ("mm_build_test_" + std::string(name))) {
-        std::error_code ec;
-        std::filesystem::remove_all(root_, ec);
-        std::filesystem::create_directories(root_, ec);
-    }
-
-    ~scoped_tree() {
-        std::error_code ec;
-        std::filesystem::remove_all(root_, ec);
-    }
-
-    scoped_tree(const scoped_tree&) = delete;
-    scoped_tree& operator=(const scoped_tree&) = delete;
-
-    // Writes <relative>/mm.mdy, creating the directory.
-    void manifest(std::string_view relative, std::string_view front_matter) const {
-        const auto dir = relative.empty() ? root_ : root_ / relative;
-
-        std::error_code ec;
-        std::filesystem::create_directories(dir, ec);
-
-        std::ofstream out(dir / "mm.mdy");
-        out << "---\nmm: 1.0\n" << front_matter << "---\n";
-    }
-
-    // Like manifest(), but without the mm: 1.0 line automatically prepended:
-    // for cases that need to control the mm: key themselves (missing,
-    // unsupported, or duplicated).
-    void manifest_raw(std::string_view relative, std::string_view front_matter) const {
-        const auto dir = relative.empty() ? root_ : root_ / relative;
-
-        std::error_code ec;
-        std::filesystem::create_directories(dir, ec);
-
-        std::ofstream out(dir / "mm.mdy");
-        out << "---\n" << front_matter << "---\n";
-    }
-
-    [[nodiscard]] const std::filesystem::path& root() const { return root_; }
-
-private:
-    std::filesystem::path root_;
-};
-
 bool has_target(const mm::build::Tree& tree, std::string_view name) {
     for (const auto& target : tree.targets)
         if (target.name == name) return true;
@@ -84,7 +36,7 @@ int count_targets(const mm::build::Tree& tree, std::string_view name) {
 // --- the shape a healthy tree produces ----------------------------------
 
 void walks_a_nested_tree() {
-    const scoped_tree tree{"nested"};
+    const mm::test::scoped_tree tree{"nested"};
     tree.manifest("", "kind: project\nname: p\nfolder: modules\n");
     tree.manifest("modules", "kind: dir\nname: modules\nfolder: one\nfolder: two\n");
     tree.manifest("modules/one", "kind: module\nname: one\nmodule: mm.one\nfile: one.cppm\n");
@@ -99,7 +51,7 @@ void walks_a_nested_tree() {
 }
 
 void separates_tests_and_docs_from_targets() {
-    const scoped_tree tree{"kinds"};
+    const mm::test::scoped_tree tree{"kinds"};
     tree.manifest("", "kind: project\nname: p\nfolder: m\nfolder: t\nfolder: d\n");
     tree.manifest("m", "kind: module\nname: m\nmodule: mm.m\nfile: m.cppm\n");
     tree.manifest("t", "kind: test\nname: t\nunit: t.cpp\n");
@@ -116,7 +68,7 @@ void separates_tests_and_docs_from_targets() {
 // --- cycles must terminate ----------------------------------------------
 
 void rejects_self_referencing_folder() {
-    const scoped_tree tree{"selfref"};
+    const mm::test::scoped_tree tree{"selfref"};
     tree.manifest("", "kind: project\nname: p\nfolder: .\n");
 
     const auto loaded = mm::build::load_tree(tree.root());
@@ -125,7 +77,7 @@ void rejects_self_referencing_folder() {
 }
 
 void rejects_two_manifest_cycle() {
-    const scoped_tree tree{"cycle2"};
+    const mm::test::scoped_tree tree{"cycle2"};
     tree.manifest("", "kind: project\nname: p\nfolder: a\n");
     tree.manifest("a", "kind: dir\nname: a\nfolder: ../b\n");
     tree.manifest("b", "kind: dir\nname: b\nfolder: ../a\n");
@@ -136,7 +88,7 @@ void rejects_two_manifest_cycle() {
 }
 
 void rejects_symlink_cycle() {
-    const scoped_tree tree{"symlink"};
+    const mm::test::scoped_tree tree{"symlink"};
     tree.manifest("", "kind: project\nname: p\nfolder: real\n");
     tree.manifest("real", "kind: dir\nname: r\nfolder: link\n");
 
@@ -150,7 +102,7 @@ void rejects_symlink_cycle() {
 }
 
 void rejects_traversal_above_the_root() {
-    const scoped_tree tree{"escape"};
+    const mm::test::scoped_tree tree{"escape"};
     tree.manifest("", "kind: project\nname: p\nfolder: sub\n");
     tree.manifest("sub", "kind: dir\nname: s\nfolder: ../..\n");
 
@@ -162,7 +114,7 @@ void rejects_traversal_above_the_root() {
 // A diamond is not a cycle: two directories may legitimately name one shared
 // folder, and it must be visited once rather than duplicated or rejected.
 void accepts_a_diamond_once() {
-    const scoped_tree tree{"diamond"};
+    const mm::test::scoped_tree tree{"diamond"};
     tree.manifest("", "kind: project\nname: p\nfolder: a\nfolder: b\n");
     tree.manifest("a", "kind: dir\nname: a\nfolder: ../shared\n");
     tree.manifest("b", "kind: dir\nname: b\nfolder: ../shared\n");
@@ -178,7 +130,7 @@ void accepts_a_diamond_once() {
 // --- malformed manifests ------------------------------------------------
 
 void rejects_missing_manifest() {
-    const scoped_tree tree{"missing"};
+    const mm::test::scoped_tree tree{"missing"};
     tree.manifest("", "kind: project\nname: p\nfolder: gone\n");
 
     const auto loaded = mm::build::load_tree(tree.root());
@@ -187,7 +139,7 @@ void rejects_missing_manifest() {
 }
 
 void rejects_unknown_kind() {
-    const scoped_tree tree{"kind"};
+    const mm::test::scoped_tree tree{"kind"};
     tree.manifest("", "kind: project\nname: p\nfolder: x\n");
     tree.manifest("x", "kind: library\nname: x\nfile: x.cppm\n");
 
@@ -200,7 +152,7 @@ void rejects_unknown_kind() {
 // actually checked, so a missing, unsupported, or duplicated version was
 // silently accepted.
 void rejects_missing_mm_version() {
-    const scoped_tree tree{"nommversion"};
+    const mm::test::scoped_tree tree{"nommversion"};
     tree.manifest_raw("", "kind: project\nname: p\n");
 
     const auto loaded = mm::build::load_tree(tree.root());
@@ -209,7 +161,7 @@ void rejects_missing_mm_version() {
 }
 
 void rejects_unsupported_mm_version() {
-    const scoped_tree tree{"badmmversion"};
+    const mm::test::scoped_tree tree{"badmmversion"};
     tree.manifest_raw("", "mm: 0.2\nkind: project\nname: p\n");
 
     const auto loaded = mm::build::load_tree(tree.root());
@@ -218,7 +170,7 @@ void rejects_unsupported_mm_version() {
 }
 
 void rejects_duplicate_mm_version() {
-    const scoped_tree tree{"dupmmversion"};
+    const mm::test::scoped_tree tree{"dupmmversion"};
     tree.manifest_raw("", "mm: 1.0\nmm: 1.0\nkind: project\nname: p\n");
 
     const auto loaded = mm::build::load_tree(tree.root());
@@ -227,7 +179,7 @@ void rejects_duplicate_mm_version() {
 }
 
 void rejects_module_without_module_name() {
-    const scoped_tree tree{"nomodule"};
+    const mm::test::scoped_tree tree{"nomodule"};
     tree.manifest("", "kind: project\nname: p\nfolder: m\n");
     tree.manifest("m", "kind: module\nname: m\nfile: m.cppm\n");
 
@@ -237,7 +189,7 @@ void rejects_module_without_module_name() {
 }
 
 void rejects_target_without_sources() {
-    const scoped_tree tree{"nofiles"};
+    const mm::test::scoped_tree tree{"nofiles"};
     tree.manifest("", "kind: project\nname: p\nfolder: a\n");
     tree.manifest("a", "kind: app\nname: a\n");
 
@@ -250,7 +202,7 @@ void rejects_target_without_sources() {
 // module: name, so two modules exporting the same name were silently
 // treated as interchangeable rather than rejected.
 void rejects_duplicate_module_name() {
-    const scoped_tree tree{"dupmodule"};
+    const mm::test::scoped_tree tree{"dupmodule"};
     tree.manifest("", "kind: project\nname: p\nfolder: a\nfolder: b\n");
     tree.manifest("a", "kind: module\nname: a\nmodule: dup\nfile: a.cppm\n");
     tree.manifest("b", "kind: module\nname: b\nmodule: dup\nfile: b.cppm\n");
@@ -263,7 +215,7 @@ void rejects_duplicate_module_name() {
 // The same finding: install() writes an app's binary to out/bin/<name>, so
 // two apps with the same name would silently overwrite one another there.
 void rejects_duplicate_app_name() {
-    const scoped_tree tree{"dupapp"};
+    const mm::test::scoped_tree tree{"dupapp"};
     tree.manifest("", "kind: project\nname: p\nfolder: a\nfolder: b\n");
     tree.manifest("a", "kind: app\nname: dup\nfile: a.cpp\n");
     tree.manifest("b", "kind: app\nname: dup\nfile: b.cpp\n");
@@ -276,7 +228,7 @@ void rejects_duplicate_app_name() {
 // A module and an app may not share a name either: both would resolve to
 // out/bin/<name>, the same collision as two apps, just across kinds.
 void rejects_duplicate_name_across_kinds() {
-    const scoped_tree tree{"dupkind"};
+    const mm::test::scoped_tree tree{"dupkind"};
     tree.manifest("", "kind: project\nname: p\nfolder: a\nfolder: b\n");
     tree.manifest("a", "kind: module\nname: dup\nmodule: mm.dup\nfile: a.cppm\n");
     tree.manifest("b", "kind: app\nname: dup\nfile: b.cpp\n");
@@ -291,7 +243,7 @@ void rejects_duplicate_name_across_kinds() {
 // A doc target is prose, so an empty file: list is allowed where it would be an
 // error for anything that gets compiled.
 void accepts_doc_without_files() {
-    const scoped_tree tree{"emptydoc"};
+    const mm::test::scoped_tree tree{"emptydoc"};
     tree.manifest("", "kind: project\nname: p\nfolder: d\n");
     tree.manifest("d", "kind: doc\nname: d\n");
 
