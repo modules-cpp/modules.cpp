@@ -385,25 +385,18 @@ int generate_site(const std::filesystem::path& root_manifest, const std::filesys
     const auto root_dir = root_manifest.parent_path();
     const auto walk_root = root_dir.empty() ? std::filesystem::path(".") : root_dir;
 
-    bool ok = false;
-    const auto nodes = mm::build::load_nodes(walk_root, ok);
-    if (!ok) return 65;
+    // One traversal for all three things this needs: the structural nodes,
+    // each manifest's parsed document, and the validated targets. It also
+    // validates file: entries the way every other kind's paths are
+    // validated, which walking only the structure would not.
+    const auto project = mm::build::load_project(walk_root);
+    if (!project.ok) return 65;
 
+    const auto& nodes = project.nodes;
     if (nodes.empty()) {
         std::cerr << "mdy: no manifests found under " << root_manifest.string() << "\n";
         return 65;
     }
-
-    // load_tree, not load_nodes, is what validates file: entries the same
-    // way every other kind's paths are validated (no absolute value, no ..
-    // climbing out of the tree): load_nodes only confirms the manifest
-    // tree's own folder: shape. A doc node's Target is looked up by
-    // directory below, mirroring mm.model's own index_by_dir pattern.
-    const auto tree = mm::build::load_tree(walk_root);
-    if (!tree.ok) return 65;
-
-    std::map<std::filesystem::path, const mm::build::Target*> docs_by_dir;
-    for (const auto& target : tree.docs) docs_by_dir[target.dir] = &target;
 
     std::error_code ec;
     const auto base = nodes.front().dir.lexically_normal();
@@ -412,7 +405,7 @@ int generate_site(const std::filesystem::path& root_manifest, const std::filesys
 
     for (std::size_t i = 0; i < nodes.size(); ++i) {
         const auto& node = nodes[i];
-        const auto doc = mm::mdy::Parser::parse_file(node.manifest);
+        const auto& doc = project.documents[i];
 
         const auto page = out_dir / page_of(node, base);
         std::filesystem::create_directories(page.parent_path(), ec);
@@ -443,11 +436,11 @@ int generate_site(const std::filesystem::path& root_manifest, const std::filesys
                 std::cerr << "    " << value << " -> " << href << "\n";
         }
 
-        if (is_doc) {
-            const auto it = docs_by_dir.find(node.dir.lexically_normal());
-            if (it != docs_by_dir.end())
-                render_doc_files(node, *it->second, out_dir, base, written, had_error);
-        }
+        // project.target[i] is this node's own entry, recorded by the walk
+        // that made the node rather than matched back to it afterwards.
+        if (is_doc && project.target[i] != mm::build::no_target)
+            render_doc_files(node, project.docs[project.target[i]], out_dir, base, written,
+                             had_error);
     }
 
     std::cout << written << " page(s) written to " << out_dir.string() << "\n";

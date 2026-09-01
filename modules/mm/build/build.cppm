@@ -7,6 +7,8 @@ module;
 
 export module mm.build;
 
+import mm.mdy;
+
 export namespace mm::build {
 
 // Exit codes shared by every tool built on this module. 
@@ -76,6 +78,34 @@ inline constexpr std::size_t no_parent = static_cast<std::size_t>(-1);
 // cycle-safe rules as load_tree. Sets ok to false and reports the reason on a
 // malformed tree.
 std::vector<Node> load_nodes(const std::filesystem::path& dir, bool& ok);
+
+inline constexpr std::size_t no_target = static_cast<std::size_t>(-1);
+
+// Everything one walk of a manifest tree can know, gathered in a single
+// traversal: the structural nodes, each manifest's parsed document, and the
+// targets built from them.
+//
+// This exists because reading a tree twice cannot be made consistent. Before
+// it, a caller wanting both views called load_nodes and load_tree, which
+// walked and parsed every manifest separately, so the two passes could
+// observe different file contents if anything changed between them, and
+// callers then had to re-pair the results by directory to recover what one
+// traversal never separates. documents is parallel to nodes, and target
+// gives each node its entry in targets, tests, or docs, chosen by that
+// node's kind, or no_target for a kind:project or kind:dir node that builds
+// nothing.
+struct Project {
+    std::vector<Node> nodes;
+    std::vector<mm::mdy::MDYDocument> documents;  // parallel to nodes
+    std::vector<std::size_t> target;              // parallel to nodes
+    std::vector<Target> targets;                  // kind:module and kind:app
+    std::vector<Target> tests;
+    std::vector<Target> docs;
+    bool ok = true;
+};
+
+// The one traversal. load_tree and load_nodes are projections of this.
+Project load_project(const std::filesystem::path& dir);
 
 // Accepts either a manifest path or the directory holding one.
 std::filesystem::path resolve_manifest(std::filesystem::path path);

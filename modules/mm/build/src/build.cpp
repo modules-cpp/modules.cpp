@@ -184,12 +184,19 @@ bool valid_manifest(const mm::mdy::MDYDocument& doc, std::string_view kind, std:
     return true;
 }
 
-void walk(const std::filesystem::path& dir, Tree& tree, WalkState& state) {
+// The one traversal: the structural node, the parsed document, and the
+// target a manifest declares, all recorded from a single read of that
+// manifest. walk and walk_nodes were separate recursive walkers doing the
+// first two halves of this independently, which meant every caller wanting
+// both read and parsed each manifest twice, with no guarantee the two reads
+// saw the same bytes.
+void walk_project(const std::filesystem::path& dir, std::size_t parent, Project& project,
+                  WalkState& state) {
     std::filesystem::path manifest;
     std::filesystem::path canonical;
 
     switch (enter_manifest(dir, state, manifest, canonical)) {
-        case Enter::error: tree.ok = false; return;
+        case Enter::error: project.ok = false; return;
         case Enter::skip:  return;
         case Enter::ok:    break;
     }
@@ -199,19 +206,41 @@ void walk(const std::filesystem::path& dir, Tree& tree, WalkState& state) {
     const auto name = first(doc, "name");
 
     if (!valid_manifest(doc, kind, name, manifest)) {
-        tree.ok = false;
+        project.ok = false;
         state.visited.push_back(canonical);
         return;
     }
 
+    Node node;
+    node.manifest = manifest;
+    node.dir = dir.lexically_normal();
+    node.kind = kind;
+    node.name = name;
+    node.parent = parent;
+
+    project.nodes.push_back(std::move(node));
+    const auto index = project.nodes.size() - 1;
+
+    // documents and target stay parallel to nodes, so every push here is
+    // matched by one in each.
+    project.documents.push_back(doc);
+    project.target.push_back(no_target);
+
+    if (parent != no_parent) project.nodes[parent].children.push_back(index);
+
     if (kind == "project" || kind == "dir") {
         state.visiting.push_back(canonical);
-        for (const auto& folder : all(doc, "folder")) walk(dir / folder, tree, state);
+        for (const auto& folder : all(doc, "folder"))
+            walk_project(dir / folder, index, project, state);
         state.visiting.pop_back();
         state.visited.push_back(canonical);
         return;
     }
 
+    // A leaf manifest is finished the moment it is read, and must be marked
+    // so before its target is built: a diamond reaches the same folder from
+    // two parents, and only this stops the second visit building a second,
+    // duplicate target for it.
     state.visited.push_back(canonical);
 
     Target target;
@@ -228,7 +257,7 @@ void walk(const std::filesystem::path& dir, Tree& tree, WalkState& state) {
         if (!is_safe_relative_path(raw, joined)) {
             std::cerr << "build: unsafe source path \"" << unit.path << "\" in "
                       << manifest.string() << "\n";
-            tree.ok = false;
+            project.ok = false;
             return false;
         }
         unit.path = joined.lexically_normal().string();
@@ -242,7 +271,8 @@ void walk(const std::filesystem::path& dir, Tree& tree, WalkState& state) {
         for (const auto& file : all(doc, "file"))
             if (!push_source(file, true)) return;
 
-        tree.docs.push_back(std::move(target));
+        project.docs.push_back(std::move(target));
+        project.target[index] = project.docs.size() - 1;
         return;
     }
 
@@ -253,11 +283,12 @@ void walk(const std::filesystem::path& dir, Tree& tree, WalkState& state) {
 
         if (target.sources.empty()) {
             std::cerr << "build: manifest declares no unit: entries: " << manifest.string() << "\n";
-            tree.ok = false;
+            project.ok = false;
             return;
         }
 
-        tree.tests.push_back(std::move(target));
+        project.tests.push_back(std::move(target));
+        project.target[index] = project.tests.size() - 1;
         return;
     }
 
@@ -267,60 +298,19 @@ void walk(const std::filesystem::path& dir, Tree& tree, WalkState& state) {
 
     if (target.sources.empty()) {
         std::cerr << "build: manifest declares no file: entries: " << manifest.string() << "\n";
-        tree.ok = false;
+        project.ok = false;
         return;
     }
     if (kind == "module" && target.module_name.empty()) {
         std::cerr << "build: module manifest has no module: name: " << manifest.string() << "\n";
-        tree.ok = false;
+        project.ok = false;
         return;
     }
 
-    tree.targets.push_back(std::move(target));
+    project.targets.push_back(std::move(target));
+    project.target[index] = project.targets.size() - 1;
 }
 
-void walk_nodes(const std::filesystem::path& dir, std::size_t parent,
-                std::vector<Node>& nodes, WalkState& state, bool& ok) {
-    std::filesystem::path manifest;
-    std::filesystem::path canonical;
-
-    switch (enter_manifest(dir, state, manifest, canonical)) {
-        case Enter::error: ok = false; return;
-        case Enter::skip:  return;
-        case Enter::ok:    break;
-    }
-
-    const auto doc = mm::mdy::Parser::parse_file(manifest);
-    const auto kind = first(doc, "kind");
-    const auto name = first(doc, "name");
-
-    if (!valid_manifest(doc, kind, name, manifest)) {
-        ok = false;
-        state.visited.push_back(canonical);
-        return;
-    }
-
-    Node node;
-    node.manifest = manifest;
-    node.dir = dir.lexically_normal();
-    node.kind = kind;
-    node.name = name;
-    node.parent = parent;
-
-    nodes.push_back(std::move(node));
-    const auto index = nodes.size() - 1;
-
-    if (parent != no_parent) nodes[parent].children.push_back(index);
-
-    if (nodes[index].kind == "project" || nodes[index].kind == "dir") {
-        state.visiting.push_back(canonical);
-        for (const auto& folder : all(doc, "folder"))
-            walk_nodes(dir / folder, index, nodes, state, ok);
-        state.visiting.pop_back();
-    }
-
-    state.visited.push_back(canonical);
-}
 
 std::size_t index_of_module(const Tree& tree, const std::string& module_name) {
     for (std::size_t i = 0; i < tree.targets.size(); ++i)
@@ -412,8 +402,8 @@ std::filesystem::path find_project_root(std::filesystem::path dir) {
     return {};
 }
 
-Tree load_tree(const std::filesystem::path& dir) {
-    Tree tree;
+Project load_project(const std::filesystem::path& dir) {
+    Project project;
 
     std::error_code ec;
     WalkState state;
@@ -421,12 +411,12 @@ Tree load_tree(const std::filesystem::path& dir) {
     if (ec) {
         std::cerr << "build: cannot resolve project root " << dir.string()
                   << ": " << ec.message() << "\n";
-        tree.ok = false;
-        return tree;
+        project.ok = false;
+        return project;
     }
 
-    walk(dir, tree, state);
-    if (!tree.ok) return tree;
+    walk_project(dir, no_parent, project, state);
+    if (!project.ok) return project;
 
     // Checked once the whole tree is built, not incrementally during the
     // walk, since a duplicate can only be found once every candidate name
@@ -445,13 +435,13 @@ Tree load_tree(const std::filesystem::path& dir) {
         if (it != targets_by_dir.end()) {
             std::cerr << "build: " << target.dir.string() << " is declared by more than one manifest: "
                       << it->second->name << " and " << target.name << "\n";
-            tree.ok = false;
+            project.ok = false;
             return;
         }
         targets_by_dir[target.dir] = &target;
     };
 
-    for (const auto& target : tree.targets) {
+    for (const auto& target : project.targets) {
         check_dir(target);
 
         if (target.kind == "module") {
@@ -459,7 +449,7 @@ Tree load_tree(const std::filesystem::path& dir) {
             if (it != modules_by_name.end()) {
                 std::cerr << "build: module: " << target.module_name << " is exported by both "
                           << it->second->dir.string() << " and " << target.dir.string() << "\n";
-                tree.ok = false;
+                project.ok = false;
             } else {
                 modules_by_name[target.module_name] = &target;
             }
@@ -468,35 +458,36 @@ Tree load_tree(const std::filesystem::path& dir) {
             if (it != apps_by_name.end()) {
                 std::cerr << "build: app name \"" << target.name << "\" is declared by both "
                           << it->second->dir.string() << " and " << target.dir.string() << "\n";
-                tree.ok = false;
+                project.ok = false;
             } else {
                 apps_by_name[target.name] = &target;
             }
         }
     }
 
-    for (const auto& target : tree.tests) check_dir(target);
-    for (const auto& target : tree.docs) check_dir(target);
+    for (const auto& target : project.tests) check_dir(target);
+    for (const auto& target : project.docs) check_dir(target);
 
+    return project;
+}
+
+// Projections of the single traversal above, kept so callers that want only
+// one view need not know about the other.
+Tree load_tree(const std::filesystem::path& dir) {
+    auto project = load_project(dir);
+
+    Tree tree;
+    tree.ok = project.ok;
+    tree.targets = std::move(project.targets);
+    tree.tests = std::move(project.tests);
+    tree.docs = std::move(project.docs);
     return tree;
 }
 
 std::vector<Node> load_nodes(const std::filesystem::path& dir, bool& ok) {
-    std::vector<Node> nodes;
-    ok = true;
-
-    std::error_code ec;
-    WalkState state;
-    state.root = std::filesystem::weakly_canonical(dir, ec);
-    if (ec) {
-        std::cerr << "build: cannot resolve project root " << dir.string()
-                  << ": " << ec.message() << "\n";
-        ok = false;
-        return nodes;
-    }
-
-    walk_nodes(dir, no_parent, nodes, state, ok);
-    return nodes;
+    auto project = load_project(dir);
+    ok = project.ok;
+    return std::move(project.nodes);
 }
 
 Target load_test(const std::filesystem::path& manifest_path, bool& ok) {

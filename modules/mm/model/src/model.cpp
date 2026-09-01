@@ -90,14 +90,6 @@ private:
     std::vector<std::unique_ptr<RealBlock>> blocks_;
 };
 
-// Every node re-parses its own mm.mdy: mm::build::Node and mm::build::Target
-// both discard the MDYDocument they read, keeping only the fields each one
-// cares about.
-RealDocument parse_document(const std::filesystem::path& dir) {
-    const auto path = dir / "mm.mdy";
-    return RealDocument(path, mm::mdy::Parser::parse_file(path));
-}
-
 class RealSourceUnit : public models::SourceUnit {
 public:
     explicit RealSourceUnit(const mm::build::Unit& unit)
@@ -120,10 +112,11 @@ class NodeData {
 public:
     NodeData(std::string name, std::filesystem::path directory, std::size_t parent_index,
              std::vector<std::size_t> children_indices,
-             const std::vector<const models::ManifestNode*>* index)
+             const std::vector<const models::ManifestNode*>* index,
+             const mm::mdy::MDYDocument& doc)
         : name_(std::move(name)), directory_(std::move(directory)), parent_index_(parent_index),
           children_indices_(std::move(children_indices)), index_(index),
-          document_(parse_document(directory_)) {}
+          document_(directory_ / "mm.mdy", doc) {}
 
     [[nodiscard]] std::string_view name() const { return name_; }
     [[nodiscard]] std::filesystem::path manifest_path() const { return directory_ / "mm.mdy"; }
@@ -609,14 +602,6 @@ std::vector<std::unique_ptr<models::Operation>> build_operations(
     return result;
 }
 
-using TargetIndex = std::map<std::filesystem::path, const mm::build::Target*>;
-
-TargetIndex index_by_dir(const std::vector<mm::build::Target>& targets) {
-    TargetIndex index;
-    for (const auto& target : targets) index[target.dir] = &target;
-    return index;
-}
-
 // compiler()/compiler_flags()/linker_flags()/verbose() copy the live
 // Toolchain rather than pointing into it, since default_configuration()
 // hands the caller ownership and the Toolchain that built this is a local
@@ -683,13 +668,15 @@ Loaded Loaded::load(const std::filesystem::path& root_dir, bool& ok) {
     std::filesystem::current_path(root_dir, ec);
     if (ec) return loaded;
 
-    auto tree = mm::build::load_tree(".");
-    bool nodes_ok = false;
-    auto nodes = mm::build::load_nodes(".", nodes_ok);
-    if (!tree.ok || !nodes_ok) {
+    // One traversal: mm::build::load_project pairs each node with its own
+    // parsed document and its target, so nothing here re-reads a manifest
+    // or re-pairs the two views by directory.
+    auto project = mm::build::load_project(".");
+    if (!project.ok) {
         std::filesystem::current_path(previous, ec);
         return loaded;
     }
+    const auto& nodes = project.nodes;
 
     if (nodes.empty() || nodes.front().kind != "project") {
         // Repository::root() is typed ProjectNode&: a subtree load whose
@@ -700,16 +687,24 @@ Loaded Loaded::load(const std::filesystem::path& root_dir, bool& ok) {
         return loaded;
     }
 
-    const auto target_index = index_by_dir(tree.targets);
-    const auto doc_index = index_by_dir(tree.docs);
-    const auto test_index = index_by_dir(tree.tests);
-
     auto impl = std::make_unique<Impl>();
     impl->index.assign(nodes.size(), nullptr);
 
     for (std::size_t i = 0; i < nodes.size(); ++i) {
         const auto& node = nodes[i];
-        NodeData data(node.name, node.dir, node.parent, node.children, &impl->index);
+        NodeData data(node.name, node.dir, node.parent, node.children, &impl->index,
+                      project.documents[i]);
+
+        // project.target[i] is this node's entry in the list its kind
+        // selects, recorded by the same traversal that made the node, so a
+        // buildable node without one means the walk contradicted itself.
+        const auto target = project.target[i];
+        const bool needs_target =
+            node.kind == "module" || node.kind == "app" || node.kind == "test" || node.kind == "doc";
+        if (needs_target && target == mm::build::no_target) {
+            std::filesystem::current_path(previous, ec);
+            return loaded;
+        }
 
         if (node.kind == "project") {
             impl->projects.push_back(std::make_unique<RealProjectNode>(std::move(data)));
@@ -718,36 +713,20 @@ Loaded Loaded::load(const std::filesystem::path& root_dir, bool& ok) {
             impl->directories.push_back(std::make_unique<RealDirectoryNode>(std::move(data)));
             impl->index[i] = impl->directories.back().get();
         } else if (node.kind == "module") {
-            const auto it = target_index.find(node.dir);
-            if (it == target_index.end()) {
-                std::filesystem::current_path(previous, ec);
-                return loaded;
-            }
-            impl->modules.push_back(std::make_unique<RealModuleNode>(std::move(data), *it->second));
+            impl->modules.push_back(
+                std::make_unique<RealModuleNode>(std::move(data), project.targets[target]));
             impl->index[i] = impl->modules.back().get();
         } else if (node.kind == "app") {
-            const auto it = target_index.find(node.dir);
-            if (it == target_index.end()) {
-                std::filesystem::current_path(previous, ec);
-                return loaded;
-            }
-            impl->apps.push_back(std::make_unique<RealAppNode>(std::move(data), *it->second));
+            impl->apps.push_back(
+                std::make_unique<RealAppNode>(std::move(data), project.targets[target]));
             impl->index[i] = impl->apps.back().get();
         } else if (node.kind == "test") {
-            const auto it = test_index.find(node.dir);
-            if (it == test_index.end()) {
-                std::filesystem::current_path(previous, ec);
-                return loaded;
-            }
-            impl->tests.push_back(std::make_unique<RealTestNode>(std::move(data), *it->second));
+            impl->tests.push_back(
+                std::make_unique<RealTestNode>(std::move(data), project.tests[target]));
             impl->index[i] = impl->tests.back().get();
         } else if (node.kind == "doc") {
-            const auto it = doc_index.find(node.dir);
-            if (it == doc_index.end()) {
-                std::filesystem::current_path(previous, ec);
-                return loaded;
-            }
-            impl->docs.push_back(std::make_unique<RealDocNode>(std::move(data), *it->second));
+            impl->docs.push_back(
+                std::make_unique<RealDocNode>(std::move(data), project.docs[target]));
             impl->index[i] = impl->docs.back().get();
         }
     }
