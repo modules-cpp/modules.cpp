@@ -367,36 +367,21 @@ private:
     std::vector<const models::DocNode*> docs_;
 };
 
-// One models::Tool per kind:app manifest, matching what build.sh installs:
-// every app is written to out/bin/<name>.
-class RealTool : public models::Tool {
-public:
-    explicit RealTool(const models::AppNode& app)
-        : name_(app.name()), invocation_(std::filesystem::path("out") / "bin" / name_),
-          app_(&app) {}
-
-    [[nodiscard]] std::string_view name() const override { return name_; }
-    [[nodiscard]] models::Provenance provenance() const override { return models::Provenance::BuiltIn; }
-    [[nodiscard]] std::filesystem::path invocation() const override { return invocation_; }
-    [[nodiscard]] const models::AppNode* declared_by() const override { return app_; }
-
-private:
-    std::string name_;
-    std::filesystem::path invocation_;
-    const models::AppNode* app_;
-};
-
-// build0 and build1 (tools/build/main.cpp and bootstrap.sh's hand compiled
-// build1; see docs/modules.mdy) have no RealAppNode a RealTool can point at,
-// so this is a second, more general Tool: app is nullable, and invocation()
-// is given directly rather than always being out/bin/<name>.
+// Every models::Tool this adapter produces. One shape covers them all: a
+// name, where it is invoked from, the AppNode that declares it if any, and
+// its provenance.
+//
+// A kind:app manifest gives the common case, out/bin/<name> declared by
+// that app, which is what build.sh installs. The three fixed entries below
+// are why the app pointer is nullable and the invocation is given rather
+// than derived:
 //
 //   - build0: source is tools/build/main.cpp, which no manifest anywhere
 //     declares. app is nullptr: there is nothing to point declared_by() at.
 //   - build1: source is tools/build/build.cpp, the exact file
 //     tools/build/mm.mdy declares under kind:app name:build. app is that
-//     same AppNode, the one RealTool also builds a Tool for out/bin/build
-//     from: build1 and out/bin/build are two Tools for one declared app,
+//     same AppNode, the one out/bin/build's own Tool points at as well:
+//     build1 and out/bin/build are two Tools for one declared app,
 //     one built by hand during bootstrap and one built by itself later.
 //   - c++: the host compiler, Provenance::ThirdParty like cppcheck and
 //     semgrep would be. bootstrap.sh's fallback branch (see
@@ -424,7 +409,10 @@ private:
 std::vector<std::unique_ptr<models::Tool>> build_tools(const std::vector<const models::AppNode*>& apps) {
     std::vector<std::unique_ptr<models::Tool>> result;
     result.reserve(apps.size() + 3);
-    for (const auto* app : apps) result.push_back(std::make_unique<RealTool>(*app));
+    for (const auto* app : apps)
+        result.push_back(std::make_unique<FixedTool>(
+            std::string(app->name()), std::filesystem::path("out") / "bin" / std::string(app->name()),
+            app));
 
     const models::AppNode* build_app = nullptr;
     for (const auto* app : apps)
@@ -432,8 +420,8 @@ std::vector<std::unique_ptr<models::Tool>> build_tools(const std::vector<const m
 
     // build0, build1, and c++ are fixed facts about this repository's own
     // bootstrap.sh, not something Loaded::load() can derive for an
-    // arbitrary tree: load() accepts any valid project (Repository and
-    // RealTool above are genuinely general), but these three describe a
+    // arbitrary tree: load() accepts any valid project (Repository and the
+    // per-app tools above are genuinely general), but these three describe a
     // script that only exists here. Adding them unconditionally would make
     // Loaded report a build0/build1/c++ for a foreign project that has no
     // such thing, so they are gated on this tree actually declaring a
@@ -456,6 +444,37 @@ const models::Tool* find_tool(const std::vector<std::unique_ptr<models::Tool>>& 
         if (tool->name() == name) return tool.get();
     return nullptr;
 }
+
+// load() enters the project root to walk it, and owes the caller the
+// directory it started in on every path out. RAII rather than a restore
+// call before each return: there were five, and the sixth that a later
+// return would need is exactly the one that gets forgotten.
+class scoped_current_path {
+public:
+    explicit scoped_current_path(const std::filesystem::path& enter) {
+        std::error_code ec;
+        previous_ = std::filesystem::current_path(ec);
+        if (ec) return;
+        std::filesystem::current_path(enter, ec);
+        ok_ = !ec;
+    }
+
+    ~scoped_current_path() {
+        std::error_code ec;
+        std::filesystem::current_path(previous_, ec);
+    }
+
+    scoped_current_path(const scoped_current_path&) = delete;
+    scoped_current_path& operator=(const scoped_current_path&) = delete;
+    scoped_current_path(scoped_current_path&&) = delete;
+    scoped_current_path& operator=(scoped_current_path&&) = delete;
+
+    [[nodiscard]] bool ok() const { return ok_; }
+
+private:
+    std::filesystem::path previous_;
+    bool ok_ = false;
+};
 
 // Fixed, hand authored data: the seven *.sh scripts and how they relate are
 // not something any manifest declares, the same reasoning as build0/build1
@@ -663,17 +682,14 @@ Loaded Loaded::load(const std::filesystem::path& root_dir, bool& ok) {
     Loaded loaded;
     ok = false;
 
-    std::error_code ec;
-    const auto previous = std::filesystem::current_path();
-    std::filesystem::current_path(root_dir, ec);
-    if (ec) return loaded;
+    const scoped_current_path enter(root_dir);
+    if (!enter.ok()) return loaded;
 
     // One traversal: mm::build::load_project pairs each node with its own
     // parsed document and its target, so nothing here re-reads a manifest
     // or re-pairs the two views by directory.
     auto project = mm::build::load_project(".");
     if (!project.ok) {
-        std::filesystem::current_path(previous, ec);
         return loaded;
     }
     const auto& nodes = project.nodes;
@@ -683,7 +699,6 @@ Loaded Loaded::load(const std::filesystem::path& root_dir, bool& ok) {
         // root is not kind:project (or an empty tree) cannot be represented
         // truthfully, so this is a load failure rather than a node this
         // adapter fabricates a project identity for.
-        std::filesystem::current_path(previous, ec);
         return loaded;
     }
 
@@ -702,7 +717,6 @@ Loaded Loaded::load(const std::filesystem::path& root_dir, bool& ok) {
         const bool needs_target =
             node.kind == "module" || node.kind == "app" || node.kind == "test" || node.kind == "doc";
         if (needs_target && target == mm::build::no_target) {
-            std::filesystem::current_path(previous, ec);
             return loaded;
         }
 
@@ -748,13 +762,10 @@ Loaded Loaded::load(const std::filesystem::path& root_dir, bool& ok) {
     bool modules_ok = false;
     impl->resolved_modules = build_modules(impl->modules, modules_ok);
     if (!modules_ok) {
-        std::filesystem::current_path(previous, ec);
         return loaded;
     }
 
     loaded.impl_ = std::move(impl);
-
-    std::filesystem::current_path(previous, ec);
     ok = true;
     return loaded;
 }
