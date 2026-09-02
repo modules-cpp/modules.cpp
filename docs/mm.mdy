@@ -2,6 +2,7 @@
 mm: 1.0
 kind: doc
 name: docs
+file: compiler-is-all-you-need.mdy
 file: mdy.mdy
 file: modules.mdy
 file: modules-c++20.mdy
