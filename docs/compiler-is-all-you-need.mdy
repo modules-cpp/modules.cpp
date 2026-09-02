@@ -1,0 +1,74 @@
+
+
+## mm: 1.0 kind: doc name: Compiler is all you need
+
+# Compiler is all you need
+
+Compiler is all I had 30+ years ago starting my professional journey as a C++ programmer. It was a different era of software development tools when they actually worked as advertised. They worked on a machines with a fraction of modern computer capabilities and maybe I am just nostalgic but these tools were joy to use. BTW you can still buy these tools and even download free version albeit only up to C++11.
+
+30+ years later everything has changed about the C++ language and software development but somehow it all stayed the same. We use computers with vastly bigger memories and insane clock speeds but somehow it all feels worse then before.
+
+# And the modular C++20 arrived
+
+C++20 changed everything for me when it finally introduced modules. After all these years of waiting a mythical modular programming was finally part of the language itself. It is not new meta programming paradigm or some template hack, not a library not even some compilation hack (more about this later) just a language feature.
+
+After years of crafting software and firmware in more or less modular way I was ready to embrace C++ modules, just give me the code I can use. Well it is 2026 and I got tired of waiting, but things have changed and now we can do something about it.
+
+# Introducing Modules.cpp
+
+This is my attempt at modern modular C++ project that breaks with the past, no more legacy code (we will wrap you) no more meta-meta something (if only we could get rid of it). This is pure import that module and \# is a banned character so no more include (where possible). Macros are evil and we don't let them in, and why would when we have constrexpr for variables and functions. API is an interface in a module with a class or classes that implements it the way your targets wants it. Tools that we need we build (except for the compiler) or borrow for now.  
+Code is reused and reused until what is left is all modular and minimal (so we strive).
+
+# Self everything is name of this game
+
+You have to first bootstrap.sh this project (compiler is all you need remember) on a POSIX compatible machine (decent shell and C locale implied). But once self-started (bootstrapped) you are good to just build (this is a command and a wrapper) and just in case there is also a build.sh. for a complete self-build support.
+
+How does it just build itself?  Well it is self-described with mm.mdy manifest file in (almost) every folder that belongs to the project. MDY is as you might have guessed self-defining text format that borrows key value (y-aml) and no-markup (.md) ideas and combines then into .mdy files. And there is an mdy app for it too.
+
+When build is done test it (another command called by a wrapper) there are both unit and integration tests for a full self-testing support aka TDD.
+
+Tests are passing then document it! (yes another command and a wrapper to call it). When document or document.sh is done out/ is full of pure html goodness starting with index.html that links to all of the other generated html files stored in a folder structure with a striking resemblance to the modules.cpp project itself (self-similarity).
+
+End of testing is not the end of the development cycle, it is a beginning of a new one because project lives on a spiral. In new cycle we model (yes it is a command and a wrapper) all of the new features and verify updated model before any new feature code gets written. Model is expressed in C++ so this is a zero friction process of modeling and developing new features.
+
+While in active development we check and check (it is a command and a wrapper) continuously to stay within the rules.
+
+# What are we producing here
+
+Cardinal rule current version can build next version.
+
+All the output files that are compiled or generated end up in out/ folder which retains folder structure of the the moduules.cpp project with few additions like out/bin for installed commands.
+
+What is the the project folder structure? From the top we have:
+
+apps/ - for all the applications like mdy docs/ - where all documents live including this one models/ - models inhabit this folder modules/ - all of the mm modules  
+tests/ - naturally tests tools/ - the tools: build - it builds from source code check - it checks the rules model - it models shell - it is a shell for a shell test  - it builds and runs tests
+
+Sometimes we just need to start over so naturally there is a clean wrapper and a clean.sh script. Let's talk about this wrapper, what is it and what exactly does it wrap? It is a shell script that calls shell tool that runs the shell script which sounds a bit self-referential. Because it is self-referential by design. Also shell is one the tools we build.
+
+# More is less, more or less.
+
+To me this describes current state of software development where more of everything leads to less of: quality, utility, understanding, value and ultimately freedom of choice.
+
+To flip this around we have to do less by choosing minimal modular approach to developing software.
+
+This approach leeds as directly to:
+
+# Lesser programming manifesto
+
+To do more we chose to do less.
+
+We model with less abstraction which leads to less code, documentation, testing and maintenance.
+
+We can do less because code base is self-consistent with its own rules which are self-modeled, self-checked and self-enforced with tools included in the project.
+
+The same applies to the choices of C++ language features. C++ has been evolving over the past 40+ years and now has a rich and confusing set of language features while supporting multiple programming paradigms from the better C to object oriented, meta and now modular programming.
+
+The choices is in this project are deliberate, use only the modern features and ban all of the features that lead to poor quality and safety of the code.
+
+# Seed release 1.0
+
+Software is never done and this is a seed release 1.0 that will grow up and down of the version tree.
+
+Pawel Wodnicki (c) 2026
+
