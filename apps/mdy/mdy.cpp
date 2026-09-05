@@ -210,13 +210,13 @@ std::string to_document(const mm::mdy::MDYDocument& doc, const std::filesystem::
 // Where a node's page lives, relative to the output root. Paths are rebased on
 // the walk root so that generating a subtree puts its top manifest at
 // index.html rather than burying it under its source path.
-std::filesystem::path page_of(const mm::build::Node& node, const std::filesystem::path& base) {
+std::filesystem::path page_of(const mm::build::ManifestNode& node, const std::filesystem::path& base) {
     return (node.dir.lexically_normal().lexically_relative(base) / "index.html").lexically_normal();
 }
 
 // A link from one page to another, relative, so the site works from a file://
 // path or any subdirectory of a server.
-std::string link_between(const mm::build::Node& from, const mm::build::Node& to,
+std::string link_between(const mm::build::ManifestNode& from, const mm::build::ManifestNode& to,
                          const std::filesystem::path& base) {
     return page_of(to, base)
         .lexically_relative(page_of(from, base).parent_path())
@@ -224,7 +224,7 @@ std::string link_between(const mm::build::Node& from, const mm::build::Node& to,
 }
 
 // Breadcrumbs up to the root, then the children below.
-std::string to_nav(const std::vector<mm::build::Node>& nodes, std::size_t index,
+std::string to_nav(const std::vector<mm::build::ManifestNode>& nodes, std::size_t index,
                    const std::filesystem::path& base) {
     const auto& node = nodes[index];
 
@@ -288,7 +288,7 @@ bool write_page(const std::filesystem::path& page, const std::string& contents) 
 }
 
 // A doc manifest's file: entries are prose files, not manifests: nothing
-// walks them into a Node of their own (mm::build::load_nodes only recurses
+// walks them into a ManifestNode of their own (mm::build::load_nodes only recurses
 // through folder: on a project or dir manifest), so nothing else in this
 // walk would ever render them. Each is written as a page beside the doc
 // node's own page, in the same directory, so the link to_metadata writes
@@ -300,7 +300,7 @@ bool write_page(const std::filesystem::path& page, const std::string& contents) 
 // ..-climbing file: value the same way it does for every other kind, so
 // this function never joins an unvalidated path the way the doc.metadata
 // approach it replaced did.
-void render_doc_files(const mm::build::Node& node, const mm::build::Target& target,
+void render_doc_files(const mm::build::ManifestNode& node, const mm::build::BuildableNode& target,
                       const std::filesystem::path& out_dir, const std::filesystem::path& base,
                       std::size_t& written, bool& had_error) {
     if (target.sources.empty()) return;
@@ -353,7 +353,7 @@ void render_doc_files(const mm::build::Node& node, const mm::build::Target& targ
 // project relative; mm::build joins them that way too, and getting it wrong
 // here would produce links that resolve to nothing. A value naming a file
 // that does not exist is left unlinked rather than pointed somewhere dead.
-FileLinks file_links(const mm::build::Node& node, const mm::mdy::MDYDocument& doc,
+FileLinks file_links(const mm::build::ManifestNode& node, const mm::mdy::MDYDocument& doc,
                      const std::filesystem::path& page_dir, bool is_doc) {
     FileLinks links;
 

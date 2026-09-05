@@ -103,8 +103,8 @@ Enter enter_manifest(const std::filesystem::path& dir, WalkState& state,
 }
 
 // The kind and name every manifest must declare to be usable further,
-// independent of whether the walk that reached it builds a Target (walk) or
-// only records a Node (load_nodes' walk_nodes). Both walks share it: without
+// independent of whether the walk that reached it builds a BuildableNode (walk) or
+// only records a ManifestNode (load_nodes' walk_nodes). Both walks share it: without
 // this, load_nodes recorded whatever a manifest's front matter said, kind
 // included, with no check that it named one of the six kinds this project
 // defines at all.
@@ -211,7 +211,7 @@ void walk_project(const std::filesystem::path& dir, std::size_t parent, Project&
         return;
     }
 
-    Node node;
+    ManifestNode node;
     node.manifest = manifest;
     node.dir = dir.lexically_normal();
     node.kind = kind;
@@ -243,7 +243,7 @@ void walk_project(const std::filesystem::path& dir, std::size_t parent, Project&
     // duplicate target for it.
     state.visited.push_back(canonical);
 
-    Target target;
+    BuildableNode target;
     target.kind = kind;
     target.name = name;
     target.module_name = first(doc, "module");
@@ -367,8 +367,8 @@ Toolchain default_toolchain(bool verbose) {
     return toolchain;
 }
 
-Unit parse_unit(std::string_view value) {
-    Unit unit;
+TranslationUnit parse_unit(std::string_view value) {
+    TranslationUnit unit;
 
     const auto split = value.find_first_of(" \t");
     if (split == std::string_view::npos) {
@@ -426,11 +426,11 @@ Project load_project(const std::filesystem::path& dir) {
     // the same name would silently install() one over the other under
     // out/bin; and nothing at all currently rules out two different
     // manifests claiming the same directory.
-    std::map<std::string, const Target*, std::less<>> modules_by_name;
-    std::map<std::string, const Target*, std::less<>> apps_by_name;
-    std::map<std::filesystem::path, const Target*> targets_by_dir;
+    std::map<std::string, const BuildableNode*, std::less<>> modules_by_name;
+    std::map<std::string, const BuildableNode*, std::less<>> apps_by_name;
+    std::map<std::filesystem::path, const BuildableNode*> targets_by_dir;
 
-    auto check_dir = [&](const Target& target) {
+    auto check_dir = [&](const BuildableNode& target) {
         const auto it = targets_by_dir.find(target.dir);
         if (it != targets_by_dir.end()) {
             std::cerr << "build: " << target.dir.string() << " is declared by more than one manifest: "
@@ -484,15 +484,15 @@ Tree load_tree(const std::filesystem::path& dir) {
     return tree;
 }
 
-std::vector<Node> load_nodes(const std::filesystem::path& dir, bool& ok) {
+std::vector<ManifestNode> load_nodes(const std::filesystem::path& dir, bool& ok) {
     auto project = load_project(dir);
     ok = project.ok;
     return std::move(project.nodes);
 }
 
-Target load_test(const std::filesystem::path& manifest_path, bool& ok) {
+BuildableNode load_test(const std::filesystem::path& manifest_path, bool& ok) {
     ok = false;
-    Target target;
+    BuildableNode target;
 
     if (!safe_exists(manifest_path)) {
         std::cerr << "build: manifest does not exist: " << manifest_path.string() << "\n";
@@ -607,7 +607,7 @@ std::string shell_quote(const std::filesystem::path& path) {
     return quoted;
 }
 
-int compile(const Toolchain& toolchain, Target& target, const std::filesystem::path& build_dir) {
+int compile(const Toolchain& toolchain, BuildableNode& target, const std::filesystem::path& build_dir) {
     std::error_code ec;
 
     for (const auto& source : target.sources) {

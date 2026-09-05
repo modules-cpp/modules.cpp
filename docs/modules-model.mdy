@@ -18,12 +18,12 @@ modules instead of headers, no exceptions, no new templates, enum class,
 [[nodiscard]] on accessors, and explicit virtual destructors on every base.
 
 # The eight modules
-Eight modules, each under models/<name>/<name>.cppm with its own mm.mdy, in
+Eleven modules, each under models/<name>/<name>.cppm with its own mm.mdy, in
 dependency order:
 
 - models.document — front matter and body blocks for one MDY file (models::Document, models::Block). Foundational: every MDY file is a document, including a manifest, so everything else sits above this.
 - models.configuration — the project's build configuration (models::Configuration). Every accessor is declared policy, not a measurement of an actual run: compiler()/compiler_flags()/linker_flags()/ verbose() mirror the live mm::build::Toolchain, honoring $CXX, but that is only the self hosted build's rule — bootstrap.sh and build0 deliberately use a plain "c++" and never read $CXX, so that bootstrap reaches a working build1 the same way on every machine. Those are two intentional rules, not an inconsistency, and this type describes the self hosted one. platform()/locale()/shell() state fixed project policy that is documented (POSIX, C, /bin/sh) but, for locale() specifically, not enforced anywhere (no setlocale(3), no LC_ALL/LANG set); platform() and shell() are closer to actually true everywhere (mm::build::run always execs /bin/sh) but are still policy this type declares rather than measures. The model represents the whole project concept, including facts that are implied and fixed rather than actively checked, but "policy" and "observed invocation configuration" are deliberately not the same claim: see models/configuration/configuration.cppm's own comment for the accessor-by-accessor detail. Foundational and independent: a Configuration is an input to running a tool, not a structural fact about the repository.
-- models.manifest — the manifest kind taxonomy docs/modules.mdy defines: project, dir, module, app, test, doc (models::Kind, models::ManifestNode, models::BuildableNode, and one class per kind). Imports models.document, because every manifest is one.
+- models.manifest — the manifest kind taxonomy docs/modules.mdy defines: project, dir, module, app, test, doc (models::Kind, models::ManifestNode, models::BuildableNode, models::TranslationUnit, and one class per kind). ManifestNode, BuildableNode and TranslationUnit deliberately carry the same names as the mm::build structs they abstract, so one concept reads under one name in both layers; the one place the sets differ is kind:doc, which mm::build::BuildableNode also holds but models::DocNode does not, since a doc's file: entries are prose rather than sources. Imports models.document, because every manifest is one.
 - models.repository — the aggregate view over a whole manifest tree (models::Repository): a project's root plus every module, app, test, and doc reachable from it. Imports models.manifest.
 - models.tool — an invocable tool (models::Tool), distinct from models::ModuleNode's declaration: a Tool may have no declaring manifest at all, such as a third party tool or the pre-manifest bootstrap artifacts build0/build1. Imports models.manifest.
 - models.modules — a resolved C++20 module (models::Module), distinct from models::ModuleNode the same way: ModuleNode's uses() is dependency names as text, Module's imports() is those names resolved to other Module objects. Imports models.manifest.
@@ -59,11 +59,11 @@ rather than adapting or stating a known fact.
 manifest tree from root, which reaches tests/ through the root manifest's
 folder: tests entry like every other subtree. Each node is given a real
 document() by re-parsing its own mm.mdy through mm::mdy::Parser, since
-mm::build::Target does not keep the MDYDocument it read.
+mm::build::BuildableNode does not keep the MDYDocument it read.
 
 parent() and children() are resolved for real, by also walking
-mm::build::load_nodes and cross referencing its structural Node list against
-the Target lists by directory: a node built from load_nodes carries its
+mm::build::load_nodes and cross referencing its structural ManifestNode list against
+the BuildableNode lists by directory: a node built from load_nodes carries its
 parent's and children's indices into a shared table, filled in as every node
 is constructed, so each node's parent()/children() looks up a real sibling
 rather than returning nullptr or empty. root() is the manifest load_nodes

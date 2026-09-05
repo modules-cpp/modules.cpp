@@ -90,9 +90,9 @@ private:
     std::vector<std::unique_ptr<RealBlock>> blocks_;
 };
 
-class RealSourceUnit : public models::SourceUnit {
+class RealTranslationUnit : public models::TranslationUnit {
 public:
-    explicit RealSourceUnit(const mm::build::Unit& unit)
+    explicit RealTranslationUnit(const mm::build::TranslationUnit& unit)
         : path_(unit.path), module_name_(unit.module_name) {}
 
     [[nodiscard]] std::filesystem::path path() const override { return path_; }
@@ -149,14 +149,14 @@ private:
 // and test.
 class BuildableData {
 public:
-    explicit BuildableData(const mm::build::Target& target) {
+    explicit BuildableData(const mm::build::BuildableNode& target) {
         sources_.reserve(target.sources.size());
         for (const auto& unit : target.sources) sources_.emplace_back(unit);
         uses_ = target.uses;
     }
 
-    [[nodiscard]] std::vector<const models::SourceUnit*> sources() const {
-        std::vector<const models::SourceUnit*> result;
+    [[nodiscard]] std::vector<const models::TranslationUnit*> sources() const {
+        std::vector<const models::TranslationUnit*> result;
         result.reserve(sources_.size());
         for (const auto& unit : sources_) result.push_back(&unit);
         return result;
@@ -170,7 +170,7 @@ public:
     }
 
 private:
-    std::vector<RealSourceUnit> sources_;
+    std::vector<RealTranslationUnit> sources_;
     std::vector<std::string> uses_;
 };
 
@@ -206,7 +206,7 @@ private:
 
 class RealDocNode : public models::DocNode {
 public:
-    RealDocNode(NodeData data, const mm::build::Target& target) : data_(std::move(data)) {
+    RealDocNode(NodeData data, const mm::build::BuildableNode& target) : data_(std::move(data)) {
         // target.sources is already root relative for a kind:doc target
         // (mm::build joins each file: value with target.dir and normalizes
         // it before storing it), so files() reuses that rather than
@@ -231,7 +231,7 @@ private:
 
 class RealModuleNode : public models::ModuleNode {
 public:
-    RealModuleNode(NodeData data, const mm::build::Target& target)
+    RealModuleNode(NodeData data, const mm::build::BuildableNode& target)
         : data_(std::move(data)), buildable_(target), exported_module_name_(target.module_name) {}
 
     [[nodiscard]] std::string_view name() const override { return data_.name(); }
@@ -240,7 +240,7 @@ public:
     [[nodiscard]] const models::ManifestNode* parent() const override { return data_.parent(); }
     [[nodiscard]] std::vector<const models::ManifestNode*> children() const override { return data_.children(); }
     [[nodiscard]] const models::Document& document() const override { return data_.document(); }
-    [[nodiscard]] std::vector<const models::SourceUnit*> sources() const override { return buildable_.sources(); }
+    [[nodiscard]] std::vector<const models::TranslationUnit*> sources() const override { return buildable_.sources(); }
     [[nodiscard]] std::vector<std::string_view> uses() const override { return buildable_.uses(); }
     [[nodiscard]] std::string_view exported_module_name() const override { return exported_module_name_; }
 
@@ -308,7 +308,7 @@ std::vector<std::unique_ptr<RealModule>> build_modules(
 
 class RealAppNode : public models::AppNode {
 public:
-    RealAppNode(NodeData data, const mm::build::Target& target)
+    RealAppNode(NodeData data, const mm::build::BuildableNode& target)
         : data_(std::move(data)), buildable_(target) {}
 
     [[nodiscard]] std::string_view name() const override { return data_.name(); }
@@ -317,7 +317,7 @@ public:
     [[nodiscard]] const models::ManifestNode* parent() const override { return data_.parent(); }
     [[nodiscard]] std::vector<const models::ManifestNode*> children() const override { return data_.children(); }
     [[nodiscard]] const models::Document& document() const override { return data_.document(); }
-    [[nodiscard]] std::vector<const models::SourceUnit*> sources() const override { return buildable_.sources(); }
+    [[nodiscard]] std::vector<const models::TranslationUnit*> sources() const override { return buildable_.sources(); }
     [[nodiscard]] std::vector<std::string_view> uses() const override { return buildable_.uses(); }
 
 private:
@@ -327,7 +327,7 @@ private:
 
 class RealTestNode : public models::TestNode {
 public:
-    RealTestNode(NodeData data, const mm::build::Target& target)
+    RealTestNode(NodeData data, const mm::build::BuildableNode& target)
         : data_(std::move(data)), buildable_(target) {}
 
     [[nodiscard]] std::string_view name() const override { return data_.name(); }
@@ -336,7 +336,7 @@ public:
     [[nodiscard]] const models::ManifestNode* parent() const override { return data_.parent(); }
     [[nodiscard]] std::vector<const models::ManifestNode*> children() const override { return data_.children(); }
     [[nodiscard]] const models::Document& document() const override { return data_.document(); }
-    [[nodiscard]] std::vector<const models::SourceUnit*> sources() const override { return buildable_.sources(); }
+    [[nodiscard]] std::vector<const models::TranslationUnit*> sources() const override { return buildable_.sources(); }
     [[nodiscard]] std::vector<std::string_view> uses() const override { return buildable_.uses(); }
 
 private:

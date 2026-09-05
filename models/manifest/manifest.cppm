@@ -8,7 +8,7 @@
 // tools/model consume this one.
 //
 // ManifestNode models the six kinds docs/modules.mdy defines: project, dir,
-// module, app, test, and doc. It mirrors mm::build::Node
+// module, app, test, and doc. It mirrors mm::build::ManifestNode
 // (modules/mm/build/build.cppm) conceptually, as an abstract interface
 // instead of that module's flat struct. See models.repository for the
 // aggregate view over a whole tree of these nodes.
@@ -36,9 +36,12 @@ enum class Kind { Project, Directory, Module, App, Test, Doc };
 
 // A single file: or unit: entry. Source order is declaration order, per
 // docs/modules.mdy's "Repeated manifest values retain declaration order."
-class SourceUnit {
+// Named for mm::build::TranslationUnit (modules/mm/build/build.cppm), the
+// concrete struct it abstracts: one name per concept across both layers,
+// the same way ManifestNode and BuildableNode already read.
+class TranslationUnit {
 public:
-    virtual ~SourceUnit() = default;
+    virtual ~TranslationUnit() = default;
 
     // Root relative.
     [[nodiscard]] virtual std::filesystem::path path() const = 0;
@@ -48,7 +51,7 @@ public:
     // value may name a module after the path, separated by whitespace, for
     // a compiler that needs to be told which name a specific interface unit
     // defines. No manifest in this project uses that second word today, so
-    // this is empty for every current SourceUnit, including interface units
+    // this is empty for every current TranslationUnit, including interface units
     // such as mdy.cppm that do produce a BMI; emptiness here is silence, not
     // evidence that a unit produces no BMI.
     [[nodiscard]] virtual std::string_view module_name() const = 0;
@@ -88,10 +91,16 @@ public:
 // A module, app, or test target: the three kinds that declare file: or
 // unit: sources and use: dependencies. Distinct from ManifestNode's
 // children(), which is about manifest nesting, not build inputs.
+//
+// Named for mm::build::BuildableNode (modules/mm/build/build.cppm), but the
+// two are not the same set: that struct also holds kind:doc entries, since
+// Tree::docs reuses one flat struct for everything a walk collects. Here a
+// doc declares file: entries that are prose, not sources, so DocNode
+// derives from ManifestNode directly and exposes them through files().
 class BuildableNode : public ManifestNode {
 public:
     // file:/unit: entries, in declaration order.
-    [[nodiscard]] virtual std::vector<const SourceUnit*> sources() const = 0;
+    [[nodiscard]] virtual std::vector<const TranslationUnit*> sources() const = 0;
 
     // use: entries, the module names this target depends on.
     [[nodiscard]] virtual std::vector<std::string_view> uses() const = 0;
@@ -120,7 +129,7 @@ public:
     [[nodiscard]] Kind kind() const override { return Kind::Module; }
 
     // The module: field: the importable name this target exports, e.g.
-    // "mm.build". Distinct from a SourceUnit's own module_name(), which is
+    // "mm.build". Distinct from a TranslationUnit's own module_name(), which is
     // per interface unit rather than per target.
     [[nodiscard]] virtual std::string_view exported_module_name() const = 0;
 };

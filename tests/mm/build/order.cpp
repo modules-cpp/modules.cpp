@@ -18,9 +18,9 @@ import mm.test;
 
 namespace {
 
-mm::build::Target module_target(std::string_view name, std::string_view module_name,
+mm::build::BuildableNode module_target(std::string_view name, std::string_view module_name,
                                 std::vector<std::string> uses = {}) {
-    mm::build::Target target;
+    mm::build::BuildableNode target;
     target.kind = "module";
     target.name = std::string(name);
     target.module_name = std::string(module_name);
@@ -31,8 +31,8 @@ mm::build::Target module_target(std::string_view name, std::string_view module_n
     return target;
 }
 
-mm::build::Target app_target(std::string_view name, std::vector<std::string> uses = {}) {
-    mm::build::Target target;
+mm::build::BuildableNode app_target(std::string_view name, std::vector<std::string> uses = {}) {
+    mm::build::BuildableNode target;
     target.kind = "app";
     target.name = std::string(name);
     target.dir = std::string("apps/") + std::string(name);
@@ -154,7 +154,7 @@ void order_from_visits_only_what_is_reachable() {
     tree.targets.push_back(module_target("harness", "mm.test"));
     tree.targets.push_back(app_target("unrelated", {"mm.mdy"}));
 
-    mm::build::Target test;
+    mm::build::BuildableNode test;
     test.kind = "test";
     test.name = "mdy";
     test.uses = {"mm.test", "mm.mdy"};
@@ -177,7 +177,7 @@ void order_from_resolves_transitively() {
     tree.targets.push_back(module_target("mdy", "mm.mdy"));
     tree.targets.push_back(module_target("build", "mm.build", {"mm.mdy"}));
 
-    mm::build::Target test;
+    mm::build::BuildableNode test;
     test.kind = "test";
     test.name = "build";
     test.uses = {"mm.build"};

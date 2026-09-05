@@ -63,7 +63,7 @@ int main(int argc, char** argv) {
 
     std::error_code ec;
 
-    // Unit paths are root relative, and the compiler writes gcm.cache into the
+    // TranslationUnit paths are root relative, and the compiler writes gcm.cache into the
     // working directory, so both want the project root.
     std::filesystem::current_path(root, ec);
     if (ec) {

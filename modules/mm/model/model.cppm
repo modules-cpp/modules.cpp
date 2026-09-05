@@ -5,10 +5,10 @@
 // lifetime.
 //
 // This adapter builds modules(), apps(), tests(), and docs() from
-// mm::build::load_tree's Target lists, gives every node a real document() by
+// mm::build::load_tree's BuildableNode lists, gives every node a real document() by
 // re-parsing its own mm.mdy through mm::mdy::Parser, and resolves
 // parent()/children() from mm::build::load_nodes's structural walk, cross
-// referenced against the Target lists by directory. root() is the manifest
+// referenced against the BuildableNode lists by directory. root() is the manifest
 // load_nodes actually visited first: if it is not kind:project (a subtree
 // load rooted at a kind:dir manifest, for instance), load() fails rather
 // than fabricate a project identity for it, since Repository::root() is
