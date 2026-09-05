@@ -215,11 +215,10 @@ passing, it becomes xpass and fails the run until the stale marker is removed.
 This turns known defects into executable records without weakening regressions.
 
 ## models/ and mm.model
-models/ is a second, independent description of this project's own structure: 
-small modules (models.document, models.configuration,
-models.manifest, models.repository, models.project, models.tool,
-models.compiler, models.toolchain, models.modules, models.workflow,
-models.artifacts) that model the manifest kind taxonomy,
+models/ is a second, independent description of this project's own
+structure: eight small modules (models.document, models.configuration,
+models.manifest, models.repository, models.tool, models.modules,
+models.workflow, models.artifacts) that model the manifest kind taxonomy,
 tools, workflow, and generated output as abstract C++20 interfaces, rather
 than the flat structs mm.build uses to do the same job internally.
 

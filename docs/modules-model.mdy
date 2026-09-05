@@ -18,7 +18,7 @@ modules instead of headers, no exceptions, no new templates, enum class,
 [[nodiscard]] on accessors, and explicit virtual destructors on every base.
 
 # The eight modules
-Eleven modules, each under models/<name>/<name>.cppm with its own mm.mdy, in
+Eight modules, each under models/<name>/<name>.cppm with its own mm.mdy, in
 dependency order:
 
 - models.document — front matter and body blocks for one MDY file (models::Document, models::Block). Foundational: every MDY file is a document, including a manifest, so everything else sits above this.
