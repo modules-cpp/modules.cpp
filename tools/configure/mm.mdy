@@ -1,0 +1,13 @@
+---
+mm: 1.0
+kind: app
+name: configure
+use: mm.app
+use: mm.build
+use: mm.configure
+file: configure.cpp
+---
+
+# configure tool
+
+Configures project

@@ -1,0 +1,14 @@
+---
+mm: 1.0
+kind: test
+name: configure
+use: mm.configure
+use: mm.mdy
+use: mm.test
+unit: tests/mm/configure/write_configuration.cpp
+unit: tests/main.cpp
+---
+
+# mm.configure test target
+
+Verifies native and cross config.mdy persistence and atomic failure behavior.

@@ -1,0 +1,18 @@
+#
+# shell script to run the configure tool through the shell tool instead of the
+# system shell directly; see configure.sh for the plain version
+#
+
+MM_BUILD="out"
+echo "Run configure"
+echo
+
+cmd="sh configure.sh"
+# Each argument is single-quoted so it survives the second /bin/sh the
+# shell tool runs the command through: without that, spaces and shell
+# metacharacters in an argument would be re-interpreted there.
+for arg in "$@"; do
+    cmd="$cmd '$(printf '%s' "$arg" | sed "s/'/'\\\\''/g")'"
+done
+
+${MM_BUILD}/bin/shell "$cmd"

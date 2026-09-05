@@ -1,0 +1,11 @@
+---
+mm: 1.0
+kind: module
+name: configure
+module: mm.configure
+file: configure.cppm
+file: src/configure.cpp
+---
+
+# mm.configure
+

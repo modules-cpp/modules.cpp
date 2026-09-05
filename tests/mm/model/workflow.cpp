@@ -121,7 +121,7 @@ void check_and_model_are_optional() {
                      "expected model to be Optional");
 }
 
-void test_invokes_the_test_runner_four_times() {
+void test_invokes_the_test_runner_five_times() {
     bool ok = false;
     auto loaded = mm::model::Loaded::load(".", ok);
     const auto* test_operation = find_operation(loaded.operations(), "test");
@@ -131,7 +131,7 @@ void test_invokes_the_test_runner_four_times() {
     int count = 0;
     for (const auto* tool : test_operation->invokes(0))
         if (tool != nullptr && tool->name() == "test") ++count;
-    mm::test::expect(count == 4, "expected test.sh to invoke the test runner exactly four times");
+    mm::test::expect(count == 5, "expected test.sh to invoke the test runner exactly five times");
 }
 
 void recommended_sequence_matches_the_documented_order() {
@@ -156,7 +156,7 @@ const mm::test::case_ cases[] = {
     { "build matches the real build.sh",               &build_matches_the_real_build_sh },
     { "clean is UserInitiated and invokes nothing",    &clean_is_user_initiated_and_invokes_nothing },
     { "check and model are Optional",                  &check_and_model_are_optional },
-    { "test invokes the test runner four times",       &test_invokes_the_test_runner_four_times },
+    { "test invokes the test runner five times",       &test_invokes_the_test_runner_five_times },
     { "recommended sequence matches documented order", &recommended_sequence_matches_the_documented_order },
 };
 

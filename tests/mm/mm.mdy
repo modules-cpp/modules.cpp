@@ -4,6 +4,7 @@ kind: dir
 name: mm
 folder: mdy
 folder: build
+folder: configure
 folder: shell
 folder: model
 ---

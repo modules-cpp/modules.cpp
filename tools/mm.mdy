@@ -3,6 +3,7 @@ mm: 1.0
 kind: dir
 name: tools
 folder: build
+folder: configure
 folder: test
 folder: check
 folder: model
