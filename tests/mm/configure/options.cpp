@@ -43,7 +43,9 @@ void shared_defaults() {
         expect(resolve(tree, build, result), "defaults resolve");
         const auto defaults = mm::configure::build_defaults(build);
         const auto& values = result.values[0];
-        expect(values.size() == 6, "every registry name is represented");
+        expect(values.size() == 8, "every registry name is represented");
+        expect(values.at("buildable-host").boolean && values.at("buildable-target").boolean,
+               "both lanes default to buildable in both builds");
         expect(values.at("optimize").number == defaults.optimize, "optimization shares build policy");
         expect(values.at("debug-info").boolean == defaults.debug_info, "debug info shares policy");
         expect(values.at("assertions").boolean == defaults.assertions, "assertions share policy");
@@ -198,6 +200,65 @@ void output_safety() {
     expect(read(tree.root() / "out/resolved-options.mdy/keep") == "preserve", "failure preserves unrelated files");
 }
 
+// Capability is declared per node but constrained across use: edges, which the
+// folder-tree resolver never follows. Both halves are checked here: what the
+// resolver produces, and what validate_capabilities rejects on top of it.
+void build_capabilities() {
+    const mm::test::scoped_tree tree{"options_capabilities"};
+    tree.manifest("", "kind: project\nname: p\nfolder: modules\nfolder: apps\nfolder: tools\n");
+    tree.manifest("modules", "kind: dir\nname: modules\nfolder: lib\n");
+    tree.manifest("modules/lib", "kind: module\nname: lib\nmodule: p.lib\nfile: lib.cppm\n");
+    tree.manifest("apps", "kind: dir\nname: apps\nfolder: app\n");
+    tree.manifest("apps/app", "kind: app\nname: app\nuse: p.lib\nfile: a.cpp\n");
+    tree.manifest_raw("tools", "mm: 1.1\nkind: dir\nname: tools\noption: buildable-target no\nread-only: buildable-target\nfolder: t\n");
+    tree.manifest("tools/t", "kind: app\nname: t\nuse: p.lib\nfile: t.cpp\n");
+
+    Resolution result;
+    expect(resolve(tree, Build::Debug, result), "capability tree resolves");
+
+    const auto lane = [&](std::string_view node, std::string_view name) {
+        for (std::size_t i = 0; i < result.nodes.size(); ++i)
+            if (result.nodes[i].name == node) return result.values[i].find(name)->second;
+        return mm::configure::OptionValue{};
+    };
+    expect(lane("p", "buildable-host").boolean && lane("p", "buildable-target").boolean,
+           "both lanes default to yes, so restriction is opt-in");
+    expect(!lane("t", "buildable-target").boolean && lane("t", "buildable-host").boolean,
+           "a directory declaration makes every tool beneath it host only");
+    expect(lane("t", "buildable-target").read_only &&
+               lane("t", "buildable-target").lock_source == tree.root() / "tools/mm.mdy",
+           "the tool inherits the lock and its origin, not its own manifest");
+    expect(lane("app", "buildable-target").boolean,
+           "a sibling outside the locked branch keeps the default");
+
+    // {host} is a subset of {host, target}: a host-only consumer of a portable
+    // module is exactly the arrangement this project relies on.
+    expect(mm::build::validate_capabilities(result.nodes, result.values, "configure"),
+           "host-only tools may use portable modules");
+
+    // The reverse fails: the app claims a lane its dependency cannot supply.
+    tree.manifest_raw("modules/lib",
+                      "mm: 1.1\nkind: module\nname: lib\nmodule: p.lib\nfile: lib.cppm\noption: buildable-target no\n");
+    Resolution restricted;
+    expect(resolve(tree, Build::Debug, restricted), "restricted module still resolves");
+    expect(!mm::build::validate_capabilities(restricted.nodes, restricted.values, "configure"),
+           "a portable app cannot use a host-only module");
+
+    // Declaring the same restriction on the consumer satisfies the rule.
+    tree.manifest_raw("apps/app",
+                      "mm: 1.1\nkind: app\nname: app\nuse: p.lib\nfile: a.cpp\noption: buildable-target no\n");
+    Resolution agreed;
+    expect(resolve(tree, Build::Debug, agreed), "agreeing tree resolves");
+    expect(mm::build::validate_capabilities(agreed.nodes, agreed.values, "configure"),
+           "matching capabilities satisfy the use: rule");
+
+    // A node buildable for nothing is rejected by the resolver itself.
+    tree.manifest_raw("apps/app",
+                      "mm: 1.1\nkind: app\nname: app\nuse: p.lib\nfile: a.cpp\noption: buildable-host no\noption: buildable-target no\n");
+    Resolution empty;
+    expect(!resolve(tree, Build::Debug, empty), "a node buildable for no lane is rejected");
+}
+
 const mm::test::case_ cases[] = {
     {"shared build defaults", &shared_defaults},
     {"tree inheritance reset and records", &inheritance_reset_and_records},
@@ -206,6 +267,7 @@ const mm::test::case_ cases[] = {
     {"directory domain", &directory_domain},
     {"shared schema and strict tree", &shared_schema_and_strict_tree},
     {"output safety", &output_safety},
+    {"build capabilities", &build_capabilities},
 };
 const mm::test::registrar reg{"mm.configure options", cases};
 

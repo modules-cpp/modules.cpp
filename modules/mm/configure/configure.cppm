@@ -42,6 +42,8 @@ struct OptionNode {
     std::filesystem::path directory;
     std::string name;
     std::string kind;
+    std::string module_name;              // kind:module only, for use: resolution
+    std::vector<std::string> uses;        // module names this node depends on
     std::size_t parent = static_cast<std::size_t>(-1);
     std::vector<std::string> options;
     std::vector<std::string> resets;

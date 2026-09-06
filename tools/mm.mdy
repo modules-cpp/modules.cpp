@@ -1,7 +1,9 @@
 ---
-mm: 1.0
+mm: 1.1
 kind: dir
 name: tools
+option: buildable-target no
+read-only: buildable-target
 folder: build
 folder: configure
 folder: test
@@ -9,3 +11,7 @@ folder: check
 folder: model
 folder: shell
 ---
+
+Every tool here executes on the machine running the build, so the whole
+directory is buildable-target no, and the lock keeps a tool from opting back in
+without that being a visible decision in this manifest.

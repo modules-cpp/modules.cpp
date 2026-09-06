@@ -618,6 +618,46 @@ TranslationUnit parse_unit(std::string_view value) {
     return unit;
 }
 
+bool validate_capabilities(const std::vector<mm::configure::OptionNode>& nodes,
+                           const std::vector<mm::configure::OptionValues>& resolved,
+                           std::string_view tool) {
+    if (nodes.size() != resolved.size()) return false;
+
+    // use: names a module, and the resolver is indexed by node, so the edge
+    // needs a module name to node index map. index_of_module answers with a
+    // targets index instead, which is the wrong side of the join here.
+    std::map<std::string, std::size_t, std::less<>> modules;
+    for (std::size_t i = 0; i < nodes.size(); ++i)
+        if (nodes[i].kind == "module" && !nodes[i].module_name.empty())
+            modules.emplace(nodes[i].module_name, i);
+
+    const auto capability = [&](std::size_t node, std::string_view lane) {
+        return resolved[node].find(lane)->second;
+    };
+
+    bool ok = true;
+    for (std::size_t i = 0; i < nodes.size(); ++i) {
+        for (const auto& used : nodes[i].uses) {
+            const auto found = modules.find(used);
+            if (found == modules.end()) continue;  // order() reports unknown modules
+            for (const auto& lane : {std::string_view("buildable-host"),
+                                     std::string_view("buildable-target")}) {
+                const auto consumer = capability(i, lane);
+                const auto dependency = capability(found->second, lane);
+                if (!consumer.boolean || dependency.boolean) continue;
+                std::cerr << tool << ": " << nodes[i].manifest.generic_string() << ": "
+                          << nodes[i].name << " is " << lane << ", but " << used
+                          << " is not (" << lane << " no, "
+                          << (dependency.origin == mm::configure::OptionOrigin::Assignment
+                                  ? "assigned by " : "reset by ")
+                          << dependency.value_source.generic_string() << ")\n";
+                ok = false;
+            }
+        }
+    }
+    return ok;
+}
+
 std::filesystem::path resolve_manifest(std::filesystem::path path) {
     std::error_code ec;
     if (std::filesystem::is_directory(path, ec)) path /= "mm.mdy";
@@ -713,7 +753,8 @@ std::vector<mm::configure::OptionNode> configuration_nodes(const Project& projec
     for (std::size_t i = 0; i < project.nodes.size(); ++i) {
         const auto& node = project.nodes[i];
         const auto& doc = project.documents[i];
-        nodes.push_back({node.manifest, node.dir, node.name, node.kind, node.parent,
+        nodes.push_back({node.manifest, node.dir, node.name, node.kind,
+                         first(doc, "module"), all(doc, "use"), node.parent,
                          all(doc, "option"), all(doc, "reset"), all(doc, "read-only")});
     }
     return nodes;

@@ -29,6 +29,7 @@ Not implemented, by design, in this release:
 
 - No tool turns a resolved option into a compiler or linker argument. Records describe requested configuration, not the flags a build uses.
 - Build and test do not resolve an option tree, so a read-only marker is ignored metadata to them rather than a lock they enforce.
+- No tool selects or skips a node by its buildable-host or buildable-target value. Capability is declared, validated across use: edges, and recorded; nothing filters a build by it until cross compilation exists.
 - There are no per-option command-line overrides, no host, target, compiler, version, or build-named output branches, and no static toolchain mapping catalog.
 
 There are no known deviations between this specification and the implementation.
@@ -136,12 +137,57 @@ The registered names are:
 - debug-info: boolean; default yes for debug and no for release.
 - assertions: boolean; default yes for debug and no for release.
 - include-dir: optional directory; default unset in both builds.
+- buildable-host: boolean; default yes in both builds.
+- buildable-target: boolean; default yes in both builds.
 
 All six may be assigned, reset, or marked read-only on project, dir, module, app, and test manifests, subject to inherited locks. A doc manifest declares none of the three; a doc node still receives a record showing its inherited values and locks, which does not mean it compiles anything.
 
 The registry admits no target, compiler, linker, sysroot, language-standard, module-policy, output-path, or ABI-selection option. Named settings alone do not prove compatibility between separately compiled sources, and this release makes no such claim.
 
 Defaults come from one typed policy, build_defaults, computed once for the selected build and validated before any node is resolved. The same policy generates the baseline compile and link flag strings returned by build_compile_flags and build_link_flags, so the defaults and the flags cannot drift: the flags are derived from the defaults rather than checked against them, and no flag string is parsed to recover a default. The emitted debug and release flags are unchanged from earlier releases.
+
+# Build capability
+
+buildable-host and buildable-target are capability rather than tuning: they say
+which lanes a node can be built for, not how it is compiled. Both default yes,
+so restriction is opt-in and an unannotated tree means every node is buildable
+everywhere. A node that can only be built for the host declares buildable-target
+no; a node that is cross-compiled but also builds for the host is simply the
+default, which a single-valued context marker could not express.
+
+A node must remain buildable for at least one lane. Declaring both no is a
+resolution error, because nothing downstream could act on such a node.
+
+Capability is declared per node and inherited down the folder tree like every
+other option, but unlike every other option it constrains dependencies. Building
+a node for a lane means building every module it reaches through use: for that
+lane as well, so for each edge the consumer's capability set is a subset of the
+dependency's:
+
+- A consumer that is buildable-host requires a buildable-host dependency.
+- A consumer that is buildable-target requires a buildable-target dependency.
+
+configure enforces this after resolution and before publishing anything. The
+folder-tree resolver cannot see it, because it never follows a use: edge; the
+check lives beside the graph in mm.build and reads the resolved values, so there
+is still one resolver and one inheritance algorithm. A violation names both
+manifests, the lane, and where the restricting value came from:
+
+configure: apps/app/mm.mdy: app is buildable-target, but p.lib is not (buildable-target no, assigned by modules/lib/mm.mdy)
+
+Three declarations carry the whole marking for this project. tools declares
+buildable-target no and locks it, which makes build, configure, test, check,
+model, and shell host only and keeps any one of them from opting back in without
+that being a visible edit to tools/mm.mdy. tests declares buildable-target no,
+because tools/test refuses a cross configuration and there is no runner.
+apps/mdy declares buildable-target no, because document.sh runs it on the build
+machine; apps/main stays buildable everywhere. Everything under modules keeps
+the permissive default, and the use: rule is what keeps that honest.
+
+No tool acts on either value in this release. They are resolved, validated,
+and recorded like every other option. When cross compilation lands,
+buildable-target becomes the filter that selects target roots, and the
+dependency rule is already proven against a real tree.
 
 # Shared ownership
 
@@ -318,7 +364,10 @@ The requirements above are covered by tests/mm/configure/options.cpp, which exer
 - A read-only marker on a module, app, or test manifest is accepted, appears in the record with its lock origin, and is not diagnosed as useless.
 - Repeating an inherited read-only marker is idempotent and preserves the original lock source; duplicate local markers and unknown lock names fail.
 - A lock conflict names the operation, the option, the offending manifest, and the original locking manifest, and publishes nothing.
-- Debug and release produce their respective optimize, debug-info, and assertions defaults, with all six names present at every node.
+- Debug and release produce their respective optimize, debug-info, and assertions defaults, with all eight names present at every node.
+- buildable-host and buildable-target default to yes in both builds, a directory declaration makes every node beneath it host only, and a lock on one branch leaves a sibling branch at the default.
+- A host-only consumer of a portable module satisfies the use: rule; a portable consumer of a host-only module is rejected, naming both manifests and the restricting origin; declaring the same restriction on the consumer satisfies it again.
+- A node declaring both lanes no is rejected by the resolver.
 - One shared typed policy supplies the build-dependent defaults and the baseline compile and link flags. The emitted debug and release flags are unchanged, and neither the registry nor an unconfigured build or test duplicates that policy.
 - Duplicate declarations, conflicting assignment and reset pairs, missing values, and unknown names fail before anything is published.
 - Boolean misspellings, leading-plus numbers, overflow, trailing characters, and out-of-range optimization levels fail with a diagnostic naming the permitted domain.

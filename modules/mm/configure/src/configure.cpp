@@ -275,7 +275,7 @@ bool write_configuration(const std::filesystem::path& project_root, const Settin
 
 namespace {
 
-enum class DefaultSource { Off, Optimization, DebugInfo, Assertions, Unset };
+enum class DefaultSource { Off, On, Optimization, DebugInfo, Assertions, Unset };
 struct OptionSpec {
     std::string_view name;
     OptionType type;
@@ -291,6 +291,10 @@ const std::vector<OptionSpec> registry = {
     {"debug-info", OptionType::Boolean, DefaultSource::DebugInfo},
     {"assertions", OptionType::Boolean, DefaultSource::Assertions},
     {"include-dir", OptionType::Directory, DefaultSource::Unset},
+    // Capability, not tuning: which lanes a node can be built for. Both
+    // default yes, so restriction is opt-in and today's tree is unchanged.
+    {"buildable-host", OptionType::Boolean, DefaultSource::On},
+    {"buildable-target", OptionType::Boolean, DefaultSource::On},
 };
 
 const OptionSpec* option_spec(std::string_view name) {
@@ -307,6 +311,7 @@ OptionValues default_options(Build build) {
         value.type = spec.type;
         switch (spec.source) {
             case DefaultSource::Off: break;
+            case DefaultSource::On: value.boolean = true; break;
             case DefaultSource::Optimization: value.number = policy.optimize; break;
             case DefaultSource::DebugInfo: value.boolean = policy.debug_info; break;
             case DefaultSource::Assertions: value.boolean = policy.assertions; break;
@@ -469,6 +474,12 @@ bool resolve_options(const std::filesystem::path& project_root, Build build,
                 value.lock_source = node.manifest.lexically_normal();
             }
         }
+        // A node buildable for no lane is a declaration error, not an empty
+        // build: nothing downstream could act on it.
+        if (!values.find("buildable-host")->second.boolean &&
+            !values.find("buildable-target")->second.boolean)
+            return option_error(node, "buildable-host",
+                                "a node must remain buildable for at least one lane");
         result.push_back(std::move(values));
     }
     resolved = std::move(result);

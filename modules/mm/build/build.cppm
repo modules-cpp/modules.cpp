@@ -150,6 +150,16 @@ Project load_project(const std::filesystem::path& dir, const LoadPolicy& policy 
 // Shared data adapter; no parsing, validation, or option resolution here.
 std::vector<mm::configure::OptionNode> configuration_nodes(const Project& project);
 
+// Capability is declared per node but constrains dependencies: building a node
+// for a lane means building every module it reaches through use: for that lane
+// too. Checks cap(consumer) is a subset of cap(dependency) for both lanes over
+// the resolved buildable-host and buildable-target values, which the folder-tree
+// resolver cannot see because it never follows a use: edge. Reports each
+// violation with both manifests and the offending value's origin.
+[[nodiscard]] bool validate_capabilities(const std::vector<mm::configure::OptionNode>& nodes,
+                                         const std::vector<mm::configure::OptionValues>& resolved,
+                                         std::string_view tool = "configure");
+
 // Accepts either a manifest path or the directory holding one.
 std::filesystem::path resolve_manifest(std::filesystem::path path);
 

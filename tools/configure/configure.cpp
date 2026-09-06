@@ -102,6 +102,8 @@ int main(int argc, char** argv) {
     std::vector<mm::configure::OptionValues> resolved;
     if (!mm::configure::resolve_options(project_root, *build, nodes, resolved))
         return mm::build::exit_manifest;
+    if (!mm::build::validate_capabilities(nodes, resolved, "configure"))
+        return mm::build::exit_manifest;
 
     mm::configure::Settings settings;
     settings.name = requested + "-" + requested_build;
