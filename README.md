@@ -32,15 +32,14 @@ see [docs/modules.mdy](docs/modules.mdy) for the full architecture.
 
 ## Prerequisites
 
-- A C++20 compiler with module support. This project is developed against
-  **GCC with `-fmodules-ts`** (GCC 14+ recommended; tested with GCC 15).
-  Module support in GCC is still evolving, so other compilers (Clang, MSVC)
-  are not currently supported.
+- A C++20 compiler with module support. Self-hosted builds support GCC and
+  Clang; bootstrap remains the fixed GCC-oriented recovery path through `c++`.
+  GCC 14+ or a recent Clang release is recommended.
 - A POSIX shell (Linux or macOS; on Windows use WSL). The build and bootstrap
   scripts are plain `sh` scripts that shell out to the compiler directly —
   there is no CMake, Make, or other build system underneath them.
 
-Check your compiler before starting:
+Check a GCC compiler before bootstrapping:
 
 ```sh
 c++ --version
@@ -69,9 +68,24 @@ not needed on a fresh checkout — bootstrap.sh already leaves a fully built
 project — but is what you run afterward, once `out/bin/build` exists, on any
 later change.
 
-Bootstrap always uses the compiler named `c++`, so that a fresh checkout
-builds the same way on every machine; `$CXX` is honoured afterwards, by the
-self-hosted build.
+Bootstrap always uses the compiler named `c++`. After bootstrapping, select
+one project compiler with `configure`; both build and test read the resulting
+`out/config.mdy` and cannot select different compilers:
+
+```sh
+./configure --compiler gcc-15
+./build
+./test
+
+./configure --compiler clang++-20
+./build
+./test
+```
+
+Accepted compiler selectors are `gcc`, `g++`, `clang`, and `clang++`, with an
+optional numeric major-version suffix. C-driver spellings such as `gcc-15`
+are normalized to their C++ driver (`g++-15`). Configured native output remains
+under `out/host` regardless of compiler family.
 
 If something fails partway through, `./clean.sh` removes all generated output
 (the `out/` and `gcm.cache/` directories) so you can start over.
@@ -86,6 +100,7 @@ day to day, pointed at a manifest file (`mm.mdy`):
 ./out/bin/build -v modules/mm.mdy    # build one subtree, verbose output
 ./out/bin/test tests/mm/build/mm.mdy # run one test target
 ./out/bin/test -v tests/mm/mdy       # run a test directory, verbose output
+./test -v                            # run every target with verbose toolchain output
 ```
 
 `-v` prints extra diagnostic output and is supported by all of the project's

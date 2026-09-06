@@ -59,7 +59,7 @@ int run(const std::string& command)
 }
 
 // Compiles and links build1 through the exact fixed steps as bootstrap.sh.
-// The mm.mdy and mm.build module interfaces and their
+// The mm.mdy, mm.build, and mm.configure module interfaces and their
 // implementation units, then tools/build/build.cpp (the same source
 // tools/build/mm.mdy declares as the "build" app target), in the order
 // -fmodules-ts needs an interface compiled before whatever imports it.
@@ -76,6 +76,8 @@ int build_1()
         {"modules/mm/mdy/src/mdy.cpp",      "out/modules/mm/mdy/src/mdy.o"},
         {"modules/mm/build/build.cppm",     "out/modules/mm/build/build.o"},
         {"modules/mm/build/src/build.cpp",  "out/modules/mm/build/src/build.o"},
+        {"modules/mm/configure/configure.cppm", "out/modules/mm/configure/configure.o"},
+        {"modules/mm/configure/src/configure.cpp", "out/modules/mm/configure/src/configure.o"},
         {"tools/build/build.cpp",           "out/tools/build/build.o"},
     };
 

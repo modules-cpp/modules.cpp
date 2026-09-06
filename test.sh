@@ -2,6 +2,25 @@
 # runs tests
 set -eu
 
+verbose=false
+for arg in "$@"; do
+    case "$arg" in
+        -v|--verbose) verbose=true ;;
+        *)
+            echo "usage: test.sh [-v|--verbose]" >&2
+            exit 64
+            ;;
+    esac
+done
+
+run_test_target() {
+    if [ "$verbose" = true ]; then
+        out/bin/test -v "$1"
+    else
+        out/bin/test "$1"
+    fi
+}
+
 check() {
     # check <label> <expected status> <actual status> <expected output> <actual output>
     label=$1
@@ -87,8 +106,8 @@ check "app mdy output" "$expected_status" "$status" "$expected" "$actual"
 echo
 echo test test
 echo
-out/tools/test/test tests/mm/build/ || exit $?
-out/tools/test/test tests/mm/configure/ || exit $?
-out/tools/test/test tests/mm/mdy/ || exit $?
-out/tools/test/test tests/mm/shell/ || exit $?
-out/tools/test/test tests/mm/model/ || exit $?
+run_test_target tests/mm/build/ || exit $?
+run_test_target tests/mm/configure/ || exit $?
+run_test_target tests/mm/mdy/ || exit $?
+run_test_target tests/mm/shell/ || exit $?
+run_test_target tests/mm/model/ || exit $?

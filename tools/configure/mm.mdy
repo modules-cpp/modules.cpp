@@ -10,4 +10,5 @@ file: configure.cpp
 
 # configure tool
 
-Configures project
+Writes `out/config.mdy` without running another command. `--compiler` accepts
+gcc, g++, clang, or clang++, optionally followed by a numeric major version.

@@ -102,6 +102,11 @@ int main(int argc, char** argv) {
         // load.
         const auto configuration = mm::model::default_configuration(verbose);
         std::cout << "Configuration (declared policy, not a measurement of this run)\n";
+        std::cout << "  family         "
+                  << (configuration->compiler_family() == models::CompilerFamily::Gcc
+                          ? "gcc"
+                          : "clang")
+                  << "\n";
         std::cout << "  compiler       " << configuration->compiler()
                   << "  [self hosted build only; bootstrap.sh/build0 use c++ by design]\n";
         std::cout << "  compiler flags " << configuration->compiler_flags() << "\n";

@@ -3,6 +3,7 @@ mm: 1.0
 kind: app
 name: build
 use: mm.build
+use: mm.configure
 file: build.cpp
 ---
 

@@ -204,6 +204,25 @@ bool configuration_compiler(const mm::mdy::MDYDocument& document, std::string_vi
                             const std::filesystem::path& path, Toolchain& toolchain) {
     std::string target;
     std::string platform;
+    const auto family_key = std::string(prefix) + "-compiler-family";
+    const auto* family_values = lookup(document, family_key);
+    if (family_values != nullptr) {
+        if (family_values->size() != 1 || family_values->front().empty()) {
+            std::cerr << "build: configuration requires one non-empty " << family_key << ": "
+                      << path.string() << "\n";
+            return false;
+        }
+        if (family_values->front() == "gcc")
+            toolchain.family = CompilerFamily::Gcc;
+        else if (family_values->front() == "clang")
+            toolchain.family = CompilerFamily::Clang;
+        else {
+            std::cerr << "build: configuration " << family_key << " must be gcc or clang: "
+                      << path.string() << "\n";
+            return false;
+        }
+    }
+
     if (!configuration_scalar(document, std::string(prefix) + "-compiler", path, toolchain.cxx) ||
         !configuration_scalar(document, std::string(prefix) + "-target", path, target) ||
         !configuration_scalar(document, std::string(prefix) + "-platform", path, platform) ||
@@ -223,7 +242,8 @@ bool configuration_compiler(const mm::mdy::MDYDocument& document, std::string_vi
 
 bool has_configuration_compiler(const mm::mdy::MDYDocument& document,
                                 std::string_view prefix) {
-    return lookup(document, std::string(prefix) + "-compiler") != nullptr ||
+    return lookup(document, std::string(prefix) + "-compiler-family") != nullptr ||
+           lookup(document, std::string(prefix) + "-compiler") != nullptr ||
            lookup(document, std::string(prefix) + "-target") != nullptr ||
            lookup(document, std::string(prefix) + "-platform") != nullptr ||
            lookup(document, std::string(prefix) + "-compile-flags") != nullptr ||
@@ -424,10 +444,12 @@ void closure_visit(std::size_t index, const Tree& tree,
 
 }
 
+std::string_view compiler_family_name(CompilerFamily family) {
+    return family == CompilerFamily::Gcc ? "gcc" : "clang";
+}
+
 Toolchain default_toolchain(bool verbose) {
     Toolchain toolchain;
-    if (const char* env = std::getenv("CXX"); env != nullptr)
-        toolchain.cxx = std::string(env) + " -fmodules-ts";
     toolchain.verbose = verbose;
     return toolchain;
 }
@@ -484,6 +506,23 @@ bool load_configuration(const std::filesystem::path& path, bool verbose,
     selected.verbose = verbose;
     configuration.toolchain = std::move(selected);
     configuration.build_directory = std::move(target_directory);
+    return true;
+}
+
+bool resolve_configuration(const std::filesystem::path& project_root, bool verbose,
+                           BuildConfiguration& configuration) {
+    const auto path = project_root / "out" / "config.mdy";
+    std::error_code ec;
+    const bool exists = std::filesystem::exists(path, ec);
+    if (ec) {
+        std::cerr << "build: cannot check " << path.string() << ": " << ec.message() << "\n";
+        return false;
+    }
+
+    if (exists) return load_configuration(path, verbose, configuration);
+
+    configuration.toolchain = default_toolchain(verbose);
+    configuration.build_directory = "out";
     return true;
 }
 
@@ -730,6 +769,21 @@ std::string shell_quote(const std::filesystem::path& path) {
 int compile(const Toolchain& toolchain, BuildableNode& target, const std::filesystem::path& build_dir) {
     std::error_code ec;
 
+    const auto bmi_dir = build_dir / "bmi";
+    if (toolchain.family == CompilerFamily::Clang) {
+        if (!within_root(bmi_dir)) {
+            std::cerr << "build: refusing to write outside the project: " << bmi_dir.string()
+                      << "\n";
+            return exit_manifest;
+        }
+        std::filesystem::create_directories(bmi_dir, ec);
+        if (ec) {
+            std::cerr << "build: cannot create " << bmi_dir.string() << ": " << ec.message()
+                      << "\n";
+            return exit_compile;
+        }
+    }
+
     for (const auto& source : target.sources) {
         if (!safe_exists(source.path)) {
             std::cerr << "build: source does not exist: " << source.path << "\n";
@@ -750,8 +804,30 @@ int compile(const Toolchain& toolchain, BuildableNode& target, const std::filesy
 
         std::cout << "    " << source.path << "\n";
 
-        const auto command = toolchain.cxx + " " + toolchain.cxxflags +
-                             " -c " + shell_quote(source.path) + " -o " + shell_quote(object);
+        std::string command = toolchain.cxx + " " + toolchain.cxxflags;
+        if (toolchain.family == CompilerFamily::Gcc) {
+            command += " -fmodules-ts -x c++";
+        } else {
+            command += " -fprebuilt-module-path=" + shell_quote(bmi_dir);
+
+            std::string module_name = source.module_name;
+            if (module_name.empty() && target.kind == "module" &&
+                std::filesystem::path(source.path).extension() == ".cppm")
+                module_name = target.module_name;
+
+            if (!module_name.empty()) {
+                for (char& c : module_name)
+                    if (c == ':') c = '-';
+                const auto bmi = bmi_dir / (module_name + ".pcm");
+                if (!within_root(bmi)) {
+                    std::cerr << "build: refusing to write outside the project: " << bmi.string()
+                              << "\n";
+                    return exit_manifest;
+                }
+                command += " -fmodule-output=" + shell_quote(bmi);
+            }
+        }
+        command += " -c " + shell_quote(source.path) + " -o " + shell_quote(object);
         if (run(toolchain, command) != 0) {
             std::cerr << "build: failed to compile " << source.path << "\n";
             return exit_compile;
@@ -846,11 +922,22 @@ int install(const std::filesystem::path& from, const std::filesystem::path& bin_
     return exit_ok;
 }
 
-bool clear_module_cache() {
+bool clear_module_cache(const std::filesystem::path& build_dir) {
     std::error_code ec;
     std::filesystem::remove_all("gcm.cache", ec);
     if (ec) {
         std::cerr << "build: cannot clear gcm.cache: " << ec.message() << "\n";
+        return false;
+    }
+
+    const auto bmi_dir = build_dir / "bmi";
+    if (!within_root(bmi_dir)) {
+        std::cerr << "build: refusing to clear outside the project: " << bmi_dir.string() << "\n";
+        return false;
+    }
+    std::filesystem::remove_all(bmi_dir, ec);
+    if (ec) {
+        std::cerr << "build: cannot clear " << bmi_dir.string() << ": " << ec.message() << "\n";
         return false;
     }
     return true;

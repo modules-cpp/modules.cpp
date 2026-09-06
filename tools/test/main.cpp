@@ -17,6 +17,7 @@
 
 import mm.app;
 import mm.build;
+import mm.configure;
 
 int main(int argc, char** argv) {
     mm::app::Options options("test");
@@ -54,13 +55,6 @@ int main(int argc, char** argv) {
     const auto uses = target.uses.size();
     const auto build_dir = std::filesystem::path("out") / "tests" / name;
 
-    std::cout << "modules.cpp test tool\n";
-    std::cout << "  manifest " << manifest_path.string() << "\n";
-    std::cout << "  root     " << root.string() << "\n";
-    std::cout << "  build    " << (root / build_dir).string() << "\n";
-    std::cout << "  units    " << units << "\n";
-    std::cout << "  uses     " << uses << "\n\n";
-
     std::error_code ec;
 
     // TranslationUnit paths are root relative, and the compiler writes gcm.cache into the
@@ -70,6 +64,27 @@ int main(int argc, char** argv) {
         std::cerr << "test: cannot enter project root: " << ec.message() << "\n";
         return mm::build::exit_manifest;
     }
+
+    mm::build::BuildConfiguration configuration;
+    if (!mm::build::resolve_configuration(".", verbose, configuration))
+        return mm::build::exit_manifest;
+    const auto& toolchain = configuration.toolchain;
+
+    std::cout << "modules.cpp test tool\n";
+    std::cout << "  manifest " << manifest_path.string() << "\n";
+    std::cout << "  root     " << root.string() << "\n";
+    if (!mm::configure::log_configuration({
+            .tool = "test",
+            .compiler_family = mm::build::compiler_family_name(toolchain.family),
+            .compiler = toolchain.cxx,
+            .compile_flags = toolchain.cxxflags,
+            .link_flags = toolchain.ldflags,
+            .target = root / build_dir,
+            .verbose = verbose,
+        }))
+        return mm::build::exit_manifest;
+    std::cout << "  units    " << units << "\n";
+    std::cout << "  uses     " << uses << "\n\n";
 
     // The modules a test uses come from the project tree, not from its own
     // manifest: appending the test as a target lets the ordinary use: machinery
@@ -83,15 +98,13 @@ int main(int argc, char** argv) {
     std::vector<std::size_t> order;
     if (!mm::build::order_from(tree, index, order)) return mm::build::exit_manifest;
 
-    if (!mm::build::clear_module_cache()) return mm::build::exit_compile;
+    if (!mm::build::clear_module_cache(build_dir)) return mm::build::exit_compile;
 
     std::filesystem::remove_all(build_dir, ec);
     if (ec) {
         std::cerr << "test: cannot clear " << build_dir.string() << ": " << ec.message() << "\n";
         return mm::build::exit_compile;
     }
-
-    const auto toolchain = mm::build::default_toolchain(verbose);
 
     std::cout << "Compile\n";
     for (const auto position : order) {

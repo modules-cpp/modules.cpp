@@ -9,10 +9,10 @@
 #
 set -e
 
-# Deliberately the literal c++, not $CXX: bootstrap must reach a working
-# build1 the same way on every machine, independent of a caller's
-# environment. $CXX is honoured only afterwards, by the self hosted build
-# (mm::build::default_toolchain); see models/configuration/configuration.cppm.
+# Deliberately the literal c++: bootstrap must reach a working build1 through
+# one fixed recovery path. Compiler selection happens only afterwards, when
+# configure writes the project-wide out/config.mdy consumed by build and test;
+# see models/configuration/configuration.cppm.
 MCCP="c++"
 MCCP_VERSION=`$MCCP --version`
 echo
@@ -57,6 +57,7 @@ if [ "${mm_build1_status}" -ne 0 ] || [ ! -x "${MM_BUILD}/build1" ]; then
 
     mkdir -p "${MM_BUILD}/modules/mm/mdy/src"
     mkdir -p "${MM_BUILD}/modules/mm/build/src"
+    mkdir -p "${MM_BUILD}/modules/mm/configure/src"
     mkdir -p "${MM_BUILD}/tools/build"
 
     MCCP_MODULES="${MCCP} -fmodules-ts"
@@ -79,6 +80,14 @@ if [ "${mm_build1_status}" -ne 0 ] || [ ! -x "${MM_BUILD}/build1" ]; then
         -o "${MM_BUILD}/modules/mm/build/src/build.o" || exit $?
 
     ${MCCP_MODULES} ${MM_MODULE_FLAGS} \
+        -c modules/mm/configure/configure.cppm \
+        -o "${MM_BUILD}/modules/mm/configure/configure.o" || exit $?
+
+    ${MCCP_MODULES} ${MM_MODULE_FLAGS} \
+        -c modules/mm/configure/src/configure.cpp \
+        -o "${MM_BUILD}/modules/mm/configure/src/configure.o" || exit $?
+
+    ${MCCP_MODULES} ${MM_MODULE_FLAGS} \
         -c tools/build/build.cpp \
         -o "${MM_BUILD}/tools/build/build.o" || exit $?
 
@@ -90,6 +99,8 @@ if [ "${mm_build1_status}" -ne 0 ] || [ ! -x "${MM_BUILD}/build1" ]; then
         "${MM_BUILD}/modules/mm/mdy/src/mdy.o" \
         "${MM_BUILD}/modules/mm/build/build.o" \
         "${MM_BUILD}/modules/mm/build/src/build.o" \
+        "${MM_BUILD}/modules/mm/configure/configure.o" \
+        "${MM_BUILD}/modules/mm/configure/src/configure.o" \
         "${MM_BUILD}/tools/build/build.o" \
         -o "${MM_BUILD}/build1.tmp" || exit $?
 

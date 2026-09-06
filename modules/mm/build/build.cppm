@@ -19,14 +19,20 @@ inline constexpr int exit_compile  = 80;
 inline constexpr int exit_link     = 81;
 inline constexpr int exit_run      = 127;
 
+enum class CompilerFamily { Gcc, Clang };
+
 struct Toolchain {
-    std::string cxx      = "c++ -fmodules-ts";
-    std::string cxxflags = "-std=c++20 -x c++";
+    CompilerFamily family = CompilerFamily::Gcc;
+    std::string cxx      = "g++";
+    std::string cxxflags = "-std=c++20";
     std::string ldflags  = "-std=c++20";
     bool verbose         = false;
 };
 
-// Honours $CXX when set.
+[[nodiscard]] std::string_view compiler_family_name(CompilerFamily family);
+
+// The unconfigured project default. Compiler selection is persisted by the
+// configure tool rather than taken independently from each process's $CXX.
 Toolchain default_toolchain(bool verbose = false);
 
 // The single compiler/output lane the current build front end can execute.
@@ -42,12 +48,19 @@ struct BuildConfiguration {
                                       bool verbose,
                                       BuildConfiguration& configuration);
 
-// One translation unit. A unit that declares a module name is an interface unit
-// and produces a BMI under Clang; a unit without one is an implementation unit
-// or a plain translation unit and produces only an object. GCC ignores the name.
+// Loads project_root/out/config.mdy when present; otherwise returns the shared
+// GCC default and the legacy out build directory. Every compiling front end
+// uses this resolver so build and test cannot choose different compilers.
+[[nodiscard]] bool resolve_configuration(const std::filesystem::path& project_root,
+                                         bool verbose,
+                                         BuildConfiguration& configuration);
+
+// One translation unit. An explicit module name identifies an importable unit
+// and its Clang BMI; the primary .cppm of a kind:module target may instead
+// inherit BuildableNode::module_name. GCC ignores this per-unit name.
 struct TranslationUnit {
     std::string path;         // root relative
-    std::string module_name;  // empty when the unit produces no BMI
+    std::string module_name;  // optional explicit Clang BMI/module name
 };
 
 // Splits a "file:" or "unit:" value: a path, optionally followed by whitespace
@@ -170,8 +183,9 @@ int install(const std::filesystem::path& from, const std::filesystem::path& bin_
             const std::string& name);
 
 // A stale module interface silently contradicts the sources being compiled.
-// False if gcm.cache exists but could not be removed, so a caller can stop
-// rather than compile against a cache it failed to actually clear.
-[[nodiscard]] bool clear_module_cache();
+// Clears both compiler families' module artifacts for this output lane and
+// returns false if either cannot be removed. Object paths intentionally do not
+// vary by compiler, and every build recompiles them.
+[[nodiscard]] bool clear_module_cache(const std::filesystem::path& build_dir = "out");
 
 }

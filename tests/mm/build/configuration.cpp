@@ -21,6 +21,7 @@ constexpr std::string_view native_configuration =
     "kind: configuration\n"
     "name: native\n"
     "target-compiler: host\n"
+    "host-compiler-family: clang\n"
     "host-compiler: clang++\n"
     "host-target: host\n"
     "host-platform: POSIX\n"
@@ -39,6 +40,8 @@ void loads_the_host_selection() {
                      "expected native configuration to load");
     mm::test::expect(configuration.toolchain.cxx == "clang++",
                      "expected host compiler selection");
+    mm::test::expect(configuration.toolchain.family == mm::build::CompilerFamily::Clang,
+                     "expected Clang family selection");
     mm::test::expect(configuration.toolchain.cxxflags == "host compile flags" &&
                          configuration.toolchain.ldflags == "host link flags",
                      "expected host flags");
@@ -56,11 +59,13 @@ void loads_the_cross_selection() {
           "kind: configuration\n"
           "name: cross\n"
           "target-compiler: cross\n"
+          "host-compiler-family: clang\n"
           "host-compiler: clang++\n"
           "host-target: host\n"
           "host-platform: POSIX\n"
           "host-compile-flags: host compile flags\n"
           "host-link-flags: host link flags\n"
+          "cross-compiler-family: gcc\n"
           "cross-compiler: aarch64-linux-gnu-g++\n"
           "cross-target: aarch64-linux-gnu\n"
           "cross-platform: POSIX\n"
@@ -74,6 +79,8 @@ void loads_the_cross_selection() {
                      "expected cross configuration to load");
     mm::test::expect(configuration.toolchain.cxx == "aarch64-linux-gnu-g++",
                      "expected cross compiler selection");
+    mm::test::expect(configuration.toolchain.family == mm::build::CompilerFamily::Gcc,
+                     "expected cross compiler family selection");
     mm::test::expect(configuration.toolchain.cxxflags == "cross compile flags" &&
                          configuration.toolchain.ldflags == "cross link flags",
                      "expected cross flags");
@@ -109,11 +116,68 @@ void rejects_an_escaping_build_directory() {
                      "expected an escaping target build directory to fail");
 }
 
+void resolves_one_project_configuration() {
+    const mm::test::scoped_tree tree{"build_resolved_configuration"};
+    const auto path = tree.root() / "out" / "config.mdy";
+    write(path, native_configuration);
+
+    mm::build::BuildConfiguration configuration;
+    mm::test::expect(mm::build::resolve_configuration(tree.root(), false, configuration),
+                     "expected project configuration to resolve");
+    mm::test::expect(configuration.toolchain.family == mm::build::CompilerFamily::Clang &&
+                         configuration.toolchain.cxx == "clang++",
+                     "expected the resolved project compiler");
+}
+
+void resolves_the_shared_unconfigured_default() {
+    const mm::test::scoped_tree tree{"build_default_configuration"};
+    mm::build::BuildConfiguration configuration;
+    mm::test::expect(mm::build::resolve_configuration(tree.root(), false, configuration),
+                     "expected the default configuration to resolve");
+    mm::test::expect(configuration.toolchain.family == mm::build::CompilerFamily::Gcc &&
+                         configuration.toolchain.cxx == "g++" &&
+                         configuration.build_directory == "out",
+                     "expected the shared unconfigured GCC default");
+}
+
+void treats_an_older_configuration_as_gcc() {
+    const mm::test::scoped_tree tree{"build_legacy_gcc_configuration"};
+    const auto path = tree.root() / "out" / "config.mdy";
+    std::string text(native_configuration);
+    const auto family = text.find("host-compiler-family: clang\n");
+    text.erase(family, std::string_view("host-compiler-family: clang\n").size());
+    write(path, text);
+
+    mm::build::BuildConfiguration configuration;
+    mm::test::expect(mm::build::load_configuration(path, false, configuration),
+                     "expected a configuration written before compiler families to load");
+    mm::test::expect(configuration.toolchain.family == mm::build::CompilerFamily::Gcc,
+                     "expected a missing family to retain the historical GCC behavior");
+}
+
+void rejects_an_unknown_compiler_family() {
+    const mm::test::scoped_tree tree{"build_unknown_compiler_family"};
+    const auto path = tree.root() / "out" / "config.mdy";
+    std::string text(native_configuration);
+    const auto family = text.find("host-compiler-family: clang");
+    text.replace(family, std::string_view("host-compiler-family: clang").size(),
+                 "host-compiler-family: msvc");
+    write(path, text);
+
+    mm::build::BuildConfiguration configuration;
+    mm::test::expect(!mm::build::load_configuration(path, false, configuration),
+                     "expected an unknown compiler family to fail");
+}
+
 const mm::test::case_ cases[] = {
     {"loads the host selection", &loads_the_host_selection},
     {"loads the cross selection", &loads_the_cross_selection},
     {"rejects selected missing cross compiler", &rejects_a_selected_but_missing_cross_compiler},
     {"rejects escaping build directory", &rejects_an_escaping_build_directory},
+    {"resolves one project configuration", &resolves_one_project_configuration},
+    {"resolves shared unconfigured default", &resolves_the_shared_unconfigured_default},
+    {"older configuration defaults to GCC", &treats_an_older_configuration_as_gcc},
+    {"rejects unknown compiler family", &rejects_an_unknown_compiler_family},
 };
 
 const mm::test::registrar reg{"mm.build configuration", cases};

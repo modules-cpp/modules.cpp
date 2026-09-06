@@ -630,12 +630,18 @@ std::vector<std::unique_ptr<models::Operation>> build_operations(
 class FixedConfiguration final : public models::Configuration {
 public:
     explicit FixedConfiguration(const mm::build::Toolchain& toolchain)
-        : compiler_(toolchain.cxx),
+        : compiler_family_(toolchain.family == mm::build::CompilerFamily::Gcc
+                               ? models::CompilerFamily::Gcc
+                               : models::CompilerFamily::Clang),
+          compiler_(toolchain.cxx),
           compiler_flags_(toolchain.cxxflags),
           linker_flags_(toolchain.ldflags),
           verbose_(toolchain.verbose) {}
 
     [[nodiscard]] std::string_view compiler() const override { return compiler_; }
+    [[nodiscard]] models::CompilerFamily compiler_family() const override {
+        return compiler_family_;
+    }
     [[nodiscard]] std::string_view compiler_flags() const override { return compiler_flags_; }
     [[nodiscard]] std::string_view linker_flags() const override { return linker_flags_; }
     [[nodiscard]] bool verbose() const override { return verbose_; }
@@ -645,6 +651,7 @@ public:
     [[nodiscard]] std::string_view shell() const override { return "/bin/sh"; }
 
 private:
+    models::CompilerFamily compiler_family_ = models::CompilerFamily::Gcc;
     std::string compiler_;
     std::string compiler_flags_;
     std::string linker_flags_;

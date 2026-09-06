@@ -21,6 +21,7 @@
 #include <vector>
 
 import mm.build;
+import mm.configure;
 
 int main(int argc, char** argv) {
     std::filesystem::path manifest_path;
@@ -67,33 +68,22 @@ int main(int argc, char** argv) {
     std::cout << "modules.cpp build tool\n";
     std::cout << "  root " << project_root.string() << "\n";
 
-    auto toolchain = mm::build::default_toolchain(verbose);
-    std::filesystem::path build_dir = "out";
-
-    const std::filesystem::path configuration_path = "out/config.mdy";
-    ec.clear();
-    const bool has_configuration = std::filesystem::exists(configuration_path, ec);
-    if (ec) {
-        std::cerr << "build: cannot check " << configuration_path.string() << ": "
-                  << ec.message() << "\n";
+    mm::build::BuildConfiguration configuration;
+    if (!mm::build::resolve_configuration(".", verbose, configuration))
         return mm::build::exit_manifest;
-    }
-    if (has_configuration) {
-        mm::build::BuildConfiguration configuration;
-        if (!mm::build::load_configuration(configuration_path, verbose, configuration))
-            return mm::build::exit_manifest;
-        toolchain = configuration.toolchain;
-        build_dir = configuration.build_directory;
-        std::cout << "  configuration " << configuration_path.string() << "\n";
-    } else
-        std::cout << "  configuration default\n";
 
-    if (verbose) {
-        std::cout << "    compiler      " << toolchain.cxx << "\n";
-        std::cout << "    compile flags " << toolchain.cxxflags << "\n";
-        std::cout << "    link flags    " << toolchain.ldflags << "\n";
-    }
-    std::cout << "  target " << build_dir.string() << "\n";
+    const auto& toolchain = configuration.toolchain;
+    const auto& build_dir = configuration.build_directory;
+    if (!mm::configure::log_configuration({
+            .tool = "build",
+            .compiler_family = mm::build::compiler_family_name(toolchain.family),
+            .compiler = toolchain.cxx,
+            .compile_flags = toolchain.cxxflags,
+            .link_flags = toolchain.ldflags,
+            .target = build_dir,
+            .verbose = verbose,
+        }))
+        return mm::build::exit_manifest;
     std::cout << "\n";
 
     auto tree = mm::build::load_tree(tree_root);
@@ -108,7 +98,7 @@ int main(int argc, char** argv) {
     if (!mm::build::order(tree, order)) return mm::build::exit_manifest;
 
     std::cout << "Clear nodule cache\n";
-    if (!mm::build::clear_module_cache()) {
+    if (!mm::build::clear_module_cache(build_dir)) {
         std::cerr << "build: failed to clear module cache\n";
         return mm::build::exit_compile;
     }

@@ -5,6 +5,7 @@ name: test
 file: main.cpp
 use: mm.app
 use: mm.build
+use: mm.configure
 ---
 
 # test tool

@@ -12,17 +12,13 @@
 //     which every script and tool here assumes rather than pins. Treat it
 //     as declared policy a reader can rely on being the intent, not as
 //     evidence of the process's actual locale at any given run.
-//   - compiler()/compiler_flags()/linker_flags(): these mirror
-//     mm::build::Toolchain (modules/mm/build/build.cppm) exactly, honoring
-//     $CXX when set - but that is only true of the self hosted build
-//     (build.sh and the tools it drives). bootstrap.sh and build0
-//     (tools/build/main.cpp) deliberately use a plain "c++" and never read
-//     $CXX: bootstrap must reach a working build1 the same way on every
-//     machine, independent of a caller's environment, so the project has
-//     two intentional compiler-selection rules rather than one. A
-//     Configuration describes the self hosted build's rule; bootstrap's
-//     fixed one is stated in bootstrap.sh and docs/modules.mdy, and is not
-//     something this type varies.
+//   - compiler_family()/compiler()/compiler_flags()/linker_flags(): these
+//     mirror mm::build::Toolchain (modules/mm/build/build.cppm). The
+//     unconfigured default is GCC through g++; configure persists one exact
+//     GCC or Clang C++ driver in out/config.mdy, and build and test resolve
+//     that same file. bootstrap.sh and build0 deliberately remain a fixed
+//     recovery path through plain "c++". A Configuration describes the
+//     self-hosted rule, not bootstrap's fixed one.
 //
 // platform() and shell() are comparatively safe: mm::build::run always
 // execs /bin/sh regardless of $SHELL (docs/modules.mdy, mm.shell), and
@@ -45,16 +41,21 @@ export module models.configuration;
 
 export namespace models {
 
+enum class CompilerFamily { Gcc, Clang };
+
 class Configuration {
 public:
     virtual ~Configuration() = default;
 
-    // e.g. "c++ -fmodules-ts". The normal build path's policy (honors
-    // $CXX); bootstrap.sh and build0 hardcode a plain "c++" instead and are
-    // not described by this value. See the class comment above.
+    // The exact C++ driver, e.g. "g++-15" or "clang++-20". Compiler-specific
+    // module arguments are execution policy and are not part of this value.
     [[nodiscard]] virtual std::string_view compiler() const = 0;
 
-    // e.g. "-std=c++20 -x c++".
+    // Selects compiler-specific module artifact and invocation behavior.
+    [[nodiscard]] virtual CompilerFamily compiler_family() const = 0;
+
+    // Common flags, e.g. "-std=c++20". The selected backend adds its module
+    // artifact flags for each translation unit.
     [[nodiscard]] virtual std::string_view compiler_flags() const = 0;
 
     // e.g. "-std=c++20".

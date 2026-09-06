@@ -1,7 +1,7 @@
 // modules.cpp configure tool
 //
-// Usage: configure [-v] [-e NAME=VALUE]... [<path to mm.mdy>] <command>
-//        (default manifest: mm.mdy in the current dir)
+// Usage: configure [-v] [--compiler COMPILER] [<path to mm.mdy>]
+//        (default compiler: gcc; default manifest: mm.mdy in the current dir)
 //
 //
 // Pawel Wodnicki (C) 2026
@@ -15,46 +15,28 @@ import mm.app;
 import mm.build;
 import mm.configure;
 
-namespace {
-
-// Splits "NAME=VALUE" for -e. Empty name on a malformed argument.
-struct Assignment {
-    std::string_view name;
-    std::string_view value;
-};
-
-Assignment split_assignment(std::string_view text) {
-    const auto pos = text.find('=');
-    if (pos == std::string_view::npos) return {};
-    return {text.substr(0, pos), text.substr(pos + 1)};
-}
-
-}  // namespace
-
 int main(int argc, char** argv) {
-    // Two positionals: the command, optionally preceded by a manifest.
     mm::app::Options options("configure");
-    options.option("-e", "a NAME=VALUE argument");
-    options.positional_limit(2);
+    options.option("--compiler", "gcc, g++, clang, or clang++, optionally versioned");
     if (options.parse(argc, argv) != mm::app::Cli::ok) return mm::build::exit_usage;
 
     const bool verbose = options.verbose();
-    const auto assignments = options.values("-e");
-    const auto& positional = options.positional();
-
-    std::filesystem::path manifest_path;
-    std::string_view command;
-
-    if (positional.size() == 1) {
-        manifest_path = "mm.mdy";
-        command = positional[0];
-    } else if (positional.size() == 2) {
-        manifest_path = positional[0];
-        command = positional[1];
-    } else {
-        std::cerr << "usage: configure [-v] [-e NAME=VALUE]... [<path to mm.mdy>] <command>\n";
+    const auto compilers = options.values("--compiler");
+    if (compilers.size() > 1) {
+        std::cerr << "configure: --compiler may be given only once\n";
         return mm::build::exit_usage;
     }
+
+    const std::string requested = compilers.empty() ? std::string("gcc") : compilers.front();
+    const auto compiler = mm::configure::parse_compiler(requested);
+    if (!compiler) {
+        std::cerr << "configure: unsupported compiler: " << requested << "\n";
+        return mm::build::exit_usage;
+    }
+
+    std::filesystem::path manifest_path = options.positional().empty()
+                                              ? std::filesystem::path("mm.mdy")
+                                              : std::filesystem::path(options.positional().front());
 
     manifest_path = mm::build::resolve_manifest(manifest_path);
 
@@ -85,41 +67,21 @@ int main(int argc, char** argv) {
         std::cout << "  config " << configuration_path.string() << "\n";
     }
 
-    for (const auto assignment_text : assignments) {
-        const auto assignment = split_assignment(assignment_text);
-        if (assignment.name.empty()) {
-            std::cerr << "configure: malformed -e argument: " << assignment_text << "\n";
-            return mm::build::exit_usage;
-        }
-        if (!mm::configure::set(assignment.name, assignment.value)) {
-            std::cerr << "configure: failed to set " << assignment.name << "\n";
-            return mm::build::exit_run;
-        }
-        if (verbose)
-            std::cout << "  export " << assignment.name << "=" << assignment.value << "\n";
-    }
-
-    const auto toolchain = mm::build::default_toolchain(verbose);
-
     mm::configure::Settings settings;
-    settings.host.invocation = mm::configure::get("CXX").value_or("c++");
+    settings.name = requested;
+    settings.host.family = compiler->family;
+    settings.host.invocation = compiler->invocation;
     settings.host.target = "host";
     settings.host.platform = "POSIX";
-    settings.host.compile_flags = "-std=c++20 -fmodules-ts -x c++";
-    settings.host.link_flags = toolchain.ldflags;
+    settings.host.compile_flags = "-std=c++20";
+    settings.host.link_flags = "-std=c++20";
 
     if (!mm::configure::write_configuration(project_root, settings)) {
         std::cerr << "configure: failed to write " << configuration_path.string() << "\n";
         return mm::build::exit_manifest;
     }
 
-    if (verbose) std::cout << '\n';
-
-    const int status = mm::build::run(toolchain, std::string(command));
-    if (status < 0) {
-        std::cerr << "configure: failed to run command\n";
-        return mm::build::exit_run;
-    }
-
-    return status;
+    std::cout << "Configured " << mm::configure::compiler_family_name(compiler->family)
+              << " compiler " << compiler->invocation << "\n";
+    return mm::build::exit_ok;
 }

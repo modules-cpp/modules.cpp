@@ -124,11 +124,10 @@ private:
     std::unique_ptr<Impl> impl_;
 };
 
-// Reports the project's build configuration: the live mm::build::Toolchain
-// ($CXX honored, verbose as given) plus the fixed platform/locale/shell
-// policy models.configuration documents. A fresh value every call: no
-// caching, so a changed $CXX or a different verbose argument is always
-// reflected.
+// Reports the unconfigured build policy: the shared GCC default with the
+// given verbosity, plus the fixed platform/locale/shell policy documented by
+// models.configuration. Project builds and tests additionally resolve the
+// persisted out/config.mdy through mm.build.
 [[nodiscard]] std::unique_ptr<models::Configuration> default_configuration(bool verbose = false);
 
 // Reorders operations into the documented recommended order: clean,

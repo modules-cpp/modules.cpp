@@ -2,9 +2,11 @@
 // 32bitmicro LLC (C) 2026
 module;
 
+#include <charconv>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <iostream>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -56,6 +58,7 @@ bool valid_settings(const Settings& settings) {
 
 void write_compiler(std::ofstream& out, std::string_view prefix,
                     const CompilerSettings& compiler) {
+    out << prefix << "-compiler-family: " << compiler_family_name(compiler.family) << '\n';
     out << prefix << "-compiler: " << compiler.invocation << '\n';
     out << prefix << "-target: " << compiler.target << '\n';
     out << prefix << "-platform: " << compiler.platform << '\n';
@@ -64,6 +67,48 @@ void write_compiler(std::ofstream& out, std::string_view prefix,
 }
 
 }  // namespace
+
+std::optional<CompilerRequest> parse_compiler(std::string_view value) {
+    CompilerRequest result;
+    std::string_view suffix;
+
+    if (value.starts_with("clang++")) {
+        result.family = CompilerFamily::Clang;
+        result.invocation = "clang++";
+        suffix = value.substr(7);
+    } else if (value.starts_with("clang")) {
+        result.family = CompilerFamily::Clang;
+        result.invocation = "clang++";
+        suffix = value.substr(5);
+    } else if (value.starts_with("g++")) {
+        result.family = CompilerFamily::Gcc;
+        result.invocation = "g++";
+        suffix = value.substr(3);
+    } else if (value.starts_with("gcc")) {
+        result.family = CompilerFamily::Gcc;
+        result.invocation = "g++";
+        suffix = value.substr(3);
+    } else {
+        return std::nullopt;
+    }
+
+    if (suffix.empty()) return result;
+    if (!suffix.starts_with('-') || suffix.size() == 1) return std::nullopt;
+
+    unsigned major = 0;
+    const auto digits = suffix.substr(1);
+    const auto parsed = std::from_chars(digits.data(), digits.data() + digits.size(), major);
+    if (parsed.ec != std::errc{} || parsed.ptr != digits.data() + digits.size() || major == 0)
+        return std::nullopt;
+
+    result.invocation += std::string(suffix);
+    result.requested_major = major;
+    return result;
+}
+
+std::string_view compiler_family_name(CompilerFamily family) {
+    return family == CompilerFamily::Gcc ? "gcc" : "clang";
+}
 
 std::optional<std::string> get(std::string_view name) {
     const std::string key(name);
@@ -81,6 +126,30 @@ bool set(std::string_view name, std::string_view value, bool overwrite) {
 bool unset(std::string_view name) {
     const std::string key(name);
     return ::unsetenv(key.c_str()) == 0;
+}
+
+bool log_configuration(const ConfigurationLog& log) {
+    std::error_code ec;
+    const bool has_configuration = std::filesystem::exists(log.configuration_path, ec);
+    if (ec) {
+        std::cerr << log.tool << ": cannot check " << log.configuration_path.string() << ": "
+                  << ec.message() << "\n";
+        return false;
+    }
+
+    if (has_configuration)
+        std::cout << "  configuration " << log.configuration_path.string() << "\n";
+    else
+        std::cout << "  configuration default\n";
+
+    if (log.verbose) {
+        std::cout << "    family        " << log.compiler_family << "\n";
+        std::cout << "    compiler      " << log.compiler << "\n";
+        std::cout << "    compile flags " << log.compile_flags << "\n";
+        std::cout << "    link flags    " << log.link_flags << "\n";
+    }
+    std::cout << "  target " << log.target.string() << "\n";
+    return true;
 }
 
 bool write_configuration(const std::filesystem::path& project_root, const Settings& settings) {

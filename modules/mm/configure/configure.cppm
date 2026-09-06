@@ -18,11 +18,27 @@ export namespace mm::configure {
 [[nodiscard]] bool set(std::string_view name, std::string_view value, bool overwrite = true);
 [[nodiscard]] bool unset(std::string_view name);
 
+enum class CompilerFamily { Gcc, Clang };
 enum class CompilerSelection { Host, Cross };
 
-// The persisted fields for one compiler role. Compiler names are deliberately
-// absent: the model derives a Compiler's name from its invocation.
+// A compiler selector accepted by configure. The C-driver spellings gcc and
+// clang are normalized to their C++ drivers so the same invocation can compile
+// and link C++ programs. requested_major is present for a versioned selector.
+struct CompilerRequest {
+    CompilerFamily family = CompilerFamily::Gcc;
+    std::string invocation = "g++";
+    std::optional<unsigned> requested_major;
+};
+
+// Accepts gcc, g++, clang, or clang++, optionally followed by -<major>.
+[[nodiscard]] std::optional<CompilerRequest> parse_compiler(std::string_view value);
+[[nodiscard]] std::string_view compiler_family_name(CompilerFamily family);
+
+// The persisted fields for one compiler role. family selects compiler-specific
+// module behavior; invocation preserves the exact, possibly versioned C++
+// driver selected by the user.
 struct CompilerSettings {
+    CompilerFamily family = CompilerFamily::Gcc;
     std::string invocation;
     std::string target;
     std::string platform;
@@ -40,6 +56,24 @@ struct Settings {
     std::filesystem::path host_build_directory = "out/host";
     std::filesystem::path target_build_directory = "out/host";
 };
+
+// The configuration summary shared by build and test. Compiler values are
+// strings so this module does not depend on either tool's toolchain types.
+struct ConfigurationLog {
+    std::string_view tool;
+    std::filesystem::path configuration_path = "out/config.mdy";
+    std::string_view compiler_family;
+    std::string_view compiler;
+    std::string_view compile_flags;
+    std::string_view link_flags;
+    std::filesystem::path target;
+    bool verbose = false;
+};
+
+// Prints whether configuration is persisted or default, the compiler details
+// in verbose mode, and the selected target directory. Reports an inaccessible
+// configuration path with the calling tool's name and returns false.
+[[nodiscard]] bool log_configuration(const ConfigurationLog& log);
 
 // Writes out/config.mdy through out/config.mdy.tmp, then atomically replaces
 // the destination. Invalid settings or an I/O failure leave an existing file

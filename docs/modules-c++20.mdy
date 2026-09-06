@@ -27,7 +27,9 @@ bounded exception.
 
 # Baseline compiler and standard
 - Code MUST compile as ISO C++20, using only language and library features a conforming C++20 compiler and standard library provide.
-- Code MUST NOT depend on compiler-specific extensions beyond the module support flag already documented as a current boundary in docs/modules.mdy (GCC's -fmodules-ts).
+- Code MUST NOT depend on compiler-specific language extensions. The build
+  driver may use compiler-specific module artifact flags: GCC's -fmodules-ts
+  and Clang's BMI output and lookup flags.
 - Code MUST NOT depend on any third-party library, header-only or otherwise. This restates docs/modules.mdy's Self-contained design goal as a hard rule.
 
 # Permitted language features
@@ -58,9 +60,9 @@ bounded exception.
 - Project code MUST NOT define object-like or function-like macros with
   #define, and MUST NOT #undef one.
 - Project code MUST NOT use conditional compilation (#if, #ifdef, #ifndef,
-  #elif, #else, #endif). The one documented compiler-specific dependency
-  (GCC's -fmodules-ts, see "Baseline compiler and standard") is a build
-  flag, not something project code branches on at preprocessor time; no
+  #elif, #else, #endif). The documented compiler-specific module flags (see
+  "Baseline compiler and standard") are build-driver policy, not something
+  project code branches on at preprocessor time; no
   code in this project may branch at preprocessor time on platform,
   compiler, or configuration.
 - Project code MUST NOT use the stringizing (#) or token-pasting (##) preprocessor operators, and MUST NOT generate code through repeated macro expansion (an "X-macro" list or similar).
