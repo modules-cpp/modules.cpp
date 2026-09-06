@@ -29,6 +29,19 @@ struct Toolchain {
 // Honours $CXX when set.
 Toolchain default_toolchain(bool verbose = false);
 
+// The single compiler/output lane the current build front end can execute.
+// load_configuration resolves target-compiler from an out/config.mdy onto
+// this lane. It reports malformed or unreadable configuration and returns
+// false; callers decide separately whether an absent file means fallback.
+struct BuildConfiguration {
+    Toolchain toolchain;
+    std::filesystem::path build_directory;
+};
+
+[[nodiscard]] bool load_configuration(const std::filesystem::path& path,
+                                      bool verbose,
+                                      BuildConfiguration& configuration);
+
 // One translation unit. A unit that declares a module name is an interface unit
 // and produces a BMI under Clang; a unit without one is an implementation unit
 // or a plain translation unit and produces only an object. GCC ignores the name.

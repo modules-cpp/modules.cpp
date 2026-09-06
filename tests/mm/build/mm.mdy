@@ -7,6 +7,7 @@ use: mm.build
 unit: tests/mm/build/quote.cpp
 unit: tests/mm/build/walk.cpp
 unit: tests/mm/build/order.cpp
+unit: tests/mm/build/configuration.cpp
 unit: tests/main.cpp
 ---
 

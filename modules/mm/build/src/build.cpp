@@ -7,6 +7,7 @@ module;
 #include <map>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #include <sys/wait.h>
@@ -163,6 +164,70 @@ bool valid_mm_version(const mm::mdy::MDYDocument& doc, const std::filesystem::pa
         return false;
     }
     return true;
+}
+
+bool configuration_scalar(const mm::mdy::MDYDocument& doc, std::string_view key,
+                          const std::filesystem::path& path, std::string& value) {
+    const auto* values = lookup(doc, key);
+    if (values == nullptr || values->size() != 1 || values->front().empty()) {
+        std::cerr << "build: configuration requires one non-empty " << key << ": "
+                  << path.string() << "\n";
+        return false;
+    }
+    value = values->front();
+    return true;
+}
+
+bool configuration_directory(const mm::mdy::MDYDocument& doc, std::string_view key,
+                             const std::filesystem::path& path,
+                             std::filesystem::path& directory) {
+    std::string value;
+    if (!configuration_scalar(doc, key, path, value)) return false;
+
+    directory = value;
+    const auto normalized = directory.lexically_normal();
+    if (directory.is_absolute() || normalized.empty() || normalized == ".") {
+        std::cerr << "build: configuration has unsafe " << key << ": " << value << "\n";
+        return false;
+    }
+    for (const auto& component : normalized) {
+        if (component != "..") continue;
+        std::cerr << "build: configuration has unsafe " << key << ": " << value << "\n";
+        return false;
+    }
+
+    directory = normalized;
+    return true;
+}
+
+bool configuration_compiler(const mm::mdy::MDYDocument& document, std::string_view prefix,
+                            const std::filesystem::path& path, Toolchain& toolchain) {
+    std::string target;
+    std::string platform;
+    if (!configuration_scalar(document, std::string(prefix) + "-compiler", path, toolchain.cxx) ||
+        !configuration_scalar(document, std::string(prefix) + "-target", path, target) ||
+        !configuration_scalar(document, std::string(prefix) + "-platform", path, platform) ||
+        !configuration_scalar(document, std::string(prefix) + "-compile-flags", path,
+                              toolchain.cxxflags) ||
+        !configuration_scalar(document, std::string(prefix) + "-link-flags", path,
+                              toolchain.ldflags))
+        return false;
+
+    if (platform != "POSIX") {
+        std::cerr << "build: configuration names unsupported " << prefix
+                  << " platform: " << platform << "\n";
+        return false;
+    }
+    return true;
+}
+
+bool has_configuration_compiler(const mm::mdy::MDYDocument& document,
+                                std::string_view prefix) {
+    return lookup(document, std::string(prefix) + "-compiler") != nullptr ||
+           lookup(document, std::string(prefix) + "-target") != nullptr ||
+           lookup(document, std::string(prefix) + "-platform") != nullptr ||
+           lookup(document, std::string(prefix) + "-compile-flags") != nullptr ||
+           lookup(document, std::string(prefix) + "-link-flags") != nullptr;
 }
 
 bool valid_manifest(const mm::mdy::MDYDocument& doc, std::string_view kind, std::string_view name,
@@ -365,6 +430,61 @@ Toolchain default_toolchain(bool verbose) {
         toolchain.cxx = std::string(env) + " -fmodules-ts";
     toolchain.verbose = verbose;
     return toolchain;
+}
+
+bool load_configuration(const std::filesystem::path& path, bool verbose,
+                        BuildConfiguration& configuration) {
+    const auto document = mm::mdy::Parser::parse_file(path);
+    if (document.status != mm::mdy::ParseStatus::Ok) {
+        std::cerr << "build: cannot read configuration: " << path.string() << "\n";
+        return false;
+    }
+
+    std::string version;
+    std::string kind;
+    std::string name;
+    std::string selection;
+    if (!configuration_scalar(document, "mm", path, version) || version != "1.0" ||
+        !configuration_scalar(document, "kind", path, kind) || kind != "configuration" ||
+        !configuration_scalar(document, "name", path, name) ||
+        !configuration_scalar(document, "target-compiler", path, selection)) {
+        std::cerr << "build: invalid configuration: " << path.string() << "\n";
+        return false;
+    }
+
+    if (selection != "host" && selection != "cross") {
+        std::cerr << "build: configuration target-compiler must be host or cross: "
+                  << path.string() << "\n";
+        return false;
+    }
+
+    Toolchain host;
+    if (!configuration_compiler(document, "host", path, host)) return false;
+
+    Toolchain cross;
+    const bool has_cross = has_configuration_compiler(document, "cross");
+    if (has_cross && !configuration_compiler(document, "cross", path, cross)) return false;
+
+    Toolchain selected = host;
+    if (selection == "cross") {
+        if (!has_cross) {
+            std::cerr << "build: configuration selects cross without a cross compiler: "
+                      << path.string() << "\n";
+            return false;
+        }
+        selected = std::move(cross);
+    }
+
+    std::filesystem::path host_directory;
+    std::filesystem::path target_directory;
+    if (!configuration_directory(document, "host-build-directory", path, host_directory) ||
+        !configuration_directory(document, "target-build-directory", path, target_directory))
+        return false;
+
+    selected.verbose = verbose;
+    configuration.toolchain = std::move(selected);
+    configuration.build_directory = std::move(target_directory);
+    return true;
 }
 
 TranslationUnit parse_unit(std::string_view value) {

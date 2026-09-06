@@ -17,6 +17,7 @@
 #include <filesystem>
 #include <iostream>
 #include <string_view>
+#include <system_error>
 #include <vector>
 
 import mm.build;
@@ -50,18 +51,52 @@ int main(int argc, char** argv) {
     }
 
     const auto root = std::filesystem::absolute(manifest_path).parent_path();
+    const auto found_project_root = mm::build::find_project_root(root);
+    const auto project_root = found_project_root.empty() ? root : found_project_root;
+    auto tree_root = root.lexically_relative(project_root);
+    if (tree_root.empty()) tree_root = ".";
 
     std::error_code ec;
-    std::filesystem::current_path(root, ec);
+    std::filesystem::current_path(project_root, ec);
     if (ec) {
-        std::cerr << "build: cannot enter " << root.string() << ": " << ec.message() << "\n";
+        std::cerr << "build: cannot enter " << project_root.string() << ": " << ec.message()
+                  << "\n";
         return mm::build::exit_manifest;
     }
 
     std::cout << "modules.cpp build tool\n";
-    std::cout << "  root " << root.string() << "\n\n";
+    std::cout << "  root " << project_root.string() << "\n";
 
-    auto tree = mm::build::load_tree(".");
+    auto toolchain = mm::build::default_toolchain(verbose);
+    std::filesystem::path build_dir = "out";
+
+    const std::filesystem::path configuration_path = "out/config.mdy";
+    ec.clear();
+    const bool has_configuration = std::filesystem::exists(configuration_path, ec);
+    if (ec) {
+        std::cerr << "build: cannot check " << configuration_path.string() << ": "
+                  << ec.message() << "\n";
+        return mm::build::exit_manifest;
+    }
+    if (has_configuration) {
+        mm::build::BuildConfiguration configuration;
+        if (!mm::build::load_configuration(configuration_path, verbose, configuration))
+            return mm::build::exit_manifest;
+        toolchain = configuration.toolchain;
+        build_dir = configuration.build_directory;
+        std::cout << "  configuration " << configuration_path.string() << "\n";
+    } else
+        std::cout << "  configuration default\n";
+
+    if (verbose) {
+        std::cout << "    compiler      " << toolchain.cxx << "\n";
+        std::cout << "    compile flags " << toolchain.cxxflags << "\n";
+        std::cout << "    link flags    " << toolchain.ldflags << "\n";
+    }
+    std::cout << "  target " << build_dir.string() << "\n";
+    std::cout << "\n";
+
+    auto tree = mm::build::load_tree(tree_root);
     if (!tree.ok) return mm::build::exit_manifest;
 
     if (tree.targets.empty()) {
@@ -71,9 +106,6 @@ int main(int argc, char** argv) {
 
     std::vector<std::size_t> order;
     if (!mm::build::order(tree, order)) return mm::build::exit_manifest;
-
-    const auto toolchain = mm::build::default_toolchain(verbose);
-    const std::filesystem::path build_dir = "out";
 
     std::cout << "Clear nodule cache\n";
     if (!mm::build::clear_module_cache()) {
@@ -91,7 +123,11 @@ int main(int argc, char** argv) {
             return status;
     }
 
-    const auto bin_dir = build_dir / "bin";
+    // Linked artifacts follow the configured build directory, but installed
+    // host tools keep their stable launcher path. In particular, ./build and
+    // build.sh execute out/bin/build, so a configured build must replace that
+    // executable rather than strand the new version under out/host/bin.
+    const std::filesystem::path bin_dir = "out/bin";
 
     std::cout << "\nLink\n";
     for (const auto index : order) {
