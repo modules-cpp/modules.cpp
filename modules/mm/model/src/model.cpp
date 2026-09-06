@@ -839,11 +839,7 @@ Loaded Loaded::load(const std::filesystem::path& root_dir, bool& ok) {
     const auto option_nodes = mm::build::configuration_nodes(project);
     std::vector<mm::configure::OptionValues> options;
     const bool options_resolved =
-        mm::configure::resolve_options(".",
-                                       configuration.build == mm::build::Build::Release
-                                           ? mm::configure::Build::Release
-                                           : mm::configure::Build::Debug,
-                                       option_nodes, options, "model") &&
+        mm::configure::resolve_options(".", configuration.build, option_nodes, options, "model") &&
         mm::build::validate_capabilities(option_nodes, options, "model");
 
     const auto lane = [&](std::size_t node, std::string_view name) {

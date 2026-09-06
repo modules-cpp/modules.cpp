@@ -509,14 +509,6 @@ void closure_visit(std::size_t index, const Tree& tree,
 
 }
 
-std::string_view compiler_family_name(CompilerFamily family) {
-    return family == CompilerFamily::Gcc ? "gcc" : "clang";
-}
-
-std::string_view build_name(Build build) {
-    return build == Build::Debug ? "debug" : "release";
-}
-
 Toolchain default_toolchain(bool verbose) {
     Toolchain toolchain;
     toolchain.verbose = verbose;

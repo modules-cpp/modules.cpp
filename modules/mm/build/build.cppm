@@ -21,8 +21,8 @@ inline constexpr int exit_compile  = 80;
 inline constexpr int exit_link     = 81;
 inline constexpr int exit_run      = 127;
 
-enum class CompilerFamily { Gcc, Clang };
-enum class Build { Debug, Release };
+using CompilerFamily = mm::configure::CompilerFamily;
+using Build = mm::configure::Build;
 
 struct ToolchainProgram {
     std::string invocation;
@@ -42,8 +42,8 @@ struct Toolchain {
     bool verbose = false;
 };
 
-[[nodiscard]] std::string_view compiler_family_name(CompilerFamily family);
-[[nodiscard]] std::string_view build_name(Build build);
+using mm::configure::compiler_family_name;
+using mm::configure::build_name;
 
 // The unconfigured project default: a debug build with GCC. Compiler and build
 // selection are persisted by configure rather than chosen by each process.
