@@ -39,15 +39,20 @@ void loads_the_host_selection() {
     mm::build::BuildConfiguration configuration;
     mm::test::expect(mm::build::load_configuration(path, true, configuration),
                      "expected native configuration to load");
-    mm::test::expect(configuration.toolchain.cxx == "clang++",
+    const auto& toolchain = configuration.selected_toolchain();
+    mm::test::expect(toolchain.compiler.invocation == "clang++",
                      "expected host compiler selection");
-    mm::test::expect(configuration.toolchain.family == mm::build::CompilerFamily::Clang,
+    mm::test::expect(toolchain.family == mm::build::CompilerFamily::Clang,
                      "expected Clang family selection");
-    mm::test::expect(configuration.toolchain.cxxflags == "host compile flags" &&
-                         configuration.toolchain.ldflags == "host link flags",
+    mm::test::expect(toolchain.compiler.arguments == "host compile flags" &&
+                         toolchain.linker.arguments == "host link flags",
                      "expected host flags");
-    mm::test::expect(configuration.toolchain.verbose,
+    mm::test::expect(toolchain.verbose,
                      "expected the caller's verbose setting to be retained");
+    mm::test::expect(configuration.host_toolchain().target == "host" &&
+                         configuration.cross_toolchain() == nullptr &&
+                         !configuration.selects_cross(),
+                     "expected one retained host lane");
     mm::test::expect(configuration.build == mm::build::Build::Release,
                      "expected release build selection");
     mm::test::expect(configuration.build_directory == "out-host",
@@ -80,15 +85,57 @@ void loads_the_cross_selection() {
     mm::build::BuildConfiguration configuration;
     mm::test::expect(mm::build::load_configuration(path, false, configuration),
                      "expected cross configuration to load");
-    mm::test::expect(configuration.toolchain.cxx == "aarch64-linux-gnu-g++",
+    const auto& toolchain = configuration.selected_toolchain();
+    mm::test::expect(toolchain.compiler.invocation == "aarch64-linux-gnu-g++",
                      "expected cross compiler selection");
-    mm::test::expect(configuration.toolchain.family == mm::build::CompilerFamily::Gcc,
+    mm::test::expect(toolchain.family == mm::build::CompilerFamily::Gcc,
                      "expected cross compiler family selection");
-    mm::test::expect(configuration.toolchain.cxxflags == "cross compile flags" &&
-                         configuration.toolchain.ldflags == "cross link flags",
+    mm::test::expect(toolchain.compiler.arguments == "cross compile flags" &&
+                         toolchain.linker.arguments == "cross link flags",
                      "expected cross flags");
+    mm::test::expect(toolchain.target == "aarch64-linux-gnu" &&
+                         configuration.host_toolchain().compiler.invocation == "clang++" &&
+                         configuration.cross_toolchain() != nullptr &&
+                         configuration.selects_cross(),
+                     "expected both host and selected cross lanes to be retained");
     mm::test::expect(configuration.build_directory == "out/target/aarch64-linux-gnu",
                      "expected cross target build directory");
+}
+
+void retains_an_unselected_cross_compiler() {
+    const mm::test::scoped_tree tree{"build_unselected_cross_configuration"};
+    const auto path = tree.root() / "out" / "config.mdy";
+    write(path,
+          "mm: 1.0\n"
+          "kind: configuration\n"
+          "name: unselected-cross\n"
+          "target-compiler: host\n"
+          "host-compiler-family: clang\n"
+          "host-compiler: clang++\n"
+          "host-target: host\n"
+          "host-platform: POSIX\n"
+          "host-compile-flags: host compile flags\n"
+          "host-link-flags: host link flags\n"
+          "cross-compiler-family: gcc\n"
+          "cross-compiler: aarch64-linux-gnu-g++\n"
+          "cross-target: aarch64-linux-gnu\n"
+          "cross-platform: POSIX\n"
+          "cross-compile-flags: cross compile flags\n"
+          "cross-link-flags: cross link flags\n"
+          "host-build-directory: out-host\n"
+          "target-build-directory: out-host\n");
+
+    mm::build::BuildConfiguration configuration;
+    mm::test::expect(mm::build::load_configuration(path, true, configuration),
+                     "expected an unselected cross record to load");
+    mm::test::expect(!configuration.selects_cross() &&
+                         configuration.selected_toolchain().compiler.invocation == "clang++",
+                     "expected the host lane to remain selected");
+    mm::test::expect(configuration.cross_toolchain() != nullptr &&
+                         configuration.cross_toolchain()->compiler.invocation ==
+                             "aarch64-linux-gnu-g++" &&
+                         configuration.cross_toolchain()->verbose,
+                     "expected the unselected cross lane to be retained completely");
 }
 
 void rejects_a_selected_but_missing_cross_compiler() {
@@ -127,8 +174,9 @@ void resolves_one_project_configuration() {
     mm::build::BuildConfiguration configuration;
     mm::test::expect(mm::build::resolve_configuration(tree.root(), false, configuration),
                      "expected project configuration to resolve");
-    mm::test::expect(configuration.toolchain.family == mm::build::CompilerFamily::Clang &&
-                         configuration.toolchain.cxx == "clang++",
+    mm::test::expect(configuration.selected_toolchain().family ==
+                             mm::build::CompilerFamily::Clang &&
+                         configuration.selected_toolchain().compiler.invocation == "clang++",
                      "expected the resolved project compiler");
 }
 
@@ -137,8 +185,9 @@ void resolves_the_shared_unconfigured_default() {
     mm::build::BuildConfiguration configuration;
     mm::test::expect(mm::build::resolve_configuration(tree.root(), false, configuration),
                      "expected the default configuration to resolve");
-    mm::test::expect(configuration.toolchain.family == mm::build::CompilerFamily::Gcc &&
-                         configuration.toolchain.cxx == "g++" &&
+    mm::test::expect(configuration.selected_toolchain().family ==
+                             mm::build::CompilerFamily::Gcc &&
+                         configuration.selected_toolchain().compiler.invocation == "g++" &&
                          configuration.build_directory == "out",
                      "expected the shared unconfigured GCC default");
 }
@@ -154,7 +203,8 @@ void treats_an_older_configuration_as_gcc() {
     mm::build::BuildConfiguration configuration;
     mm::test::expect(mm::build::load_configuration(path, false, configuration),
                      "expected a configuration written before compiler families to load");
-    mm::test::expect(configuration.toolchain.family == mm::build::CompilerFamily::Gcc,
+    mm::test::expect(configuration.selected_toolchain().family ==
+                         mm::build::CompilerFamily::Gcc,
                      "expected a missing family to retain the historical GCC behavior");
 }
 
@@ -203,6 +253,7 @@ void rejects_an_unknown_compiler_family() {
 const mm::test::case_ cases[] = {
     {"loads the host selection", &loads_the_host_selection},
     {"loads the cross selection", &loads_the_cross_selection},
+    {"retains an unselected cross compiler", &retains_an_unselected_cross_compiler},
     {"rejects selected missing cross compiler", &rejects_a_selected_but_missing_cross_compiler},
     {"rejects escaping build directory", &rejects_an_escaping_build_directory},
     {"resolves one project configuration", &resolves_one_project_configuration},

@@ -102,6 +102,7 @@ The source tree is organized by responsibility.
 |   +-- manifest/             models.manifest
 |   +-- repository/           models.repository
 |   +-- tool/                 models.tool
+|   +-- toolchain/            models.toolchain
 |   +-- modules/              models.modules
 |   +-- workflow/             models.workflow
 |   +-- artifacts/            models.artifacts
@@ -189,7 +190,9 @@ defects. The exact format contract is in docs/mdy.mdy.
 ## mm.build
 mm.build contains the shared project and build model. Its main types are:
 
-- Toolchain stores the compiler family, exact C++ driver, flags, and verbosity.
+- Toolchain stores one target and its compiler, assembler, linker, librarian,
+  and debugger roles. The compiler driver performs or orchestrates compiler,
+  assembler, and linker work; librarian and debugger are presently unbound.
 - TranslationUnit identifies a source path and optional module name.
 - BuildableNode describes a module, application, test, or document.
 - Tree separates build targets from discovered tests and documents.
@@ -231,8 +234,8 @@ This turns known defects into executable records without weakening regressions.
 ## models/ and mm.model
 models/ is a second, independent description of this project's own structure: 
 small modules (models.document, models.configuration,
-models.manifest, models.repository, models.project, models.tool,
-models.compiler, models.toolchain, models.modules, models.workflow,
+models.manifest, models.repository, models.tool, models.toolchain,
+models.modules, models.workflow,
 models.artifacts) that model the manifest kind taxonomy,
 tools, workflow, and generated output as abstract C++20 interfaces, rather
 than the flat structs mm.build uses to do the same job internally.

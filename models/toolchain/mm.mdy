@@ -1,0 +1,12 @@
+---
+mm: 1.0
+kind: module
+name: toolchain
+module: models.toolchain
+use: models.tool
+file: toolchain.cppm
+---
+
+# models.toolchain
+
+A target-specific set of compiler, assembler, linker, librarian, and debugger roles bound to invocable programs. Roles may share one program, and a role may be unbound.

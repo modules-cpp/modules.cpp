@@ -57,7 +57,9 @@ void shared_defaults() {
     expect(mm::configure::build_compile_flags(Build::Release) == "-std=c++20 -O2 -DNDEBUG", "release compile unchanged");
     expect(mm::configure::build_link_flags(Build::Debug) == "-std=c++20 -g", "debug link unchanged");
     expect(mm::configure::build_link_flags(Build::Release) == "-std=c++20 -O2", "release link unchanged");
-    expect(mm::build::default_toolchain().cxxflags == mm::configure::build_compile_flags(Build::Debug), "fallback shares policy");
+    expect(mm::build::default_toolchain().compiler.arguments ==
+               mm::configure::build_compile_flags(Build::Debug),
+           "fallback shares policy");
 }
 
 void inheritance_reset_and_records() {

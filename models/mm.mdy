@@ -7,6 +7,7 @@ folder: configuration
 folder: manifest
 folder: repository
 folder: tool
+folder: toolchain
 folder: modules
 folder: workflow
 folder: artifacts

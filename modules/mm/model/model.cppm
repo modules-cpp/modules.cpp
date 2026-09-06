@@ -81,6 +81,7 @@ import models.configuration;
 import models.modules;
 import models.repository;
 import models.tool;
+import models.toolchain;
 import models.workflow;
 
 export namespace mm::model {

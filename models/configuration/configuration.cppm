@@ -35,9 +35,9 @@
 // artifacts, and where each lane writes. The directory names themselves are
 // configure policy, not fixed here.
 //
-// Foundational, like models.document: a Configuration is an input to
-// running a Tool, not a structural fact about the repository, so nothing
-// else here needs to depend on it, and it depends on nothing else here.
+// A Configuration is an input to running a Tool, not a structural fact about
+// the repository, so nothing else here needs to depend on it. It imports the
+// toolchain abstraction whose programs and arguments it selects.
 //
 // Pawel Wodnicki (C) 2026
 // 32bitmicro LLC (C) 2026
@@ -48,9 +48,10 @@ module;
 
 export module models.configuration;
 
+import models.toolchain;
+
 export namespace models {
 
-enum class CompilerFamily { Gcc, Clang };
 enum class CompilerSelection { Host, Cross };
 enum class Build { Debug, Release };
 
@@ -64,6 +65,12 @@ public:
     [[nodiscard]] virtual bool persisted() const = 0;
 
     [[nodiscard]] virtual CompilerSelection selection() const = 0;
+
+    // The host toolchain is always present. target_toolchain() follows the
+    // selection rather than record presence: it is null while Host is selected,
+    // even if the persisted file also carries an unused cross record.
+    [[nodiscard]] virtual const Toolchain& host_toolchain() const = 0;
+    [[nodiscard]] virtual const Toolchain* target_toolchain() const = 0;
 
     // Root relative. build_directory() is the selected lane's; the host lane's
     // is always available, since programs that run during a build are host

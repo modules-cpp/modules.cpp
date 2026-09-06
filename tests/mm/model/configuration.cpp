@@ -2,12 +2,16 @@
 // describe: a tree with no out/config.mdy, and one configure has written.
 
 #include <filesystem>
+#include <string>
 #include <string_view>
+#include <utility>
 
 import mm.configure;
 import mm.model;
 import mm.test;
 import models.configuration;
+import models.tool;
+import models.toolchain;
 
 namespace {
 
@@ -22,6 +26,23 @@ mm::configure::Settings host_settings() {
         std::string(mm::configure::build_compile_flags(mm::configure::Build::Release)),
         std::string(mm::configure::build_link_flags(mm::configure::Build::Release)),
     };
+    return settings;
+}
+
+mm::configure::Settings settings_with_cross(bool select_cross, std::string target,
+                                            std::string invocation) {
+    auto settings = host_settings();
+    settings.target_compiler = select_cross ? mm::configure::CompilerSelection::Cross
+                                            : mm::configure::CompilerSelection::Host;
+    settings.cross = mm::configure::CompilerSettings{
+        mm::configure::CompilerFamily::Gcc,
+        std::move(invocation),
+        std::move(target),
+        "POSIX",
+        "cross compile flags",
+        "cross link flags",
+    };
+    settings.target_build_directory = select_cross ? "out-target-test" : "out-host";
     return settings;
 }
 
@@ -63,6 +84,72 @@ void persisted_reports_the_written_lane() {
     expect(configuration->compiler_flags() ==
                mm::configure::build_compile_flags(mm::configure::Build::Release),
            "flags come from the one shared build policy");
+
+    const auto& toolchain = configuration->host_toolchain();
+    const auto* compiler = toolchain.program(models::ToolRole::Compiler);
+    expect(configuration->target_toolchain() == nullptr,
+           "a host selection has no selected target toolchain");
+    expect(compiler != nullptr && compiler == toolchain.program(models::ToolRole::Assembler) &&
+               compiler == toolchain.program(models::ToolRole::Linker),
+           "compiler, assembler, and linker share the configured driver");
+    expect(toolchain.program(models::ToolRole::Librarian) == nullptr &&
+               toolchain.program(models::ToolRole::Debugger) == nullptr,
+           "librarian and debugger are unbound");
+    expect(toolchain.invoked(models::ToolRole::Compiler) &&
+               !toolchain.invoked(models::ToolRole::Assembler) &&
+               toolchain.invoked(models::ToolRole::Linker) &&
+               !toolchain.invoked(models::ToolRole::Librarian) &&
+               !toolchain.invoked(models::ToolRole::Debugger),
+           "only compiler and linker roles are invoked");
+    expect(compiler != nullptr && compiler->name() == compiler->invocation().string() &&
+               compiler->provenance() == models::Provenance::ThirdParty &&
+               compiler->declared_by() == nullptr,
+           "a configured driver is a manifest-free third-party tool named by its invocation");
+}
+
+void an_unselected_cross_record_is_not_a_target_toolchain() {
+    const mm::test::scoped_tree tree{"model_configuration_unselected_cross"};
+    const auto settings = settings_with_cross(false, "aarch64-linux-gnu", "aarch64-linux-gnu-g++");
+    expect(mm::configure::write_configuration(tree.root(), settings), "configuration written");
+
+    const auto configuration = mm::model::configuration(tree.root(), false);
+    expect(configuration != nullptr, "configuration resolves");
+    if (configuration == nullptr) return;
+    expect(configuration->selection() == models::CompilerSelection::Host &&
+               configuration->target_toolchain() == nullptr,
+           "record presence does not override host selection");
+}
+
+void equal_targets_are_not_cross_compilation() {
+    const mm::test::scoped_tree tree{"model_configuration_equal_targets"};
+    const auto settings = settings_with_cross(true, "host", "cross-g++");
+    expect(mm::configure::write_configuration(tree.root(), settings), "configuration written");
+
+    const auto configuration = mm::model::configuration(tree.root(), false);
+    expect(configuration != nullptr && configuration->target_toolchain() != nullptr,
+           "selected cross record is exposed as the target toolchain");
+    if (configuration == nullptr || configuration->target_toolchain() == nullptr) return;
+    expect(configuration->target_toolchain()->target() == configuration->host_toolchain().target(),
+           "equal targets make the derived cross-compilation question false");
+}
+
+void equal_invocations_do_not_unify_toolchains() {
+    const mm::test::scoped_tree tree{"model_configuration_equal_invocations"};
+    const auto settings = settings_with_cross(true, "aarch64-linux-gnu", "g++-15");
+    expect(mm::configure::write_configuration(tree.root(), settings), "configuration written");
+
+    const auto configuration = mm::model::configuration(tree.root(), false);
+    expect(configuration != nullptr && configuration->target_toolchain() != nullptr,
+           "selected cross record is exposed as the target toolchain");
+    if (configuration == nullptr || configuration->target_toolchain() == nullptr) return;
+
+    const auto* host = configuration->host_toolchain().program(models::ToolRole::Compiler);
+    const auto* target = configuration->target_toolchain()->program(models::ToolRole::Compiler);
+    expect(host != nullptr && target != nullptr && host->invocation() == target->invocation() &&
+               host != target,
+           "the same invocation has distinct ownership in distinct toolchains");
+    expect(configuration->target_toolchain()->target() != configuration->host_toolchain().target(),
+           "different targets make the derived cross-compilation question true");
 }
 
 // The platform/locale/shell facts are fixed project policy, not derived
@@ -89,6 +176,9 @@ void platform_locale_and_shell_are_fixed() {
 const mm::test::case_ cases[] = {
     { "unconfigured reports the shared default", &unconfigured_reports_the_shared_default },
     { "persisted reports the written lane",      &persisted_reports_the_written_lane },
+    { "unselected cross is not a target",        &an_unselected_cross_record_is_not_a_target_toolchain },
+    { "equal targets are not cross compilation", &equal_targets_are_not_cross_compilation },
+    { "equal invocations remain separate",       &equal_invocations_do_not_unify_toolchains },
     { "platform, locale and shell are fixed",    &platform_locale_and_shell_are_fixed },
 };
 

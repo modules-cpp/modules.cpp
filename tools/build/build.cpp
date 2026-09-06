@@ -75,15 +75,15 @@ int main(int argc, char** argv) {
     if (!mm::build::resolve_configuration(".", verbose, configuration))
         return mm::build::exit_manifest;
 
-    const auto& toolchain = configuration.toolchain;
+    const auto& toolchain = configuration.selected_toolchain();
     const auto& build_dir = configuration.build_directory;
     if (!mm::configure::log_configuration({
             .tool = "build",
             .build = mm::build::build_name(configuration.build),
             .compiler_family = mm::build::compiler_family_name(toolchain.family),
-            .compiler = toolchain.cxx,
-            .compile_flags = toolchain.cxxflags,
-            .link_flags = toolchain.ldflags,
+            .compiler = toolchain.compiler.invocation,
+            .compile_flags = toolchain.compiler.arguments,
+            .link_flags = toolchain.linker.arguments,
             .target = build_dir,
             .verbose = verbose,
         }))

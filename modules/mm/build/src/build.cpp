@@ -5,6 +5,7 @@ module;
 #include <filesystem>
 #include <iostream>
 #include <map>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -263,7 +264,6 @@ bool configuration_directory(const mm::mdy::MDYDocument& doc, std::string_view k
 
 bool configuration_compiler(const mm::mdy::MDYDocument& document, std::string_view prefix,
                             const std::filesystem::path& path, Toolchain& toolchain) {
-    std::string target;
     std::string platform;
     const auto family_key = std::string(prefix) + "-compiler-family";
     const auto* family_values = lookup(document, family_key);
@@ -284,13 +284,15 @@ bool configuration_compiler(const mm::mdy::MDYDocument& document, std::string_vi
         }
     }
 
-    if (!configuration_scalar(document, std::string(prefix) + "-compiler", path, toolchain.cxx) ||
-        !configuration_scalar(document, std::string(prefix) + "-target", path, target) ||
+    if (!configuration_scalar(document, std::string(prefix) + "-compiler", path,
+                              toolchain.compiler.invocation) ||
+        !configuration_scalar(document, std::string(prefix) + "-target", path,
+                              toolchain.target) ||
         !configuration_scalar(document, std::string(prefix) + "-platform", path, platform) ||
         !configuration_scalar(document, std::string(prefix) + "-compile-flags", path,
-                              toolchain.cxxflags) ||
+                              toolchain.compiler.arguments) ||
         !configuration_scalar(document, std::string(prefix) + "-link-flags", path,
-                              toolchain.ldflags))
+                              toolchain.linker.arguments))
         return false;
 
     if (platform != "POSIX") {
@@ -298,6 +300,10 @@ bool configuration_compiler(const mm::mdy::MDYDocument& document, std::string_vi
                   << " platform: " << platform << "\n";
         return false;
     }
+    toolchain.assembler.invocation = toolchain.compiler.invocation;
+    toolchain.linker.invocation = toolchain.compiler.invocation;
+    toolchain.librarian = {};
+    toolchain.debugger = {};
     return true;
 }
 
@@ -560,14 +566,12 @@ bool load_configuration(const std::filesystem::path& path, bool verbose,
     const bool has_cross = has_configuration_compiler(document, "cross");
     if (has_cross && !configuration_compiler(document, "cross", path, cross)) return false;
 
-    Toolchain selected = host;
     if (selection == "cross") {
         if (!has_cross) {
             std::cerr << "build: configuration selects cross without a cross compiler: "
                       << path.string() << "\n";
             return false;
         }
-        selected = std::move(cross);
     }
 
     std::filesystem::path host_directory;
@@ -576,11 +580,13 @@ bool load_configuration(const std::filesystem::path& path, bool verbose,
         !configuration_directory(document, "target-build-directory", path, target_directory))
         return false;
 
-    selected.verbose = verbose;
-    configuration.cross = selection == "cross";
+    host.verbose = verbose;
+    if (has_cross) cross.verbose = verbose;
+    configuration.host_ = std::move(host);
+    configuration.cross_ = has_cross ? std::optional<Toolchain>(std::move(cross)) : std::nullopt;
+    configuration.selects_cross_ = selection == "cross";
     configuration.host_build_directory = std::move(host_directory);
     configuration.build = build;
-    configuration.toolchain = std::move(selected);
     configuration.build_directory = std::move(target_directory);
     return true;
 }
@@ -597,9 +603,10 @@ bool resolve_configuration(const std::filesystem::path& project_root, bool verbo
 
     if (exists) return load_configuration(path, verbose, configuration);
 
-    configuration.toolchain = default_toolchain(verbose);
+    configuration.host_ = default_toolchain(verbose);
+    configuration.cross_.reset();
+    configuration.selects_cross_ = false;
     configuration.build = Build::Debug;
-    configuration.cross = false;
     configuration.build_directory = "out";
     configuration.host_build_directory = "out";
     return true;
@@ -940,7 +947,7 @@ int compile(const Toolchain& toolchain, BuildableNode& target, const std::filesy
 
         std::cout << "    " << source.path << "\n";
 
-        std::string command = toolchain.cxx + " " + toolchain.cxxflags;
+        std::string command = toolchain.compiler.invocation + " " + toolchain.compiler.arguments;
         if (toolchain.family == CompilerFamily::Gcc) {
             command += " -fmodules-ts -x c++";
         } else {
@@ -995,7 +1002,7 @@ int link(const Toolchain& toolchain,
     temp += ".link-tmp";
     std::filesystem::remove(temp, ec);
 
-    std::string command = toolchain.cxx + " " + toolchain.ldflags;
+    std::string command = toolchain.linker.invocation + " " + toolchain.linker.arguments;
     for (const auto& object : objects) command += " " + shell_quote(object);
     command += " -o " + shell_quote(temp);
 

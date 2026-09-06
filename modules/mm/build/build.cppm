@@ -2,6 +2,7 @@ module;
 
 #include <cstddef>
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -23,12 +24,22 @@ inline constexpr int exit_run      = 127;
 enum class CompilerFamily { Gcc, Clang };
 enum class Build { Debug, Release };
 
+struct ToolchainProgram {
+    std::string invocation;
+    std::string arguments;
+};
+
 struct Toolchain {
     CompilerFamily family = CompilerFamily::Gcc;
-    std::string cxx      = "g++";
-    std::string cxxflags = std::string(mm::configure::build_compile_flags(mm::configure::Build::Debug));
-    std::string ldflags  = std::string(mm::configure::build_link_flags(mm::configure::Build::Debug));
-    bool verbose         = false;
+    std::string target = "host";
+    ToolchainProgram compiler = {
+        "g++", std::string(mm::configure::build_compile_flags(mm::configure::Build::Debug))};
+    ToolchainProgram assembler = {"g++", {}};
+    ToolchainProgram linker = {
+        "g++", std::string(mm::configure::build_link_flags(mm::configure::Build::Debug))};
+    ToolchainProgram librarian;
+    ToolchainProgram debugger;
+    bool verbose = false;
 };
 
 [[nodiscard]] std::string_view compiler_family_name(CompilerFamily family);
@@ -38,18 +49,39 @@ struct Toolchain {
 // selection are persisted by configure rather than chosen by each process.
 Toolchain default_toolchain(bool verbose = false);
 
-// The single compiler/output lane the current build front end can execute.
-// load_configuration resolves target-compiler from an out/config.mdy onto
-// this lane. It reports malformed or unreadable configuration and returns
-// false; callers decide separately whether an absent file means fallback.
-struct BuildConfiguration {
+// The host lane and any cross record retained from out/config.mdy. Selection
+// is private so the object cannot select a missing cross lane; current build
+// front ends execute selected_toolchain(). Malformed or unreadable
+// configuration returns false, while callers separately decide whether an
+// absent file means fallback.
+class BuildConfiguration {
+public:
     Build build = Build::Debug;
-    Toolchain toolchain;                          // the selected lane
     std::filesystem::path build_directory;        // the selected lane's output
-    // Retained even when host is selected: a caller describing the
-    // configuration needs to know which lane it is looking at.
-    bool cross = false;
     std::filesystem::path host_build_directory;
+
+    [[nodiscard]] const Toolchain& host_toolchain() const { return host_; }
+    [[nodiscard]] const Toolchain* cross_toolchain() const {
+        return cross_ ? &*cross_ : nullptr;
+    }
+    [[nodiscard]] bool selects_cross() const { return selects_cross_; }
+
+    // The loader is the only writer of the lane selection, so selects_cross_
+    // can never be true without a cross_ value for these accessors to return.
+    [[nodiscard]] const Toolchain& selected_toolchain() const {
+        return selects_cross_ ? cross_.value() : host_;
+    }
+    [[nodiscard]] Toolchain& selected_toolchain() {
+        return selects_cross_ ? cross_.value() : host_;
+    }
+
+private:
+    Toolchain host_;
+    std::optional<Toolchain> cross_;
+    bool selects_cross_ = false;
+
+    friend bool load_configuration(const std::filesystem::path&, bool, BuildConfiguration&);
+    friend bool resolve_configuration(const std::filesystem::path&, bool, BuildConfiguration&);
 };
 
 [[nodiscard]] bool load_configuration(const std::filesystem::path& path,

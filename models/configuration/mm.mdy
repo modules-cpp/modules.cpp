@@ -3,9 +3,10 @@ mm: 1.0
 kind: module
 name: configuration
 module: models.configuration
+use: models.toolchain
 file: configuration.cppm
 ---
 
 # models.configuration
 
-The build configuration as data: compiler and flags, plus the fixed platform, locale, and shell policy. Every accessor is declared policy rather than a measurement of any particular run.
+The build configuration as data: host and selected target toolchains, compiler arguments, and fixed platform, locale, and shell policy. Every accessor is declared policy rather than a measurement of any particular run.

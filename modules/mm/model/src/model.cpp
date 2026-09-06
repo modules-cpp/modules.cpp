@@ -23,6 +23,7 @@ import models.document;
 import models.manifest;
 import models.modules;
 import models.tool;
+import models.toolchain;
 import models.workflow;
 
 namespace mm::model {
@@ -656,29 +657,94 @@ std::vector<std::unique_ptr<models::Operation>> build_operations(
 // local about to go out of scope. platform()/locale()/shell() return string_view
 // into string literals, valid for the program's whole lifetime: they are
 // fixed policy, not derived from anything with a shorter lifetime.
+constexpr std::size_t role_index(models::ToolRole role) {
+    return static_cast<std::size_t>(role);
+}
+
+class RealToolchain final : public models::Toolchain {
+public:
+    explicit RealToolchain(const mm::build::Toolchain& source)
+        : target_(source.target),
+          family_(source.family == mm::build::CompilerFamily::Gcc
+                      ? models::CompilerFamily::Gcc
+                      : models::CompilerFamily::Clang) {
+        bind(models::ToolRole::Compiler, source.compiler);
+        bind(models::ToolRole::Assembler, source.assembler);
+        bind(models::ToolRole::Linker, source.linker);
+        bind(models::ToolRole::Librarian, source.librarian);
+        bind(models::ToolRole::Debugger, source.debugger);
+    }
+
+    [[nodiscard]] std::string_view target() const override { return target_; }
+    [[nodiscard]] models::CompilerFamily family() const override { return family_; }
+    [[nodiscard]] const models::Tool* program(models::ToolRole role) const override {
+        return bindings_[role_index(role)];
+    }
+    [[nodiscard]] std::string_view arguments(models::ToolRole role) const override {
+        return arguments_[role_index(role)];
+    }
+    [[nodiscard]] bool invoked(models::ToolRole role) const override {
+        // mm::build::compile runs the Compiler role and mm::build::link runs
+        // the Linker role. Assembly is reached through the driver, not as a
+        // separate role invocation.
+        return role == models::ToolRole::Compiler || role == models::ToolRole::Linker;
+    }
+
+private:
+    void bind(models::ToolRole role, const mm::build::ToolchainProgram& program) {
+        const auto index = role_index(role);
+        arguments_[index] = program.arguments;
+        if (program.invocation.empty()) return;
+
+        for (const auto& existing : programs_) {
+            if (existing->invocation() != program.invocation) continue;
+            bindings_[index] = existing.get();
+            return;
+        }
+
+        programs_.push_back(std::make_unique<FixedTool>(
+            program.invocation, program.invocation, nullptr, models::Provenance::ThirdParty));
+        bindings_[index] = programs_.back().get();
+    }
+
+    std::string target_;
+    models::CompilerFamily family_ = models::CompilerFamily::Gcc;
+    std::vector<std::unique_ptr<models::Tool>> programs_;
+    std::array<const models::Tool*, 5> bindings_{};
+    std::array<std::string, 5> arguments_{};
+};
+
 class RealConfiguration final : public models::Configuration {
 public:
     RealConfiguration(std::string name, bool persisted,
                       const mm::build::BuildConfiguration& configuration)
-        : name_(std::move(name)),
+        : host_toolchain_(configuration.host_toolchain()),
+          target_toolchain_(configuration.selects_cross()
+                                ? std::make_unique<RealToolchain>(
+                                      *configuration.cross_toolchain())
+                                : nullptr),
+          name_(std::move(name)),
           persisted_(persisted),
-          selection_(configuration.cross ? models::CompilerSelection::Cross
-                                         : models::CompilerSelection::Host),
+          selection_(configuration.selects_cross() ? models::CompilerSelection::Cross
+                                                   : models::CompilerSelection::Host),
           build_directory_(configuration.build_directory),
           host_build_directory_(configuration.host_build_directory),
           build_(configuration.build == mm::build::Build::Release ? models::Build::Release
                                                                   : models::Build::Debug),
-          compiler_family_(configuration.toolchain.family == mm::build::CompilerFamily::Gcc
-                               ? models::CompilerFamily::Gcc
-                               : models::CompilerFamily::Clang),
-          compiler_(configuration.toolchain.cxx),
-          compiler_flags_(configuration.toolchain.cxxflags),
-          linker_flags_(configuration.toolchain.ldflags),
-          verbose_(configuration.toolchain.verbose) {}
+          compiler_(configuration.selected_toolchain().compiler.invocation),
+          compiler_flags_(configuration.selected_toolchain().compiler.arguments),
+          linker_flags_(configuration.selected_toolchain().linker.arguments),
+          verbose_(configuration.selected_toolchain().verbose) {}
 
     [[nodiscard]] std::string_view name() const override { return name_; }
     [[nodiscard]] bool persisted() const override { return persisted_; }
     [[nodiscard]] models::CompilerSelection selection() const override { return selection_; }
+    [[nodiscard]] const models::Toolchain& host_toolchain() const override {
+        return host_toolchain_;
+    }
+    [[nodiscard]] const models::Toolchain* target_toolchain() const override {
+        return target_toolchain_.get();
+    }
     [[nodiscard]] std::filesystem::path build_directory() const override {
         return build_directory_;
     }
@@ -688,7 +754,8 @@ public:
     [[nodiscard]] models::Build build() const override { return build_; }
     [[nodiscard]] std::string_view compiler() const override { return compiler_; }
     [[nodiscard]] models::CompilerFamily compiler_family() const override {
-        return compiler_family_;
+        return selection_ == models::CompilerSelection::Cross ? target_toolchain_->family()
+                                                              : host_toolchain_.family();
     }
     [[nodiscard]] std::string_view compiler_flags() const override { return compiler_flags_; }
     [[nodiscard]] std::string_view linker_flags() const override { return linker_flags_; }
@@ -699,13 +766,14 @@ public:
     [[nodiscard]] std::string_view shell() const override { return "/bin/sh"; }
 
 private:
+    RealToolchain host_toolchain_;
+    std::unique_ptr<RealToolchain> target_toolchain_;
     std::string name_;
     bool persisted_ = false;
     models::CompilerSelection selection_ = models::CompilerSelection::Host;
     std::filesystem::path build_directory_;
     std::filesystem::path host_build_directory_;
     models::Build build_ = models::Build::Debug;
-    models::CompilerFamily compiler_family_ = models::CompilerFamily::Gcc;
     std::string compiler_;
     std::string compiler_flags_;
     std::string linker_flags_;

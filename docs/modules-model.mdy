@@ -17,9 +17,8 @@ Like everything else in the project, models/ follows docs/modules-c++20.mdy:
 modules instead of headers, no exceptions, no new templates, enum class,
 [[nodiscard]] on accessors, and explicit virtual destructors on every base.
 
-# The eight modules
-Eleven modules, each under models/<name>/<name>.cppm with its own mm.mdy, in
-dependency order:
+# The nine modules
+Nine modules, each under models/<name>/<name>.cppm with its own mm.mdy:
 
 - models.document — front matter and body blocks for one MDY file (models::Document, models::Block). Foundational: every MDY file is a document, including a manifest, so everything else sits above this.
 - models.configuration — the project's build configuration
@@ -36,12 +35,16 @@ dependency order:
   configuration writes, and where the host lane writes whatever the selection,
   since programs that run during a build are always host artifacts. bootstrap.sh
   and build0 remain the fixed plain-c++ recovery path. platform()/locale()/shell() state fixed
-  project policy (POSIX, C, /bin/sh). Foundational and independent: a
-  Configuration is an input to running a tool, not a structural fact about the
-  repository.
+  project policy (POSIX, C, /bin/sh). A Configuration is an input to running a
+  tool, not a structural fact about the repository. It imports models.toolchain
+  so it can expose the host and selected target toolchains.
 - models.manifest — the manifest kind taxonomy docs/modules.mdy defines: project, dir, module, app, test, doc (models::Kind, models::ManifestNode, models::BuildableNode, models::TranslationUnit, and one class per kind). BuildableNode also carries buildable_host() and buildable_target(), which say which lanes a node can be built for: structural, like kind() and uses(), and constrained across use: edges, because building a node for a lane means building everything it uses for that lane too. The tuning options sharing that manifest syntax are inputs to a compile rather than facts about the tree, and are deliberately absent here; mm.model takes both values from the one resolver in mm.configure, since they are inherited down the folder tree and a manifest's own declarations would answer the wrong question. ManifestNode, BuildableNode and TranslationUnit deliberately carry the same names as the mm::build structs they abstract, so one concept reads under one name in both layers; the one place the sets differ is kind:doc, which mm::build::BuildableNode also holds but models::DocNode does not, since a doc's file: entries are prose rather than sources. Imports models.document, because every manifest is one.
 - models.repository — the aggregate view over a whole manifest tree (models::Repository): a project's root plus every module, app, test, and doc reachable from it. Imports models.manifest.
 - models.tool — an invocable tool (models::Tool), distinct from models::ModuleNode's declaration: a Tool may have no declaring manifest at all, such as a third party tool or the pre-manifest bootstrap artifacts build0/build1. Imports models.manifest.
+- models.toolchain — one target's compiler, assembler, linker, librarian, and
+  debugger roles (models::Toolchain). Compiler, assembler, and linker share the
+  configured driver in the current build; librarian and debugger are unbound.
+  A bound role and an invoked role are separate facts. Imports models.tool.
 - models.modules — a resolved C++20 module (models::Module), distinct from models::ModuleNode the same way: ModuleNode's uses() is dependency names as text, Module's imports() is those names resolved to other Module objects. Imports models.manifest.
 - models.workflow — a workflow step (models::Operation): one of the top level *.sh scripts. Not a single depends_on() DAG: invokes(branch) is an ordered, possibly repeating sequence of Tools per branch (most operations have one branch; bootstrap.sh has two, since it tries build0 and only falls back to raw compiler calls if that leaves no build1), and requires_artifacts()/produces() are the input and output side of what a single "must run first" edge used to conflate — build.sh's real requirement is that out/bin/build exists, not that bootstrap.sh ran in the current session (bootstrap.sh's own final step already builds and installs it too, which is why build.sh is not the only thing that can satisfy this). role() is a three way Role (Required, Optional, UserInitiated) rather than a bool: clean.sh is not "optional" the way check.sh is, it sits outside the forward sequence entirely. ArtifactKind also carries Configuration and ResolvedOptions, the two files configure writes, and its object and executable kinds name a path relative to the build directory the active Configuration selects rather than a fixed out/, because a configured build and an unconfigured bootstrap build write them to different trees. ArtifactKind lives here, not in models.artifacts: models.artifacts depends on models.workflow for produced_by(), so the reverse dependency is unavailable. Imports models.tool.
 - models.artifacts — a generated artifact (models::GeneratedArtifact), starting from docs/modules.mdy's "Generated artifacts" section but splitting AppObject and ToolObject each into an object-file and an executable variant, plus Staged for out/build0 and out/build1, and the Operation whose script produces it. Imports models.workflow.
@@ -129,6 +132,12 @@ describe the lane, and the fixed platform/locale/shell policy is reported
 alongside. Independent of the manifest tree, so it is reported even when the
 checks above fail to load one.
 
+The configuration report also shows its host Toolchain and, when cross is
+selected, its target Toolchain. Each role reports its shared or distinct Tool,
+or that it is unbound, and whether build code invokes that role. A retained but
+unselected cross record is deliberately absent from target_toolchain(), because
+the accessor describes selection rather than every record in config.mdy.
+
 --tools additionally lists every Loaded::tools() entry: name, provenance(),
 invocation(), and declared_by()'s name or "(none)". Needs the tree loaded,
 unlike --configuration, so it is reported alongside the two checks rather
@@ -148,7 +157,7 @@ prose (for example, "is every *.sh script mentioned in the Repository layout
 tree") is future work, not something tools/model does today.
 
 # Boundaries
-- models.artifacts still has no adapter: mm.model builds models.document, models.manifest, models.repository, models.configuration, models.tool, and, as of Loaded::operations(), models.workflow. A tool that needs GeneratedArtifact data (an actual filesystem scan of out/, cross checked against requires_artifacts()/produces()) must extend mm.model first.
+- models.artifacts still has no adapter: mm.model builds models.document, models.manifest, models.repository, models.configuration, models.tool, models.toolchain, and, as of Loaded::operations(), models.workflow. A tool that needs GeneratedArtifact data (an actual filesystem scan of out/, cross checked against requires_artifacts()/produces()) must extend mm.model first.
 - mm.model's models.tool coverage is kind:app manifests plus three fixed, project-known entries: build0, build1, and c++ (Provenance::ThirdParty). cppcheck and semgrep are still absent: unlike c++, nothing in this project's own scripts names them at a fixed path the way bootstrap.sh names c++, so representing them would mean inventing data rather than stating a known fact.
 - Loaded::operations() is fixed, hand authored data mirroring the eight *.sh scripts, the same reasoning as build0/build1/c++ in tools(): nothing here is derived from a manifest walk. invokes() only names Tools; the fallback branch inside bootstrap's second invokes() sequence is not decomposed further than "c++, invoked six times" — it does not know or care that those six invocations are five compiles and one link, the same abstraction boundary that already applies to how build.sh's own invokes() does not enumerate what build1 compiles internally.
 - tools/model does not check docs/modules.mdy's prose against reality (for example, its Repository layout tree, or the Build and development workflow script list); it checks only what models::Repository can already answer.

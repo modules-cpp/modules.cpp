@@ -54,6 +54,7 @@ import mm.model;
 import models.configuration;
 import models.manifest;
 import models.tool;
+import models.toolchain;
 
 namespace {
 
@@ -63,6 +64,33 @@ struct Dependency {
     std::string_view declarer;
     std::string_view used;
 };
+
+std::string_view role_name(models::ToolRole role) {
+    switch (role) {
+        case models::ToolRole::Compiler: return "compiler";
+        case models::ToolRole::Assembler: return "assembler";
+        case models::ToolRole::Linker: return "linker";
+        case models::ToolRole::Librarian: return "librarian";
+        case models::ToolRole::Debugger: return "debugger";
+    }
+    return {};
+}
+
+void report_toolchain(std::string_view label, const models::Toolchain& toolchain) {
+    constexpr models::ToolRole roles[] = {
+        models::ToolRole::Compiler, models::ToolRole::Assembler, models::ToolRole::Linker,
+        models::ToolRole::Librarian, models::ToolRole::Debugger,
+    };
+
+    std::cout << "  " << label << " toolchain\n";
+    std::cout << "    target " << toolchain.target() << "\n";
+    for (const auto role : roles) {
+        const auto* program = toolchain.program(role);
+        std::cout << "    " << role_name(role) << " "
+                  << (program == nullptr ? "unbound" : program->invocation().string())
+                  << "  invoked " << (toolchain.invoked(role) ? "yes" : "no") << "\n";
+    }
+}
 
 void collect_uses(const std::vector<const models::BuildableNode*>& nodes,
                    std::vector<Dependency>& out) {
@@ -134,6 +162,10 @@ int main(int argc, char** argv) {
         std::cout << "  locale         " << configuration->locale()
                   << "  [declared, not enforced: no setlocale/LC_ALL/LANG]\n";
         std::cout << "  shell          " << configuration->shell() << "\n\n";
+        report_toolchain("host", configuration->host_toolchain());
+        if (const auto* target = configuration->target_toolchain(); target != nullptr)
+            report_toolchain("target", *target);
+        std::cout << "\n";
     }
 
     bool ok = false;
