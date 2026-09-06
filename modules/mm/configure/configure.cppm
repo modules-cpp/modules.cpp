@@ -66,7 +66,10 @@ using OptionValues = std::map<std::string, OptionValue, std::less<>>;
 [[nodiscard]] bool resolve_options(const std::filesystem::path& project_root, Build build,
                                    const std::vector<OptionNode>& nodes,
                                    std::vector<OptionValues>& resolved);
-[[nodiscard]] bool write_option_records(const std::filesystem::path& project_root, Build build,
+// Records are resolved per lane, so they live beside the artifacts they
+// describe: output_directory is the lane's build directory, not out/.
+[[nodiscard]] bool write_option_records(const std::filesystem::path& project_root,
+                                        const std::filesystem::path& output_directory, Build build,
                                         const std::vector<OptionNode>& nodes,
                                         const std::vector<OptionValues>& resolved, bool verbose);
 
@@ -86,6 +89,13 @@ struct CompilerRequest {
 [[nodiscard]] std::string_view build_name(Build build);
 [[nodiscard]] std::string_view build_compile_flags(Build build);
 [[nodiscard]] std::string_view build_link_flags(Build build);
+
+// The one place the configured output layout is decided. Bootstrap output stays
+// in out/, which also holds the authoritative out/config.mdy; a configured lane
+// never writes there. target_output_directory names a distinct tree per target
+// so two lanes cannot share one set of artifacts.
+[[nodiscard]] std::filesystem::path host_output_directory();
+[[nodiscard]] std::filesystem::path target_output_directory(std::string_view target);
 
 // The persisted fields for one compiler role. family selects compiler-specific
 // module behavior; invocation preserves the exact, possibly versioned C++
@@ -107,8 +117,8 @@ struct Settings {
     CompilerSelection target_compiler = CompilerSelection::Host;
     CompilerSettings host;
     std::optional<CompilerSettings> cross;
-    std::filesystem::path host_build_directory = "out-host";
-    std::filesystem::path target_build_directory = "out-host";
+    std::filesystem::path host_build_directory = host_output_directory();
+    std::filesystem::path target_build_directory = host_output_directory();
 };
 
 // The configuration summary shared by build and test. Build and compiler

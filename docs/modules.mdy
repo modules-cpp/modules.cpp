@@ -133,10 +133,13 @@ The source tree is organized by responsibility.
 +-- out-host/                 configured native build output
 +-- gcm.cache/                gcc modules cache
 
-Bootstrap products, installed commands, configuration, and generated
-documentation live under out. Configured native builds write their objects and
-executables to out-host, a sibling of out with no compiler-family component, so
-a configured build never overwrites what bootstrap produced. GCC compiled-module
+Bootstrap products, installed commands, out/config.mdy, and generated
+documentation live under out. Configured native builds write their objects,
+executables and resolved-options.mdy records to out-host, a sibling of out with
+no compiler-family component, so a configured build never overwrites what
+bootstrap produced. out/config.mdy stays in out because it is the file that
+names the lane, and a tool would have to know the lane already to find it
+inside one. GCC compiled-module
 state lives under gcm.cache; Clang BMIs live under the active output directory's
 bmi/ subdirectory. None of these generated paths is part of the source model.
 
@@ -454,9 +457,11 @@ defects and become ordinary regression tests when fixed.
 - out/modules, out/apps and out/tools contain the objects and executables of an
   unconfigured bootstrap build.
 - out/bin contains installed commands, from either build.
-- out/config.mdy and out/**/resolved-options.mdy contain the configuration.
+- out/config.mdy names the selected compiler, build and lane; it stays in out
+  because it is what tells a tool which lane to read.
 - out/tests contains isolated test builds.
-- out-host contains the objects and executables of a configured native build.
+- out-host contains the objects, executables and resolved-options.mdy records of a
+  configured native build.
 - out-host/bmi contains Clang BMIs for a configured native build.
 - out/index.html and nested pages contain generated documentation.
 - gcm.cache contains GCC compiled-module state.

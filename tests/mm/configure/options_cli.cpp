@@ -43,7 +43,7 @@ void installed_tools_support_11() {
     const auto root_arg = mm::build::shell_quote(tree.root());
     const auto child_arg = mm::build::shell_quote(tree.root() / "app");
     const auto log = tree.root() / "tool.log";
-    const auto record_path = tree.root() / "out/app/resolved-options.mdy";
+    const auto record_path = tree.root() / "out-host/app/resolved-options.mdy";
     const auto config_path = tree.root() / "out/config.mdy";
     expect(invoke(bin / "configure", "--build release -v " + root_arg, log) == 0, "configure accepts 1.1 tree");
     const auto release_record = read_text(record_path);
@@ -70,8 +70,8 @@ void installed_tools_support_11() {
 
     // Delete only the fixture's three known records: consumers must not need them.
     std::filesystem::remove(record_path, ec);
-    std::filesystem::remove(tree.root() / "out/resolved-options.mdy", ec);
-    std::filesystem::remove(tree.root() / "out/test/resolved-options.mdy", ec);
+    std::filesystem::remove(tree.root() / "out-host/resolved-options.mdy", ec);
+    std::filesystem::remove(tree.root() / "out-host/test/resolved-options.mdy", ec);
     expect(invoke(bin / "build", root_arg, log) == 0, "build accepts unknown manifest option with warning");
     expect(read_text(log).find("future-feature is ignored") != std::string::npos, "build warning identifies unknown name");
     tree.manifest_raw("test", "mm: 1.1\nkind: test\nname: example_test\nunit: app/main.cpp\noption: future-test no\nread-only: warnings\n");

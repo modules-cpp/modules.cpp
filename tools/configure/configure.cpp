@@ -114,13 +114,17 @@ int main(int argc, char** argv) {
     settings.host.platform = "POSIX";
     settings.host.compile_flags = mm::configure::build_compile_flags(*build);
     settings.host.link_flags = mm::configure::build_link_flags(*build);
+    settings.host_build_directory = mm::configure::host_output_directory();
+    // Native: one compiler, one lane, so the target artifacts are the host's.
+    settings.target_build_directory = mm::configure::host_output_directory();
 
     if (!mm::configure::write_configuration(project_root, settings)) {
         std::cerr << "configure: failed to write " << configuration_path.string() << "\n";
         return mm::build::exit_manifest;
     }
 
-    if (!mm::configure::write_option_records(project_root, *build, nodes, resolved, verbose)) {
+    if (!mm::configure::write_option_records(project_root, settings.target_build_directory, *build,
+                                             nodes, resolved, verbose)) {
         std::cerr << "configure: incomplete option snapshot; rerun configure\n";
         return mm::build::exit_manifest;
     }

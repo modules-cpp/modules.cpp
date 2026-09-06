@@ -21,7 +21,7 @@ Examples use Opening fence and Closing fence instead of literal front matter del
 Implemented and required:
 
 - The shared manifest gate accepts mm: 1.0 and mm: 1.1 for all six manifest-reading tools: configure, build, test, check, model, and document.
-- configure resolves named options, resets, and read-only locks over the complete manifest tree and writes one resolved-options.mdy per node beneath out.
+- configure resolves named options, resets, and read-only locks over the complete manifest tree and writes one resolved-options.mdy per node beneath the lane build directory.
 - The typed build-default policy is the single source of the debug and release baseline compile and link flags.
 - Build and test warn that option, reset, and read-only declarations are ignored, and continue. Check, model, and document accept the keys silently.
 
@@ -269,18 +269,20 @@ An older binary that accepts only 1.0 still rejects 1.1. Every manifest-reading 
 
 # Resolved output tree
 
-configure writes one resolved-options.mdy per manifest node, mirroring the node's project-relative directory beneath out:
+Resolved values are lane specific, so the records live beside the artifacts they describe rather than in out. configure writes one resolved-options.mdy per manifest node, mirroring the node's project-relative directory beneath the lane's build directory:
 
-- out/config.mdy remains the existing root compiler and build configuration.
-- out/resolved-options.mdy records the project node, whose node field is a single dot.
-- out/modules/resolved-options.mdy records the modules directory node.
-- out/modules/build/resolved-options.mdy records the build module node.
+- out/config.mdy remains the root compiler and build configuration, in out and not in a lane. It is the file that names the lane, so it cannot live inside the lane it names: a tool would have to know the answer to find the file that gives it.
+- out-host/resolved-options.mdy records the project node, whose node field is a single dot.
+- out-host/modules/resolved-options.mdy records the modules directory node.
+- out-host/modules/build/resolved-options.mdy records the build module node.
+
+The layout is decided in one place, host_output_directory and target_output_directory in mm.configure, and the configure front end states the directories it writes rather than inheriting them from a default. A configured lane never writes into out, and bootstrap output in out is never touched by a configured build.
 
 Only configure writes these records. They are snapshots of its last successful resolution, never input manifests and never local overrides. Editing a source manifest requires another configure run to refresh them. Build and test neither consume nor refresh them.
 
-The record tree is specific to the selected build. Reconfiguring from debug to release, or back, replaces the records at the same out paths with the new defaults, values, and locks. There are no simultaneous debug and release record trees and no build-named output suffixes. Changing the selected build recomputes resets and locked defaults for the complete tree and retains nothing from the previous selection.
+The record tree is specific to the selected build and to the lane. Reconfiguring from debug to release, or back, replaces the records at the same lane paths with the new defaults, values, and locks. There are no simultaneous debug and release record trees and no build-named output suffixes. Changing the selected build recomputes resets and locked defaults for the complete tree and retains nothing from the previous selection.
 
-A record contains the selected build, the node identity, the complete typed settings including unset entries, inherited and local read-only state, and the applied-by-build field stating that nothing here is applied yet. Paths are project-root-relative. The schema field marks the record format; these files are not subject to source-manifest key or kind validation, and no folder walk reaches them.
+A record contains the selected build, the lane that produced it in its output field, the node identity, the complete typed settings including unset entries, inherited and local read-only state, and the applied-by-build field stating that nothing here is applied yet. Paths are project-root-relative. The schema field marks the record format; these files are not subject to source-manifest key or kind validation, and no folder walk reaches them.
 
 Entries are serialized in lexical order by name. Each name contributes exactly one option or unset-option entry, immediately followed by a read-only entry when that name is locked; absence of the marker means mutable. A record has no compile-arg or link-arg entries, because no argument is emitted in this release.
 
@@ -294,6 +296,7 @@ name: build
 node: modules/build
 manifest: modules/build/mm.mdy
 build: release
+output: out-host
 resolved-by: configure
 applied-by-build: no
 path-base: project-root
@@ -378,7 +381,7 @@ The requirements above are covered by tests/mm/configure/options.cpp, which exer
 - Every manifest-reading tool uses the same gate to reject a declaration in a 1.0 manifest, including the standalone test load. Unsupported versions and structural errors stay fatal.
 - Build and test warn that options, resets, and read-only markers are ignored, including an unknown name, and continue. An unknown command-line flag still exits 64.
 - Reordering distinct declarations, or moving read-only markers, changes no resolved value. Records identify defaults, assignments, resets, unset values, read-only state, value origins, and lock origins accurately.
-- Records mirror source nodes beneath out and never overwrite out/config.mdy or an unrelated artifact. An output failure reports an incomplete snapshot and exits non-zero.
+- Records mirror source nodes beneath the lane build directory, name that lane in their output field, and write nothing into out. An output symlink pointing outside the project, or back at the source tree, is rejected before any record is published. An output failure reports an incomplete snapshot and exits non-zero.
 - Reconfiguring debug to release and back replaces the same record tree and recomputes defaults, reset values, and locks, retaining nothing from the preceding selection.
 - Configuring options invokes no compiler or linker, executes no supplied value, and never claims the records describe actual build arguments.
 - Build, test, check, model, document, and bootstrap behavior is otherwise unchanged apart from the shared compatibility gate, the specified diagnostics, and the equivalent default-policy refactoring. None requires a resolved-options.mdy file.

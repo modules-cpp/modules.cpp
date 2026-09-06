@@ -33,24 +33,37 @@ bool contained(const std::filesystem::path& root, const std::filesystem::path& p
     return !relative.empty() && *relative.begin() != "..";
 }
 
-bool safe_output(const std::filesystem::path& root, const std::filesystem::path& path) {
+bool valid_build_directory(const std::filesystem::path& path) {
+    if (path.empty() || path.is_absolute()) return false;
+
+    const auto normalized = path.lexically_normal();
+    if (normalized.empty() || normalized == ".") return false;
+    for (const auto& component : normalized)
+        if (component == "..") return false;
+
+    return valid_scalar(normalized.generic_string());
+}
+
+bool safe_output(const std::filesystem::path& root, const std::filesystem::path& directory,
+                 const std::filesystem::path& path) {
+    if (!valid_build_directory(directory)) return false;
     std::error_code ec;
     const auto canonical_root = std::filesystem::canonical(root, ec);
     if (ec) return false;
-    // Keep the output boundary anchored to the project, not to the target of
-    // a user-planted out symlink (even a target elsewhere inside the project).
-    const auto output = canonical_root / "out";
-    return contained(output, root / "out") && contained(output, path);
+    // Keep the output boundary anchored to the project, not to the target of a
+    // user-planted output symlink (even a target elsewhere inside the project).
+    const auto output = canonical_root / directory;
+    return contained(output, root / directory) && contained(output, path);
 }
 
 // An exclusively created temporary directory avoids following a pre-existing
 // temporary-file symlink. Rename publishes only a complete file.
-bool write_atomic(const std::filesystem::path& root, const std::filesystem::path& path,
-                  std::string_view contents) {
-    if (!safe_output(root, path)) return false;
+bool write_atomic(const std::filesystem::path& root, const std::filesystem::path& directory,
+                  const std::filesystem::path& path, std::string_view contents) {
+    if (!safe_output(root, directory, path)) return false;
     std::error_code ec;
     std::filesystem::create_directories(path.parent_path(), ec);
-    if (ec || !safe_output(root, path)) return false;
+    if (ec || !safe_output(root, directory, path)) return false;
     std::filesystem::path temporary_dir;
     const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
     for (int attempt = 0; attempt < 32; ++attempt) {
@@ -67,7 +80,7 @@ bool write_atomic(const std::filesystem::path& root, const std::filesystem::path
     std::ofstream out(temporary, std::ios::binary);
     out << contents;
     out.close();
-    bool ok = static_cast<bool>(out) && safe_output(root, path);
+    bool ok = static_cast<bool>(out) && safe_output(root, directory, path);
     if (ok) {
         std::filesystem::rename(temporary, path, ec);
         ok = !ec;
@@ -81,17 +94,6 @@ bool valid_compiler(const CompilerSettings& compiler) {
     return valid_scalar(compiler.invocation) && valid_scalar(compiler.target) &&
            valid_scalar(compiler.platform) && valid_scalar(compiler.compile_flags) &&
            valid_scalar(compiler.link_flags);
-}
-
-bool valid_build_directory(const std::filesystem::path& path) {
-    if (path.empty() || path.is_absolute()) return false;
-
-    const auto normalized = path.lexically_normal();
-    if (normalized.empty() || normalized == ".") return false;
-    for (const auto& component : normalized)
-        if (component == "..") return false;
-
-    return valid_scalar(normalized.generic_string());
 }
 
 bool valid_settings(const Settings& settings) {
@@ -178,6 +180,13 @@ std::string_view build_name(Build build) {
         case Build::Release: return "release";
     }
     return {};
+}
+
+std::filesystem::path host_output_directory() { return "out-host"; }
+
+std::filesystem::path target_output_directory(std::string_view target) {
+    if (target.empty() || target == "host") return host_output_directory();
+    return std::filesystem::path("out-target-" + std::string(target));
 }
 
 BuildDefaults build_defaults(Build build) {
@@ -270,7 +279,9 @@ bool write_configuration(const std::filesystem::path& project_root, const Settin
     out << "host-build-directory: " << settings.host_build_directory.generic_string() << '\n';
     out << "target-build-directory: " << settings.target_build_directory.generic_string() << '\n';
     out << "---\n";
-    return write_atomic(project_root, project_root / "out/config.mdy", out.str());
+    // out/config.mdy names the lane, so it cannot live inside the lane it names:
+    // a tool would have to know the answer to find the file that gives it.
+    return write_atomic(project_root, "out", project_root / "out/config.mdy", out.str());
 }
 
 namespace {
@@ -486,10 +497,13 @@ bool resolve_options(const std::filesystem::path& project_root, Build build,
     return true;
 }
 
-bool write_option_records(const std::filesystem::path& project_root, Build build,
+bool write_option_records(const std::filesystem::path& project_root,
+                          const std::filesystem::path& output_directory, Build build,
                           const std::vector<OptionNode>& nodes,
                           const std::vector<OptionValues>& resolved, bool verbose) {
     if (nodes.empty() || nodes.size() != resolved.size()) return false;
+    if (!valid_build_directory(output_directory)) return false;
+    const auto output = output_directory.lexically_normal();
     std::error_code ec;
     const auto root = std::filesystem::canonical(project_root, ec);
     if (ec) return false;
@@ -498,8 +512,8 @@ bool write_option_records(const std::filesystem::path& project_root, Build build
     for (const auto& node : nodes) {
         std::filesystem::path directory;
         if (!relative_directory(root, node.directory, directory)) return false;
-        const auto path = (root / "out" / directory / "resolved-options.mdy").lexically_normal();
-        if (!safe_output(root, path)) {
+        const auto path = (root / output / directory / "resolved-options.mdy").lexically_normal();
+        if (!safe_output(root, output, path)) {
             std::cerr << "configure: unsafe record destination: " << path.string() << '\n';
             return false;
         }
@@ -514,6 +528,7 @@ bool write_option_records(const std::filesystem::path& project_root, Build build
             << node.name << "\nnode: " << directory.generic_string()
             << "\nmanifest: " << (directory / "mm.mdy").lexically_normal().generic_string()
             << "\nbuild: " << build_name(build)
+            << "\noutput: " << output.generic_string()
             << "\nresolved-by: configure\napplied-by-build: no\npath-base: project-root\n";
         for (const auto& [name, value] : resolved[i]) {
             if (value.unset) out << "unset-option: " << name << '\n';
@@ -522,7 +537,7 @@ bool write_option_records(const std::filesystem::path& project_root, Build build
         }
         out << "---\n\n# Provenance\n\n";
         write_origins(out, build, resolved[i]);
-        if (!write_atomic(root, destinations[i], out.str())) {
+        if (!write_atomic(root, output, destinations[i], out.str())) {
             std::cerr << "configure: cannot write " << destinations[i].string()
                       << "; incomplete snapshot, rerun configure\n";
             return false;

@@ -77,13 +77,16 @@ void inheritance_reset_and_records() {
         expect(leaf.at("warnings").value_source == tree.root() / "mm.mdy", "value origin differs from lock origin");
         expect(leaf.at("warnings").lock_source == tree.root() / "a/mm.mdy", "original locking manifest retained");
         expect(result.values[3].at("optimize").number == 1 && !result.values[3].at("warnings").read_only, "sibling unaffected");
-        expect(mm::configure::write_option_records(tree.root(), build, result.nodes, result.values, false), "records publish");
-        const auto record = read(tree.root() / "out/a/leaf/resolved-options.mdy");
+        expect(mm::configure::write_option_records(tree.root(), "out-host", build, result.nodes, result.values, false), "records publish");
+        const auto record = read(tree.root() / "out-host/a/leaf/resolved-options.mdy");
         expect(record.find("option: optimize " + std::to_string(mm::configure::build_defaults(build).optimize)) != std::string::npos, "same record replaced for selected build");
         expect(record.find("read-only: optimize") != std::string::npos && record.find("unset-option: include-dir") != std::string::npos, "record contains locks and unset values");
         expect(record.find("applied-by-build: no") != std::string::npos && record.find("compile-arg:") == std::string::npos, "record is not compiler command");
+        expect(record.find("output: out-host") != std::string::npos,
+               "record names the lane that produced it");
     }
-    expect(!std::filesystem::exists(tree.root() / "out/config.mdy"), "record writer cannot overwrite root configuration");
+    expect(!std::filesystem::exists(tree.root() / "out"),
+           "records live in the lane directory and never write into out/");
 }
 
 void locks_and_leaf_intent() {
@@ -143,7 +146,7 @@ void directory_domain() {
     Resolution result;
     expect(resolve(tree, Build::Debug, result), "spaces and punctuation are literal path data");
     expect(result.values[2].at("include-dir").directory == "a/include ; $(touch sentinel)", "inherited path not rebased");
-    expect(mm::configure::write_option_records(tree.root(), Build::Debug, result.nodes, result.values, false), "literal path serialized");
+    expect(mm::configure::write_option_records(tree.root(), "out-host", Build::Debug, result.nodes, result.values, false), "literal path serialized");
     expect(!std::filesystem::exists(tree.root() / "sentinel"), "configuration executes nothing");
     std::ofstream(tree.root() / "a/file") << "not a directory";
     std::filesystem::create_directory_symlink(tree.root().parent_path(), tree.root() / "a/escape", ec);
@@ -184,20 +187,20 @@ void output_safety() {
     Resolution result;
     expect(resolve(tree, Build::Debug, result), "valid input resolves");
     std::error_code ec;
-    std::filesystem::create_directory_symlink(outside.root(), tree.root() / "out", ec);
+    std::filesystem::create_directory_symlink(outside.root(), tree.root() / "out-host", ec);
     expect(!ec, "external output symlink created");
-    expect(!mm::configure::write_option_records(tree.root(), Build::Debug, result.nodes, result.values, false), "external output rejected");
+    expect(!mm::configure::write_option_records(tree.root(), "out-host", Build::Debug, result.nodes, result.values, false), "external output rejected");
     expect(!std::filesystem::exists(outside.root() / "resolved-options.mdy"), "no writes outside project");
-    std::filesystem::remove(tree.root() / "out", ec);
-    std::filesystem::create_directory_symlink(tree.root(), tree.root() / "out", ec);
+    std::filesystem::remove(tree.root() / "out-host", ec);
+    std::filesystem::create_directory_symlink(tree.root(), tree.root() / "out-host", ec);
     expect(!ec, "output alias to source root created");
-    expect(!mm::configure::write_option_records(tree.root(), Build::Debug, result.nodes, result.values, false), "output cannot redirect records to source root");
+    expect(!mm::configure::write_option_records(tree.root(), "out-host", Build::Debug, result.nodes, result.values, false), "output cannot redirect records to source root");
     expect(!std::filesystem::exists(tree.root() / "resolved-options.mdy"), "source tree not modified by output alias");
-    std::filesystem::remove(tree.root() / "out", ec);
-    std::filesystem::create_directories(tree.root() / "out/resolved-options.mdy", ec);
-    std::ofstream(tree.root() / "out/resolved-options.mdy/keep") << "preserve";
-    expect(!mm::configure::write_option_records(tree.root(), Build::Debug, result.nodes, result.values, false), "rename failure reported");
-    expect(read(tree.root() / "out/resolved-options.mdy/keep") == "preserve", "failure preserves unrelated files");
+    std::filesystem::remove(tree.root() / "out-host", ec);
+    std::filesystem::create_directories(tree.root() / "out-host/resolved-options.mdy", ec);
+    std::ofstream(tree.root() / "out-host/resolved-options.mdy/keep") << "preserve";
+    expect(!mm::configure::write_option_records(tree.root(), "out-host", Build::Debug, result.nodes, result.values, false), "rename failure reported");
+    expect(read(tree.root() / "out-host/resolved-options.mdy/keep") == "preserve", "failure preserves unrelated files");
 }
 
 // Capability is declared per node but constrained across use: edges, which the
