@@ -104,6 +104,13 @@ public:
 
     // use: entries, the module names this target depends on.
     [[nodiscard]] virtual std::vector<std::string_view> uses() const = 0;
+
+    // Which lanes this node can be built for: where it can exist, not how it
+    // is compiled. Constrained across use: edges, since building a node for a
+    // lane means building everything it uses for that lane too. Both true
+    // unless a manifest declares otherwise.
+    [[nodiscard]] virtual bool buildable_host() const = 0;
+    [[nodiscard]] virtual bool buildable_target() const = 0;
 };
 
 // The root of a manifest tree: exactly one kind:project manifest, found by

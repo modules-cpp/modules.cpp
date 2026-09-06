@@ -16,6 +16,7 @@ module;
 module mm.model;
 
 import mm.build;
+import mm.configure;
 import mm.mdy;
 import models.configuration;
 import models.document;
@@ -149,11 +150,18 @@ private:
 // and test.
 class BuildableData {
 public:
-    explicit BuildableData(const mm::build::BuildableNode& target) {
+    // Capability is inherited down the folder tree, so it comes from the
+    // resolver rather than from this node's own declarations.
+    BuildableData(const mm::build::BuildableNode& target, bool buildable_host,
+                  bool buildable_target)
+        : buildable_host_(buildable_host), buildable_target_(buildable_target) {
         sources_.reserve(target.sources.size());
         for (const auto& unit : target.sources) sources_.emplace_back(unit);
         uses_ = target.uses;
     }
+
+    [[nodiscard]] bool buildable_host() const { return buildable_host_; }
+    [[nodiscard]] bool buildable_target() const { return buildable_target_; }
 
     [[nodiscard]] std::vector<const models::TranslationUnit*> sources() const {
         std::vector<const models::TranslationUnit*> result;
@@ -172,6 +180,8 @@ public:
 private:
     std::vector<RealTranslationUnit> sources_;
     std::vector<std::string> uses_;
+    bool buildable_host_ = true;
+    bool buildable_target_ = true;
 };
 
 class RealProjectNode : public models::ProjectNode {
@@ -231,8 +241,9 @@ private:
 
 class RealModuleNode : public models::ModuleNode {
 public:
-    RealModuleNode(NodeData data, const mm::build::BuildableNode& target)
-        : data_(std::move(data)), buildable_(target), exported_module_name_(target.module_name) {}
+    RealModuleNode(NodeData data, const mm::build::BuildableNode& target, bool buildable_host,
+        bool buildable_target)
+        : data_(std::move(data)), buildable_(target, buildable_host, buildable_target), exported_module_name_(target.module_name) {}
 
     [[nodiscard]] std::string_view name() const override { return data_.name(); }
     [[nodiscard]] std::filesystem::path manifest_path() const override { return data_.manifest_path(); }
@@ -242,6 +253,8 @@ public:
     [[nodiscard]] const models::Document& document() const override { return data_.document(); }
     [[nodiscard]] std::vector<const models::TranslationUnit*> sources() const override { return buildable_.sources(); }
     [[nodiscard]] std::vector<std::string_view> uses() const override { return buildable_.uses(); }
+    [[nodiscard]] bool buildable_host() const override { return buildable_.buildable_host(); }
+    [[nodiscard]] bool buildable_target() const override { return buildable_.buildable_target(); }
     [[nodiscard]] std::string_view exported_module_name() const override { return exported_module_name_; }
 
 private:
@@ -308,8 +321,9 @@ std::vector<std::unique_ptr<RealModule>> build_modules(
 
 class RealAppNode : public models::AppNode {
 public:
-    RealAppNode(NodeData data, const mm::build::BuildableNode& target)
-        : data_(std::move(data)), buildable_(target) {}
+    RealAppNode(NodeData data, const mm::build::BuildableNode& target, bool buildable_host,
+        bool buildable_target)
+        : data_(std::move(data)), buildable_(target, buildable_host, buildable_target) {}
 
     [[nodiscard]] std::string_view name() const override { return data_.name(); }
     [[nodiscard]] std::filesystem::path manifest_path() const override { return data_.manifest_path(); }
@@ -319,6 +333,8 @@ public:
     [[nodiscard]] const models::Document& document() const override { return data_.document(); }
     [[nodiscard]] std::vector<const models::TranslationUnit*> sources() const override { return buildable_.sources(); }
     [[nodiscard]] std::vector<std::string_view> uses() const override { return buildable_.uses(); }
+    [[nodiscard]] bool buildable_host() const override { return buildable_.buildable_host(); }
+    [[nodiscard]] bool buildable_target() const override { return buildable_.buildable_target(); }
 
 private:
     NodeData data_;
@@ -327,8 +343,9 @@ private:
 
 class RealTestNode : public models::TestNode {
 public:
-    RealTestNode(NodeData data, const mm::build::BuildableNode& target)
-        : data_(std::move(data)), buildable_(target) {}
+    RealTestNode(NodeData data, const mm::build::BuildableNode& target, bool buildable_host,
+        bool buildable_target)
+        : data_(std::move(data)), buildable_(target, buildable_host, buildable_target) {}
 
     [[nodiscard]] std::string_view name() const override { return data_.name(); }
     [[nodiscard]] std::filesystem::path manifest_path() const override { return data_.manifest_path(); }
@@ -338,6 +355,8 @@ public:
     [[nodiscard]] const models::Document& document() const override { return data_.document(); }
     [[nodiscard]] std::vector<const models::TranslationUnit*> sources() const override { return buildable_.sources(); }
     [[nodiscard]] std::vector<std::string_view> uses() const override { return buildable_.uses(); }
+    [[nodiscard]] bool buildable_host() const override { return buildable_.buildable_host(); }
+    [[nodiscard]] bool buildable_target() const override { return buildable_.buildable_target(); }
 
 private:
     NodeData data_;
@@ -526,8 +545,9 @@ std::vector<std::unique_ptr<models::Operation>> build_operations(
     const auto* test_runner = find_tool(tools, "test");
     const auto* check = find_tool(tools, "check");
     const auto* model = find_tool(tools, "model");
+    const auto* configure = find_tool(tools, "configure");
 
-    // operations() is fixed data describing this repository's own seven
+    // operations() is fixed data describing this repository's own eight
     // *.sh scripts (see the class comment above), not something meaningful
     // for an arbitrary tree Loaded::load() also accepts. find_tool()
     // returns nullptr for any of the above that a foreign project's tools()
@@ -539,7 +559,7 @@ std::vector<std::unique_ptr<models::Operation>> build_operations(
     // of the above resolved to a real Tool.
     if (cxx == nullptr || build0 == nullptr || build1 == nullptr || build == nullptr ||
         main_tool == nullptr || mdy == nullptr || test_runner == nullptr || check == nullptr ||
-        model == nullptr)
+        model == nullptr || configure == nullptr)
         return {};
 
     // Every kind:app manifest's compiled/linked/installed output, the
@@ -581,6 +601,16 @@ std::vector<std::unique_ptr<models::Operation>> build_operations(
     // in the sequence after it (test, document, check, model) needs
     // build.sh to have run in this session; what they actually need is
     // stated by their own requires_artifacts().
+    // Optional for the reason spelled out under build.sh below: a build with
+    // no out/config.mdy falls back to the shared default lane rather than
+    // failing.
+    result.push_back(std::make_unique<RealOperation>(
+        "configure", "configure.sh", models::Role::Optional,
+        std::vector<std::vector<const models::Tool*>>{{configure}},
+        std::vector<models::ArtifactKind>{models::ArtifactKind::InstalledBinary},
+        std::vector<models::ArtifactKind>{models::ArtifactKind::Configuration,
+                                          models::ArtifactKind::ResolvedOptions}));
+
     result.push_back(std::make_unique<RealOperation>(
         "build", "build.sh", models::Role::Optional,
         std::vector<std::vector<const models::Tool*>>{{build}},
@@ -621,24 +651,40 @@ std::vector<std::unique_ptr<models::Operation>> build_operations(
     return result;
 }
 
-// build()/compiler()/compiler_flags()/linker_flags()/verbose() copy the live
-// policy rather than pointing into it, since default_configuration()
-// hands the caller ownership and the Toolchain that built this is a local
-// about to go out of scope. platform()/locale()/shell() return string_view
+// Every value is copied rather than pointed into, since configuration()
+// hands the caller ownership and the BuildConfiguration that built this is a
+// local about to go out of scope. platform()/locale()/shell() return string_view
 // into string literals, valid for the program's whole lifetime: they are
 // fixed policy, not derived from anything with a shorter lifetime.
-class FixedConfiguration final : public models::Configuration {
+class RealConfiguration final : public models::Configuration {
 public:
-    explicit FixedConfiguration(const mm::build::Toolchain& toolchain)
-        : build_(models::Build::Debug),
-          compiler_family_(toolchain.family == mm::build::CompilerFamily::Gcc
+    RealConfiguration(std::string name, bool persisted,
+                      const mm::build::BuildConfiguration& configuration)
+        : name_(std::move(name)),
+          persisted_(persisted),
+          selection_(configuration.cross ? models::CompilerSelection::Cross
+                                         : models::CompilerSelection::Host),
+          build_directory_(configuration.build_directory),
+          host_build_directory_(configuration.host_build_directory),
+          build_(configuration.build == mm::build::Build::Release ? models::Build::Release
+                                                                  : models::Build::Debug),
+          compiler_family_(configuration.toolchain.family == mm::build::CompilerFamily::Gcc
                                ? models::CompilerFamily::Gcc
                                : models::CompilerFamily::Clang),
-          compiler_(toolchain.cxx),
-          compiler_flags_(toolchain.cxxflags),
-          linker_flags_(toolchain.ldflags),
-          verbose_(toolchain.verbose) {}
+          compiler_(configuration.toolchain.cxx),
+          compiler_flags_(configuration.toolchain.cxxflags),
+          linker_flags_(configuration.toolchain.ldflags),
+          verbose_(configuration.toolchain.verbose) {}
 
+    [[nodiscard]] std::string_view name() const override { return name_; }
+    [[nodiscard]] bool persisted() const override { return persisted_; }
+    [[nodiscard]] models::CompilerSelection selection() const override { return selection_; }
+    [[nodiscard]] std::filesystem::path build_directory() const override {
+        return build_directory_;
+    }
+    [[nodiscard]] std::filesystem::path host_build_directory() const override {
+        return host_build_directory_;
+    }
     [[nodiscard]] models::Build build() const override { return build_; }
     [[nodiscard]] std::string_view compiler() const override { return compiler_; }
     [[nodiscard]] models::CompilerFamily compiler_family() const override {
@@ -653,6 +699,11 @@ public:
     [[nodiscard]] std::string_view shell() const override { return "/bin/sh"; }
 
 private:
+    std::string name_;
+    bool persisted_ = false;
+    models::CompilerSelection selection_ = models::CompilerSelection::Host;
+    std::filesystem::path build_directory_;
+    std::filesystem::path host_build_directory_;
     models::Build build_ = models::Build::Debug;
     models::CompilerFamily compiler_family_ = models::CompilerFamily::Gcc;
     std::string compiler_;
@@ -712,6 +763,25 @@ Loaded Loaded::load(const std::filesystem::path& root_dir, bool& ok) {
         return loaded;
     }
 
+    // A tree whose options do not resolve is still a tree this model can
+    // describe: configure rejects such a tree, model reports and carries on,
+    // leaving capability at its default. The resolver has already said why.
+    mm::build::BuildConfiguration configuration;
+    if (!mm::build::resolve_configuration(".", false, configuration)) return loaded;
+    const auto option_nodes = mm::build::configuration_nodes(project);
+    std::vector<mm::configure::OptionValues> options;
+    const bool options_resolved =
+        mm::configure::resolve_options(".",
+                                       configuration.build == mm::build::Build::Release
+                                           ? mm::configure::Build::Release
+                                           : mm::configure::Build::Debug,
+                                       option_nodes, options, "model") &&
+        mm::build::validate_capabilities(option_nodes, options, "model");
+
+    const auto lane = [&](std::size_t node, std::string_view name) {
+        return options_resolved ? options[node].find(name)->second.boolean : true;
+    };
+
     auto impl = std::make_unique<Impl>();
     impl->index.assign(nodes.size(), nullptr);
 
@@ -738,15 +808,18 @@ Loaded Loaded::load(const std::filesystem::path& root_dir, bool& ok) {
             impl->index[i] = impl->directories.back().get();
         } else if (node.kind == "module") {
             impl->modules.push_back(
-                std::make_unique<RealModuleNode>(std::move(data), project.targets[target]));
+                std::make_unique<RealModuleNode>(std::move(data), project.targets[target],
+                                            lane(i, "buildable-host"), lane(i, "buildable-target")));
             impl->index[i] = impl->modules.back().get();
         } else if (node.kind == "app") {
             impl->apps.push_back(
-                std::make_unique<RealAppNode>(std::move(data), project.targets[target]));
+                std::make_unique<RealAppNode>(std::move(data), project.targets[target],
+                                            lane(i, "buildable-host"), lane(i, "buildable-target")));
             impl->index[i] = impl->apps.back().get();
         } else if (node.kind == "test") {
             impl->tests.push_back(
-                std::make_unique<RealTestNode>(std::move(data), project.tests[target]));
+                std::make_unique<RealTestNode>(std::move(data), project.tests[target],
+                                            lane(i, "buildable-host"), lane(i, "buildable-target")));
             impl->index[i] = impl->tests.back().get();
         } else if (node.kind == "doc") {
             impl->docs.push_back(
@@ -803,14 +876,32 @@ std::vector<const models::Module*> Loaded::resolved_modules() const {
     return result;
 }
 
-std::unique_ptr<models::Configuration> default_configuration(bool verbose) {
-    return std::make_unique<FixedConfiguration>(mm::build::default_toolchain(verbose));
+std::unique_ptr<models::Configuration> configuration(const std::filesystem::path& project_root,
+                                                     bool verbose) {
+    const scoped_current_path enter(project_root);
+    if (!enter.ok()) return nullptr;
+
+    std::error_code ec;
+    const bool persisted = std::filesystem::exists(std::filesystem::path("out") / "config.mdy", ec);
+    if (ec) return nullptr;
+
+    mm::build::BuildConfiguration resolved;
+    if (!mm::build::resolve_configuration(".", verbose, resolved)) return nullptr;
+
+    std::string name;
+    if (persisted) {
+        const auto document = mm::mdy::Parser::parse_file(std::filesystem::path("out") / "config.mdy");
+        const auto entry = document.metadata.find("name");
+        if (entry != document.metadata.end() && !entry->second.empty()) name = entry->second.front();
+    }
+    if (name.empty()) name = "default";
+    return std::make_unique<RealConfiguration>(std::move(name), persisted, resolved);
 }
 
 std::vector<const models::Operation*> recommended_sequence(
     const std::vector<const models::Operation*>& operations) {
-    static constexpr std::array<std::string_view, 7> order = {
-        "clean", "bootstrap", "build", "test", "document", "check", "model",
+    static constexpr std::array<std::string_view, 8> order = {
+        "clean", "bootstrap", "configure", "build", "test", "document", "check", "model",
     };
 
     std::vector<const models::Operation*> result;

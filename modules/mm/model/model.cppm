@@ -43,7 +43,7 @@
 // is read by tools/model, never by the build path itself.
 //
 // operations() is fixed, hand authored data, the same reasoning as
-// build0/build1/c++ in tools(): docs/modules.mdy's seven *.sh scripts and
+// build0/build1/c++ in tools(): docs/modules.mdy's eight *.sh scripts and
 // how they relate are not something any manifest declares, so nothing here
 // is derived from a walk, and none of it is meaningful for a project other
 // than this one. Rather than embed a null Tool* for whichever of the nine
@@ -107,7 +107,7 @@ public:
     // still not covered.
     [[nodiscard]] std::vector<const models::Tool*> tools() const;
 
-    // The seven documented *.sh scripts as Operations, invokes() resolved
+    // The eight documented *.sh scripts as Operations, invokes() resolved
     // against this Loaded's own tools(); empty for a tree that is not this
     // project, rather than Operations holding a null Tool*.
     [[nodiscard]] std::vector<const models::Operation*> operations() const;
@@ -124,11 +124,13 @@ private:
     std::unique_ptr<Impl> impl_;
 };
 
-// Reports the unconfigured build policy: the shared debug GCC default with
-// the given verbosity, plus the fixed platform/locale/shell policy documented
-// by models.configuration. Project builds and tests additionally resolve the
-// persisted out/config.mdy through mm.build.
-[[nodiscard]] std::unique_ptr<models::Configuration> default_configuration(bool verbose = false);
+// Reports the configuration a build of project_root would follow: the
+// persisted out/config.mdy when one exists, the shared unconfigured default
+// otherwise, which Configuration::persisted() distinguishes. Resolved through
+// the same mm.build loader build and test use. Null if a configuration exists
+// but is unreadable; mm.build reports why.
+[[nodiscard]] std::unique_ptr<models::Configuration> configuration(
+    const std::filesystem::path& project_root, bool verbose = false);
 
 // Reorders operations into the documented recommended order: clean,
 // bootstrap, build, then test, document, check, model (the order they are

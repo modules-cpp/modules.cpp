@@ -29,11 +29,11 @@ bool invokes_name(const models::Operation& operation, std::size_t branch, std::s
     return false;
 }
 
-void seven_operations_are_present() {
+void eight_operations_are_present() {
     bool ok = false;
     auto loaded = mm::model::Loaded::load(".", ok);
     const auto operations = loaded.operations();
-    mm::test::expect(operations.size() == 7, "expected exactly the seven documented operations");
+    mm::test::expect(operations.size() == 8, "expected exactly the eight documented operations");
 }
 
 void bootstrap_has_two_branches_with_the_same_products() {
@@ -139,19 +139,19 @@ void recommended_sequence_matches_the_documented_order() {
     auto loaded = mm::model::Loaded::load(".", ok);
     const auto ordered = mm::model::recommended_sequence(loaded.operations());
 
-    mm::test::expect(ordered.size() == 7, "expected the recommended sequence to cover all seven");
-    if (ordered.size() != 7) return;
+    mm::test::expect(ordered.size() == 8, "expected the recommended sequence to cover all eight");
+    if (ordered.size() != 8) return;
 
-    const std::string_view expected[7] = {
-        "clean", "bootstrap", "build", "test", "document", "check", "model",
+    const std::string_view expected[8] = {
+        "clean", "bootstrap", "configure", "build", "test", "document", "check", "model",
     };
-    for (std::size_t i = 0; i < 7; ++i)
+    for (std::size_t i = 0; i < 8; ++i)
         mm::test::expect(ordered[i]->name() == expected[i],
                          "expected the recommended sequence to match the documented order");
 }
 
 const mm::test::case_ cases[] = {
-    { "seven operations are present",                 &seven_operations_are_present },
+    { "eight operations are present",                 &eight_operations_are_present },
     { "bootstrap has two branches, same products",     &bootstrap_has_two_branches_with_the_same_products },
     { "build matches the real build.sh",               &build_matches_the_real_build_sh },
     { "clean is UserInitiated and invokes nothing",    &clean_is_user_initiated_and_invokes_nothing },

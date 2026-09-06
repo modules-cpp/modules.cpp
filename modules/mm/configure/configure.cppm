@@ -65,7 +65,8 @@ using OptionValues = std::map<std::string, OptionValue, std::less<>>;
 
 [[nodiscard]] bool resolve_options(const std::filesystem::path& project_root, Build build,
                                    const std::vector<OptionNode>& nodes,
-                                   std::vector<OptionValues>& resolved);
+                                   std::vector<OptionValues>& resolved,
+                                   std::string_view tool = "configure");
 // Records are resolved per lane, so they live beside the artifacts they
 // describe: output_directory is the lane's build directory, not out/.
 [[nodiscard]] bool write_option_records(const std::filesystem::path& project_root,

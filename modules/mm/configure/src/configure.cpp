@@ -339,8 +339,10 @@ std::string_view trim_option(std::string_view text) {
     return text.substr(begin, text.find_last_not_of(" \t") - begin + 1);
 }
 
+std::string_view option_tool = "configure";
+
 bool option_error(const OptionNode& node, std::string_view name, std::string_view message) {
-    std::cerr << "configure: " << node.manifest.string() << ": " << name << ": "
+    std::cerr << option_tool << ": " << node.manifest.string() << ": " << name << ": "
               << message << "\n";
     return false;
 }
@@ -412,12 +414,14 @@ void write_origins(std::ostream& out, Build build, const OptionValues& values) {
 }  // namespace
 
 bool resolve_options(const std::filesystem::path& project_root, Build build,
-                     const std::vector<OptionNode>& nodes, std::vector<OptionValues>& resolved) {
+                     const std::vector<OptionNode>& nodes, std::vector<OptionValues>& resolved,
+                     std::string_view tool) {
+    option_tool = tool;
     resolved.clear();
     std::error_code ec;
     const auto root = std::filesystem::canonical(project_root, ec);
     if (ec || nodes.empty()) {
-        std::cerr << "configure: option resolution requires a project root and manifest tree\n";
+        std::cerr << tool << ": option resolution requires a project root and manifest tree\n";
         return false;
     }
     const auto defaults = default_options(build);

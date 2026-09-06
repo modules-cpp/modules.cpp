@@ -44,8 +44,12 @@ Toolchain default_toolchain(bool verbose = false);
 // false; callers decide separately whether an absent file means fallback.
 struct BuildConfiguration {
     Build build = Build::Debug;
-    Toolchain toolchain;
-    std::filesystem::path build_directory;
+    Toolchain toolchain;                          // the selected lane
+    std::filesystem::path build_directory;        // the selected lane's output
+    // Retained even when host is selected: a caller describing the
+    // configuration needs to know which lane it is looking at.
+    bool cross = false;
+    std::filesystem::path host_build_directory;
 };
 
 [[nodiscard]] bool load_configuration(const std::filesystem::path& path,

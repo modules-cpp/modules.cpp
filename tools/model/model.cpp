@@ -97,11 +97,26 @@ int main(int argc, char** argv) {
     std::cout << "  root " << root.string() << "\n\n";
 
     if (report_configuration) {
-        // Independent of the manifest tree: default_configuration() needs
-        // no root_dir, so this is reported even if the tree below fails to
-        // load.
-        const auto configuration = mm::model::default_configuration(verbose);
+        // Independent of the manifest tree: configuration() needs no loaded
+        // tree, so this is reported even if the tree below fails to load.
+        const auto configuration = mm::model::configuration(".", verbose);
+        if (configuration == nullptr) {
+            std::cerr << "model: cannot resolve the project configuration\n";
+            return mm::build::exit_manifest;
+        }
         std::cout << "Configuration (declared policy, not a measurement of this run)\n";
+        std::cout << "  name           " << configuration->name()
+                  << (configuration->persisted() ? "  [out/config.mdy]"
+                                                 : "  [unconfigured default]")
+                  << "\n";
+        std::cout << "  selection      "
+                  << (configuration->selection() == models::CompilerSelection::Host ? "host"
+                                                                                    : "cross")
+                  << "\n";
+        std::cout << "  build dir      " << configuration->build_directory().generic_string()
+                  << "\n";
+        std::cout << "  host build dir "
+                  << configuration->host_build_directory().generic_string() << "\n";
         std::cout << "  build          "
                   << (configuration->build() == models::Build::Debug ? "debug" : "release")
                   << "\n";

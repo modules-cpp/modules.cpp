@@ -46,17 +46,21 @@ import models.tool;
 
 export namespace models {
 
+// <build directory> is whatever the active Configuration selects; the kinds
+// naming a literal path are the ones that do not move with it.
 enum class ArtifactKind {
-    ModuleObject,      // out/modules/**/*.o
-    AppObject,         // out/apps/**/*.o
-    AppExecutable,     // out/apps/**/<name>, before install
-    ToolObject,        // out/tools/**/*.o
-    ToolExecutable,    // out/tools/**/<name>, before install
+    ModuleObject,      // <build directory>/modules/**/*.o
+    AppObject,         // <build directory>/apps/**/*.o
+    AppExecutable,     // <build directory>/apps/**/<name>, before install
+    ToolObject,        // <build directory>/tools/**/*.o
+    ToolExecutable,    // <build directory>/tools/**/<name>, before install
     Staged,            // out/build0, out/build1
     InstalledBinary,   // out/bin/<name>
     TestBuild,         // out/tests
     Documentation,     // out/index.html and nested pages
-    ModuleCache        // gcm.cache
+    ModuleCache,       // gcm.cache
+    Configuration,     // out/config.mdy, which names the lane
+    ResolvedOptions    // <build directory>/**/resolved-options.mdy
 };
 
 // Required: part of the standard sequence and nothing after it can

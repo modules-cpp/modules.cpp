@@ -577,6 +577,8 @@ bool load_configuration(const std::filesystem::path& path, bool verbose,
         return false;
 
     selected.verbose = verbose;
+    configuration.cross = selection == "cross";
+    configuration.host_build_directory = std::move(host_directory);
     configuration.build = build;
     configuration.toolchain = std::move(selected);
     configuration.build_directory = std::move(target_directory);
@@ -597,7 +599,9 @@ bool resolve_configuration(const std::filesystem::path& project_root, bool verbo
 
     configuration.toolchain = default_toolchain(verbose);
     configuration.build = Build::Debug;
+    configuration.cross = false;
     configuration.build_directory = "out";
+    configuration.host_build_directory = "out";
     return true;
 }
 

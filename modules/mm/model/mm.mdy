@@ -4,6 +4,7 @@ kind: module
 name: model
 module: mm.model
 use: mm.build
+use: mm.configure
 use: mm.mdy
 use: models.configuration
 use: models.document

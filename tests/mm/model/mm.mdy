@@ -4,6 +4,7 @@ kind: test
 name: model
 use: mm.test
 use: mm.model
+use: mm.configure
 unit: tests/mm/model/structure.cpp
 unit: tests/mm/model/configuration.cpp
 unit: tests/mm/model/workflow.cpp

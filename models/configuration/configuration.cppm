@@ -3,7 +3,7 @@
 //
 // Every accessor here is declared, intended policy, not a measurement of
 // what actually ran: nothing in this type observes or records a real
-// invocation. Two accessors need that distinction spelled out because they
+// invocation. Three accessors need that distinction spelled out because they
 // could otherwise be mistaken for effective, verified state:
 //
 //   - locale(): "C" is not set, checked, or enforced anywhere in this
@@ -12,6 +12,8 @@
 //     which every script and tool here assumes rather than pins. Treat it
 //     as declared policy a reader can rely on being the intent, not as
 //     evidence of the process's actual locale at any given run.
+//   - persisted(): whether these values came from out/config.mdy or from the
+//     unconfigured default that build and test fall back to.
 //   - build()/compiler_family()/compiler()/compiler_flags()/linker_flags():
 //     these mirror mm::build::BuildConfiguration and Toolchain
 //     (modules/mm/build/build.cppm). The unconfigured default is a debug build
@@ -28,6 +30,11 @@
 // section) - both are closer to actually-true-everywhere than locale() is,
 // but still declared policy rather than something this type measures.
 //
+// selection(), build_directory() and host_build_directory() describe the lane
+// rather than the compiler: which of a toolchain's compilers produces target
+// artifacts, and where each lane writes. The directory names themselves are
+// configure policy, not fixed here.
+//
 // Foundational, like models.document: a Configuration is an input to
 // running a Tool, not a structural fact about the repository, so nothing
 // else here needs to depend on it, and it depends on nothing else here.
@@ -36,6 +43,7 @@
 // 32bitmicro LLC (C) 2026
 module;
 
+#include <filesystem>
 #include <string_view>
 
 export module models.configuration;
@@ -43,11 +51,25 @@ export module models.configuration;
 export namespace models {
 
 enum class CompilerFamily { Gcc, Clang };
+enum class CompilerSelection { Host, Cross };
 enum class Build { Debug, Release };
 
 class Configuration {
 public:
     virtual ~Configuration() = default;
+
+    // The persisted configuration name, e.g. "gcc-debug".
+    [[nodiscard]] virtual std::string_view name() const = 0;
+
+    [[nodiscard]] virtual bool persisted() const = 0;
+
+    [[nodiscard]] virtual CompilerSelection selection() const = 0;
+
+    // Root relative. build_directory() is the selected lane's; the host lane's
+    // is always available, since programs that run during a build are host
+    // artifacts whatever selection() is.
+    [[nodiscard]] virtual std::filesystem::path build_directory() const = 0;
+    [[nodiscard]] virtual std::filesystem::path host_build_directory() const = 0;
 
     // The one build selected for every compiling tool in the project.
     [[nodiscard]] virtual Build build() const = 0;
