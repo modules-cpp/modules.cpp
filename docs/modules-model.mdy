@@ -23,11 +23,12 @@ dependency order:
 
 - models.document — front matter and body blocks for one MDY file (models::Document, models::Block). Foundational: every MDY file is a document, including a manifest, so everything else sits above this.
 - models.configuration — the project's build configuration
-  (models::Configuration). compiler_family() distinguishes GCC from Clang;
-  compiler() is the exact C++ driver rather than a command containing module
-  flags. The unconfigured policy is GCC through g++, while configure persists
-  one project-wide compiler for build and test. bootstrap.sh and build0 remain
-  the fixed plain-c++ recovery path. platform()/locale()/shell() state fixed
+  (models::Configuration). build() distinguishes debug from release;
+  compiler_family() distinguishes GCC from Clang; compiler() is the exact C++
+  driver rather than a command containing module flags. The unconfigured policy
+  is a debug build with GCC through g++, while configure persists one
+  project-wide build and compiler for build and test. bootstrap.sh and build0
+  remain the fixed plain-c++ recovery path. platform()/locale()/shell() state fixed
   project policy (POSIX, C, /bin/sh). Foundational and independent: a
   Configuration is an input to running a tool, not a structural fact about the
   repository.
@@ -112,8 +113,8 @@ covered by the Tool-based check above, so the only remaining fact worth
 stating for ModuleCache is a single existence check.
 
 --configuration additionally reports models::Configuration, via
-mm::model::default_configuration(verbose): the shared unconfigured GCC default
-plus the fixed platform/locale/shell policy. Independent of the
+mm::model::default_configuration(verbose): the shared unconfigured debug GCC
+default plus the fixed platform/locale/shell policy. Independent of the
 manifest tree — default_configuration() takes no root_dir — so it is
 reported even when the checks above fail to load one.
 

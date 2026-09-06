@@ -12,12 +12,13 @@
 //     which every script and tool here assumes rather than pins. Treat it
 //     as declared policy a reader can rely on being the intent, not as
 //     evidence of the process's actual locale at any given run.
-//   - compiler_family()/compiler()/compiler_flags()/linker_flags(): these
-//     mirror mm::build::Toolchain (modules/mm/build/build.cppm). The
-//     unconfigured default is GCC through g++; configure persists one exact
-//     GCC or Clang C++ driver in out/config.mdy, and build and test resolve
-//     that same file. bootstrap.sh and build0 deliberately remain a fixed
-//     recovery path through plain "c++". A Configuration describes the
+//   - build()/compiler_family()/compiler()/compiler_flags()/linker_flags():
+//     these mirror mm::build::BuildConfiguration and Toolchain
+//     (modules/mm/build/build.cppm). The unconfigured default is a debug build
+//     with GCC through g++; configure persists one debug or release build and
+//     one exact GCC or Clang C++ driver in out/config.mdy, and build and test
+//     resolve that same file. bootstrap.sh and build0 deliberately remain a
+//     fixed recovery path through plain "c++". A Configuration describes the
 //     self-hosted rule, not bootstrap's fixed one.
 //
 // platform() and shell() are comparatively safe: mm::build::run always
@@ -42,10 +43,14 @@ export module models.configuration;
 export namespace models {
 
 enum class CompilerFamily { Gcc, Clang };
+enum class Build { Debug, Release };
 
 class Configuration {
 public:
     virtual ~Configuration() = default;
+
+    // The one build selected for every compiling tool in the project.
+    [[nodiscard]] virtual Build build() const = 0;
 
     // The exact C++ driver, e.g. "g++-15" or "clang++-20". Compiler-specific
     // module arguments are execution policy and are not part of this value.

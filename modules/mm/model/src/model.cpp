@@ -621,8 +621,8 @@ std::vector<std::unique_ptr<models::Operation>> build_operations(
     return result;
 }
 
-// compiler()/compiler_flags()/linker_flags()/verbose() copy the live
-// Toolchain rather than pointing into it, since default_configuration()
+// build()/compiler()/compiler_flags()/linker_flags()/verbose() copy the live
+// policy rather than pointing into it, since default_configuration()
 // hands the caller ownership and the Toolchain that built this is a local
 // about to go out of scope. platform()/locale()/shell() return string_view
 // into string literals, valid for the program's whole lifetime: they are
@@ -630,7 +630,8 @@ std::vector<std::unique_ptr<models::Operation>> build_operations(
 class FixedConfiguration final : public models::Configuration {
 public:
     explicit FixedConfiguration(const mm::build::Toolchain& toolchain)
-        : compiler_family_(toolchain.family == mm::build::CompilerFamily::Gcc
+        : build_(models::Build::Debug),
+          compiler_family_(toolchain.family == mm::build::CompilerFamily::Gcc
                                ? models::CompilerFamily::Gcc
                                : models::CompilerFamily::Clang),
           compiler_(toolchain.cxx),
@@ -638,6 +639,7 @@ public:
           linker_flags_(toolchain.ldflags),
           verbose_(toolchain.verbose) {}
 
+    [[nodiscard]] models::Build build() const override { return build_; }
     [[nodiscard]] std::string_view compiler() const override { return compiler_; }
     [[nodiscard]] models::CompilerFamily compiler_family() const override {
         return compiler_family_;
@@ -651,6 +653,7 @@ public:
     [[nodiscard]] std::string_view shell() const override { return "/bin/sh"; }
 
 private:
+    models::Build build_ = models::Build::Debug;
     models::CompilerFamily compiler_family_ = models::CompilerFamily::Gcc;
     std::string compiler_;
     std::string compiler_flags_;

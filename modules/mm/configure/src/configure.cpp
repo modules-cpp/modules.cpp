@@ -40,7 +40,8 @@ bool valid_build_directory(const std::filesystem::path& path) {
 }
 
 bool valid_settings(const Settings& settings) {
-    if (!valid_scalar(settings.name) || !valid_compiler(settings.host) ||
+    if (!valid_scalar(settings.name) || !valid_scalar(build_name(settings.build)) ||
+        !valid_compiler(settings.host) ||
         !valid_build_directory(settings.host_build_directory) ||
         !valid_build_directory(settings.target_build_directory))
         return false;
@@ -110,6 +111,36 @@ std::string_view compiler_family_name(CompilerFamily family) {
     return family == CompilerFamily::Gcc ? "gcc" : "clang";
 }
 
+std::optional<Build> parse_build(std::string_view value) {
+    if (value == "debug") return Build::Debug;
+    if (value == "release") return Build::Release;
+    return std::nullopt;
+}
+
+std::string_view build_name(Build build) {
+    switch (build) {
+        case Build::Debug: return "debug";
+        case Build::Release: return "release";
+    }
+    return {};
+}
+
+std::string_view build_compile_flags(Build build) {
+    switch (build) {
+        case Build::Debug: return "-std=c++20 -O0 -g";
+        case Build::Release: return "-std=c++20 -O2 -DNDEBUG";
+    }
+    return {};
+}
+
+std::string_view build_link_flags(Build build) {
+    switch (build) {
+        case Build::Debug: return "-std=c++20 -g";
+        case Build::Release: return "-std=c++20 -O2";
+    }
+    return {};
+}
+
 std::optional<std::string> get(std::string_view name) {
     const std::string key(name);
     const char* value = std::getenv(key.c_str());
@@ -143,6 +174,7 @@ bool log_configuration(const ConfigurationLog& log) {
         std::cout << "  configuration default\n";
 
     if (log.verbose) {
+        std::cout << "    build         " << log.build << "\n";
         std::cout << "    family        " << log.compiler_family << "\n";
         std::cout << "    compiler      " << log.compiler << "\n";
         std::cout << "    compile flags " << log.compile_flags << "\n";
@@ -172,6 +204,7 @@ bool write_configuration(const std::filesystem::path& project_root, const Settin
     out << "mm: 1.0\n";
     out << "kind: configuration\n";
     out << "name: " << settings.name << '\n';
+    out << "build: " << build_name(settings.build) << '\n';
     out << "target-compiler: "
         << (settings.target_compiler == CompilerSelection::Host ? "host" : "cross") << '\n';
     write_compiler(out, "host", settings.host);

@@ -1,7 +1,8 @@
 // modules.cpp configure tool
 //
-// Usage: configure [-v] [--compiler COMPILER] [<path to mm.mdy>]
-//        (default compiler: gcc; default manifest: mm.mdy in the current dir)
+// Usage: configure [-v] [--compiler COMPILER] [--build debug|release]
+//                  [<path to mm.mdy>]
+//        (defaults: compiler gcc, build debug, manifest mm.mdy in the current dir)
 //
 //
 // Pawel Wodnicki (C) 2026
@@ -18,6 +19,7 @@ import mm.configure;
 int main(int argc, char** argv) {
     mm::app::Options options("configure");
     options.option("--compiler", "gcc, g++, clang, or clang++, optionally versioned");
+    options.option("--build", "debug or release");
     if (options.parse(argc, argv) != mm::app::Cli::ok) return mm::build::exit_usage;
 
     const bool verbose = options.verbose();
@@ -31,6 +33,19 @@ int main(int argc, char** argv) {
     const auto compiler = mm::configure::parse_compiler(requested);
     if (!compiler) {
         std::cerr << "configure: unsupported compiler: " << requested << "\n";
+        return mm::build::exit_usage;
+    }
+
+    const auto builds = options.values("--build");
+    if (builds.size() > 1) {
+        std::cerr << "configure: --build may be given only once\n";
+        return mm::build::exit_usage;
+    }
+
+    const std::string requested_build = builds.empty() ? std::string("debug") : builds.front();
+    const auto build = mm::configure::parse_build(requested_build);
+    if (!build) {
+        std::cerr << "configure: unsupported build: " << requested_build << "\n";
         return mm::build::exit_usage;
     }
 
@@ -68,20 +83,22 @@ int main(int argc, char** argv) {
     }
 
     mm::configure::Settings settings;
-    settings.name = requested;
+    settings.name = requested + "-" + requested_build;
+    settings.build = *build;
     settings.host.family = compiler->family;
     settings.host.invocation = compiler->invocation;
     settings.host.target = "host";
     settings.host.platform = "POSIX";
-    settings.host.compile_flags = "-std=c++20";
-    settings.host.link_flags = "-std=c++20";
+    settings.host.compile_flags = mm::configure::build_compile_flags(*build);
+    settings.host.link_flags = mm::configure::build_link_flags(*build);
 
     if (!mm::configure::write_configuration(project_root, settings)) {
         std::cerr << "configure: failed to write " << configuration_path.string() << "\n";
         return mm::build::exit_manifest;
     }
 
-    std::cout << "Configured " << mm::configure::compiler_family_name(compiler->family)
-              << " compiler " << compiler->invocation << "\n";
+    std::cout << "Configured " << mm::configure::build_name(*build) << " build with "
+              << mm::configure::compiler_family_name(compiler->family) << " compiler "
+              << compiler->invocation << "\n";
     return mm::build::exit_ok;
 }

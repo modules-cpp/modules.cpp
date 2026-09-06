@@ -69,23 +69,24 @@ project — but is what you run afterward, once `out/bin/build` exists, on any
 later change.
 
 Bootstrap always uses the compiler named `c++`. After bootstrapping, select
-one project compiler with `configure`; both build and test read the resulting
-`out/config.mdy` and cannot select different compilers:
+one project compiler and build with `configure`; both build and test read the
+resulting `out/config.mdy` and cannot select different values:
 
 ```sh
-./configure --compiler gcc-15
+./configure --compiler gcc-15 --build debug
 ./build
 ./test
 
-./configure --compiler clang++-20
+./configure --compiler clang++-20 --build release
 ./build
 ./test
 ```
 
 Accepted compiler selectors are `gcc`, `g++`, `clang`, and `clang++`, with an
 optional numeric major-version suffix. C-driver spellings such as `gcc-15`
-are normalized to their C++ driver (`g++-15`). Configured native output remains
-under `out/host` regardless of compiler family.
+are normalized to their C++ driver (`g++-15`). `--build` accepts `debug` or
+`release` and defaults to `debug`. Configured native output remains under
+`out/host` regardless of compiler family or build.
 
 If something fails partway through, `./clean.sh` removes all generated output
 (the `out/` and `gcm.cache/` directories) so you can start over.

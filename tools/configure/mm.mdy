@@ -12,3 +12,5 @@ file: configure.cpp
 
 Writes `out/config.mdy` without running another command. `--compiler` accepts
 gcc, g++, clang, or clang++, optionally followed by a numeric major version.
+`--build` accepts debug or release and defaults to debug. Build and test consume
+the same persisted compiler and build selection.

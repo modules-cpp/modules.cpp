@@ -124,9 +124,9 @@ private:
     std::unique_ptr<Impl> impl_;
 };
 
-// Reports the unconfigured build policy: the shared GCC default with the
-// given verbosity, plus the fixed platform/locale/shell policy documented by
-// models.configuration. Project builds and tests additionally resolve the
+// Reports the unconfigured build policy: the shared debug GCC default with
+// the given verbosity, plus the fixed platform/locale/shell policy documented
+// by models.configuration. Project builds and tests additionally resolve the
 // persisted out/config.mdy through mm.build.
 [[nodiscard]] std::unique_ptr<models::Configuration> default_configuration(bool verbose = false);
 

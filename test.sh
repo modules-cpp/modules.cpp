@@ -59,7 +59,7 @@ check "build0 tool output" "$expected_status" "$status" "$expected" "$actual"
 echo
 echo test build1
 echo
-expected='build: not an mm.mdy manifest: -h'
+expected='build: unknown option: -h'
 expected_status=64
 status=0
 actual=$(./out/build1 -h 2>&1) || status=$?
@@ -68,11 +68,20 @@ check "build tool output" "$expected_status" "$status" "$expected" "$actual"
 echo
 echo test build
 echo
-expected='build: not an mm.mdy manifest: -h'
+expected='build: unknown option: -h'
 expected_status=64
 status=0
 actual=$(./out/bin/build -h 2>&1) || status=$?
 check "build tool output" "$expected_status" "$status" "$expected" "$actual"
+
+echo
+echo test configure
+echo
+expected='configure: unknown option: --release'
+expected_status=64
+status=0
+actual=$(./out/bin/configure --release 2>&1) || status=$?
+check "configure unknown option" "$expected_status" "$status" "$expected" "$actual"
 
 echo
 echo test app main

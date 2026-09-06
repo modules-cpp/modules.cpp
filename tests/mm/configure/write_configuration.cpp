@@ -44,6 +44,7 @@ void writes_a_native_configuration() {
                      "expected written config.mdy to be readable");
     mm::test::expect(first(document, "kind") == "configuration",
                      "expected kind: configuration");
+    mm::test::expect(first(document, "build") == "debug", "expected debug build to round trip");
     mm::test::expect(first(document, "target-compiler") == "host",
                      "expected native configuration to select host");
     mm::test::expect(first(document, "host-compiler") == "c++",
@@ -114,6 +115,24 @@ void rejects_invalid_compiler_selectors() {
                      "expected compiler version zero to fail");
 }
 
+void parses_supported_builds() {
+    const auto debug = mm::configure::parse_build("debug");
+    const auto release = mm::configure::parse_build("release");
+    mm::test::expect(debug && *debug == mm::configure::Build::Debug,
+                     "expected debug build to parse");
+    mm::test::expect(release && *release == mm::configure::Build::Release,
+                     "expected release build to parse");
+    mm::test::expect(mm::configure::build_compile_flags(*debug) == "-std=c++20 -O0 -g" &&
+                         mm::configure::build_link_flags(*debug) == "-std=c++20 -g",
+                     "expected debug build flags");
+    mm::test::expect(mm::configure::build_compile_flags(*release) ==
+                             "-std=c++20 -O2 -DNDEBUG" &&
+                         mm::configure::build_link_flags(*release) == "-std=c++20 -O2",
+                     "expected release build flags");
+    mm::test::expect(!mm::configure::parse_build("optimized"),
+                     "expected an unsupported build to fail");
+}
+
 void invalid_settings_leave_the_existing_file_unchanged() {
     const mm::test::scoped_tree tree{"configure_preserve"};
     std::error_code ec;
@@ -153,6 +172,7 @@ void logs_default_and_verbose_configurations() {
         {
             .tool = "test",
             .configuration_path = path,
+            .build = "debug",
             .compiler_family = "gcc",
             .compiler = "g++-15",
             .compile_flags = "-std=c++20",
@@ -174,6 +194,7 @@ void logs_default_and_verbose_configurations() {
         {
             .tool = "build",
             .configuration_path = path,
+            .build = "release",
             .compiler_family = "gcc",
             .compiler = "g++-15",
             .compile_flags = "-std=c++20",
@@ -185,6 +206,7 @@ void logs_default_and_verbose_configurations() {
     mm::test::expect(ok, "expected logging a persisted configuration to succeed");
     mm::test::expect(output == "  configuration " + path.string() +
                                    "\n"
+                                   "    build         release\n"
                                    "    family        gcc\n"
                                    "    compiler      g++-15\n"
                                    "    compile flags -std=c++20\n"
@@ -199,6 +221,7 @@ const mm::test::case_ cases[] = {
     {"invalid settings preserve existing config", &invalid_settings_leave_the_existing_file_unchanged},
     {"parses supported compiler selectors", &parses_supported_compiler_selectors},
     {"rejects invalid compiler selectors", &rejects_invalid_compiler_selectors},
+    {"parses supported builds", &parses_supported_builds},
     {"logs default and verbose configurations", &logs_default_and_verbose_configurations},
 };
 

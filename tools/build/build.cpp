@@ -31,7 +31,10 @@ int main(int argc, char** argv) {
         const std::string_view arg = argv[i];
         if (arg == "-v" || arg == "--verbose")
             verbose = true;
-        else if (manifest_path.empty())
+        else if (arg.starts_with('-')) {
+            std::cerr << "build: unknown option: " << arg << "\n";
+            return mm::build::exit_usage;
+        } else if (manifest_path.empty())
             manifest_path = arg;
         else {
             std::cerr << "build: unexpected argument: " << arg << "\n";
@@ -76,6 +79,7 @@ int main(int argc, char** argv) {
     const auto& build_dir = configuration.build_directory;
     if (!mm::configure::log_configuration({
             .tool = "build",
+            .build = mm::build::build_name(configuration.build),
             .compiler_family = mm::build::compiler_family_name(toolchain.family),
             .compiler = toolchain.cxx,
             .compile_flags = toolchain.cxxflags,

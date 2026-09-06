@@ -178,6 +178,31 @@ bool configuration_scalar(const mm::mdy::MDYDocument& doc, std::string_view key,
     return true;
 }
 
+bool configuration_build(const mm::mdy::MDYDocument& doc,
+                         const std::filesystem::path& path, Build& build) {
+    const auto* values = lookup(doc, "build");
+    if (values == nullptr) {
+        build = Build::Debug;
+        return true;
+    }
+    if (values->size() != 1 || values->front().empty()) {
+        std::cerr << "build: configuration requires one non-empty build: " << path.string()
+                  << "\n";
+        return false;
+    }
+    if (values->front() == "debug") {
+        build = Build::Debug;
+        return true;
+    }
+    if (values->front() == "release") {
+        build = Build::Release;
+        return true;
+    }
+    std::cerr << "build: configuration build must be debug or release: " << path.string()
+              << "\n";
+    return false;
+}
+
 bool configuration_directory(const mm::mdy::MDYDocument& doc, std::string_view key,
                              const std::filesystem::path& path,
                              std::filesystem::path& directory) {
@@ -448,6 +473,10 @@ std::string_view compiler_family_name(CompilerFamily family) {
     return family == CompilerFamily::Gcc ? "gcc" : "clang";
 }
 
+std::string_view build_name(Build build) {
+    return build == Build::Debug ? "debug" : "release";
+}
+
 Toolchain default_toolchain(bool verbose) {
     Toolchain toolchain;
     toolchain.verbose = verbose;
@@ -480,6 +509,9 @@ bool load_configuration(const std::filesystem::path& path, bool verbose,
         return false;
     }
 
+    Build build;
+    if (!configuration_build(document, path, build)) return false;
+
     Toolchain host;
     if (!configuration_compiler(document, "host", path, host)) return false;
 
@@ -504,6 +536,7 @@ bool load_configuration(const std::filesystem::path& path, bool verbose,
         return false;
 
     selected.verbose = verbose;
+    configuration.build = build;
     configuration.toolchain = std::move(selected);
     configuration.build_directory = std::move(target_directory);
     return true;
@@ -522,6 +555,7 @@ bool resolve_configuration(const std::filesystem::path& project_root, bool verbo
     if (exists) return load_configuration(path, verbose, configuration);
 
     configuration.toolchain = default_toolchain(verbose);
+    configuration.build = Build::Debug;
     configuration.build_directory = "out";
     return true;
 }

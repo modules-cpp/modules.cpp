@@ -75,6 +75,7 @@ int main(int argc, char** argv) {
     std::cout << "  root     " << root.string() << "\n";
     if (!mm::configure::log_configuration({
             .tool = "test",
+            .build = mm::build::build_name(configuration.build),
             .compiler_family = mm::build::compiler_family_name(toolchain.family),
             .compiler = toolchain.cxx,
             .compile_flags = toolchain.cxxflags,

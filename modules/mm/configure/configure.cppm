@@ -20,6 +20,7 @@ export namespace mm::configure {
 
 enum class CompilerFamily { Gcc, Clang };
 enum class CompilerSelection { Host, Cross };
+enum class Build { Debug, Release };
 
 // A compiler selector accepted by configure. The C-driver spellings gcc and
 // clang are normalized to their C++ drivers so the same invocation can compile
@@ -33,6 +34,10 @@ struct CompilerRequest {
 // Accepts gcc, g++, clang, or clang++, optionally followed by -<major>.
 [[nodiscard]] std::optional<CompilerRequest> parse_compiler(std::string_view value);
 [[nodiscard]] std::string_view compiler_family_name(CompilerFamily family);
+[[nodiscard]] std::optional<Build> parse_build(std::string_view value);
+[[nodiscard]] std::string_view build_name(Build build);
+[[nodiscard]] std::string_view build_compile_flags(Build build);
+[[nodiscard]] std::string_view build_link_flags(Build build);
 
 // The persisted fields for one compiler role. family selects compiler-specific
 // module behavior; invocation preserves the exact, possibly versioned C++
@@ -50,6 +55,7 @@ struct CompilerSettings {
 // cross compiler and selects Host; selecting Cross requires cross settings.
 struct Settings {
     std::string name = "default";
+    Build build = Build::Debug;
     CompilerSelection target_compiler = CompilerSelection::Host;
     CompilerSettings host;
     std::optional<CompilerSettings> cross;
@@ -57,11 +63,12 @@ struct Settings {
     std::filesystem::path target_build_directory = "out/host";
 };
 
-// The configuration summary shared by build and test. Compiler values are
-// strings so this module does not depend on either tool's toolchain types.
+// The configuration summary shared by build and test. Build and compiler
+// values are strings so this module does not depend on either tool's types.
 struct ConfigurationLog {
     std::string_view tool;
     std::filesystem::path configuration_path = "out/config.mdy";
+    std::string_view build = "debug";
     std::string_view compiler_family;
     std::string_view compiler;
     std::string_view compile_flags;

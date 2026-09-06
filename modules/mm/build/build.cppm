@@ -20,19 +20,21 @@ inline constexpr int exit_link     = 81;
 inline constexpr int exit_run      = 127;
 
 enum class CompilerFamily { Gcc, Clang };
+enum class Build { Debug, Release };
 
 struct Toolchain {
     CompilerFamily family = CompilerFamily::Gcc;
     std::string cxx      = "g++";
-    std::string cxxflags = "-std=c++20";
-    std::string ldflags  = "-std=c++20";
+    std::string cxxflags = "-std=c++20 -O0 -g";
+    std::string ldflags  = "-std=c++20 -g";
     bool verbose         = false;
 };
 
 [[nodiscard]] std::string_view compiler_family_name(CompilerFamily family);
+[[nodiscard]] std::string_view build_name(Build build);
 
-// The unconfigured project default. Compiler selection is persisted by the
-// configure tool rather than taken independently from each process's $CXX.
+// The unconfigured project default: a debug build with GCC. Compiler and build
+// selection are persisted by configure rather than chosen by each process.
 Toolchain default_toolchain(bool verbose = false);
 
 // The single compiler/output lane the current build front end can execute.
@@ -40,6 +42,7 @@ Toolchain default_toolchain(bool verbose = false);
 // this lane. It reports malformed or unreadable configuration and returns
 // false; callers decide separately whether an absent file means fallback.
 struct BuildConfiguration {
+    Build build = Build::Debug;
     Toolchain toolchain;
     std::filesystem::path build_directory;
 };
@@ -49,8 +52,8 @@ struct BuildConfiguration {
                                       BuildConfiguration& configuration);
 
 // Loads project_root/out/config.mdy when present; otherwise returns the shared
-// GCC default and the legacy out build directory. Every compiling front end
-// uses this resolver so build and test cannot choose different compilers.
+// debug GCC default and the legacy out build directory. Every compiling front
+// end uses this resolver so build and test cannot choose different values.
 [[nodiscard]] bool resolve_configuration(const std::filesystem::path& project_root,
                                          bool verbose,
                                          BuildConfiguration& configuration);

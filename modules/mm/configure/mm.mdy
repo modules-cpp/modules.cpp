@@ -9,5 +9,6 @@ file: src/configure.cpp
 
 # mm.configure
 
-Parses GCC and Clang compiler selectors and atomically persists the one
-project-wide compiler configuration consumed by both build and test.
+Parses GCC and Clang compiler selectors and debug or release builds, then
+atomically persists the one project-wide configuration consumed by both build
+and test.

@@ -20,6 +20,7 @@ constexpr std::string_view native_configuration =
     "mm: 1.0\n"
     "kind: configuration\n"
     "name: native\n"
+    "build: release\n"
     "target-compiler: host\n"
     "host-compiler-family: clang\n"
     "host-compiler: clang++\n"
@@ -47,6 +48,8 @@ void loads_the_host_selection() {
                      "expected host flags");
     mm::test::expect(configuration.toolchain.verbose,
                      "expected the caller's verbose setting to be retained");
+    mm::test::expect(configuration.build == mm::build::Build::Release,
+                     "expected release build selection");
     mm::test::expect(configuration.build_directory == "out/host",
                      "expected target build directory");
 }
@@ -155,6 +158,34 @@ void treats_an_older_configuration_as_gcc() {
                      "expected a missing family to retain the historical GCC behavior");
 }
 
+void treats_an_older_configuration_as_debug() {
+    const mm::test::scoped_tree tree{"build_legacy_debug_configuration"};
+    const auto path = tree.root() / "out" / "config.mdy";
+    std::string text(native_configuration);
+    const auto build = text.find("build: release\n");
+    text.erase(build, std::string_view("build: release\n").size());
+    write(path, text);
+
+    mm::build::BuildConfiguration configuration;
+    mm::test::expect(mm::build::load_configuration(path, false, configuration),
+                     "expected a configuration written before build selection to load");
+    mm::test::expect(configuration.build == mm::build::Build::Debug,
+                     "expected a missing build to retain debug behavior");
+}
+
+void rejects_an_unknown_build() {
+    const mm::test::scoped_tree tree{"build_unknown_build"};
+    const auto path = tree.root() / "out" / "config.mdy";
+    std::string text(native_configuration);
+    const auto build = text.find("build: release");
+    text.replace(build, std::string_view("build: release").size(), "build: optimized");
+    write(path, text);
+
+    mm::build::BuildConfiguration configuration;
+    mm::test::expect(!mm::build::load_configuration(path, false, configuration),
+                     "expected an unknown build to fail");
+}
+
 void rejects_an_unknown_compiler_family() {
     const mm::test::scoped_tree tree{"build_unknown_compiler_family"};
     const auto path = tree.root() / "out" / "config.mdy";
@@ -177,6 +208,8 @@ const mm::test::case_ cases[] = {
     {"resolves one project configuration", &resolves_one_project_configuration},
     {"resolves shared unconfigured default", &resolves_the_shared_unconfigured_default},
     {"older configuration defaults to GCC", &treats_an_older_configuration_as_gcc},
+    {"older configuration defaults to debug", &treats_an_older_configuration_as_debug},
+    {"rejects unknown build", &rejects_an_unknown_build},
     {"rejects unknown compiler family", &rejects_an_unknown_compiler_family},
 };
 

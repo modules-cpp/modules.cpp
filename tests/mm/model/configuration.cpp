@@ -16,8 +16,10 @@ void reflects_the_given_verbose_flag() {
     mm::test::expect(loud->verbose(), "expected verbose(true) to report true");
 }
 
-void reports_the_shared_gcc_default() {
+void reports_the_shared_debug_gcc_default() {
     const auto configuration = mm::model::default_configuration(false);
+    mm::test::expect(configuration->build() == models::Build::Debug,
+                     "expected the unconfigured build to be debug");
     mm::test::expect(configuration->compiler_family() == models::CompilerFamily::Gcc,
                      "expected the unconfigured compiler family to be GCC");
     mm::test::expect(configuration->compiler() == "g++",
@@ -44,7 +46,7 @@ void platform_locale_and_shell_are_fixed() {
 
 const mm::test::case_ cases[] = {
     { "reflects the given verbose flag",         &reflects_the_given_verbose_flag },
-    { "reports the shared GCC default",          &reports_the_shared_gcc_default },
+    { "reports the shared debug GCC default",    &reports_the_shared_debug_gcc_default },
     { "platform, locale and shell are fixed",    &platform_locale_and_shell_are_fixed },
 };
 

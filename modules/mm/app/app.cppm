@@ -77,10 +77,8 @@ void unexpected_argument(std::string_view tool, std::string_view arg) {
 //   assigned("-o=")           the value follows the '=' in the same argument
 //   positional_limit(2)       how many bare arguments are allowed, default 1
 //
-// An argument matching nothing declared becomes a positional, even when it
-// starts with a dash. That is deliberate and preserves what every tool did
-// by hand: "check -x" reports "not an mm.mdy manifest: -x" rather than an
-// unknown-flag error, because -x lands in the manifest position.
+// An undeclared argument beginning with a dash is an unknown option and stops
+// parsing. Only arguments that do not look like options can be positional.
 class Options {
 public:
     explicit Options(std::string_view tool) : tool_(tool) {}
@@ -175,6 +173,11 @@ Cli Options::parse(int argc, char** argv) {
             break;
         }
         if (handled) continue;
+
+        if (arg.starts_with('-')) {
+            std::cerr << tool_ << ": unknown option: " << arg << "\n";
+            return Cli::usage;
+        }
 
         if (positional_.size() >= limit_) {
             unexpected_argument(tool_, arg);

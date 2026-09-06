@@ -27,7 +27,7 @@
 //
 // --configuration additionally reports the project's build configuration
 // (models.configuration, via mm::model::default_configuration): the live
-// compiler/flags/verbose plus the fixed platform/locale/shell policy.
+// build/compiler/flags/verbose plus the fixed platform/locale/shell policy.
 // Independent of the manifest tree, so it is reported even when the checks
 // above fail to load one.
 //
@@ -102,6 +102,9 @@ int main(int argc, char** argv) {
         // load.
         const auto configuration = mm::model::default_configuration(verbose);
         std::cout << "Configuration (declared policy, not a measurement of this run)\n";
+        std::cout << "  build          "
+                  << (configuration->build() == models::Build::Debug ? "debug" : "release")
+                  << "\n";
         std::cout << "  family         "
                   << (configuration->compiler_family() == models::CompilerFamily::Gcc
                           ? "gcc"

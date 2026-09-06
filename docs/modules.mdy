@@ -202,11 +202,12 @@ The execution layer compiles units, links programs, and installs applications.
 Generated paths mirror source paths under out. shell_quote protects paths sent
 through the shell. Child exit and signal states become tool exit codes.
 
-One project configuration in out/config.mdy selects either GCC or Clang,
-including versioned drivers such as g++-15 and clang++-20. Build and test both
-resolve that file and expose no independent compiler override. The GCC backend
-uses modules-ts; the Clang backend writes BMIs beneath the active build
-directory. A full build clears both families' module state before compiling.
+One project configuration in out/config.mdy selects debug or release and
+either GCC or Clang, including versioned drivers such as g++-15 and
+clang++-20. Build and test both resolve that file and expose no independent
+build or compiler override. The GCC backend uses modules-ts; the Clang backend
+writes BMIs beneath the active build directory. A full build clears both
+families' module state before compiling.
 
 ## mm.test
 mm.test provides the project test framework. It exports assertions, test cases,
@@ -380,7 +381,7 @@ A clean repository can produce all project tools with this sequence:
 
 - ./clean.sh
 - ./bootstrap.sh
-- ./configure --compiler gcc-15
+- ./configure --compiler gcc-15 --build debug
 - ./build.sh
 - ./test.sh
 - ./document.sh
