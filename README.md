@@ -132,3 +132,8 @@ also accepted by `build`, `test`, `check`, `model`, and `shell`, but not by
 manifest format, every core module and tool in detail, and the TDD workflow
 for making changes. This README only covers getting the project running for
 the first time.
+
+[Configure specification for release 1.1](docs/modules-configure.mdy) defines
+the official manifest-option, reset, and read-only requirements. Its Current
+boundaries section describes the implemented configure-only scope; build and
+test warn about these declarations but do not apply their values yet.

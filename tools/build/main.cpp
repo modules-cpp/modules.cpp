@@ -74,10 +74,10 @@ int build_1()
     const std::vector<Step> steps = {
         {"modules/mm/mdy/mdy.cppm",         "out/modules/mm/mdy/mdy.o"},
         {"modules/mm/mdy/src/mdy.cpp",      "out/modules/mm/mdy/src/mdy.o"},
-        {"modules/mm/build/build.cppm",     "out/modules/mm/build/build.o"},
-        {"modules/mm/build/src/build.cpp",  "out/modules/mm/build/src/build.o"},
         {"modules/mm/configure/configure.cppm", "out/modules/mm/configure/configure.o"},
         {"modules/mm/configure/src/configure.cpp", "out/modules/mm/configure/src/configure.o"},
+        {"modules/mm/build/build.cppm",     "out/modules/mm/build/build.o"},
+        {"modules/mm/build/src/build.cpp",  "out/modules/mm/build/src/build.o"},
         {"tools/build/build.cpp",           "out/tools/build/build.o"},
     };
 

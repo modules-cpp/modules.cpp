@@ -90,7 +90,7 @@ int main(int argc, char** argv) {
         return mm::build::exit_manifest;
     std::cout << "\n";
 
-    auto tree = mm::build::load_tree(tree_root);
+    auto tree = mm::build::load_tree(tree_root, {.tool = "build", .warn_options = true});
     if (!tree.ok) return mm::build::exit_manifest;
 
     if (tree.targets.empty()) {

@@ -11,6 +11,7 @@
 #include <iostream>
 #include <string>
 #include <string_view>
+#include <vector>
 
 import mm.app;
 import mm.build;
@@ -82,6 +83,26 @@ int main(int argc, char** argv) {
         std::cout << "  config " << configuration_path.string() << "\n";
     }
 
+    const auto project = mm::build::load_project(".", {.tool = "configure", .strict_tree = true});
+    if (!project.ok) return mm::build::exit_manifest;
+    const auto requested_root = std::filesystem::canonical(manifest_root, ec);
+    if (ec) return mm::build::exit_manifest;
+    bool found = false;
+    for (const auto& node : project.nodes) {
+        const auto directory = std::filesystem::canonical(node.dir, ec);
+        if (ec) return mm::build::exit_manifest;
+        if (directory == requested_root) found = true;
+    }
+    if (!found) {
+        std::cerr << "configure: requested manifest is not in the project tree: "
+                  << manifest_root.string() << "\n";
+        return mm::build::exit_manifest;
+    }
+    const auto nodes = mm::build::configuration_nodes(project);
+    std::vector<mm::configure::OptionValues> resolved;
+    if (!mm::configure::resolve_options(project_root, *build, nodes, resolved))
+        return mm::build::exit_manifest;
+
     mm::configure::Settings settings;
     settings.name = requested + "-" + requested_build;
     settings.build = *build;
@@ -94,6 +115,11 @@ int main(int argc, char** argv) {
 
     if (!mm::configure::write_configuration(project_root, settings)) {
         std::cerr << "configure: failed to write " << configuration_path.string() << "\n";
+        return mm::build::exit_manifest;
+    }
+
+    if (!mm::configure::write_option_records(project_root, *build, nodes, resolved, verbose)) {
+        std::cerr << "configure: incomplete option snapshot; rerun configure\n";
         return mm::build::exit_manifest;
     }
 

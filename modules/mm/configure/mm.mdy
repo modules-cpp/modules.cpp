@@ -12,3 +12,5 @@ file: src/configure.cpp
 Parses GCC and Clang compiler selectors and debug or release builds, then
 atomically persists the one project-wide configuration consumed by both build
 and test.
+
+Resolves typed manifest options, resets, and read-only locks from a neutral parent-indexed tree and writes resolved-options.mdy snapshots beneath out. Supplies the shared typed build-default policy; neither this resolver nor the record writer invokes a compiler.

@@ -81,7 +81,7 @@ int main(int argc, char** argv) {
     std::cout << "modules.cpp check tool\n";
     std::cout << "  root " << root.string() << "\n\n";
 
-    auto tree = mm::build::load_tree(".");
+    auto tree = mm::build::load_tree(".", {.tool = "check"});
     if (!tree.ok) return mm::build::exit_manifest;
 
     std::set<std::string> seen;

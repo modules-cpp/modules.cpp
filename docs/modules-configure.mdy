@@ -1,0 +1,335 @@
+---
+mm: 1.0
+kind: doc
+name: modules.cpp configure specification for release 1.1
+status: official
+release: 1.1
+---
+
+# modules.cpp configure specification for release 1.1
+
+This is the configure and manifest-option specification for release 1.1. It describes implemented behavior. Every rule below is enforced by the code in modules/mm/build and modules/mm/configure and is covered by the tests named in Conformance; where the implementation falls short of a rule, Current boundaries says so explicitly rather than lowering the rule.
+
+configure validates named options declared in a manifest tree, resolves their inheritance, and writes a mirrored tree of resolved records beneath out. Build and test recognize the declarations, warn that they are ignored, and continue with their existing configuration. No tool converts an option into a compiler argument in this release.
+
+The mm field of this document remains 1.0 because it is prose using the existing document encoding; it declares no source-manifest options. The release field names the release this specification governs, and status marks it as normative rather than a draft. Its drafting history is in drafts/plan-manifest-configuration-options-2 through 4, which it supersedes.
+
+Examples use Opening fence and Closing fence instead of literal front matter delimiters, following docs/mdy.mdy. Each example line is an independent MDY body block. Command output shown here is transcribed from real runs.
+
+# Current boundaries
+
+Implemented and required:
+
+- The shared manifest gate accepts mm: 1.0 and mm: 1.1 for all six manifest-reading tools: configure, build, test, check, model, and document.
+- configure resolves named options, resets, and read-only locks over the complete manifest tree and writes one resolved-options.mdy per node beneath out.
+- The typed build-default policy is the single source of the debug and release baseline compile and link flags.
+- Build and test warn that option, reset, and read-only declarations are ignored, and continue. Check, model, and document accept the keys silently.
+
+Not implemented, by design, in this release:
+
+- No tool turns a resolved option into a compiler or linker argument. Records describe requested configuration, not the flags a build uses.
+- Build and test do not resolve an option tree, so a read-only marker is ignored metadata to them rather than a lock they enforce.
+- There are no per-option command-line overrides, no host, target, compiler, version, or build-named output branches, and no static toolchain mapping catalog.
+
+There are no known deviations between this specification and the implementation.
+
+# Model
+
+- The configuration structure is a rooted tree of manifest nodes and its mirror beneath out. Nothing else participates.
+- Options flow from a parent to its children until a descendant redefines or resets the same name, unless that option is read-only. A child never changes its parent or a sibling.
+- read-only freezes an option's resolved value from the declaring node down that branch. Descendants cannot override or reset it.
+- Only folder entries establish inheritance. use entries do not participate in configuration resolution.
+- The shared manifest loader owns version and structural-key validation. configure owns typed option validation, resolution, provenance, and record writing, over the shared build-default policy.
+
+# Configure command
+
+configure keeps its existing interface. The option tree is resolved on every run; there is no separate subcommand and no new flag.
+
+./configure --compiler g++-16 --build release
+./configure --build debug -v modules/mm/build
+
+The optional manifest path locates the containing project. configure always resolves the complete tree from that project's root, even when invoked on a descendant, so the resolved value of every node is independent of where configure was invoked. A requested manifest reachable in the filesystem but not present in the walked tree is an error; it does not become a separate inheritance root.
+
+Compiler selector behavior is unchanged, including versioned spellings. --build accepts debug or release and keeps its existing default. There is no positional build command and no --release shorthand. An unknown command-line option exits 64; a tree, option, or record failure exits 65.
+
+The selected build supplies option defaults. Compiler selection is a root setting, never a manifest option. out/config.mdy remains the root compiler and build configuration, written through its existing mechanism. Resolved records are separate files.
+
+# Manifest syntax
+
+Three repeatable keys carry declarations. All three require mm: 1.1.
+
+- option: name value assigns a value to one registered name.
+- reset: name restores one registered name to its configure-selected default.
+- read-only: name locks that node's final resolved value for the rest of its branch.
+
+Opening fence
+mm: 1.1
+kind: project
+name: fixture
+folder: modules
+option: warnings yes
+read-only: warnings
+Closing fence
+
+Opening fence
+mm: 1.1
+kind: module
+name: build
+module: fixture.build
+file: build.cppm
+option: optimize 3
+read-only: optimize
+reset: include-dir
+Closing fence
+
+An option declaration splits on its first run of spaces or tabs. The first part is the registered name; the remaining text, with surrounding whitespace removed, is the value. This is the splitting idiom parse_unit already uses for a file entry, without giving the value any module-name meaning.
+
+Names are case-sensitive. Missing names, missing option values, unknown names, and extra text after a reset or read-only name are errors. A name is declared at most once in one manifest, counting option and reset together: two assignments, two resets, or an assignment and a reset of the same name are all errors. Textual order never chooses a winner.
+
+A read-only marker is independent of the value declaration. One node may assign or reset a name and mark it read-only, or mark an inherited value read-only without assigning it. At most one read-only marker per name is allowed in a manifest. Its position before or after an option or reset line has no effect, because all assignments and resets in a node are applied before any of its locks.
+
+Raw compiler arguments, arbitrary defines, wildcard resets or locks, list values, and accumulation are not supported. A nearer include-dir replaces the inherited directory rather than adding another, provided the inherited option is not read-only.
+
+# Read-only options
+
+read-only applies to the effective value after that node's own assignment or reset has been resolved. It is an inheritance constraint, not a filesystem permission and not a property of the generated record file. Every default starts mutable.
+
+Once an ancestor locks a name, any descendant option or reset declaration for that name is an error. An assignment of the same value and a reset that would produce the same value are rejected too: the declaration itself is forbidden, not the difference it would make. This keeps validity independent of the selected build, because a locked default differs between debug and release and value-equality tolerance would accept a manifest under one build and reject it under the other. There is no unlock syntax, and a reset never removes a lock.
+
+A read-only marker by itself freezes an inherited value or a configure-selected default. An optional option may be locked while unset, preventing descendants from enabling it. A local reset combined with read-only therefore locks the default or unset state, provided no ancestor already locked the name.
+
+Repeating read-only in a descendant for an already locked name is an idempotent assertion. The original lock source is preserved; the descendant does not become the lock origin. Duplicate markers in the same manifest remain errors.
+
+Locks are copied only down the declaring branch. A sibling outside that branch can still redefine or reset the option. A lock at the project root applies to the complete tree. Configuring through a descendant path still resolves from the root and cannot bypass an ancestor's lock.
+
+A read-only marker on a module, app, or test manifest is accepted even though those kinds introduce no children. It records intent, appears in the node's record with its lock origin, and is not diagnosed as a useless declaration.
+
+Each configure run derives values and locks afresh from the source manifests. Editing the manifest that owns a lock can change its value or remove its marker on the next run, and a locked default is recomputed for the selected build. Read-only is a constraint within one resolved tree, not a permanent freeze across runs.
+
+A lock conflict names the attempted operation, the option, the descendant manifest, and the manifest that first locked the name:
+
+configure: modules/build/mm.mdy: warnings: option cannot change read-only option locked by mm.mdy
+
+# Types and domains
+
+Each name takes its type from the registry, never from the spelling of its value.
+
+- Boolean accepts exactly yes or no.
+- Number is a base-ten signed 64-bit integer parsed with std::from_chars, requiring a successful error code and complete consumption. A leading plus, trailing text, and overflow are rejected. Each entry additionally declares an inclusive range.
+- Directory is a non-empty single-line value naming an existing directory inside the project. The domain is intrinsic to the type; there is no unrestricted free-string type, and no other string domain exists in this release.
+
+Parsing a type is not sufficient. optimize accepts only 0 through 3 even though many other strings parse as integers. A rejected value names the manifest, the option, the value, and the permitted domain:
+
+configure: modules/build/mm.mdy: optimize: invalid value '9'; expected a decimal integer from 0 to 3 (no leading plus)
+
+Unset is an explicit internal state for an optional option, not a fourth textual value type. It is distinct from an empty value, from zero, and from no. No spelling is reserved to mean unset: a directory literally named unset remains a directory, and the record distinguishes the two by key rather than by text. reset is how the optional directory option returns to unset.
+
+# Registry and defaults
+
+The registry is a table in modules/mm/configure. Each entry declares a name, a type, the source of its default, and for a number its permitted range. It is configure policy, not a compiler argument map, and it holds no emission callbacks.
+
+The registered names are:
+
+- warnings: boolean; default no in both builds.
+- warnings-error: boolean; default no in both builds.
+- optimize: number restricted to 0 through 3; default 0 for debug and 2 for release.
+- debug-info: boolean; default yes for debug and no for release.
+- assertions: boolean; default yes for debug and no for release.
+- include-dir: optional directory; default unset in both builds.
+
+All six may be assigned, reset, or marked read-only on project, dir, module, app, and test manifests, subject to inherited locks. A doc manifest declares none of the three; a doc node still receives a record showing its inherited values and locks, which does not mean it compiles anything.
+
+The registry admits no target, compiler, linker, sysroot, language-standard, module-policy, output-path, or ABI-selection option. Named settings alone do not prove compatibility between separately compiled sources, and this release makes no such claim.
+
+Defaults come from one typed policy, build_defaults, computed once for the selected build and validated before any node is resolved. The same policy generates the baseline compile and link flag strings returned by build_compile_flags and build_link_flags, so the defaults and the flags cannot drift: the flags are derived from the defaults rather than checked against them, and no flag string is parsed to recover a default. The emitted debug and release flags are unchanged from earlier releases.
+
+# Shared ownership
+
+- mm.build owns the reusable manifest walk and the single version and structural-key gate used by configure, build, test, check, model, and document. Front ends do not implement their own copies of the 1.0/1.1 or key-version rules. The gate is reachable directly as validate_manifest_schema for a tool rendering one manifest outside a walk.
+- mm.configure owns the option registry, typed value and domain validation, the default policy, the inheritance and read-only resolver, provenance, and the record format. It imports nothing and starts no manifest walk.
+- The configure front end requests a strict folder-tree view from the shared loader through LoadPolicy, then adapts the parsed nodes, documents, and parent indices with configuration_nodes into the resolver's neutral OptionNode input. The adaptation carries data without re-parsing files or duplicating validation. The resolver accepts that neutral parent-indexed input, not an mm.build type, so mm.configure needs no reverse dependency.
+- Strict-tree traversal is a configure-only loader policy. In that mode the loader reports a repeated canonical directory before discarding its second occurrence, and rejects a manifest inside the generated out directory. Default policy and traversal behavior for every other tool are unchanged.
+- The shared gate reports schema diagnostics with the caller's tool name. Unknown-name, type, reset, and lock errors stay in mm.configure. Recognizing the keys structurally does not require every tool to resolve their values.
+
+This boundary lets the existing walk and the configure registry coexist without a second walk or a circular module dependency. mm.build imports mm.configure for the shared default policy and the neutral option node; mm.configure imports nothing. When build eventually consumes options, it calls the same resolver through the same adapter rather than implementing another inheritance algorithm.
+
+# Directory values
+
+An include-dir declaration is relative to the directory containing the declaring manifest, not to the consuming child and not to the process working directory.
+
+The value is joined to that manifest directory, normalized, and checked for project containment with both the lexical safety check and a canonical containment check. Absolute inputs, escapes through parent components or symlinks, nonexistent paths, and paths that exist but are not directories are all rejected.
+
+The validated directory is stored relative to the project root. Inheritance copies that resolved path without rebasing it, so a modules manifest declaring include-dir include contributes modules/include to every descendant until it is replaced or reset. If that manifest also marks include-dir read-only, descendants keep the same directory and cannot reset it. A lock preserves the configured path, not the contents of the directory.
+
+Directories containing spaces or shell punctuation are data. MDY outer quoting, where needed, encloses the complete metadata value; there is no second shell-like quoting or escape language inside an option declaration, and configure never executes a value.
+
+Generated include directories that do not exist at configuration time are outside this domain. Supporting them requires an explicit additional validation rule, not a weakening of this one.
+
+# Tree resolution
+
+Every non-root node has exactly one parent, and only project and dir manifests introduce children through folder entries. In the strict traversal configure requests, a repeated canonical manifest directory, a recursive folder reference, a path outside the project, and traversal into the generated out directory are all errors. A second parent is never accepted by comparing its options or by preferring whichever parent was visited first.
+
+The resolver's input is the validated parent-before-child node list and the configure-selected default map. It performs no compilation ordering and no dependency analysis. It rejects an input whose first node is not the parentless project root, or whose parent index is not less than the node's own.
+
+For each node, in order:
+
+- Copy the parent's resolved entries, including lock state and lock origin, or copy the mutable default entries at the project root.
+- Reject every local option or reset naming an inherited read-only entry.
+- Replace each permitted assignment's name with its validated typed value, recording this manifest as the value source.
+- Replace each permitted reset's name with its value from the default map, including unset for an optional option, recording this manifest as the value source.
+- Apply local read-only markers to the resulting values, setting the lock origin to this manifest for newly locked entries and preserving an inherited lock origin for an already locked one.
+- Record the node's complete entries and pass them to each child independently.
+
+reset does not recover a grandparent's assignment, erase a registry entry, restore an already-overridden project value, or remove a lock. When permitted it restores the default configure selected for this run, and it then flows down the branch exactly like an assignment until another permitted declaration changes the name.
+
+With --build release, optimize starts at 2. If the project sets it to 1, a child sets it to 3, and a grandchild resets it, those nodes resolve to 1, 3, and 2, and a sibling of the child still sees 1. Resetting an inherited include-dir resolves to unset, and descendants keep it unset until another assignment.
+
+A resolved entry retains its typed value or unset state and its value origin: default, assignment, or reset. Assignment and reset origins name the declaring manifest, and a reset also identifies the default it restored. The read-only flag and the manifest that first locked the name are retained separately, so locking an inherited value does not replace its value origin with the lock origin. Children preserve both origins until a permitted operation changes them. Provenance is diagnostic metadata and is not part of value equality; lock state is part of the resolved inheritance policy.
+
+Names are serialized in lexical order, which the resolved map provides directly. Reordering declarations of different names, or moving read-only markers, changes no resolved value, no normalized directory path, and no lock state.
+
+# Version and diagnostics
+
+The single shared gate accepts mm: 1.0 and mm: 1.1 for configure, build, test, check, model, and document, including the standalone test-manifest load. A manifest declaring option, reset, or read-only uses 1.1. A 1.0 manifest without those declarations is valid and inherits values and locks normally from a 1.1 parent during configure. These key-version rules are enforced once in the shared loader, never separately in a front end.
+
+The gate recognizes option, reset, and read-only as valid 1.1 keys. An unknown key in a 1.1 manifest is an error under the strict traversal and a warning elsewhere. Unrelated keys in a 1.0 manifest keep their existing permissive treatment. Format errors, unsupported versions, and existing structural failures remain fatal in every tool.
+
+configure rejects unknown option names and invalid values rather than writing a partial interpretation. A failure in tree validation, version validation, option parsing, or resolution happens before anything is published. Its diagnostics take the form of the tool name, the manifest, the option, and the reason:
+
+configure: modules/build/mm.mdy: future-feature: unknown option name
+configure: modules/build/mm.mdy: option requires mm: 1.1
+configure: modules/build/mm.mdy: unknown manifest key: stray-key
+configure: requested manifest is not in the project tree: orphan
+
+A malformed declaration is reported as a syntax error, before its name is looked up in the registry and before any lock is consulted, so a reader is told what is wrong with the line rather than what the line failed to do. reset and read-only report extra text alike, and either key with no name at all names the key rather than an empty option:
+
+configure: modules/build/mm.mdy: optimize: reset takes a name only
+configure: modules/build/mm.mdy: optimize: read-only takes a name only
+configure: modules/build/mm.mdy: option: declaration requires a name
+configure: modules/build/mm.mdy: read-only: declaration requires a name
+
+Build and test have a deliberately different semantic policy. For each option, reset, or read-only declaration they warn once, naming the manifest and the declared name, state that the declaration is ignored, and continue with the existing configuration. They resolve no option tree in this release, so a read-only marker is ignored metadata to them rather than a lock they attempt to enforce. Recognizing a name configure would accept is not the same as applying its value. Unknown keys in a 1.1 manifest produce a warning on the same path:
+
+build: mm.mdy: option warnings is ignored; continuing with existing build configuration
+build: mm.mdy: read-only warnings is ignored; continuing with existing build configuration
+build: modules/build/mm.mdy: reset include-dir is ignored; continuing with existing build configuration
+build: modules/build/mm.mdy: unknown manifest key: stray-key (ignored)
+
+Check, model, and document accept and preserve the recognized 1.1 metadata through their existing document representations, without warning about it, and perform their existing work unchanged. They neither apply options, nor require generated records, nor call the resolver. Their own diagnostics are unaffected.
+
+Warnings alone never make build or test fail. Structural errors and unsupported versions remain fatal, as does an option, reset, or read-only declaration in a 1.0 manifest. An unknown command-line flag such as --release remains fatal; the warning policy covers manifest declarations, not command-line typos.
+
+An older binary that accepts only 1.0 still rejects 1.1. Every manifest-reading tool is rebuilt and verified with the shared gate before 1.1 source manifests are adopted; a passing configure run alone is not sufficient evidence of compatibility.
+
+# Resolved output tree
+
+configure writes one resolved-options.mdy per manifest node, mirroring the node's project-relative directory beneath out:
+
+- out/config.mdy remains the existing root compiler and build configuration.
+- out/resolved-options.mdy records the project node, whose node field is a single dot.
+- out/modules/resolved-options.mdy records the modules directory node.
+- out/modules/build/resolved-options.mdy records the build module node.
+
+Only configure writes these records. They are snapshots of its last successful resolution, never input manifests and never local overrides. Editing a source manifest requires another configure run to refresh them. Build and test neither consume nor refresh them.
+
+The record tree is specific to the selected build. Reconfiguring from debug to release, or back, replaces the records at the same out paths with the new defaults, values, and locks. There are no simultaneous debug and release record trees and no build-named output suffixes. Changing the selected build recomputes resets and locked defaults for the complete tree and retains nothing from the previous selection.
+
+A record contains the selected build, the node identity, the complete typed settings including unset entries, inherited and local read-only state, and the applied-by-build field stating that nothing here is applied yet. Paths are project-root-relative. The schema field marks the record format; these files are not subject to source-manifest key or kind validation, and no folder walk reaches them.
+
+Entries are serialized in lexical order by name. Each name contributes exactly one option or unset-option entry, immediately followed by a read-only entry when that name is locked; absence of the marker means mutable. A record has no compile-arg or link-arg entries, because no argument is emitted in this release.
+
+This is the record written for the module node of a release configuration whose project root assigns and locks warnings, whose modules directory sets include-dir, and whose module assigns and locks optimize and resets include-dir:
+
+Opening fence
+mm: 1.0
+kind: resolved-options
+schema: configure-options-1
+name: build
+node: modules/build
+manifest: modules/build/mm.mdy
+build: release
+resolved-by: configure
+applied-by-build: no
+path-base: project-root
+option: assertions no
+option: debug-info no
+unset-option: include-dir
+option: optimize 3
+read-only: optimize
+option: warnings yes
+read-only: warnings
+option: warnings-error no
+Closing fence
+
+Provenance follows in the document body as ordinary lines, one per name, giving the value, its origin, and its mutable or read-only state with the manifest that first locked it. The body of the record above opens with a level-one heading reading Provenance, written here as Provenance heading for the same reason the fences are spelled out, and continues:
+
+Provenance heading
+
+assertions: no; default for release; mutable
+debug-info: no; default for release; mutable
+include-dir: unset; reset by modules/build/mm.mdy to default for release; mutable
+optimize: 3; assigned by modules/build/mm.mdy; read-only from modules/build/mm.mdy
+warnings: yes; assigned by mm.mdy; read-only from mm.mdy
+warnings-error: no; default for release; mutable
+
+Provenance is prose that no tool interprets. It prints the unset state and a directory literally named unset identically; the front matter keys, unset-option against option, are what distinguish them, and they are authoritative. Verbose configure prints the same lines for every node.
+
+# Publication order and failure
+
+configure resolves the complete tree, then writes out/config.mdy, then validates every record destination, then writes the records. Every tree, version, option, and resolution failure therefore happens before anything is published, and leaves both the existing configuration and the existing records untouched.
+
+Each record is replaced through a temporary directory created exclusively beside the destination, with the content written inside it and renamed into place. Destination containment is anchored to the canonical project out directory, so an out symlink cannot redirect a write, and every destination is validated before the first record is published.
+
+Record writing is not a whole-tree transaction. An I/O failure part way through leaves records from two runs and, because out/config.mdy is written first, leaves the newly selected compiler and build configuration published. configure reports the snapshot as incomplete, exits non-zero, and does not claim successful publication:
+
+configure: cannot write out/modules/resolved-options.mdy; incomplete snapshot, rerun configure
+configure: incomplete option snapshot; rerun configure
+
+Nothing under out is cleared or deleted to publish records. Records for removed nodes may remain; they are not tree members and not inputs. Current membership comes from the source manifests alone, never from scanning out.
+
+A successful run reports that the records are advisory, before the existing configuration summary:
+
+Manifest options and locks recorded only; not applied by build or test yet
+Configured release build with gcc compiler g++
+
+# Deferred: applying options to compilation
+
+These requirements constrain the release that first turns a resolved option into a compiler argument. They are recorded here so the constraint survives the stage boundary.
+
+- Reconcile the baseline flags with the resolved values before consuming them. Emitting nothing for assertions yes cannot undo a baseline -DNDEBUG, and debug-info no must not leave baseline debug information enabled. Generate controlled flags once from the final settings, or countermand the relevant baseline explicitly, and test both builds with overrides in both directions.
+- Emission needs per-entry validation and encoding for the actual downstream parser. One shell-quoted concatenated token is not a general safety proof: a comma inside a -Wl value introduces another linker option. Do not add unrestricted forwarding entries or raw arguments as an escape.
+- Keep a directory operand bound to its validated location when encoding it, avoid downstream reinterpretation of special prefixes, and preserve every intended operand boundary. Where a command goes through a shell, apply shell_quote to every emitted argument, including paths with punctuation.
+- If link inputs are added, keep them distinct from linker options and preserve their required order. Objects before libraries is the portable baseline for GNU-style archive linking; LLD resolves some backward archive references, so tests must not assume identical behavior. Dependencies among libraries need their own ordered representation and are not modeled here.
+- Build calls the resolver in mm.configure through the same neutral adapter configure uses. A second inheritance algorithm is not acceptable.
+- Static compiler and toolchain mapping documents remain a separate design. This registry neither implements nor supersedes them, and no target-specific output layout from the drafts is imported here.
+
+# Conformance
+
+The requirements above are covered by tests/mm/configure/options.cpp, which exercises the resolver, the registry, the shared default policy, the strict tree, the directory domain, and output safety in process, and by tests/mm/configure/options_cli.cpp, which drives the installed tools end to end.
+
+- Configuring the project root or a registered descendant produces identical resolved settings for every node.
+- An unlocked parent assignment reaches descendants, a nearer assignment replaces it, and sibling values are unchanged.
+- reset restores the selected-build default rather than the parent or project assignment, and its result flows down the branch.
+- Resetting an unlocked include-dir records unset; redefining it later records the newly validated directory.
+- Assigning a value and marking it read-only locks the final value regardless of declaration order. Descendant assignments and resets fail, including an attempt to assign the same value or reset to an equal default.
+- read-only alone locks an inherited value or default without changing its value origin. Resetting an optional option and locking it preserves unset throughout that branch.
+- Locks never affect an ancestor or a sibling outside the locked branch, and configuring through a descendant does not bypass one.
+- A project-root lock reaches every branch, in both debug and release, including where the attempted value equals the locked default in only one build.
+- A read-only marker on a module, app, or test manifest is accepted, appears in the record with its lock origin, and is not diagnosed as useless.
+- Repeating an inherited read-only marker is idempotent and preserves the original lock source; duplicate local markers and unknown lock names fail.
+- A lock conflict names the operation, the option, the offending manifest, and the original locking manifest, and publishes nothing.
+- Debug and release produce their respective optimize, debug-info, and assertions defaults, with all six names present at every node.
+- One shared typed policy supplies the build-dependent defaults and the baseline compile and link flags. The emitted debug and release flags are unchanged, and neither the registry nor an unconfigured build or test duplicates that policy.
+- Duplicate declarations, conflicting assignment and reset pairs, missing values, and unknown names fail before anything is published.
+- Boolean misspellings, leading-plus numbers, overflow, trailing characters, and out-of-range optimization levels fail with a diagnostic naming the permitted domain.
+- A directory is anchored at its declaring manifest and does not move when inherited. Missing directories, regular files, and escapes through parent components or symlinks fail validation.
+- configure rejects a repeated canonical node and a recursive folder reference as invalid tree input, and never chooses a parent by comparing option maps. Other tools keep their existing repeat-visit and cycle behavior.
+- A 1.0 manifest inherits values and locks normally, but declaring option, reset, or read-only requires 1.1. configure rejects unknown 1.1 keys, and all three declaration keys on a doc manifest.
+- With a mixed 1.0 and 1.1 tree containing option, reset, and read-only, build, test, check, model, and document all complete their ordinary workflows when their existing prerequisites are met. No tool fails on the version or the recognized keys, and none requires a record.
+- Every manifest-reading tool uses the same gate to reject a declaration in a 1.0 manifest, including the standalone test load. Unsupported versions and structural errors stay fatal.
+- Build and test warn that options, resets, and read-only markers are ignored, including an unknown name, and continue. An unknown command-line flag still exits 64.
+- Reordering distinct declarations, or moving read-only markers, changes no resolved value. Records identify defaults, assignments, resets, unset values, read-only state, value origins, and lock origins accurately.
+- Records mirror source nodes beneath out and never overwrite out/config.mdy or an unrelated artifact. An output failure reports an incomplete snapshot and exits non-zero.
+- Reconfiguring debug to release and back replaces the same record tree and recomputes defaults, reset values, and locks, retaining nothing from the preceding selection.
+- Configuring options invokes no compiler or linker, executes no supplied value, and never claims the records describe actual build arguments.
+- Build, test, check, model, document, and bootstrap behavior is otherwise unchanged apart from the shared compatibility gate, the specified diagnostics, and the equivalent default-policy refactoring. None requires a resolved-options.mdy file.

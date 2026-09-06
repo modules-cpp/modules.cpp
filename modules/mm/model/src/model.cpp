@@ -698,7 +698,7 @@ Loaded Loaded::load(const std::filesystem::path& root_dir, bool& ok) {
     // One traversal: mm::build::load_project pairs each node with its own
     // parsed document and its target, so nothing here re-reads a manifest
     // or re-pairs the two views by directory.
-    auto project = mm::build::load_project(".");
+    auto project = mm::build::load_project(".", {.tool = "model"});
     if (!project.ok) {
         return loaded;
     }

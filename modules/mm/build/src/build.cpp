@@ -48,6 +48,7 @@ bool safe_exists(const std::filesystem::path& path) {
 // visited, which detects cycles, and everything finished, which collapses a
 // diamond into one visit instead of duplicating its targets.
 struct WalkState {
+    LoadPolicy policy;
     std::filesystem::path root;                   // canonical project root
     std::vector<std::filesystem::path> visiting;  // active chain, innermost last
     std::vector<std::filesystem::path> visited;
@@ -71,7 +72,7 @@ Enter enter_manifest(const std::filesystem::path& dir, WalkState& state,
     manifest = (dir / "mm.mdy").lexically_normal();
 
     if (!safe_exists(manifest)) {
-        std::cerr << "build: missing manifest: " << manifest.string() << "\n";
+        std::cerr << state.policy.tool << ": missing manifest: " << manifest.string() << "\n";
         return Enter::error;
     }
 
@@ -80,25 +81,44 @@ Enter enter_manifest(const std::filesystem::path& dir, WalkState& state,
     std::error_code ec;
     canonical = std::filesystem::weakly_canonical(manifest, ec);
     if (ec) {
-        std::cerr << "build: cannot resolve " << manifest.string() << ": " << ec.message() << "\n";
+        std::cerr << state.policy.tool << ": cannot resolve " << manifest.string() << ": " << ec.message() << "\n";
         return Enter::error;
     }
 
     const auto relative = canonical.lexically_relative(state.root);
     if (relative.empty() || *relative.begin() == "..") {
-        std::cerr << "build: manifest outside the project root: " << canonical.string() << "\n";
+        std::cerr << state.policy.tool << ": manifest outside the project root: " << canonical.string() << "\n";
         return Enter::error;
     }
 
     if (state.contains(state.visiting, canonical)) {
-        std::cerr << "build: folder: cycle in the manifest tree:\n";
+        std::cerr << state.policy.tool << ": folder: cycle in the manifest tree:\n";
         for (const auto& entry : state.visiting)
             std::cerr << "    " << entry.lexically_relative(state.root).string() << "\n";
         std::cerr << "    " << relative.string() << "  <- repeats\n";
         return Enter::error;
     }
 
-    if (state.contains(state.visited, canonical)) return Enter::skip;
+    if (state.policy.strict_tree) {
+        const auto output = std::filesystem::weakly_canonical(state.root / "out", ec);
+        if (ec) {
+            std::cerr << state.policy.tool << ": cannot resolve "
+                      << (state.root / "out").string() << ": " << ec.message() << "\n";
+            return Enter::error;
+        }
+        const auto in_output = canonical.lexically_relative(output);
+        if (!in_output.empty() && *in_output.begin() != "..") {
+            std::cerr << state.policy.tool << ": generated out directory in manifest tree: "
+                      << manifest.string() << "\n";
+            return Enter::error;
+        }
+    }
+    if (state.contains(state.visited, canonical)) {
+        if (!state.policy.strict_tree) return Enter::skip;
+        std::cerr << state.policy.tool << ": repeated canonical manifest directory: "
+                  << manifest.string() << "\n";
+        return Enter::error;
+    }
 
     return Enter::ok;
 }
@@ -144,24 +164,40 @@ bool within_root(const std::filesystem::path& path) {
     return !relative.empty() && *relative.begin() != "..";
 }
 
-// The one manifest format version this project understands. Every real
-// manifest declares mm: 1.0; nothing else is defined yet.
-constexpr std::string_view supported_mm_version = "1.0";
-
-bool valid_mm_version(const mm::mdy::MDYDocument& doc, const std::filesystem::path& manifest) {
-    const auto* values = lookup(doc, "mm");
-    if (values == nullptr || values->empty()) {
-        std::cerr << "build: manifest has no mm: version: " << manifest.string() << "\n";
+// All source-manifest consumers share this gate. Configuration records have
+// their own schema and do not pass through it.
+bool valid_mm_version(const mm::mdy::MDYDocument& doc, const std::filesystem::path& manifest,
+                      const LoadPolicy& policy) {
+    const auto* versions = lookup(doc, "mm");
+    if (doc.status != mm::mdy::ParseStatus::Ok || versions == nullptr ||
+        versions->size() != 1 || (versions->front() != "1.0" && versions->front() != "1.1")) {
+        std::cerr << policy.tool << ": invalid or unsupported mm: version in "
+                  << manifest.string() << " (supported: 1.0, 1.1)\n";
         return false;
     }
-    if (values->size() > 1) {
-        std::cerr << "build: manifest declares mm: more than once: " << manifest.string() << "\n";
-        return false;
-    }
-    if (values->front() != supported_mm_version) {
-        std::cerr << "build: unsupported mm: version \"" << values->front() << "\" in "
-                  << manifest.string() << " (supported: " << supported_mm_version << ")\n";
-        return false;
+    for (const auto& [key, values] : doc.metadata) {
+        const bool option = key == "option" || key == "reset" || key == "read-only";
+        if (option && versions->front() == "1.0") {
+            std::cerr << policy.tool << ": " << manifest.string() << ": " << key
+                      << " requires mm: 1.1\n";
+            return false;
+        }
+        const bool known = option || key == "mm" || key == "kind" || key == "name" ||
+                           key == "module" || key == "folder" || key == "file" ||
+                           key == "unit" || key == "use";
+        if (!known && versions->front() == "1.1") {
+            std::cerr << policy.tool << ": " << manifest.string()
+                      << ": unknown manifest key: " << key
+                      << (policy.strict_tree ? "\n" : " (ignored)\n");
+            if (policy.strict_tree) return false;
+        }
+        if (option && policy.warn_options) {
+            for (const auto& value : values) {
+                const auto name = value.substr(0, value.find_first_of(" \t"));
+                std::cerr << policy.tool << ": " << manifest.string() << ": " << key
+                          << " " << name << " is ignored; continuing with existing build configuration\n";
+            }
+        }
     }
     return true;
 }
@@ -276,19 +312,19 @@ bool has_configuration_compiler(const mm::mdy::MDYDocument& document,
 }
 
 bool valid_manifest(const mm::mdy::MDYDocument& doc, std::string_view kind, std::string_view name,
-                    const std::filesystem::path& manifest) {
-    if (!valid_mm_version(doc, manifest)) return false;
+                    const std::filesystem::path& manifest, const LoadPolicy& policy) {
+    if (!valid_mm_version(doc, manifest, policy)) return false;
     if (kind != "project" && kind != "dir" && kind != "module" &&
         kind != "app" && kind != "test" && kind != "doc") {
-        std::cerr << "build: unknown kind \"" << kind << "\" in " << manifest.string() << "\n";
+        std::cerr << policy.tool << ": unknown kind \"" << kind << "\" in " << manifest.string() << "\n";
         return false;
     }
     if (name.empty()) {
-        std::cerr << "build: manifest has no name: " << manifest.string() << "\n";
+        std::cerr << policy.tool << ": manifest has no name: " << manifest.string() << "\n";
         return false;
     }
     if (!is_safe_name(name)) {
-        std::cerr << "build: unsafe name \"" << name << "\" in " << manifest.string() << "\n";
+        std::cerr << policy.tool << ": unsafe name \"" << name << "\" in " << manifest.string() << "\n";
         return false;
     }
     return true;
@@ -315,7 +351,7 @@ void walk_project(const std::filesystem::path& dir, std::size_t parent, Project&
     const auto kind = first(doc, "kind");
     const auto name = first(doc, "name");
 
-    if (!valid_manifest(doc, kind, name, manifest)) {
+    if (!valid_manifest(doc, kind, name, manifest, state.policy)) {
         project.ok = false;
         state.visited.push_back(canonical);
         return;
@@ -365,7 +401,7 @@ void walk_project(const std::filesystem::path& dir, std::size_t parent, Project&
         const std::filesystem::path raw = unit.path;
         const std::filesystem::path joined = join_with_dir ? dir / raw : raw;
         if (!is_safe_relative_path(raw, joined)) {
-            std::cerr << "build: unsafe source path \"" << unit.path << "\" in "
+            std::cerr << state.policy.tool << ": unsafe source path \"" << unit.path << "\" in "
                       << manifest.string() << "\n";
             project.ok = false;
             return false;
@@ -392,7 +428,7 @@ void walk_project(const std::filesystem::path& dir, std::size_t parent, Project&
             if (!push_source(unit, false)) return;
 
         if (target.sources.empty()) {
-            std::cerr << "build: manifest declares no unit: entries: " << manifest.string() << "\n";
+            std::cerr << state.policy.tool << ": manifest declares no unit: entries: " << manifest.string() << "\n";
             project.ok = false;
             return;
         }
@@ -407,12 +443,12 @@ void walk_project(const std::filesystem::path& dir, std::size_t parent, Project&
         if (!push_source(file, true)) return;
 
     if (target.sources.empty()) {
-        std::cerr << "build: manifest declares no file: entries: " << manifest.string() << "\n";
+        std::cerr << state.policy.tool << ": manifest declares no file: entries: " << manifest.string() << "\n";
         project.ok = false;
         return;
     }
     if (kind == "module" && target.module_name.empty()) {
-        std::cerr << "build: module manifest has no module: name: " << manifest.string() << "\n";
+        std::cerr << state.policy.tool << ": module manifest has no module: name: " << manifest.string() << "\n";
         project.ok = false;
         return;
     }
@@ -481,6 +517,11 @@ Toolchain default_toolchain(bool verbose) {
     Toolchain toolchain;
     toolchain.verbose = verbose;
     return toolchain;
+}
+
+bool validate_manifest_schema(const mm::mdy::MDYDocument& document,
+                              const std::filesystem::path& manifest, const LoadPolicy& policy) {
+    return valid_manifest(document, first(document, "kind"), first(document, "name"), manifest, policy);
 }
 
 bool load_configuration(const std::filesystem::path& path, bool verbose,
@@ -595,14 +636,15 @@ std::filesystem::path find_project_root(std::filesystem::path dir) {
     return {};
 }
 
-Project load_project(const std::filesystem::path& dir) {
+Project load_project(const std::filesystem::path& dir, const LoadPolicy& policy) {
     Project project;
 
     std::error_code ec;
     WalkState state;
+    state.policy = policy;
     state.root = std::filesystem::weakly_canonical(dir, ec);
     if (ec) {
-        std::cerr << "build: cannot resolve project root " << dir.string()
+        std::cerr << policy.tool << ": cannot resolve project root " << dir.string()
                   << ": " << ec.message() << "\n";
         project.ok = false;
         return project;
@@ -626,7 +668,7 @@ Project load_project(const std::filesystem::path& dir) {
     auto check_dir = [&](const BuildableNode& target) {
         const auto it = targets_by_dir.find(target.dir);
         if (it != targets_by_dir.end()) {
-            std::cerr << "build: " << target.dir.string() << " is declared by more than one manifest: "
+            std::cerr << policy.tool << ": " << target.dir.string() << " is declared by more than one manifest: "
                       << it->second->name << " and " << target.name << "\n";
             project.ok = false;
             return;
@@ -640,7 +682,7 @@ Project load_project(const std::filesystem::path& dir) {
         if (target.kind == "module") {
             const auto it = modules_by_name.find(target.module_name);
             if (it != modules_by_name.end()) {
-                std::cerr << "build: module: " << target.module_name << " is exported by both "
+                std::cerr << policy.tool << ": module: " << target.module_name << " is exported by both "
                           << it->second->dir.string() << " and " << target.dir.string() << "\n";
                 project.ok = false;
             } else {
@@ -649,7 +691,7 @@ Project load_project(const std::filesystem::path& dir) {
         } else if (target.kind == "app") {
             const auto it = apps_by_name.find(target.name);
             if (it != apps_by_name.end()) {
-                std::cerr << "build: app name \"" << target.name << "\" is declared by both "
+                std::cerr << policy.tool << ": app name \"" << target.name << "\" is declared by both "
                           << it->second->dir.string() << " and " << target.dir.string() << "\n";
                 project.ok = false;
             } else {
@@ -664,10 +706,23 @@ Project load_project(const std::filesystem::path& dir) {
     return project;
 }
 
+
+std::vector<mm::configure::OptionNode> configuration_nodes(const Project& project) {
+    std::vector<mm::configure::OptionNode> nodes;
+    if (!project.ok || project.nodes.size() != project.documents.size()) return nodes;
+    for (std::size_t i = 0; i < project.nodes.size(); ++i) {
+        const auto& node = project.nodes[i];
+        const auto& doc = project.documents[i];
+        nodes.push_back({node.manifest, node.dir, node.name, node.kind, node.parent,
+                         all(doc, "option"), all(doc, "reset"), all(doc, "read-only")});
+    }
+    return nodes;
+}
+
 // Projections of the single traversal above, kept so callers that want only
 // one view need not know about the other.
-Tree load_tree(const std::filesystem::path& dir) {
-    auto project = load_project(dir);
+Tree load_tree(const std::filesystem::path& dir, const LoadPolicy& policy) {
+    auto project = load_project(dir, policy);
 
     Tree tree;
     tree.ok = project.ok;
@@ -677,28 +732,30 @@ Tree load_tree(const std::filesystem::path& dir) {
     return tree;
 }
 
-std::vector<ManifestNode> load_nodes(const std::filesystem::path& dir, bool& ok) {
-    auto project = load_project(dir);
+std::vector<ManifestNode> load_nodes(const std::filesystem::path& dir, bool& ok,
+                                     const LoadPolicy& policy) {
+    auto project = load_project(dir, policy);
     ok = project.ok;
     return std::move(project.nodes);
 }
 
-BuildableNode load_test(const std::filesystem::path& manifest_path, bool& ok) {
+BuildableNode load_test(const std::filesystem::path& manifest_path, bool& ok,
+                        const LoadPolicy& policy) {
     ok = false;
     BuildableNode target;
 
     if (!safe_exists(manifest_path)) {
-        std::cerr << "build: manifest does not exist: " << manifest_path.string() << "\n";
+        std::cerr << policy.tool << ": manifest does not exist: " << manifest_path.string() << "\n";
         return target;
     }
 
     const auto doc = mm::mdy::Parser::parse_file(manifest_path);
 
-    if (!valid_mm_version(doc, manifest_path)) return target;
+    if (!valid_mm_version(doc, manifest_path, policy)) return target;
 
     const auto kind = first(doc, "kind");
     if (kind != "test") {
-        std::cerr << "build: manifest kind is \"" << kind << "\", expected \"test\"\n";
+        std::cerr << policy.tool << ": manifest kind is \"" << kind << "\", expected \"test\"\n";
         return target;
     }
 
@@ -709,11 +766,11 @@ BuildableNode load_test(const std::filesystem::path& manifest_path, bool& ok) {
     target.uses = all(doc, "use");
 
     if (target.name.empty()) {
-        std::cerr << "build: manifest has no name\n";
+        std::cerr << policy.tool << ": manifest has no name\n";
         return target;
     }
     if (!is_safe_name(target.name)) {
-        std::cerr << "build: unsafe name \"" << target.name << "\"\n";
+        std::cerr << policy.tool << ": unsafe name \"" << target.name << "\"\n";
         return target;
     }
 
@@ -722,14 +779,14 @@ BuildableNode load_test(const std::filesystem::path& manifest_path, bool& ok) {
     for (const auto& value : all(doc, "unit")) {
         auto unit = parse_unit(value);
         if (!is_safe_relative_path(unit.path, unit.path)) {
-            std::cerr << "build: unsafe source path \"" << unit.path << "\"\n";
+            std::cerr << policy.tool << ": unsafe source path \"" << unit.path << "\"\n";
             return target;
         }
         target.sources.push_back(std::move(unit));
     }
 
     if (target.sources.empty()) {
-        std::cerr << "build: manifest declares no unit: entries\n";
+        std::cerr << policy.tool << ": manifest declares no unit: entries\n";
         return target;
     }
 

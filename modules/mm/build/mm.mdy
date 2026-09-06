@@ -4,6 +4,7 @@ kind: module
 name: build
 module: mm.build
 use: mm.mdy
+use: mm.configure
 file: build.cppm
 file: src/build.cpp
 ---

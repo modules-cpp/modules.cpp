@@ -3,9 +3,12 @@ mm: 1.0
 kind: test
 name: configure
 use: mm.configure
+use: mm.build
 use: mm.mdy
 use: mm.test
 unit: tests/mm/configure/write_configuration.cpp
+unit: tests/mm/configure/options.cpp
+unit: tests/mm/configure/options_cli.cpp
 unit: tests/main.cpp
 ---
 

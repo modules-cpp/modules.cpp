@@ -5,9 +5,13 @@
 module;
 
 #include <filesystem>
+#include <cstddef>
+#include <cstdint>
+#include <map>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 export module mm.configure;
 
@@ -21,6 +25,48 @@ export namespace mm::configure {
 enum class CompilerFamily { Gcc, Clang };
 enum class CompilerSelection { Host, Cross };
 enum class Build { Debug, Release };
+
+struct BuildDefaults {
+    int optimize;
+    bool debug_info;
+    bool assertions;
+};
+[[nodiscard]] BuildDefaults build_defaults(Build build);
+
+enum class OptionType { Boolean, Number, Directory };
+enum class OptionOrigin { Default, Assignment, Reset };
+
+// Neutral input: the adapter copies declarations from an already parsed tree.
+struct OptionNode {
+    std::filesystem::path manifest;
+    std::filesystem::path directory;
+    std::string name;
+    std::string kind;
+    std::size_t parent = static_cast<std::size_t>(-1);
+    std::vector<std::string> options;
+    std::vector<std::string> resets;
+    std::vector<std::string> read_only;
+};
+
+struct OptionValue {
+    OptionType type = OptionType::Boolean;
+    bool boolean = false;
+    std::int64_t number = 0;
+    std::string directory;
+    bool unset = false;
+    OptionOrigin origin = OptionOrigin::Default;
+    std::filesystem::path value_source;
+    bool read_only = false;
+    std::filesystem::path lock_source;
+};
+using OptionValues = std::map<std::string, OptionValue, std::less<>>;
+
+[[nodiscard]] bool resolve_options(const std::filesystem::path& project_root, Build build,
+                                   const std::vector<OptionNode>& nodes,
+                                   std::vector<OptionValues>& resolved);
+[[nodiscard]] bool write_option_records(const std::filesystem::path& project_root, Build build,
+                                        const std::vector<OptionNode>& nodes,
+                                        const std::vector<OptionValues>& resolved, bool verbose);
 
 // A compiler selector accepted by configure. The C-driver spellings gcc and
 // clang are normalized to their C++ drivers so the same invocation can compile
@@ -82,9 +128,9 @@ struct ConfigurationLog {
 // configuration path with the calling tool's name and returns false.
 [[nodiscard]] bool log_configuration(const ConfigurationLog& log);
 
-// Writes out/config.mdy through out/config.mdy.tmp, then atomically replaces
-// the destination. Invalid settings or an I/O failure leave an existing file
-// unchanged.
+// Writes out/config.mdy through an exclusively created temporary directory
+// beside it, then atomically replaces the destination. Invalid settings or
+// an I/O failure leave an existing file unchanged.
 [[nodiscard]] bool write_configuration(const std::filesystem::path& project_root,
                                        const Settings& settings);
 

@@ -398,7 +398,7 @@ int generate_site(const std::filesystem::path& root_manifest, const std::filesys
     // each manifest's parsed document, and the validated targets. It also
     // validates file: entries the way every other kind's paths are
     // validated, which walking only the structure would not.
-    const auto project = mm::build::load_project(walk_root);
+    const auto project = mm::build::load_project(walk_root, {.tool = "document"});
     if (!project.ok) return 65;
 
     const auto& nodes = project.nodes;
@@ -508,6 +508,12 @@ int MdyApp::run() {
 
     // Run our modular front matter parser
     mm::mdy::MDYDocument doc = mm::mdy::Parser::parse_file(mdy_file);
+
+    // Arbitrary prose documents have their own metadata. A directly rendered
+    // mm.mdy is still a source manifest and must use the shared schema gate.
+    if (mdy_file.filename() == "mm.mdy" &&
+        !mm::build::validate_manifest_schema(doc, mdy_file, {.tool = "document"}))
+        return mm::build::exit_manifest;
 
     if (verbose) {
         // Print parsed front matter metadata

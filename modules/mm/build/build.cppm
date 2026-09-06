@@ -8,6 +8,7 @@ module;
 export module mm.build;
 
 import mm.mdy;
+import mm.configure;
 
 export namespace mm::build {
 
@@ -25,8 +26,8 @@ enum class Build { Debug, Release };
 struct Toolchain {
     CompilerFamily family = CompilerFamily::Gcc;
     std::string cxx      = "g++";
-    std::string cxxflags = "-std=c++20 -O0 -g";
-    std::string ldflags  = "-std=c++20 -g";
+    std::string cxxflags = std::string(mm::configure::build_compile_flags(mm::configure::Build::Debug));
+    std::string ldflags  = std::string(mm::configure::build_link_flags(mm::configure::Build::Debug));
     bool verbose         = false;
 };
 
@@ -103,10 +104,20 @@ struct ManifestNode {
 
 inline constexpr std::size_t no_parent = static_cast<std::size_t>(-1);
 
-// Every manifest reachable from dir, parents before children, using the same
-// cycle-safe rules as load_tree. Sets ok to false and reports the reason on a
-// malformed tree.
-std::vector<ManifestNode> load_nodes(const std::filesystem::path& dir, bool& ok);
+// Caller-specific diagnostics; only configure opts into a strict tree.
+struct LoadPolicy {
+    std::string_view tool = "build";
+    bool strict_tree = false;
+    bool warn_options = false;
+};
+
+[[nodiscard]] bool validate_manifest_schema(const mm::mdy::MDYDocument& document,
+                                            const std::filesystem::path& manifest,
+                                            const LoadPolicy& policy = {});
+
+// Every reachable manifest, parents before children. Sets ok on failure.
+std::vector<ManifestNode> load_nodes(const std::filesystem::path& dir, bool& ok,
+                                    const LoadPolicy& policy = {});
 
 inline constexpr std::size_t no_target = static_cast<std::size_t>(-1);
 
@@ -134,7 +145,10 @@ struct Project {
 };
 
 // The one traversal. load_tree and load_nodes are projections of this.
-Project load_project(const std::filesystem::path& dir);
+Project load_project(const std::filesystem::path& dir, const LoadPolicy& policy = {});
+
+// Shared data adapter; no parsing, validation, or option resolution here.
+std::vector<mm::configure::OptionNode> configuration_nodes(const Project& project);
 
 // Accepts either a manifest path or the directory holding one.
 std::filesystem::path resolve_manifest(std::filesystem::path path);
@@ -144,11 +158,12 @@ std::filesystem::path find_project_root(std::filesystem::path dir);
 
 // Depth first over folder: entries, starting at a kind:project or kind:dir
 // manifest. Paths in the result are relative to dir.
-Tree load_tree(const std::filesystem::path& dir);
+Tree load_tree(const std::filesystem::path& dir, const LoadPolicy& policy = {});
 
 // Loads a single kind:test manifest as a target whose sources are its unit:
 // entries. Sets ok to false and reports the reason on failure.
-BuildableNode load_test(const std::filesystem::path& manifest_path, bool& ok);
+BuildableNode load_test(const std::filesystem::path& manifest_path, bool& ok,
+                        const LoadPolicy& policy = {});
 
 // Topological order over use: edges, dependencies first. False on a cycle or an
 // unknown module name.

@@ -41,7 +41,7 @@ int main(int argc, char** argv) {
         return status == mm::app::Cli::usage ? mm::build::exit_usage : mm::build::exit_manifest;
 
     bool ok = false;
-    auto target = mm::build::load_test(manifest_path, ok);
+    auto target = mm::build::load_test(manifest_path, ok, {.tool = "test", .warn_options = true});
     if (!ok) return mm::build::exit_manifest;
 
     const auto root = mm::build::find_project_root(manifest_dir);
@@ -90,7 +90,7 @@ int main(int argc, char** argv) {
     // The modules a test uses come from the project tree, not from its own
     // manifest: appending the test as a target lets the ordinary use: machinery
     // resolve them transitively, so a test manifest lists only its own units.
-    auto tree = mm::build::load_tree(".");
+    auto tree = mm::build::load_tree(".", {.tool = "test", .warn_options = true});
     if (!tree.ok) return mm::build::exit_manifest;
 
     tree.targets.push_back(std::move(target));
