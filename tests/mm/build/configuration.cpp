@@ -28,8 +28,8 @@ constexpr std::string_view native_configuration =
     "host-platform: POSIX\n"
     "host-compile-flags: host compile flags\n"
     "host-link-flags: host link flags\n"
-    "host-build-directory: out/host\n"
-    "target-build-directory: out/host\n";
+    "host-build-directory: out-host\n"
+    "target-build-directory: out-host\n";
 
 void loads_the_host_selection() {
     const mm::test::scoped_tree tree{"build_native_configuration"};
@@ -50,7 +50,7 @@ void loads_the_host_selection() {
                      "expected the caller's verbose setting to be retained");
     mm::test::expect(configuration.build == mm::build::Build::Release,
                      "expected release build selection");
-    mm::test::expect(configuration.build_directory == "out/host",
+    mm::test::expect(configuration.build_directory == "out-host",
                      "expected target build directory");
 }
 
@@ -74,7 +74,7 @@ void loads_the_cross_selection() {
           "cross-platform: POSIX\n"
           "cross-compile-flags: cross compile flags\n"
           "cross-link-flags: cross link flags\n"
-          "host-build-directory: out/host\n"
+          "host-build-directory: out-host\n"
           "target-build-directory: out/target/aarch64-linux-gnu\n");
 
     mm::build::BuildConfiguration configuration;
@@ -109,8 +109,8 @@ void rejects_an_escaping_build_directory() {
     const mm::test::scoped_tree tree{"build_escaping_configuration"};
     const auto path = tree.root() / "out" / "config.mdy";
     std::string text(native_configuration);
-    const auto directory = text.find("target-build-directory: out/host");
-    text.replace(directory, std::string_view("target-build-directory: out/host").size(),
+    const auto directory = text.find("target-build-directory: out-host");
+    text.replace(directory, std::string_view("target-build-directory: out-host").size(),
                  "target-build-directory: ../outside");
     write(path, text);
 

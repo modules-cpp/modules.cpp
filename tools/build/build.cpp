@@ -120,7 +120,7 @@ int main(int argc, char** argv) {
     // Linked artifacts follow the configured build directory, but installed
     // host tools keep their stable launcher path. In particular, ./build and
     // build.sh execute out/bin/build, so a configured build must replace that
-    // executable rather than strand the new version under out/host/bin.
+    // executable rather than strand the new version under the configured tree.
     const std::filesystem::path bin_dir = "out/bin";
 
     std::cout << "\nLink\n";

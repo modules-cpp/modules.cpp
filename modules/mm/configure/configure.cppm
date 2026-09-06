@@ -105,8 +105,8 @@ struct Settings {
     CompilerSelection target_compiler = CompilerSelection::Host;
     CompilerSettings host;
     std::optional<CompilerSettings> cross;
-    std::filesystem::path host_build_directory = "out/host";
-    std::filesystem::path target_build_directory = "out/host";
+    std::filesystem::path host_build_directory = "out-host";
+    std::filesystem::path target_build_directory = "out-host";
 };
 
 // The configuration summary shared by build and test. Build and compiler

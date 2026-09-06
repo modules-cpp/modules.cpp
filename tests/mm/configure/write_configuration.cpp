@@ -51,8 +51,8 @@ void writes_a_native_configuration() {
                      "expected host compiler to round trip");
     mm::test::expect(first(document, "host-compiler-family") == "gcc",
                      "expected host compiler family to round trip");
-    mm::test::expect(first(document, "host-build-directory") == "out/host" &&
-                         first(document, "target-build-directory") == "out/host",
+    mm::test::expect(first(document, "host-build-directory") == "out-host" &&
+                         first(document, "target-build-directory") == "out-host",
                      "expected native build directories to round trip");
     mm::test::expect(!std::filesystem::exists(tree.root() / "out" / "config.mdy.tmp"),
                      "expected atomic rename not to leave its temporary file");
@@ -199,7 +199,7 @@ void logs_default_and_verbose_configurations() {
             .compiler = "g++-15",
             .compile_flags = "-std=c++20",
             .link_flags = "-std=c++20",
-            .target = "out/host",
+            .target = "out-host",
             .verbose = true,
         },
         ok);
@@ -211,7 +211,7 @@ void logs_default_and_verbose_configurations() {
                                    "    compiler      g++-15\n"
                                    "    compile flags -std=c++20\n"
                                    "    link flags    -std=c++20\n"
-                                   "  target out/host\n",
+                                   "  target out-host\n",
                      "expected verbose logging to print shared configuration details");
 }
 

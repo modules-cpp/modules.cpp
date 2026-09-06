@@ -89,7 +89,7 @@ echo
 expected=''
 expected_status=0
 status=0
-actual=$(./out/apps/main/main 2>&1) || status=$?
+actual=$(./out/bin/main 2>&1) || status=$?
 check "app main output" "$expected_status" "$status" "$expected" "$actual"
 
 echo
@@ -109,7 +109,7 @@ Heading3: Rules
 Text: Modules replace old header-file macro include frameworks entirely.'
 expected_status=0
 status=0
-actual=$(./out/apps/mdy/mdy -s 2>&1) || status=$?
+actual=$(./out/bin/mdy -s 2>&1) || status=$?
 check "app mdy output" "$expected_status" "$status" "$expected" "$actual"
 
 echo

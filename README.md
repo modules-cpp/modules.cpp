@@ -85,8 +85,9 @@ resulting `out/config.mdy` and cannot select different values:
 Accepted compiler selectors are `gcc`, `g++`, `clang`, and `clang++`, with an
 optional numeric major-version suffix. C-driver spellings such as `gcc-15`
 are normalized to their C++ driver (`g++-15`). `--build` accepts `debug` or
-`release` and defaults to `debug`. Configured native output remains under
-`out/host` regardless of compiler family or build.
+`release` and defaults to `debug`. Bootstrap output stays under `out`;
+configured native output goes to `out-host`, regardless of compiler family
+or build. `./clean.sh` removes both.
 
 If something fails partway through, `./clean.sh` removes all generated output
 (the `out/` and `gcm.cache/` directories) so you can start over.
