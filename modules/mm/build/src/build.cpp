@@ -101,15 +101,13 @@ Enter enter_manifest(const std::filesystem::path& dir, WalkState& state,
     }
 
     if (state.policy.strict_tree) {
-        const auto output = std::filesystem::weakly_canonical(state.root / "out", ec);
-        if (ec) {
-            std::cerr << state.policy.tool << ": cannot resolve "
-                      << (state.root / "out").string() << ": " << ec.message() << "\n";
-            return Enter::error;
-        }
-        const auto in_output = canonical.lexically_relative(output);
-        if (!in_output.empty() && *in_output.begin() != "..") {
-            std::cerr << state.policy.tool << ": generated out directory in manifest tree: "
+        // Generated lanes are root siblings: out is the bootstrap/configuration
+        // tree, while configured host and target lanes use out-* names. Match
+        // the complete first component so a source directory such as "outside"
+        // is not rejected merely because its name begins with those letters.
+        const auto first = relative.begin()->generic_string();
+        if (first == "out" || first.starts_with("out-")) {
+            std::cerr << state.policy.tool << ": generated output directory in manifest tree: "
                       << manifest.string() << "\n";
             return Enter::error;
         }

@@ -339,10 +339,9 @@ std::string_view trim_option(std::string_view text) {
     return text.substr(begin, text.find_last_not_of(" \t") - begin + 1);
 }
 
-std::string_view option_tool = "configure";
-
-bool option_error(const OptionNode& node, std::string_view name, std::string_view message) {
-    std::cerr << option_tool << ": " << node.manifest.string() << ": " << name << ": "
+bool option_error(std::string_view tool, const OptionNode& node, std::string_view name,
+                  std::string_view message) {
+    std::cerr << tool << ": " << node.manifest.string() << ": " << name << ": "
               << message << "\n";
     return false;
 }
@@ -358,9 +357,10 @@ bool relative_directory(const std::filesystem::path& root, const std::filesystem
 }
 
 bool parse_value(const std::filesystem::path& root, const OptionNode& node,
-                 const OptionSpec& spec, std::string_view text, OptionValue& value) {
+                 const OptionSpec& spec, std::string_view text, OptionValue& value,
+                 std::string_view tool) {
     const auto invalid = [&](std::string_view expected) {
-        return option_error(node, spec.name, "invalid value '" + std::string(text) +
+        return option_error(tool, node, spec.name, "invalid value '" + std::string(text) +
                             "'; expected " + std::string(expected));
     };
     if (!valid_scalar(text)) return invalid("a non-empty single-line value");
@@ -416,7 +416,6 @@ void write_origins(std::ostream& out, Build build, const OptionValues& values) {
 bool resolve_options(const std::filesystem::path& project_root, Build build,
                      const std::vector<OptionNode>& nodes, std::vector<OptionValues>& resolved,
                      std::string_view tool) {
-    option_tool = tool;
     resolved.clear();
     std::error_code ec;
     const auto root = std::filesystem::canonical(project_root, ec);
@@ -430,13 +429,15 @@ bool resolve_options(const std::filesystem::path& project_root, Build build,
         const auto& node = nodes[i];
         if ((i == 0 && (node.parent != static_cast<std::size_t>(-1) || node.kind != "project")) ||
             (i != 0 && node.parent >= i))
-            return option_error(node, "tree", "expected one project root and parent-before-child order");
+            return option_error(tool, node, "tree",
+                                "expected one project root and parent-before-child order");
         std::filesystem::path directory;
         if (!relative_directory(root, node.directory, directory) ||
             !valid_scalar(node.name) || !valid_scalar(node.manifest.generic_string()))
-            return option_error(node, "tree", "invalid node path or name");
+            return option_error(tool, node, "tree", "invalid node path or name");
         if (node.kind == "doc" && (!node.options.empty() || !node.resets.empty() || !node.read_only.empty()))
-            return option_error(node, "doc", "option, reset, and read-only are not allowed on doc manifests");
+            return option_error(tool, node, "doc",
+                                "option, reset, and read-only are not allowed on doc manifests");
         auto values = i == 0 ? defaults : result[node.parent];
         std::vector<std::string> assigned;
         for (const auto& operation : {std::string_view("option"), std::string_view("reset")}) {
@@ -447,24 +448,29 @@ bool resolve_options(const std::filesystem::path& project_root, Build build,
                 const auto name = text.substr(0, split);
                 // Syntax before meaning: a malformed declaration is reported as
                 // one rather than as an unregistered name or a lock conflict.
-                if (name.empty()) return option_error(node, operation, "declaration requires a name");
+                if (name.empty())
+                    return option_error(tool, node, operation, "declaration requires a name");
                 if (operation == "reset" && split != std::string_view::npos)
-                    return option_error(node, name, "reset takes a name only");
+                    return option_error(tool, node, name, "reset takes a name only");
                 const auto* spec = option_spec(name);
-                if (spec == nullptr) return option_error(node, name, "unknown option name");
+                if (spec == nullptr)
+                    return option_error(tool, node, name, "unknown option name");
                 for (const auto& seen : assigned)
-                    if (seen == name) return option_error(node, name, "duplicate option/reset declaration");
+                    if (seen == name)
+                        return option_error(tool, node, name,
+                                            "duplicate option/reset declaration");
                 assigned.emplace_back(name);
                 auto& value = values.find(name)->second;
                 if (value.read_only)
-                    return option_error(node, name, std::string(operation) +
-                                        " cannot change read-only option locked by " + value.lock_source.generic_string());
+                    return option_error(tool, node, name, std::string(operation) +
+                                        " cannot change read-only option locked by " +
+                                        value.lock_source.generic_string());
                 if (operation == "reset") {
                     value = defaults.find(name)->second;
                     value.origin = OptionOrigin::Reset;
                 } else {
                     const auto raw = split == std::string_view::npos ? std::string_view{} : trim_option(text.substr(split));
-                    if (!parse_value(root, node, *spec, raw, value)) return false;
+                    if (!parse_value(root, node, *spec, raw, value, tool)) return false;
                     value.origin = OptionOrigin::Assignment;
                 }
                 value.value_source = node.manifest.lexically_normal();
@@ -475,13 +481,15 @@ bool resolve_options(const std::filesystem::path& project_root, Build build,
             const auto text = trim_option(declaration);
             const auto split = text.find_first_of(" \t");
             const auto name = text.substr(0, split);
-            if (name.empty()) return option_error(node, "read-only", "declaration requires a name");
+            if (name.empty())
+                return option_error(tool, node, "read-only", "declaration requires a name");
             if (split != std::string_view::npos)
-                return option_error(node, name, "read-only takes a name only");
+                return option_error(tool, node, name, "read-only takes a name only");
             if (option_spec(name) == nullptr)
-                return option_error(node, name, "read-only requires one registered name");
+                return option_error(tool, node, name, "read-only requires one registered name");
             for (const auto& seen : locked)
-                if (seen == name) return option_error(node, name, "duplicate read-only declaration");
+                if (seen == name)
+                    return option_error(tool, node, name, "duplicate read-only declaration");
             locked.emplace_back(name);
             auto& value = values.find(name)->second;
             if (!value.read_only) {
@@ -493,7 +501,7 @@ bool resolve_options(const std::filesystem::path& project_root, Build build,
         // build: nothing downstream could act on it.
         if (!values.find("buildable-host")->second.boolean &&
             !values.find("buildable-target")->second.boolean)
-            return option_error(node, "buildable-host",
+            return option_error(tool, node, "buildable-host",
                                 "a node must remain buildable for at least one lane");
         result.push_back(std::move(values));
     }

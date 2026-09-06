@@ -121,7 +121,10 @@ The source tree is organized by responsibility.
 |   +-- shell/                system shell front end over mm.build and mm.shell
 +-- tests/mm/
 |   +-- build/                mm.build tests
+|   +-- configure/            mm.configure tests
 |   +-- mdy/                  mm.mdy public and regression tests
+|   +-- model/                mm.model tests
+|   +-- shell/                mm.shell tests
 +-- docs/
 |   +-- mm.mdy                documentation manifest
 |   +-- mdy.mdy               MDY format reference
@@ -308,7 +311,9 @@ manifest, finds the project root, and loads the project module graph.
 
 The selected test target is appended to that graph. order_from selects only
 the test and its transitive module dependencies. The tool compiles them under
-out/tests, links the objects directly, runs the binary, and returns its status.
+the selected build lane's tests directory, links the objects directly, runs the
+binary, and returns its status. An unconfigured test uses out/tests; a configured
+native test uses out-host/tests, and a configured target uses its target lane.
 
 Direct object linking preserves static test registrars that an archive linker
 might otherwise discard.
@@ -462,7 +467,8 @@ defects and become ordinary regression tests when fixed.
 - out/bin contains installed commands, from either build.
 - out/config.mdy names the selected compiler, build and lane; it stays in out
   because it is what tells a tool which lane to read.
-- out/tests contains isolated test builds.
+- out/tests contains isolated test builds when no configuration is present;
+  configured test builds live under the selected out-* lane's tests directory.
 - out-host contains the objects, executables and resolved-options.mdy records of a
   configured native build.
 - out-host/bmi contains Clang BMIs for a configured native build.

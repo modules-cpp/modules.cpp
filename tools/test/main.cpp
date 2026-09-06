@@ -53,7 +53,6 @@ int main(int argc, char** argv) {
     const auto name = target.name;
     const auto units = target.sources.size();
     const auto uses = target.uses.size();
-    const auto build_dir = std::filesystem::path("out") / "tests" / name;
 
     std::error_code ec;
 
@@ -69,6 +68,7 @@ int main(int argc, char** argv) {
     if (!mm::build::resolve_configuration(".", verbose, configuration))
         return mm::build::exit_manifest;
     const auto& toolchain = configuration.selected_toolchain();
+    const auto build_dir = configuration.build_directory / "tests" / name;
 
     std::cout << "modules.cpp test tool\n";
     std::cout << "  manifest " << manifest_path.string() << "\n";

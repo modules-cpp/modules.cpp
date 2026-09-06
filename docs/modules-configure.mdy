@@ -109,7 +109,7 @@ Each configure run derives values and locks afresh from the source manifests. Ed
 
 A lock conflict names the attempted operation, the option, the descendant manifest, and the manifest that first locked the name:
 
-configure: modules/build/mm.mdy: warnings: option cannot change read-only option locked by mm.mdy
+configure: modules/mm/build/mm.mdy: warnings: option cannot change read-only option locked by mm.mdy
 
 # Types and domains
 
@@ -121,7 +121,7 @@ Each name takes its type from the registry, never from the spelling of its value
 
 Parsing a type is not sufficient. optimize accepts only 0 through 3 even though many other strings parse as integers. A rejected value names the manifest, the option, the value, and the permitted domain:
 
-configure: modules/build/mm.mdy: optimize: invalid value '9'; expected a decimal integer from 0 to 3 (no leading plus)
+configure: modules/mm/build/mm.mdy: optimize: invalid value '9'; expected a decimal integer from 0 to 3 (no leading plus)
 
 Unset is an explicit internal state for an optional option, not a fourth textual value type. It is distinct from an empty value, from zero, and from no. No spelling is reserved to mean unset: a directory literally named unset remains a directory, and the record distinguishes the two by key rather than by text. reset is how the optional directory option returns to unset.
 
@@ -140,7 +140,7 @@ The registered names are:
 - buildable-host: boolean; default yes in both builds.
 - buildable-target: boolean; default yes in both builds.
 
-All six may be assigned, reset, or marked read-only on project, dir, module, app, and test manifests, subject to inherited locks. A doc manifest declares none of the three; a doc node still receives a record showing its inherited values and locks, which does not mean it compiles anything.
+All eight may be assigned, reset, or marked read-only on project, dir, module, app, and test manifests, subject to inherited locks. A doc manifest accepts none of the three declaration keys option, reset, and read-only; a doc node still receives a record showing its inherited values and locks, which does not mean it compiles anything.
 
 The registry admits no target, compiler, linker, sysroot, language-standard, module-policy, output-path, or ABI-selection option. Named settings alone do not prove compatibility between separately compiled sources, and this release makes no such claim.
 
@@ -194,7 +194,7 @@ dependency rule is already proven against a real tree.
 - mm.build owns the reusable manifest walk and the single version and structural-key gate used by configure, build, test, check, model, and document. Front ends do not implement their own copies of the 1.0/1.1 or key-version rules. The gate is reachable directly as validate_manifest_schema for a tool rendering one manifest outside a walk.
 - mm.configure owns the option registry, typed value and domain validation, the default policy, the inheritance and read-only resolver, provenance, and the record format. It imports nothing and starts no manifest walk.
 - The configure front end requests a strict folder-tree view from the shared loader through LoadPolicy, then adapts the parsed nodes, documents, and parent indices with configuration_nodes into the resolver's neutral OptionNode input. The adaptation carries data without re-parsing files or duplicating validation. The resolver accepts that neutral parent-indexed input, not an mm.build type, so mm.configure needs no reverse dependency.
-- Strict-tree traversal is a configure-only loader policy. In that mode the loader reports a repeated canonical directory before discarding its second occurrence, and rejects a manifest inside the generated out directory. Default policy and traversal behavior for every other tool are unchanged.
+- Strict-tree traversal is a configure-only loader policy. In that mode the loader reports a repeated canonical directory before discarding its second occurrence, and rejects a manifest inside a generated root output lane named out or out- followed by any suffix. Unrelated names such as outside remain valid. Default policy and traversal behavior for every other tool are unchanged.
 - The shared gate reports schema diagnostics with the caller's tool name. Unknown-name, type, reset, and lock errors stay in mm.configure. Recognizing the keys structurally does not require every tool to resolve their values.
 
 This boundary lets the existing walk and the configure registry coexist without a second walk or a circular module dependency. mm.build imports mm.configure for the shared default policy and the neutral option node; mm.configure imports nothing. When build eventually consumes options, it calls the same resolver through the same adapter rather than implementing another inheritance algorithm.
@@ -213,7 +213,7 @@ Generated include directories that do not exist at configuration time are outsid
 
 # Tree resolution
 
-Every non-root node has exactly one parent, and only project and dir manifests introduce children through folder entries. In the strict traversal configure requests, a repeated canonical manifest directory, a recursive folder reference, a path outside the project, and traversal into the generated out directory are all errors. A second parent is never accepted by comparing its options or by preferring whichever parent was visited first.
+Every non-root node has exactly one parent, and only project and dir manifests introduce children through folder entries. In the strict traversal configure requests, a repeated canonical manifest directory, a recursive folder reference, a path outside the project, and traversal into a generated root output lane named out or out- followed by any suffix are all errors. A second parent is never accepted by comparing its options or by preferring whichever parent was visited first.
 
 The resolver's input is the validated parent-before-child node list and the configure-selected default map. It performs no compilation ordering and no dependency analysis. It rejects an input whose first node is not the parentless project root, or whose parent index is not less than the node's own.
 
@@ -242,24 +242,24 @@ The gate recognizes option, reset, and read-only as valid 1.1 keys. An unknown k
 
 configure rejects unknown option names and invalid values rather than writing a partial interpretation. A failure in tree validation, version validation, option parsing, or resolution happens before anything is published. Its diagnostics take the form of the tool name, the manifest, the option, and the reason:
 
-configure: modules/build/mm.mdy: future-feature: unknown option name
-configure: modules/build/mm.mdy: option requires mm: 1.1
-configure: modules/build/mm.mdy: unknown manifest key: stray-key
+configure: modules/mm/build/mm.mdy: future-feature: unknown option name
+configure: modules/mm/build/mm.mdy: option requires mm: 1.1
+configure: modules/mm/build/mm.mdy: unknown manifest key: stray-key
 configure: requested manifest is not in the project tree: orphan
 
 A malformed declaration is reported as a syntax error, before its name is looked up in the registry and before any lock is consulted, so a reader is told what is wrong with the line rather than what the line failed to do. reset and read-only report extra text alike, and either key with no name at all names the key rather than an empty option:
 
-configure: modules/build/mm.mdy: optimize: reset takes a name only
-configure: modules/build/mm.mdy: optimize: read-only takes a name only
-configure: modules/build/mm.mdy: option: declaration requires a name
-configure: modules/build/mm.mdy: read-only: declaration requires a name
+configure: modules/mm/build/mm.mdy: optimize: reset takes a name only
+configure: modules/mm/build/mm.mdy: optimize: read-only takes a name only
+configure: modules/mm/build/mm.mdy: option: declaration requires a name
+configure: modules/mm/build/mm.mdy: read-only: declaration requires a name
 
 Build and test have a deliberately different semantic policy. For each option, reset, or read-only declaration they warn once, naming the manifest and the declared name, state that the declaration is ignored, and continue with the existing configuration. They resolve no option tree in this release, so a read-only marker is ignored metadata to them rather than a lock they attempt to enforce. Recognizing a name configure would accept is not the same as applying its value. Unknown keys in a 1.1 manifest produce a warning on the same path:
 
 build: mm.mdy: option warnings is ignored; continuing with existing build configuration
 build: mm.mdy: read-only warnings is ignored; continuing with existing build configuration
-build: modules/build/mm.mdy: reset include-dir is ignored; continuing with existing build configuration
-build: modules/build/mm.mdy: unknown manifest key: stray-key (ignored)
+build: modules/mm/build/mm.mdy: reset include-dir is ignored; continuing with existing build configuration
+build: modules/mm/build/mm.mdy: unknown manifest key: stray-key (ignored)
 
 Check, model, and document accept and preserve the recognized 1.1 metadata through their existing document representations, without warning about it, and perform their existing work unchanged. They neither apply options, nor require generated records, nor call the resolver. Their own diagnostics are unaffected.
 
@@ -274,7 +274,7 @@ Resolved values are lane specific, so the records live beside the artifacts they
 - out/config.mdy remains the root compiler and build configuration, in out and not in a lane. It is the file that names the lane, so it cannot live inside the lane it names: a tool would have to know the answer to find the file that gives it.
 - out-host/resolved-options.mdy records the project node, whose node field is a single dot.
 - out-host/modules/resolved-options.mdy records the modules directory node.
-- out-host/modules/build/resolved-options.mdy records the build module node.
+- out-host/modules/mm/build/resolved-options.mdy records the build module node.
 
 The layout is decided in one place, host_output_directory and target_output_directory in mm.configure, and the configure front end states the directories it writes rather than inheriting them from a default. A configured lane never writes into out, and bootstrap output in out is never touched by a configured build.
 
@@ -293,14 +293,16 @@ mm: 1.0
 kind: resolved-options
 schema: configure-options-1
 name: build
-node: modules/build
-manifest: modules/build/mm.mdy
+node: modules/mm/build
+manifest: modules/mm/build/mm.mdy
 build: release
 output: out-host
 resolved-by: configure
 applied-by-build: no
 path-base: project-root
 option: assertions no
+option: buildable-host yes
+option: buildable-target yes
 option: debug-info no
 unset-option: include-dir
 option: optimize 3
@@ -315,9 +317,11 @@ Provenance follows in the document body as ordinary lines, one per name, giving 
 Provenance heading
 
 assertions: no; default for release; mutable
+buildable-host: yes; default for release; mutable
+buildable-target: yes; default for release; mutable
 debug-info: no; default for release; mutable
-include-dir: unset; reset by modules/build/mm.mdy to default for release; mutable
-optimize: 3; assigned by modules/build/mm.mdy; read-only from modules/build/mm.mdy
+include-dir: unset; reset by modules/mm/build/mm.mdy to default for release; mutable
+optimize: 3; assigned by modules/mm/build/mm.mdy; read-only from modules/mm/build/mm.mdy
 warnings: yes; assigned by mm.mdy; read-only from mm.mdy
 warnings-error: no; default for release; mutable
 
@@ -327,11 +331,11 @@ Provenance is prose that no tool interprets. It prints the unset state and a dir
 
 configure resolves the complete tree, then writes out/config.mdy, then validates every record destination, then writes the records. Every tree, version, option, and resolution failure therefore happens before anything is published, and leaves both the existing configuration and the existing records untouched.
 
-Each record is replaced through a temporary directory created exclusively beside the destination, with the content written inside it and renamed into place. Destination containment is anchored to the canonical project out directory, so an out symlink cannot redirect a write, and every destination is validated before the first record is published.
+Each record is replaced through a temporary directory created exclusively beside the destination, with the content written inside it and renamed into place. Destination containment is anchored to the canonical project root joined with the selected lane directory, so an out-host or out-target-* symlink cannot redirect a write, and every destination is validated before the first record is published.
 
 Record writing is not a whole-tree transaction. An I/O failure part way through leaves records from two runs and, because out/config.mdy is written first, leaves the newly selected compiler and build configuration published. configure reports the snapshot as incomplete, exits non-zero, and does not claim successful publication:
 
-configure: cannot write out/modules/resolved-options.mdy; incomplete snapshot, rerun configure
+configure: cannot write out-host/modules/resolved-options.mdy; incomplete snapshot, rerun configure
 configure: incomplete option snapshot; rerun configure
 
 Nothing under out is cleared or deleted to publish records. Records for removed nodes may remain; they are not tree members and not inputs. Current membership comes from the source manifests alone, never from scanning out.

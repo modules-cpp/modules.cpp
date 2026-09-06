@@ -101,7 +101,7 @@ int main(int argc, char** argv) {
     std::vector<std::size_t> order;
     if (!mm::build::order(tree, order)) return mm::build::exit_manifest;
 
-    std::cout << "Clear nodule cache\n";
+    std::cout << "Clear module cache\n";
     if (!mm::build::clear_module_cache(build_dir)) {
         std::cerr << "build: failed to clear module cache\n";
         return mm::build::exit_compile;

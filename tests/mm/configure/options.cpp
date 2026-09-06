@@ -177,9 +177,16 @@ void shared_schema_and_strict_tree() {
         }
         tree.manifest("shared", "kind: dir\nname: shared\n");
     }
-    tree.manifest("", "kind: project\nname: p\nfolder: out\n");
-    tree.manifest("out", "kind: dir\nname: output\n");
-    expect(!mm::build::load_project(tree.root(), {.tool = "configure", .strict_tree = true}).ok, "configure never traverses output");
+    for (const auto& output : {"out", "out-host", "out-target-aarch64-linux-gnu"}) {
+        tree.manifest("", std::string("kind: project\nname: p\nfolder: ") + output + "\n");
+        tree.manifest(output, "kind: dir\nname: output\n");
+        expect(!mm::build::load_project(tree.root(), {.tool = "configure", .strict_tree = true}).ok,
+               "configure never traverses a generated output lane");
+    }
+    tree.manifest("", "kind: project\nname: p\nfolder: outside\n");
+    tree.manifest("outside", "kind: dir\nname: outside\n");
+    expect(mm::build::load_project(tree.root(), {.tool = "configure", .strict_tree = true}).ok,
+           "an unrelated source directory beginning with out remains valid");
 }
 
 void output_safety() {
