@@ -17,11 +17,6 @@ export module mm.configure;
 
 export namespace mm::configure {
 
-// Configuration options
-[[nodiscard]] std::optional<std::string> get(std::string_view name);
-[[nodiscard]] bool set(std::string_view name, std::string_view value, bool overwrite = true);
-[[nodiscard]] bool unset(std::string_view name);
-
 enum class CompilerFamily { Gcc, Clang };
 enum class CompilerSelection { Host, Cross };
 enum class Build { Debug, Release };

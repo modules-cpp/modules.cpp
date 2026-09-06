@@ -4,7 +4,6 @@ module;
 
 #include <charconv>
 #include <chrono>
-#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -214,24 +213,6 @@ std::string_view build_link_flags(Build build) {
     static const auto debug = baseline_flags(Build::Debug, true);
     static const auto release = baseline_flags(Build::Release, true);
     return build == Build::Debug ? debug : release;
-}
-
-std::optional<std::string> get(std::string_view name) {
-    const std::string key(name);
-    const char* value = std::getenv(key.c_str());
-    if (value == nullptr) return std::nullopt;
-    return std::string(value);
-}
-
-bool set(std::string_view name, std::string_view value, bool overwrite) {
-    const std::string key(name);
-    const std::string val(value);
-    return ::setenv(key.c_str(), val.c_str(), overwrite ? 1 : 0) == 0;
-}
-
-bool unset(std::string_view name) {
-    const std::string key(name);
-    return ::unsetenv(key.c_str()) == 0;
 }
 
 bool log_configuration(const ConfigurationLog& log) {
