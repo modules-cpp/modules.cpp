@@ -175,6 +175,7 @@ echo test test
 echo
 run_test_target tests/mm/build/ || exit $?
 run_test_target tests/mm/configure/ || exit $?
+run_test_target tests/mm/debug/ || exit $?
 run_test_target tests/mm/mdy/ || exit $?
 run_test_target tests/mm/shell/ || exit $?
 run_test_target tests/mm/model/ || exit $?

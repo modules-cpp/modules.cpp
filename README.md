@@ -82,9 +82,10 @@ resulting `out/config.mdy` and cannot select different values:
 ./test
 
 ./configure --target m68k-linux-gnu --target-host \
-    --compiler m68k-linux-gnu-g++-16 --runner qemu-user --build release
+    --compiler m68k-linux-gnu-g++-16 --runner qemu-user --debugger gdb --build release
 ./build --target
 ./run --target apps/main -- -h
+./debug --target apps/main
 ```
 
 Accepted compiler selectors are `gcc`, `g++`, `clang`, and `clang++`, with an

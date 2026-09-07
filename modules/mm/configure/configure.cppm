@@ -166,6 +166,7 @@ struct ConfigurationLog {
     std::string_view compile_flags;
     std::string_view link_flags;
     std::string_view runner;
+    std::string_view debugger;
     std::filesystem::path target;
     bool verbose = false;
 };

@@ -123,6 +123,7 @@ int main(int argc, char** argv) {
             .compile_flags = toolchain.compiler.arguments,
             .link_flags = toolchain.linker.arguments,
             .runner = toolchain.runner ? toolchain.runner->invocation : std::string_view{},
+            .debugger = toolchain.debugger ? toolchain.debugger->invocation : std::string_view{},
             .target = build_dir,
             .verbose = verbose,
         }))

@@ -18,3 +18,5 @@ explicit target as capable of receiving both host-buildable and target-buildable
 artifacts without changing any source manifest.
 `--runner` accepts none or a compatible named profile. The qemu-user profile
 configures qemu-m68k for m68k-linux-gnu target execution.
+`--debugger` accepts none or gdb. It configures direct host GDB or, for the
+supported m68k target, gdb-multiarch connected through the QEMU runner stub.

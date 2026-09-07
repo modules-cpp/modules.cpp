@@ -204,7 +204,8 @@ mm.build contains the shared project and build model. Its main types are:
 
 - Toolchain stores one target and its compiler, assembler, linker, librarian,
   and debugger roles. The compiler driver performs or orchestrates compiler,
-  assembler, and linker work; librarian and debugger are presently unbound.
+  assembler, and linker work; librarian is unbound and debugger is bound when
+  configure selects a debugger profile.
 - TranslationUnit identifies a source path and optional module name.
 - BuildableNode describes a module, application, test, or document.
 - Tree separates build targets from discovered tests and documents.
@@ -513,7 +514,7 @@ These are the gaps between the Design goals and today's implementation.
 
 docs/modules-configure.mdy is the official configure and manifest-option specification for release 1.1. configure implements typed options, branch-local resets and read-only settings, and records beneath out. All manifest-reading tools accept 1.0 and 1.1 through the shared gate. Build and test resolve buildable-host and buildable-target and enforce the selected lane; other option declarations remain warning-only and are not yet applied to compilation.
 
-docs/modules-build.mdy, docs/modules-test.mdy, and docs/modules-run.mdy specify the implemented lane, compile-only, and runner-backed execution interfaces.
+docs/modules-build.mdy, docs/modules-test.mdy, docs/modules-run.mdy, and docs/modules-debug.mdy specify the implemented lane, compile-only, runner-backed execution, and debugging interfaces.
 
 - App defines the application boundary but stores no state; shared lifecycle, context, logging, or argument services can be added there without coupling them to build policy.
 - Bootstrap follows GCC modules-ts conventions; the self-hosted compiler driver

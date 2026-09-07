@@ -132,6 +132,9 @@ bool valid_settings(const Settings& settings) {
         return false;
     if (settings.cross_debugger && (!settings.cross || !valid_debugger(*settings.cross_debugger)))
         return false;
+    if (settings.cross_debugger &&
+        settings.cross_debugger->connection != DebuggerConnection::RunnerRemote)
+        return false;
     if (settings.cross_runner && (!settings.cross || !valid_runner(*settings.cross_runner)))
         return false;
     if (settings.cross_debugger &&
@@ -363,6 +366,8 @@ bool log_configuration(const ConfigurationLog& log) {
         std::cout << "    compile flags " << log.compile_flags << "\n";
         std::cout << "    link flags    " << log.link_flags << "\n";
         std::cout << "    runner        " << (log.runner.empty() ? "none" : log.runner) << "\n";
+        std::cout << "    debugger      "
+                  << (log.debugger.empty() ? "none" : log.debugger) << "\n";
     }
     std::cout << "  target " << log.target.string() << "\n";
     return true;

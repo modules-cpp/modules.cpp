@@ -230,6 +230,7 @@ void logs_default_and_verbose_configurations() {
             .compile_flags = "-std=c++20",
             .link_flags = "-std=c++20",
             .runner = "qemu-m68k",
+            .debugger = "gdb-multiarch",
             .target = "out-host",
             .verbose = true,
         },
@@ -243,6 +244,7 @@ void logs_default_and_verbose_configurations() {
                                    "    compile flags -std=c++20\n"
                                    "    link flags    -std=c++20\n"
                                    "    runner        qemu-m68k\n"
+                                   "    debugger      gdb-multiarch\n"
                                    "  target out-host\n",
                      "expected verbose logging to print shared configuration details");
 }

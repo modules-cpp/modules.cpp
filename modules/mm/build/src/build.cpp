@@ -705,6 +705,11 @@ bool load_configuration(const std::filesystem::path& path, bool verbose,
                   << path.string() << "\n";
         return false;
     }
+    if (cross.debugger && cross.debugger->connection != DebuggerConnection::RunnerRemote) {
+        std::cerr << "build: target debugger must use a runner-remote connection: "
+                  << path.string() << "\n";
+        return false;
+    }
 
     std::optional<ToolchainRunner> cross_runner;
     if (!configuration_runner(document, path, cross_runner)) return false;

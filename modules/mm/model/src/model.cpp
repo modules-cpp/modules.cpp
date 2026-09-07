@@ -623,7 +623,7 @@ std::vector<std::unique_ptr<models::Operation>> build_operations(
         "test", "test.sh", models::Role::Optional,
         std::vector<std::vector<const models::Tool*>>{
             {build0, build1, build, main_tool, mdy, test_runner, test_runner, test_runner,
-             test_runner, test_runner}},
+             test_runner, test_runner, test_runner}},
         std::vector<models::ArtifactKind>{models::ArtifactKind::Staged,
                                           models::ArtifactKind::InstalledBinary},
         std::vector<models::ArtifactKind>{models::ArtifactKind::TestBuild}));
