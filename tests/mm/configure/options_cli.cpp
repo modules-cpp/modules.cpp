@@ -228,8 +228,12 @@ void installed_tools_select_configured_lanes() {
     const auto m68k_driver = tree.root() / "m68k-linux-gnu-g++-16";
     std::ofstream(m68k_driver) << "#!/bin/sh\nexec g++ \"$@\"\n";
     const auto runner = tree.root() / "qemu-m68k";
-    std::ofstream(runner) << "#!/bin/sh\nshift 2\nexec \"$@\"\n";
-    for (const auto& program : {m68k_driver, runner})
+    std::ofstream(runner) << "#!/bin/sh\nshift 2\n"
+                             "if [ \"$1\" = -g ]; then shift 2; fi\n"
+                             "exec \"$@\"\n";
+    const auto debugger = tree.root() / "gdb-multiarch";
+    std::ofstream(debugger) << "#!/bin/sh\nexit 0\n";
+    for (const auto& program : {m68k_driver, runner, debugger})
         std::filesystem::permissions(
             program,
             std::filesystem::perms::owner_read | std::filesystem::perms::owner_write |
@@ -239,7 +243,7 @@ void installed_tools_select_configured_lanes() {
     expect(invoke_with_path(
                bin / "configure",
                "--target m68k-linux-gnu --target-host --compiler m68k-linux-gnu-g++-16 "
-               "--runner qemu-user --build release " + root_arg,
+               "--runner qemu-user --debugger gdb --build release " + root_arg,
                log, tree.root()) == 0,
            "configure accepts a compatible named runner profile");
     expect(invoke_with_path(bin / "build", "--target " + root_arg, log, tree.root()) == 0,
@@ -250,6 +254,10 @@ void installed_tools_select_configured_lanes() {
            "run executes a target application through its configured runner");
     expect(read_text(log).find("-h") != std::string::npos,
            "run forwards application arguments after the separator");
+    expect(invoke_with_path(bin / "debug", "--target " +
+                                mm::build::shell_quote(tree.root() / "app"),
+                            log, tree.root()) == 0,
+           "debug connects a configured target debugger through its runner");
     expect(invoke(bin / "configure", "--target aarch64-linux-gnu --runner qemu-user " +
                                       root_arg, log) == 64,
            "configure rejects an incompatible runner profile");
@@ -260,7 +268,7 @@ void installed_tools_support_common_help() {
     const auto bin = std::filesystem::current_path(ec) / "out/bin";
     expect(!ec, "installed tool directory available");
 
-    for (const auto tool : {"build", "configure", "test", "check", "model", "run", "shell"}) {
+    for (const auto tool : {"build", "configure", "test", "check", "model", "run", "debug", "shell"}) {
         const auto log = std::filesystem::temp_directory_path() /
                          (std::string("mm_help_") + tool + ".log");
         for (const auto flags : {"-h", "--help", "-v -h", "--verbose --help"}) {

@@ -40,6 +40,16 @@ struct ToolchainRunner {
     bool forwards_arguments = true;
 };
 
+using DebuggerConnection = mm::configure::DebuggerConnection;
+
+struct ToolchainDebugger {
+    std::string invocation;
+    std::vector<std::string> prefix_arguments;
+    DebuggerConnection connection = DebuggerConnection::Direct;
+    std::string remote_endpoint;
+    std::vector<std::string> runner_arguments;
+};
+
 struct Toolchain {
     CompilerFamily family = CompilerFamily::Gcc;
     std::string target = "host";
@@ -49,7 +59,7 @@ struct Toolchain {
     ToolchainProgram linker = {
         "g++", std::string(mm::configure::build_link_flags(mm::configure::Build::Debug))};
     ToolchainProgram librarian;
-    ToolchainProgram debugger;
+    std::optional<ToolchainDebugger> debugger;
     std::optional<ToolchainRunner> runner;
     bool verbose = false;
 };

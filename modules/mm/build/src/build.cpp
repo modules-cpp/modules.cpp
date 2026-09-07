@@ -334,7 +334,7 @@ bool configuration_compiler(const mm::mdy::MDYDocument& document, std::string_vi
     toolchain.assembler.invocation = toolchain.compiler.invocation;
     toolchain.linker.invocation = toolchain.compiler.invocation;
     toolchain.librarian = {};
-    toolchain.debugger = {};
+    toolchain.debugger.reset();
     return true;
 }
 
@@ -398,6 +398,58 @@ bool configuration_runner(const mm::mdy::MDYDocument& document,
                                runner.forwards_arguments))
         return false;
     result = std::move(runner);
+    return true;
+}
+
+bool configuration_debugger(const mm::mdy::MDYDocument& document,
+                            std::string_view prefix,
+                            const std::filesystem::path& path,
+                            std::optional<ToolchainDebugger>& result) {
+    const std::string base = std::string(prefix) + "-debugger";
+    const auto* invocation = lookup(document, base);
+    const bool has_any = invocation != nullptr ||
+        lookup(document, base + "-prefix-argument") != nullptr ||
+        lookup(document, base + "-connection") != nullptr ||
+        lookup(document, base + "-remote-endpoint") != nullptr ||
+        lookup(document, base + "-runner-argument") != nullptr;
+    if (!has_any) {
+        result.reset();
+        return true;
+    }
+    if (invocation == nullptr || invocation->size() != 1 || invocation->front().empty()) {
+        std::cerr << "build: configuration requires one non-empty " << base << ": "
+                  << path.string() << "\n";
+        return false;
+    }
+
+    ToolchainDebugger debugger;
+    debugger.invocation = invocation->front();
+    if (const auto* values = lookup(document, base + "-prefix-argument"))
+        debugger.prefix_arguments = *values;
+    if (const auto* values = lookup(document, base + "-runner-argument"))
+        debugger.runner_arguments = *values;
+
+    std::string connection;
+    if (!configuration_scalar(document, base + "-connection", path, connection)) return false;
+    if (connection == "direct") {
+        debugger.connection = DebuggerConnection::Direct;
+        if (lookup(document, base + "-remote-endpoint") != nullptr ||
+            !debugger.runner_arguments.empty()) {
+            std::cerr << "build: direct " << base
+                      << " cannot have remote or runner arguments: " << path.string() << "\n";
+            return false;
+        }
+    } else if (connection == "runner-remote") {
+        debugger.connection = DebuggerConnection::RunnerRemote;
+        if (!configuration_scalar(document, base + "-remote-endpoint", path,
+                                  debugger.remote_endpoint))
+            return false;
+    } else {
+        std::cerr << "build: configuration " << base
+                  << "-connection must be direct or runner-remote: " << path.string() << "\n";
+        return false;
+    }
+    result = std::move(debugger);
     return true;
 }
 
@@ -637,10 +689,22 @@ bool load_configuration(const std::filesystem::path& path, bool verbose,
 
     Toolchain host;
     if (!configuration_compiler(document, "host", path, host)) return false;
+    if (!configuration_debugger(document, "host", path, host.debugger)) return false;
+    if (host.debugger && host.debugger->connection != DebuggerConnection::Direct) {
+        std::cerr << "build: host debugger must use a direct connection: " << path.string()
+                  << "\n";
+        return false;
+    }
 
     Toolchain cross;
     const bool has_cross = has_configuration_compiler(document, "cross");
     if (has_cross && !configuration_compiler(document, "cross", path, cross)) return false;
+    if (!configuration_debugger(document, "cross", path, cross.debugger)) return false;
+    if (cross.debugger && !has_cross) {
+        std::cerr << "build: configuration gives a debugger to a missing target: "
+                  << path.string() << "\n";
+        return false;
+    }
 
     std::optional<ToolchainRunner> cross_runner;
     if (!configuration_runner(document, path, cross_runner)) return false;
@@ -650,6 +714,12 @@ bool load_configuration(const std::filesystem::path& path, bool verbose,
         return false;
     }
     if (cross_runner) cross.runner = std::move(cross_runner);
+    if (cross.debugger && cross.debugger->connection == DebuggerConnection::RunnerRemote &&
+        !cross.runner) {
+        std::cerr << "build: remote target debugger requires a runner: " << path.string()
+                  << "\n";
+        return false;
+    }
 
     if (selection == "cross") {
         if (!has_cross) {

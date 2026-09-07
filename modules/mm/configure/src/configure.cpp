@@ -107,6 +107,17 @@ bool valid_runner(const RunnerSettings& runner) {
                : valid_scalar(runner.image_option);
 }
 
+bool valid_debugger(const DebuggerSettings& debugger) {
+    if (!valid_scalar(debugger.invocation)) return false;
+    for (const auto& argument : debugger.prefix_arguments)
+        if (!valid_scalar(argument, true)) return false;
+    for (const auto& argument : debugger.runner_arguments)
+        if (!valid_scalar(argument, true)) return false;
+    if (debugger.connection == DebuggerConnection::Direct)
+        return debugger.remote_endpoint.empty() && debugger.runner_arguments.empty();
+    return valid_scalar(debugger.remote_endpoint);
+}
+
 bool valid_settings(const Settings& settings) {
     if (!valid_scalar(settings.name) || !valid_scalar(build_name(settings.build)) ||
         !valid_compiler(settings.host) ||
@@ -115,7 +126,17 @@ bool valid_settings(const Settings& settings) {
         return false;
 
     if (settings.cross && !valid_compiler(*settings.cross)) return false;
+    if (settings.host_debugger && !valid_debugger(*settings.host_debugger)) return false;
+    if (settings.host_debugger &&
+        settings.host_debugger->connection != DebuggerConnection::Direct)
+        return false;
+    if (settings.cross_debugger && (!settings.cross || !valid_debugger(*settings.cross_debugger)))
+        return false;
     if (settings.cross_runner && (!settings.cross || !valid_runner(*settings.cross_runner)))
+        return false;
+    if (settings.cross_debugger &&
+        settings.cross_debugger->connection == DebuggerConnection::RunnerRemote &&
+        !settings.cross_runner)
         return false;
     if (settings.target_has_host_capability && !settings.cross) return false;
     if (settings.target_compiler == CompilerSelection::Cross) {
@@ -150,6 +171,21 @@ void write_runner(std::ostream& out, const RunnerSettings& runner) {
         out << "cross-runner-suffix-argument: " << argument << '\n';
     out << "cross-runner-forwards-arguments: "
         << (runner.forwards_arguments ? "yes" : "no") << '\n';
+}
+
+void write_debugger(std::ostream& out, std::string_view prefix,
+                    const DebuggerSettings& debugger) {
+    out << prefix << "-debugger: " << debugger.invocation << '\n';
+    for (const auto& argument : debugger.prefix_arguments)
+        out << prefix << "-debugger-prefix-argument: " << argument << '\n';
+    out << prefix << "-debugger-connection: "
+        << (debugger.connection == DebuggerConnection::Direct ? "direct" : "runner-remote")
+        << '\n';
+    if (debugger.connection == DebuggerConnection::RunnerRemote) {
+        out << prefix << "-debugger-remote-endpoint: " << debugger.remote_endpoint << '\n';
+        for (const auto& argument : debugger.runner_arguments)
+            out << prefix << "-debugger-runner-argument: " << argument << '\n';
+    }
 }
 
 }  // namespace
@@ -233,6 +269,23 @@ std::optional<RunnerSettings> runner_profile(std::string_view profile,
         runner.invocation = "qemu-m68k";
         runner.prefix_arguments = {"-L", "/usr/m68k-linux-gnu"};
         return runner;
+    }
+    return std::nullopt;
+}
+
+std::optional<DebuggerSettings> debugger_profile(std::string_view profile,
+                                                  std::string_view target) {
+    if (profile != "gdb") return std::nullopt;
+    if (target == "host")
+        return DebuggerSettings{.invocation = "gdb"};
+    if (target == "m68k-linux-gnu") {
+        return DebuggerSettings{
+            .invocation = "gdb-multiarch",
+            .prefix_arguments = {"-q"},
+            .connection = DebuggerConnection::RunnerRemote,
+            .remote_endpoint = "localhost:1234",
+            .runner_arguments = {"-g", "1234"},
+        };
     }
     return std::nullopt;
 }
@@ -333,7 +386,9 @@ bool write_configuration(const std::filesystem::path& project_root, const Settin
     out << "target-host-capability: "
         << (settings.target_has_host_capability ? "yes" : "no") << '\n';
     write_compiler(out, "host", settings.host);
+    if (settings.host_debugger) write_debugger(out, "host", *settings.host_debugger);
     if (settings.cross) write_compiler(out, "cross", *settings.cross);
+    if (settings.cross_debugger) write_debugger(out, "cross", *settings.cross_debugger);
     if (settings.cross_runner) write_runner(out, *settings.cross_runner);
     out << "host-build-directory: " << settings.host_build_directory.generic_string() << '\n';
     out << "target-build-directory: " << settings.target_build_directory.generic_string() << '\n';

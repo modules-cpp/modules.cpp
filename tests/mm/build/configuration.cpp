@@ -86,6 +86,12 @@ void loads_the_cross_selection() {
           "cross-runner-prefix-argument: /sysroot\n"
           "cross-runner-image: positional\n"
           "cross-runner-forwards-arguments: yes\n"
+          "cross-debugger: gdb-multiarch\n"
+          "cross-debugger-prefix-argument: -q\n"
+          "cross-debugger-connection: runner-remote\n"
+          "cross-debugger-remote-endpoint: localhost:1234\n"
+          "cross-debugger-runner-argument: -g\n"
+          "cross-debugger-runner-argument: 1234\n"
           "host-build-directory: out-host\n"
           "target-build-directory: out/target/aarch64-linux-gnu\n");
 
@@ -111,6 +117,13 @@ void loads_the_cross_selection() {
                          toolchain.runner->prefix_arguments[1] == "/sysroot" &&
                          toolchain.runner->forwards_arguments,
                      "expected ordered target runner settings");
+    mm::test::expect(toolchain.debugger &&
+                         toolchain.debugger->invocation == "gdb-multiarch" &&
+                         toolchain.debugger->connection ==
+                             mm::build::DebuggerConnection::RunnerRemote &&
+                         toolchain.debugger->remote_endpoint == "localhost:1234" &&
+                         toolchain.debugger->runner_arguments.size() == 2,
+                     "expected target debugger settings");
     mm::test::expect(configuration.build_directory == "out/target/aarch64-linux-gnu",
                      "expected cross target build directory");
     mm::test::expect(configuration.build_directory_for(false) != nullptr &&

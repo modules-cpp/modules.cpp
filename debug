@@ -1,0 +1,13 @@
+#!/bin/sh
+# Run debug.sh through the project's shell tool.
+
+MM_BUILD="out"
+echo "Debug application"
+echo
+
+cmd="sh debug.sh"
+for arg in "$@"; do
+    cmd="$cmd '$(printf '%s' "$arg" | sed "s/'/'\\\\''/g")'"
+done
+
+${MM_BUILD}/bin/shell "$cmd"

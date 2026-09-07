@@ -1,0 +1,13 @@
+---
+mm: 1.0
+kind: app
+name: debug
+file: main.cpp
+use: mm.app
+use: mm.build
+use: mm.debug
+---
+
+# debug tool
+
+Starts a configured debugger for one previously built kind: app artifact in the selected lane.

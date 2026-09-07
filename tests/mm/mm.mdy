@@ -6,6 +6,7 @@ option: buildable-target no
 folder: mdy
 folder: build
 folder: configure
+folder: debug
 folder: shell
 folder: model
 ---

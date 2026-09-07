@@ -47,6 +47,13 @@ mm::configure::Settings settings_with_cross(bool select_cross, std::string targe
         .invocation = "target-runner",
         .prefix_arguments = {"--sysroot", "/target"},
     };
+    settings.cross_debugger = mm::configure::DebuggerSettings{
+        .invocation = "target-debugger",
+        .prefix_arguments = {"-q"},
+        .connection = mm::configure::DebuggerConnection::RunnerRemote,
+        .remote_endpoint = "localhost:1234",
+        .runner_arguments = {"-g", "1234"},
+    };
     settings.target_build_directory = "out-target-test";
     return settings;
 }
@@ -132,6 +139,12 @@ void an_unselected_cross_record_is_not_a_target_toolchain() {
     expect(runner != nullptr && runner->program().invocation() == "target-runner" &&
                runner->prefix_arguments().size() == 2 && runner->forwards_arguments(),
            "the configured target exposes its execution runner");
+    const auto* debugger = configuration->configured_target_toolchain()->debugger();
+    expect(debugger != nullptr && debugger->program().invocation() == "target-debugger" &&
+               debugger->connection() == models::DebuggerConnection::RunnerRemote &&
+               debugger->remote_endpoint() == "localhost:1234" &&
+               debugger->runner_arguments().size() == 2,
+           "the configured target exposes its debugger orchestration");
 }
 
 void equal_targets_are_not_cross_compilation() {

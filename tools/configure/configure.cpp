@@ -3,6 +3,7 @@
 // Usage: configure [-v|--verbose] [-h|--help] [--host | --target TRIPLE]
 //                  [--target-host]
 //                  [--compiler COMPILER] [--runner none|PROFILE]
+//                  [--debugger none|gdb]
 //                  [--build debug|release]
 //                  [<path to mm.mdy>]
 //        (defaults: host lane, compiler gcc, build debug, and the current
@@ -90,6 +91,15 @@ std::optional<mm::configure::RunnerSettings> runner_settings(
                                          source.suffix_arguments, source.forwards_arguments};
 }
 
+std::optional<mm::configure::DebuggerSettings> debugger_settings(
+    const mm::build::Toolchain& toolchain) {
+    if (!toolchain.debugger) return std::nullopt;
+    const auto& source = *toolchain.debugger;
+    return mm::configure::DebuggerSettings{
+        source.invocation, source.prefix_arguments, source.connection,
+        source.remote_endpoint, source.runner_arguments};
+}
+
 }
 
 int main(int argc, char** argv) {
@@ -99,10 +109,11 @@ int main(int argc, char** argv) {
     options.option("--target", "a target triple");
     options.option("--compiler", "a native or target-prefixed GCC or Clang C++ driver");
     options.option("--runner", "none or a supported runner profile");
+    options.option("--debugger", "none or gdb");
     options.option("--build", "debug or release");
     options.help("configure [-v|--verbose] [-h|--help] [--host | --target TRIPLE] "
                  "[--target-host] "
-                 "[--compiler COMPILER] [--runner none|PROFILE] "
+                 "[--compiler COMPILER] [--runner none|PROFILE] [--debugger none|gdb] "
                  "[--build debug|release] [manifest]");
     const auto cli = options.parse(argc, argv);
     if (cli == mm::app::Cli::help) return mm::build::exit_ok;
@@ -123,6 +134,11 @@ int main(int argc, char** argv) {
     const auto runners = options.values("--runner");
     if (runners.size() > 1) {
         std::cerr << "configure: --runner may be given only once\n";
+        return mm::build::exit_usage;
+    }
+    const auto debuggers = options.values("--debugger");
+    if (debuggers.size() > 1) {
+        std::cerr << "configure: --debugger may be given only once\n";
         return mm::build::exit_usage;
     }
     if ((options.seen("--target-host") || !runners.empty()) && !target_lane) {
@@ -234,12 +250,14 @@ int main(int argc, char** argv) {
         if (!mm::build::load_configuration(configuration_path, verbose, existing))
             return mm::build::exit_manifest;
         settings.host = compiler_settings(existing.host_toolchain(), *build);
+        settings.host_debugger = debugger_settings(existing.host_toolchain());
         if (const auto* cross = existing.cross_toolchain()) {
             settings.cross = compiler_settings(*cross, *build);
             settings.target_build_directory = *existing.cross_build_directory();
             settings.target_has_host_capability =
                 existing.target_has_host_capability();
             settings.cross_runner = runner_settings(*cross);
+            settings.cross_debugger = debugger_settings(*cross);
         }
     } else {
         settings.host = mm::configure::CompilerSettings{
@@ -280,6 +298,28 @@ int main(int argc, char** argv) {
                 return mm::build::exit_usage;
             }
         }
+        settings.cross_debugger.reset();
+        if (!debuggers.empty() && debuggers.front() != "none") {
+            settings.cross_debugger =
+                mm::configure::debugger_profile(debuggers.front(), target);
+            if (!settings.cross_debugger) {
+                std::cerr << "configure: debugger " << debuggers.front()
+                          << " is not compatible with " << target << "\n";
+                return mm::build::exit_usage;
+            }
+            if (!settings.cross_runner &&
+                settings.cross_debugger->connection ==
+                    mm::configure::DebuggerConnection::RunnerRemote) {
+                std::cerr << "configure: debugger " << debuggers.front()
+                          << " requires a configured target runner\n";
+                return mm::build::exit_usage;
+            }
+            if (!available_program(settings.cross_debugger->invocation)) {
+                std::cerr << "configure: debugger is not available: "
+                          << settings.cross_debugger->invocation << "\n";
+                return mm::build::exit_usage;
+            }
+        }
         settings.target_build_directory = mm::configure::target_output_directory(target);
     } else {
         settings.target_compiler = mm::configure::CompilerSelection::Host;
@@ -291,6 +331,20 @@ int main(int argc, char** argv) {
             std::string(mm::configure::build_compile_flags(*build)),
             std::string(mm::configure::build_link_flags(*build)),
         };
+        settings.host_debugger.reset();
+        if (!debuggers.empty() && debuggers.front() != "none") {
+            settings.host_debugger =
+                mm::configure::debugger_profile(debuggers.front(), "host");
+            if (!settings.host_debugger) {
+                std::cerr << "configure: unsupported debugger: " << debuggers.front() << "\n";
+                return mm::build::exit_usage;
+            }
+            if (!available_program(settings.host_debugger->invocation)) {
+                std::cerr << "configure: debugger is not available: "
+                          << settings.host_debugger->invocation << "\n";
+                return mm::build::exit_usage;
+            }
+        }
         if (!settings.cross)
             settings.target_build_directory = mm::configure::host_output_directory();
     }
@@ -315,5 +369,12 @@ int main(int argc, char** argv) {
     if (verbose && target_lane)
         std::cout << "  runner "
                   << (settings.cross_runner ? settings.cross_runner->invocation : "none") << "\n";
+    if (verbose)
+        std::cout << "  debugger "
+                  << ((target_lane ? settings.cross_debugger : settings.host_debugger)
+                          ? (target_lane ? settings.cross_debugger->invocation
+                                         : settings.host_debugger->invocation)
+                          : "none")
+                  << "\n";
     return mm::build::exit_ok;
 }

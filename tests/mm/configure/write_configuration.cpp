@@ -67,6 +67,7 @@ void writes_a_cross_configuration() {
     settings.target_compiler = mm::configure::CompilerSelection::Cross;
     settings.target_has_host_capability = true;
     settings.cross_runner = mm::configure::runner_profile("qemu-user", "m68k-linux-gnu");
+    settings.cross_debugger = mm::configure::debugger_profile("gdb", "m68k-linux-gnu");
     settings.cross = mm::configure::CompilerSettings{
         mm::configure::CompilerFamily::Gcc,
         "m68k-linux-gnu-g++",
@@ -88,6 +89,11 @@ void writes_a_cross_configuration() {
     mm::test::expect(first(document, "cross-runner") == "qemu-m68k" &&
                          first(document, "cross-runner-image") == "positional",
                      "expected runner profile to be persisted");
+    mm::test::expect(first(document, "cross-debugger") == "gdb-multiarch" &&
+                         first(document, "cross-debugger-connection") == "runner-remote" &&
+                         first(document, "cross-debugger-remote-endpoint") ==
+                             "localhost:1234",
+                     "expected debugger profile to be persisted");
     mm::test::expect(first(document, "cross-compiler") == "m68k-linux-gnu-g++",
                      "expected cross compiler to round trip");
     mm::test::expect(first(document, "target-build-directory") ==

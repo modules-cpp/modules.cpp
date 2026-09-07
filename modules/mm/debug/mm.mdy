@@ -1,0 +1,13 @@
+---
+mm: 1.0
+kind: module
+name: debug
+module: mm.debug
+use: mm.build
+file: debug.cppm
+file: src/debug.cpp
+---
+
+# mm.debug
+
+Starts a configured debugger directly for a host application or connects it to a target application through the configured runner remote stub.

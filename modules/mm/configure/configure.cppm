@@ -118,10 +118,26 @@ struct RunnerSettings {
     bool forwards_arguments = true;
 };
 
+enum class DebuggerConnection { Direct, RunnerRemote };
+
+struct DebuggerSettings {
+    std::string invocation;
+    std::vector<std::string> prefix_arguments;
+    DebuggerConnection connection = DebuggerConnection::Direct;
+    std::string remote_endpoint;
+    std::vector<std::string> runner_arguments;
+};
+
 // Resolves a named, statically supported runner profile for a target.
 // "none" means no runner; an unknown or incompatible profile is rejected.
 [[nodiscard]] std::optional<RunnerSettings> runner_profile(std::string_view profile,
                                                            std::string_view target);
+
+// Resolves the gdb profile for one lane. Host debugging invokes gdb directly;
+// the supported QEMU user target uses gdb-multiarch and the runner's remote
+// stub. Other target/profile combinations are rejected.
+[[nodiscard]] std::optional<DebuggerSettings> debugger_profile(std::string_view profile,
+                                                               std::string_view target);
 
 // Values written to project-root/out/config.mdy. A native configuration has no
 // cross compiler and selects Host; selecting Cross requires cross settings.
@@ -132,6 +148,8 @@ struct Settings {
     bool target_has_host_capability = false;
     CompilerSettings host;
     std::optional<CompilerSettings> cross;
+    std::optional<DebuggerSettings> host_debugger;
+    std::optional<DebuggerSettings> cross_debugger;
     std::optional<RunnerSettings> cross_runner;
     std::filesystem::path host_build_directory = host_output_directory();
     std::filesystem::path target_build_directory = host_output_directory();

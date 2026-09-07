@@ -496,7 +496,7 @@ private:
     bool ok_ = false;
 };
 
-// Fixed, hand authored data: the nine *.sh scripts and how they relate are
+// Fixed, hand authored data: the ten *.sh scripts and how they relate are
 // not something any manifest declares, the same reasoning as build0/build1
 // in build_tools(). invokes() is precomputed per branch rather than derived
 // on demand, since it only ever needs to hand back what was given at
@@ -547,6 +547,7 @@ std::vector<std::unique_ptr<models::Operation>> build_operations(
     const auto* check = find_tool(tools, "check");
     const auto* model = find_tool(tools, "model");
     const auto* run_tool = find_tool(tools, "run");
+    const auto* debug_tool = find_tool(tools, "debug");
     const auto* configure = find_tool(tools, "configure");
 
     // operations() is fixed data describing this repository's own scripts,
@@ -561,7 +562,7 @@ std::vector<std::unique_ptr<models::Operation>> build_operations(
     // of the above resolved to a real Tool.
     if (cxx == nullptr || build0 == nullptr || build1 == nullptr || build == nullptr ||
         main_tool == nullptr || mdy == nullptr || test_runner == nullptr || check == nullptr ||
-        model == nullptr || run_tool == nullptr || configure == nullptr)
+        model == nullptr || run_tool == nullptr || debug_tool == nullptr || configure == nullptr)
         return {};
 
     // Every kind:app manifest's compiled/linked/installed output, the
@@ -574,7 +575,7 @@ std::vector<std::unique_ptr<models::Operation>> build_operations(
     };
 
     std::vector<std::unique_ptr<models::Operation>> result;
-    result.reserve(9);
+    result.reserve(10);
 
     // bootstrap.sh: compile build0, then either build0 builds build1
     // (branch 0) or, only if that leaves no executable build1, the same
@@ -653,6 +654,14 @@ std::vector<std::unique_ptr<models::Operation>> build_operations(
         std::vector<models::ArtifactKind>{}));
 
     result.push_back(std::make_unique<RealOperation>(
+        "debug", "debug.sh", models::Role::UserInitiated,
+        std::vector<std::vector<const models::Tool*>>{{debug_tool}},
+        std::vector<models::ArtifactKind>{models::ArtifactKind::InstalledBinary,
+                                          models::ArtifactKind::AppExecutable,
+                                          models::ArtifactKind::Configuration},
+        std::vector<models::ArtifactKind>{}));
+
+    result.push_back(std::make_unique<RealOperation>(
         "clean", "clean.sh", models::Role::UserInitiated,
         std::vector<std::vector<const models::Tool*>>{{}},
         std::vector<models::ArtifactKind>{}, std::vector<models::ArtifactKind>{}));
@@ -680,7 +689,17 @@ public:
         bind(models::ToolRole::Assembler, source.assembler);
         bind(models::ToolRole::Linker, source.linker);
         bind(models::ToolRole::Librarian, source.librarian);
-        bind(models::ToolRole::Debugger, source.debugger);
+        if (source.debugger) {
+            const auto& value = *source.debugger;
+            const auto* debugger_program = program(value.invocation);
+            bindings_[role_index(models::ToolRole::Debugger)] = debugger_program;
+            for (const auto& argument : value.prefix_arguments) {
+                if (!arguments_[role_index(models::ToolRole::Debugger)].empty())
+                    arguments_[role_index(models::ToolRole::Debugger)] += ' ';
+                arguments_[role_index(models::ToolRole::Debugger)] += argument;
+            }
+            debugger_ = std::make_unique<RealDebugger>(*debugger_program, value);
+        }
         if (source.runner) {
             const auto& value = *source.runner;
             runner_ = std::make_unique<RealRunner>(*program(value.invocation), value);
@@ -699,11 +718,51 @@ public:
         // mm::build::compile runs the Compiler role and mm::build::link runs
         // the Linker role. Assembly is reached through the driver, not as a
         // separate role invocation.
-        return role == models::ToolRole::Compiler || role == models::ToolRole::Linker;
+        return role == models::ToolRole::Compiler || role == models::ToolRole::Linker ||
+               (role == models::ToolRole::Debugger && debugger_ != nullptr);
     }
+    [[nodiscard]] const models::Debugger* debugger() const override { return debugger_.get(); }
     [[nodiscard]] const models::Runner* runner() const override { return runner_.get(); }
 
 private:
+    class RealDebugger final : public models::Debugger {
+    public:
+        RealDebugger(const models::Tool& program, const mm::build::ToolchainDebugger& source)
+            : program_(program), prefix_(source.prefix_arguments),
+              connection_(source.connection == mm::build::DebuggerConnection::Direct
+                              ? models::DebuggerConnection::Direct
+                              : models::DebuggerConnection::RunnerRemote),
+              remote_endpoint_(source.remote_endpoint),
+              runner_arguments_(source.runner_arguments) {}
+
+        [[nodiscard]] const models::Tool& program() const override { return program_; }
+        [[nodiscard]] std::vector<std::string_view> prefix_arguments() const override {
+            return views(prefix_);
+        }
+        [[nodiscard]] models::DebuggerConnection connection() const override {
+            return connection_;
+        }
+        [[nodiscard]] std::string_view remote_endpoint() const override {
+            return remote_endpoint_;
+        }
+        [[nodiscard]] std::vector<std::string_view> runner_arguments() const override {
+            return views(runner_arguments_);
+        }
+
+    private:
+        static std::vector<std::string_view> views(const std::vector<std::string>& values) {
+            std::vector<std::string_view> result;
+            result.reserve(values.size());
+            for (const auto& value : values) result.push_back(value);
+            return result;
+        }
+        const models::Tool& program_;
+        std::vector<std::string> prefix_;
+        models::DebuggerConnection connection_ = models::DebuggerConnection::Direct;
+        std::string remote_endpoint_;
+        std::vector<std::string> runner_arguments_;
+    };
+
     class RealRunner final : public models::Runner {
     public:
         RealRunner(const models::Tool& program, const mm::build::ToolchainRunner& source)
@@ -760,6 +819,7 @@ private:
     std::string target_;
     models::CompilerFamily family_ = models::CompilerFamily::Gcc;
     std::vector<std::unique_ptr<models::Tool>> programs_;
+    std::unique_ptr<RealDebugger> debugger_;
     std::unique_ptr<RealRunner> runner_;
     std::array<const models::Tool*, 5> bindings_{};
     std::array<std::string, 5> arguments_{};
@@ -1032,9 +1092,9 @@ std::unique_ptr<models::Configuration> configuration(const std::filesystem::path
 
 std::vector<const models::Operation*> recommended_sequence(
     const std::vector<const models::Operation*>& operations) {
-    static constexpr std::array<std::string_view, 9> order = {
+    static constexpr std::array<std::string_view, 10> order = {
         "clean", "bootstrap", "configure", "build", "test", "document", "check", "model",
-        "run",
+        "run", "debug",
     };
 
     std::vector<const models::Operation*> result;

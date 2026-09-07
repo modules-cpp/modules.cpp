@@ -1,0 +1,13 @@
+---
+mm: 1.0
+kind: test
+name: debug
+use: mm.test
+use: mm.debug
+unit: tests/mm/debug/debug.cpp
+unit: tests/main.cpp
+---
+
+# mm.debug test target
+
+Exercises direct and runner-remote debugger orchestration without starting an interactive debugger.

@@ -5,6 +5,7 @@ name: mm
 folder: app
 folder: build
 folder: configure
+folder: debug
 folder: mdy
 folder: model
 folder: shell

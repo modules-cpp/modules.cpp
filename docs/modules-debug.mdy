@@ -1,0 +1,54 @@
+---
+mm: 1.0
+kind: doc
+name: modules.cpp debug specification
+---
+
+# modules.cpp debug specification
+
+The debug tool starts a configured debugger for one previously built kind: app artifact. It shares run's lane selection, manifest lookup, capability checks, artifact lookup, and application-argument separator.
+
+# Command
+
+./debug --host apps/main
+
+./debug --target apps/main
+
+./debug --host apps/main -- argument-one argument-two
+
+- -v and --verbose print the selected application, debugger, executable, and final commands.
+- -h and --help print usage and exit successfully.
+- --host and --target are mutually exclusive. With neither, the persisted lane selection is used.
+- Arguments after -- are passed to the application and are not interpreted by debug.
+
+Debug never builds an application. The selected executable must already exist in its configured lane directory.
+
+# Configuration
+
+Configure the host debugger with:
+
+./configure --host --compiler g++-16 --debugger gdb
+
+Configure m68k runner-remote debugging with:
+
+./configure --target m68k-linux-gnu --target-host --compiler m68k-linux-gnu-g++-16 --runner qemu-user --debugger gdb
+
+--debugger accepts none or gdb. Omitting it or selecting none removes the debugger from the lane being configured and preserves the other lane. The configure tool verifies that the resolved debugger program is executable before writing the configuration.
+
+For the host, gdb resolves to direct mode and receives --args followed by the executable and application arguments.
+
+For m68k-linux-gnu, gdb resolves to gdb-multiarch in runner-remote mode. The debug module starts qemu-m68k with the configured sysroot and -g 1234, then starts gdb-multiarch with the target executable and connects it to localhost:1234. Exiting GDB cleans up the runner process. This debugs the guest application; it does not attach GDB to the QEMU host process.
+
+A runner-remote debugger requires a runner in the same target toolchain. A direct debugger is valid only for the host lane. Other target debugger profiles are not yet supported.
+
+# Exit behavior
+
+- 0 is successful debugger completion.
+- 64 is invalid command syntax.
+- 65 is an invalid manifest, configuration, lane, or capability selection.
+- 127 means the executable, debugger, or required runner is unavailable, or debugger startup failed.
+- Otherwise the debug tool returns the debugger process status.
+
+# Safety
+
+mm.debug single-quotes every configured path, argument, endpoint, executable, and application argument before passing its command to the shell. Runner cleanup names only the child process started by that invocation.

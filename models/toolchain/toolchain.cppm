@@ -18,6 +18,17 @@ export namespace models {
 enum class CompilerFamily { Gcc, Clang };
 enum class ToolRole { Compiler, Assembler, Linker, Librarian, Debugger };
 enum class RunnerImage { Positional, Option };
+enum class DebuggerConnection { Direct, RunnerRemote };
+
+class Debugger {
+public:
+    virtual ~Debugger() = default;
+    [[nodiscard]] virtual const Tool& program() const = 0;
+    [[nodiscard]] virtual std::vector<std::string_view> prefix_arguments() const = 0;
+    [[nodiscard]] virtual DebuggerConnection connection() const = 0;
+    [[nodiscard]] virtual std::string_view remote_endpoint() const = 0;
+    [[nodiscard]] virtual std::vector<std::string_view> runner_arguments() const = 0;
+};
 
 class Runner {
 public:
@@ -42,6 +53,7 @@ public:
     // Describes the build implementation, not configuration data. compile
     // invokes Compiler and link invokes Linker; no other role is run directly.
     [[nodiscard]] virtual bool invoked(ToolRole role) const = 0;
+    [[nodiscard]] virtual const Debugger* debugger() const = 0;
     [[nodiscard]] virtual const Runner* runner() const = 0;
 };
 

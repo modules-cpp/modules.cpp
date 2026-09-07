@@ -9,4 +9,4 @@ file: toolchain.cppm
 
 # models.toolchain
 
-A target-specific set of compiler, assembler, linker, librarian, and debugger roles bound to invocable programs, plus an optional execution runner. Roles may share one program, and a role may be unbound.
+A target-specific set of compiler, assembler, linker, librarian, and debugger roles bound to invocable programs, plus optional debugger orchestration and an optional execution runner. Roles may share one program, and a role may be unbound.
