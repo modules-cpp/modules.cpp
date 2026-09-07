@@ -1,12 +1,17 @@
 ---
-mm: 1.0
+mm: 1.1
 kind: module
 name: shell
 module: mm.shell
 file: shell.cppm
 file: src/shell.cpp
+option: buildable-target no
 ---
 
 # mm.shell
 
 The shell and environment concerns other modules would otherwise each reach past their own interface for: the interactive shell name, this process's environment variables, and a small parser for this project's own scripts.
+
+buildable-target no because setenv and unsetenv are POSIX and newlib does not
+provide them, so this module cannot compile for a freestanding target. Its only
+consumers, tools/shell and tests/mm/shell, are host-only already.
