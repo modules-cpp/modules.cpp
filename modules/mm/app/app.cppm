@@ -35,18 +35,13 @@ public:
 
     virtual ~App() = default;
 
-    [[nodiscard]] virtual int run() {return 0;};
+    [[nodiscard]] virtual int run();
 
-    [[nodiscard]] int main(int argc, char** argv) {
-        return this->run();
-    }
+private:
+    int argc_;
+    char** argv_;
 };
 
-
-App::App(int argc, char** argv)
-{
-
-}
 
 export namespace mm::app {
 
@@ -244,3 +239,20 @@ Cli Options::parse(int argc, char** argv) {
 }
 
 }  // namespace mm::app
+
+App::App(int argc, char** argv) : argc_(argc), argv_(argv) {}
+
+int App::run() {
+    const std::string tool = argc_ > 0 && argv_ != nullptr && argv_[0] != nullptr
+                                 ? std::filesystem::path(argv_[0]).filename().string()
+                                 : std::string("app");
+    mm::app::Options options(tool);
+    options.help(tool + " [-v|--verbose] [-h|--help]");
+    const auto cli = options.parse(argc_, argv_);
+    if (cli == mm::app::Cli::help) return 0;
+    if (cli != mm::app::Cli::ok) return 64;
+
+    if (options.verbose())
+        std::cout << "modules.cpp " << tool << " application\n  verbose true\n";
+    return 0;
+}

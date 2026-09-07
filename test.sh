@@ -118,6 +118,19 @@ status=0
 actual=$(./out/bin/main 2>&1) || status=$?
 check "app main output" "$expected_status" "$status" "$expected" "$actual"
 
+expected='Usage: main [-v|--verbose] [-h|--help]'
+expected_status=0
+status=0
+actual=$(./out/bin/main --help 2>&1) || status=$?
+check "app main help output" "$expected_status" "$status" "$expected" "$actual"
+
+expected='modules.cpp main application
+  verbose true'
+expected_status=0
+status=0
+actual=$(./out/bin/main --verbose 2>&1) || status=$?
+check "app main verbose output" "$expected_status" "$status" "$expected" "$actual"
+
 echo
 echo test app mdy
 echo
