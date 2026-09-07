@@ -1,0 +1,135 @@
+---
+mm: 1.0
+kind: doc
+name: modules.cpp build tool specification
+status: official
+release: 1.2
+---
+
+# modules.cpp build tool specification
+
+# Status and authority
+
+This document specifies the implemented build command and its host and target lane selection.
+
+docs/modules-configure.mdy remains authoritative for lane definitions, compiler selection, build type, option inheritance, read-only settings, and buildable-host and buildable-target. This document owns how build selects and consumes a configured lane.
+
+# Command line
+
+build [-v] [--host or --target] [manifest]
+
+The optional manifest is an mm.mdy file or a directory containing one. With no manifest, build starts at mm.mdy in the current directory. -v and --verbose enable configuration and compiler command logging.
+
+--host and --target are mutually exclusive. Supplying both, repeating either, or supplying an unknown option is a usage error and exits 64.
+
+Build accepts no command-line compiler, compiler version, target triple, build type, compiler flag, linker flag, or output-directory override.
+
+# Configured lanes
+
+A lane is defined only by configure and persisted in out/config.mdy. It binds a toolchain, target identity, one project-wide debug or release build, flags, and an output directory.
+
+The host lane always exists. A target lane exists only when configuration contains a complete target toolchain and target triple.
+
+The persisted selection is the default lane. Running build without --host or --target follows that selection.
+
+--host selects the persisted host lane for this invocation.
+
+--target selects the persisted target lane for this invocation.
+
+An explicit selector changes no configuration data. It does not rewrite out/config.mdy or resolved-options.mdy and does not become the default for a later invocation.
+
+--target without a configured target lane is a configuration error and exits 65. --host never borrows the target compiler, and --target never falls back to the host compiler.
+
+# Capability selection
+
+Before ordering any target, build resolves capabilities through the shared resolver in mm.configure and validates them across use dependencies through mm.build.
+
+The host lane retains nodes whose resolved buildable-host value is yes.
+
+The target lane retains nodes whose resolved buildable-target value is yes.
+
+Assignment, reset, inheritance, and read-only rules are identical to configure. Capability declarations are handled without ignored-option warnings. Other manifest options remain warning-only until their values are applied to compiler and linker commands.
+
+An unavailable module or application root is skipped. Build reports the number skipped and the selected capability lane. A retained consumer cannot depend on an unavailable module because capability validation runs before filtering and rejects that use edge.
+
+If a manifest tree declares module or application targets but none is available in the selected lane, build reports them as skipped and succeeds without clearing caches, compiling, linking, or installing anything.
+
+A tree declaring no module or application targets remains a manifest error and exits 65.
+
+# Build pipeline
+
+For the selected lane build performs these phases:
+
+- Resolve the project configuration and selected toolchain.
+- Walk and validate the requested manifest tree.
+- Resolve and validate host and target capabilities.
+- Remove roots unavailable in the selected lane.
+- Topologically order modules before their consumers.
+- Clear module state for the selected build.
+- Compile translation units in declared order.
+- Link retained applications from their transitive object closure.
+- Install eligible host applications.
+
+Unknown modules and dependency cycles are manifest errors. Compile and link failures stop the pipeline immediately.
+
+# Manifest subtree
+
+A manifest argument limits roots considered by the build. Dependencies reachable through use remain required even when their declarations are outside the requested subtree. Capability values must be resolved from the project root so invoking build on a descendant cannot bypass an inherited value or read-only setting.
+
+This whole-project resolution rule is implemented for lane selectors. The requested manifest limits build roots after the complete project tree has been resolved and validated.
+
+# Output and installation
+
+The configured host lane writes beneath out-host. An unconfigured bootstrap-compatible invocation retains the legacy out directory.
+
+A target lane writes beneath out-target- followed by its configured target triple, for example out-target-aarch64-linux-gnu.
+
+Objects, compiler module artifacts, executables, and test-independent intermediates remain inside the selected lane. Build obtains the directory from configuration and never constructs a competing directory from command-line arguments.
+
+Host applications intended as installed commands may be installed into out/bin.
+
+Target applications remain in the target lane and must not replace host commands in out/bin. A cross-compiled build, configure, test, check, model, document, or shell executable must never overwrite the host tool used to continue the workflow.
+
+Bootstrap output remains under out and is not a configured lane.
+
+# Diagnostics and exit status
+
+- 0 means the requested build completed or every declared root was intentionally skipped for the selected lane.
+- 64 means invalid command-line usage.
+- 65 means invalid manifest, configuration, capability, or dependency structure.
+- 80 means compilation failed.
+- 81 means linking or installation failed.
+
+Lane diagnostics name host or target. A missing target configuration is reported before compilation. Verbose logging prints the selected lane, compiler invocation, build type, compile flags, link flags, and output directory.
+
+# Examples
+
+Use the configured default lane:
+
+./build
+
+Build host tools while a target lane is the configured default:
+
+./build --host tools
+
+Build target applications without changing the configured default:
+
+./build --target apps
+
+# Conformance
+
+- Build without a lane selector follows the selection persisted by configure.
+- --host uses only the configured host toolchain, buildable-host, and host output directory.
+- --target uses only the configured target toolchain, buildable-target, and target output directory.
+- Explicit selection does not change out/config.mdy or any resolved option record.
+- Both selectors together and repeated selectors exit 64.
+- --target without a configured target lane exits 65 before cache removal or compilation.
+- Host-only roots are skipped by a target build and target-only roots are skipped by a host build.
+- A retained consumer with an unavailable dependency is rejected before filtering.
+- A descendant invocation cannot bypass capability inherited from an ancestor.
+- A target build never installs an executable over a host command in out/bin.
+- No build option can override compiler, target triple, build type, flags, or output directory.
+
+# Current boundary
+
+Build consumes capabilities but does not yet apply the remaining tuning options to compiler or linker commands. Builds are full rather than incremental.

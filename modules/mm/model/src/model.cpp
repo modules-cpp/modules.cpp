@@ -719,16 +719,19 @@ public:
     RealConfiguration(std::string name, bool persisted,
                       const mm::build::BuildConfiguration& configuration)
         : host_toolchain_(configuration.host_toolchain()),
-          target_toolchain_(configuration.selects_cross()
-                                ? std::make_unique<RealToolchain>(
-                                      *configuration.cross_toolchain())
-                                : nullptr),
+          configured_target_toolchain_(configuration.cross_toolchain()
+                                           ? std::make_unique<RealToolchain>(
+                                                 *configuration.cross_toolchain())
+                                           : nullptr),
           name_(std::move(name)),
           persisted_(persisted),
           selection_(configuration.selects_cross() ? models::CompilerSelection::Cross
                                                    : models::CompilerSelection::Host),
           build_directory_(configuration.build_directory),
           host_build_directory_(configuration.host_build_directory),
+          target_build_directory_(configuration.cross_build_directory()
+                                      ? *configuration.cross_build_directory()
+                                      : std::filesystem::path{}),
           build_(configuration.build == mm::build::Build::Release ? models::Build::Release
                                                                   : models::Build::Debug),
           compiler_(configuration.selected_toolchain().compiler.invocation),
@@ -743,7 +746,12 @@ public:
         return host_toolchain_;
     }
     [[nodiscard]] const models::Toolchain* target_toolchain() const override {
-        return target_toolchain_.get();
+        return selection_ == models::CompilerSelection::Cross
+                   ? configured_target_toolchain_.get()
+                   : nullptr;
+    }
+    [[nodiscard]] const models::Toolchain* configured_target_toolchain() const override {
+        return configured_target_toolchain_.get();
     }
     [[nodiscard]] std::filesystem::path build_directory() const override {
         return build_directory_;
@@ -751,10 +759,13 @@ public:
     [[nodiscard]] std::filesystem::path host_build_directory() const override {
         return host_build_directory_;
     }
+    [[nodiscard]] std::filesystem::path target_build_directory() const override {
+        return target_build_directory_;
+    }
     [[nodiscard]] models::Build build() const override { return build_; }
     [[nodiscard]] std::string_view compiler() const override { return compiler_; }
     [[nodiscard]] models::CompilerFamily compiler_family() const override {
-        return selection_ == models::CompilerSelection::Cross ? target_toolchain_->family()
+        return selection_ == models::CompilerSelection::Cross ? configured_target_toolchain_->family()
                                                               : host_toolchain_.family();
     }
     [[nodiscard]] std::string_view compiler_flags() const override { return compiler_flags_; }
@@ -767,12 +778,13 @@ public:
 
 private:
     RealToolchain host_toolchain_;
-    std::unique_ptr<RealToolchain> target_toolchain_;
+    std::unique_ptr<RealToolchain> configured_target_toolchain_;
     std::string name_;
     bool persisted_ = false;
     models::CompilerSelection selection_ = models::CompilerSelection::Host;
     std::filesystem::path build_directory_;
     std::filesystem::path host_build_directory_;
+    std::filesystem::path target_build_directory_;
     models::Build build_ = models::Build::Debug;
     std::string compiler_;
     std::string compiler_flags_;

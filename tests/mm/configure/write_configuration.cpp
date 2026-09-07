@@ -104,6 +104,18 @@ void parses_supported_compiler_selectors() {
                            clang->invocation == "clang++-20" &&
                            clang->requested_major.value_or(0) == 20,
                      "expected clang++-20 to select Clang");
+
+    const auto cross = mm::configure::parse_compiler("aarch64-linux-gnu-gcc-15");
+    mm::test::expect(cross && cross->family == mm::configure::CompilerFamily::Gcc &&
+                         cross->invocation == "aarch64-linux-gnu-g++-15" &&
+                         cross->target_prefix == "aarch64-linux-gnu",
+                     "expected a target GCC C driver to normalize to its C++ driver");
+
+    mm::test::expect(mm::configure::valid_target_triple("aarch64-linux-gnu") &&
+                         !mm::configure::valid_target_triple("host") &&
+                         !mm::configure::valid_target_triple("../target") &&
+                         !mm::configure::valid_target_triple("bad target"),
+                     "expected target triples to reject paths and whitespace");
 }
 
 void rejects_invalid_compiler_selectors() {

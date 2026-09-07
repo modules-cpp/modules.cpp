@@ -54,6 +54,14 @@ Nine modules, each under models/<name>/<name>.cppm with its own mm.mdy:
 - A declaration is not the thing it declares. models::AppNode and models::Tool both exist because a manifest saying an app should exist is not the same fact as a binary existing to run; models::ModuleNode and models::Module split the same way, for uses: as text versus imports() as a resolved graph. This is the recurring shape across models.tool and models.modules.
 - Nothing here executes anything. There is deliberately no run() on Tool or Operation: invoking things is mm.build's and mm.test's job. models/ describes what exists and how it relates, not how to act on it.
 
+# Invocation lane projection
+
+docs/modules-build.mdy and docs/modules-test.mdy specify --host and --target selectors. They project one already configured toolchain for a single invocation rather than mutating models::Configuration. The persisted selection remains the default projection; an explicit selector chooses the host or configured target toolchain and its recorded output directory without changing compiler, target triple, build type, or flags.
+
+Configuration exposes the persisted selection, the always-present host toolchain, the target toolchain selected by configuration, and configured_target_toolchain() for a retained target that is not the default. target_build_directory() retains that lane's output beside host_build_directory() and is empty when no target is configured. This preserves target_toolchain()'s existing selection-following contract while allowing an invocation projection in either direction.
+
+Target test execution also needs a runner associated with a target toolchain. No runner role exists today. The model must distinguish the runner being configured from it being invoked, following the existing Toolchain role convention, before tools/test can claim target execution.
+
 # mm.model: the adapter
 modules/mm/model adapts mm::build's and mm::mdy's real data onto
 models::Repository and models::Tool, rather than duplicating either. Its one

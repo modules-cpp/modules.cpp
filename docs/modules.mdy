@@ -129,9 +129,11 @@ The source tree is organized by responsibility.
 |   +-- mm.mdy                documentation manifest
 |   +-- mdy.mdy               MDY format reference
 |   +-- modules.mdy           this guide
+|   +-- modules-build.mdy     build tool and lane-selection specification
 |   +-- modules-c++20.mdy     C++20 language subset specification
 |   +-- modules-configure.mdy official configure specification for release 1.1
 |   +-- modules-model.mdy     the abstract data model
+|   +-- modules-test.mdy      test tool and target execution specification
 |
 +-- out/                      bootstrap output, installed commands, configuration
 +-- out-host/                 configured native build output
@@ -222,6 +224,11 @@ build or compiler override. The GCC backend uses modules-ts; the Clang backend
 writes BMIs beneath the active build directory. A full build clears both
 families' module state before compiling.
 
+docs/modules-build.mdy is the detailed build command specification. It records
+the current pipeline and the --host and --target selectors. Those
+selectors choose an already configured lane for one invocation; they do not
+choose a compiler, change the project-wide build type, or rewrite configuration.
+
 ## mm.test
 mm.test provides the project test framework. It exports assertions, test cases,
 suites, a static registrar, expected-failure support, and the test runner.
@@ -233,6 +240,11 @@ not need assertion macros.
 An expected failure is reported as xfail and does not fail the run. If it starts
 passing, it becomes xpass and fails the run until the stale marker is removed.
 This turns known defects into executable records without weakening regressions.
+
+docs/modules-test.mdy is the detailed test command specification. It separates
+host execution, target compilation, and compile-only operation. The lane
+selectors are implemented. A target runner is not configured yet, so target
+tests require --compile-only and direct target execution fails safely.
 
 ## models/ and mm.model
 models/ is a second, independent description of this project's own structure: 
@@ -478,7 +490,9 @@ defects and become ordinary regression tests when fixed.
 # Current boundaries
 These are the gaps between the Design goals and today's implementation.
 
-docs/modules-configure.mdy is the official configure and manifest-option specification for release 1.1. configure implements typed options, branch-local resets and read-only settings, and records beneath out. All manifest-reading tools accept 1.0 and 1.1 through the shared gate. Build and test warn about ignored option declarations; applying resolved settings to compilation remains outside this release's configure-only scope.
+docs/modules-configure.mdy is the official configure and manifest-option specification for release 1.1. configure implements typed options, branch-local resets and read-only settings, and records beneath out. All manifest-reading tools accept 1.0 and 1.1 through the shared gate. Build and test resolve buildable-host and buildable-target and enforce the selected lane; other option declarations remain warning-only and are not yet applied to compilation.
+
+docs/modules-build.mdy and docs/modules-test.mdy specify the implemented --host, --target, and --compile-only lane interface. Target-runner configuration remains future work.
 
 - App defines the application boundary but stores no state; shared lifecycle, context, logging, or argument services can be added there without coupling them to build policy.
 - Bootstrap follows GCC modules-ts conventions; the self-hosted compiler driver

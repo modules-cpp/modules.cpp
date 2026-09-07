@@ -100,6 +100,12 @@ void loads_the_cross_selection() {
                      "expected both host and selected cross lanes to be retained");
     mm::test::expect(configuration.build_directory == "out/target/aarch64-linux-gnu",
                      "expected cross target build directory");
+    mm::test::expect(configuration.build_directory_for(false) != nullptr &&
+                         *configuration.build_directory_for(false) == "out-host" &&
+                         configuration.build_directory_for(true) != nullptr &&
+                         *configuration.build_directory_for(true) ==
+                             "out/target/aarch64-linux-gnu",
+                     "expected both lane directories to remain selectable");
 }
 
 void retains_an_unselected_cross_compiler() {
@@ -136,6 +142,9 @@ void retains_an_unselected_cross_compiler() {
                              "aarch64-linux-gnu-g++" &&
                          configuration.cross_toolchain()->verbose,
                      "expected the unselected cross lane to be retained completely");
+    mm::test::expect(configuration.build_directory == "out-host" &&
+                         configuration.build_directory_for(true) != nullptr,
+                     "expected host selection while retaining the cross directory");
 }
 
 void rejects_a_selected_but_missing_cross_compiler() {

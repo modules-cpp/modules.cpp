@@ -83,7 +83,7 @@ void inheritance_reset_and_records() {
         const auto record = read(tree.root() / "out-host/a/leaf/resolved-options.mdy");
         expect(record.find("option: optimize " + std::to_string(mm::configure::build_defaults(build).optimize)) != std::string::npos, "same record replaced for selected build");
         expect(record.find("read-only: optimize") != std::string::npos && record.find("unset-option: include-dir") != std::string::npos, "record contains locks and unset values");
-        expect(record.find("applied-by-build: no") != std::string::npos && record.find("compile-arg:") == std::string::npos, "record is not compiler command");
+        expect(record.find("applied-by-build: capabilities") != std::string::npos && record.find("compile-arg:") == std::string::npos, "record identifies capability-only consumption");
         expect(record.find("output: out-host") != std::string::npos,
                "record names the lane that produced it");
     }

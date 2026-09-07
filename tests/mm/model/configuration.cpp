@@ -42,7 +42,7 @@ mm::configure::Settings settings_with_cross(bool select_cross, std::string targe
         "cross compile flags",
         "cross link flags",
     };
-    settings.target_build_directory = select_cross ? "out-target-test" : "out-host";
+    settings.target_build_directory = "out-target-test";
     return settings;
 }
 
@@ -118,6 +118,10 @@ void an_unselected_cross_record_is_not_a_target_toolchain() {
     expect(configuration->selection() == models::CompilerSelection::Host &&
                configuration->target_toolchain() == nullptr,
            "record presence does not override host selection");
+    expect(configuration->configured_target_toolchain() != nullptr &&
+               configuration->configured_target_toolchain()->target() == "aarch64-linux-gnu" &&
+               configuration->target_build_directory() == "out-target-test",
+           "an unselected target remains available for invocation projection");
 }
 
 void equal_targets_are_not_cross_compilation() {

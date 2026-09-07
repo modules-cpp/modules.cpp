@@ -3,6 +3,7 @@
 module;
 
 #include <charconv>
+#include <cctype>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
@@ -146,7 +147,31 @@ std::optional<CompilerRequest> parse_compiler(std::string_view value) {
         result.invocation = "g++";
         suffix = value.substr(3);
     } else {
-        return std::nullopt;
+        std::size_t driver = value.rfind("-clang++");
+        std::size_t length = 8;
+        result.family = CompilerFamily::Clang;
+        std::string normalized = "clang++";
+        if (driver == std::string_view::npos) {
+            driver = value.rfind("-clang");
+            length = 6;
+        }
+        if (driver == std::string_view::npos) {
+            driver = value.rfind("-g++");
+            length = 4;
+            result.family = CompilerFamily::Gcc;
+            normalized = "g++";
+        }
+        if (driver == std::string_view::npos) {
+            driver = value.rfind("-gcc");
+            length = 4;
+            result.family = CompilerFamily::Gcc;
+            normalized = "g++";
+        }
+        if (driver == std::string_view::npos || driver == 0) return std::nullopt;
+        result.target_prefix = std::string(value.substr(0, driver));
+        if (!valid_target_triple(result.target_prefix)) return std::nullopt;
+        result.invocation = result.target_prefix + "-" + normalized;
+        suffix = value.substr(driver + length);
     }
 
     if (suffix.empty()) return result;
@@ -161,6 +186,16 @@ std::optional<CompilerRequest> parse_compiler(std::string_view value) {
     result.invocation += std::string(suffix);
     result.requested_major = major;
     return result;
+}
+
+bool valid_target_triple(std::string_view value) {
+    if (value.empty() || value == "host" || value.front() == '-' || value.back() == '-')
+        return false;
+    for (const char c : value) {
+        const auto byte = static_cast<unsigned char>(c);
+        if (std::isalnum(byte) == 0 && c != '-' && c != '_' && c != '.') return false;
+    }
+    return true;
 }
 
 std::string_view compiler_family_name(CompilerFamily family) {
@@ -522,7 +557,7 @@ bool write_option_records(const std::filesystem::path& project_root,
             << "\nmanifest: " << (directory / "mm.mdy").lexically_normal().generic_string()
             << "\nbuild: " << build_name(build)
             << "\noutput: " << output.generic_string()
-            << "\nresolved-by: configure\napplied-by-build: no\npath-base: project-root\n";
+            << "\nresolved-by: configure\napplied-by-build: capabilities\npath-base: project-root\n";
         for (const auto& [name, value] : resolved[i]) {
             if (value.unset) out << "unset-option: " << name << '\n';
             else out << "option: " << name << ' ' << option_text(value) << '\n';
@@ -540,7 +575,7 @@ bool write_option_records(const std::filesystem::path& project_root,
             write_origins(std::cout, build, resolved[i]);
         }
     }
-    std::cout << "Manifest options and locks recorded only; not applied by build or test yet\n";
+    std::cout << "Manifest options and locks recorded; build and test apply capabilities only\n";
     return true;
 }
 

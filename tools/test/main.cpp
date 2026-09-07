@@ -1,11 +1,14 @@
 // modules.cpp test tool
 //
-// Usage: test [-v] <path to a kind:test mm.mdy>
+// Usage: test [-v] [--host | --target] [--compile-only]
+//             <path to a kind:test mm.mdy>
 //
 // Reads a test manifest, compiles every declared unit in order, links the
-// objects directly into one test binary, runs it and propagates its exit code.
+// objects directly into one test binary, and either stops for --compile-only
+// or runs a host binary and propagates its exit code. Target execution is
+// rejected until configuration can represent a target runner.
 // All the work lives in mm.build; this file is the front end. The rules it
-// relies on come from proposals/modules-test.mdy.
+// relies on are specified by docs/modules-test.mdy.
 //
 // Pawel Wodnicki (C) 2026
 // 32bitmicro LLC (C) 2026
@@ -21,13 +24,27 @@ import mm.configure;
 
 int main(int argc, char** argv) {
     mm::app::Options options("test");
+    options.flag("--host");
+    options.flag("--target");
+    options.flag("--compile-only");
     if (options.parse(argc, argv) != mm::app::Cli::ok) return mm::build::exit_usage;
 
+    if (options.count("--host") > 1 || options.count("--target") > 1 ||
+        options.count("--compile-only") > 1) {
+        std::cerr << "test: option may be given only once\n";
+        return mm::build::exit_usage;
+    }
+    if (options.seen("--host") && options.seen("--target")) {
+        std::cerr << "test: --host and --target are mutually exclusive\n";
+        return mm::build::exit_usage;
+    }
+
     const bool verbose = options.verbose();
+    const bool compile_only = options.seen("--compile-only");
 
     // The one tool with no default manifest: a test target must be named.
     if (options.positional().empty()) {
-        std::cerr << "usage: test [-v] <path to mm.mdy>\n";
+        std::cerr << "usage: test [-v] [--host | --target] [--compile-only] <path to mm.mdy>\n";
         return mm::build::exit_usage;
     }
 
@@ -50,11 +67,16 @@ int main(int argc, char** argv) {
         return mm::build::exit_manifest;
     }
 
+    std::error_code ec;
+    const auto requested_manifest = std::filesystem::weakly_canonical(manifest_path, ec);
+    if (ec) {
+        std::cerr << "test: cannot resolve manifest: " << ec.message() << "\n";
+        return mm::build::exit_manifest;
+    }
+
     const auto name = target.name;
     const auto units = target.sources.size();
     const auto uses = target.uses.size();
-
-    std::error_code ec;
 
     // TranslationUnit paths are root relative, and the compiler writes gcm.cache into the
     // working directory, so both want the project root.
@@ -67,8 +89,60 @@ int main(int argc, char** argv) {
     mm::build::BuildConfiguration configuration;
     if (!mm::build::resolve_configuration(".", verbose, configuration))
         return mm::build::exit_manifest;
-    const auto& toolchain = configuration.selected_toolchain();
-    const auto build_dir = configuration.build_directory / "tests" / name;
+    const bool target_lane = options.seen("--target") ||
+                             (!options.seen("--host") && configuration.selects_cross());
+    const auto* toolchain_ptr = configuration.toolchain_for(target_lane);
+    const auto* lane_directory = configuration.build_directory_for(target_lane);
+    if (toolchain_ptr == nullptr || lane_directory == nullptr) {
+        std::cerr << "test: target lane is not configured\n";
+        return mm::build::exit_manifest;
+    }
+    const auto& toolchain = *toolchain_ptr;
+    const auto build_dir = *lane_directory / "tests" / name;
+
+    auto project = mm::build::load_project(".", {.tool = "test", .warn_options = true});
+    if (!project.ok) return mm::build::exit_manifest;
+
+    mm::build::BuildCapabilities capabilities;
+    if (!mm::build::resolve_capabilities(".", configuration.build, project, capabilities, "test"))
+        return mm::build::exit_manifest;
+
+    std::size_t test_node = mm::build::no_target;
+    for (std::size_t i = 0; i < project.nodes.size(); ++i) {
+        const auto candidate = std::filesystem::weakly_canonical(project.nodes[i].manifest, ec);
+        if (ec) {
+            std::cerr << "test: cannot resolve manifest: " << ec.message() << "\n";
+            return mm::build::exit_manifest;
+        }
+        if (candidate == requested_manifest) {
+            test_node = i;
+            break;
+        }
+    }
+    if (test_node == mm::build::no_target || project.nodes[test_node].kind != "test") {
+        std::cerr << "test: requested manifest is not a registered test: "
+                  << manifest_path.string() << "\n";
+        return mm::build::exit_manifest;
+    }
+
+    const auto& buildable = target_lane ? capabilities.target : capabilities.host;
+    if (!buildable[test_node]) {
+        std::cerr << "test: " << project.nodes[test_node].manifest.string() << ": " << name
+                  << " is not buildable-" << (target_lane ? "target" : "host") << "\n";
+        return mm::build::exit_manifest;
+    }
+    if (target_lane && !compile_only) {
+        std::cerr << "test: target " << toolchain.target
+                  << " has no test runner; use --compile-only\n";
+        return mm::build::exit_manifest;
+    }
+
+    mm::build::Tree tree;
+    for (std::size_t i = 0; i < project.nodes.size(); ++i) {
+        if ((project.nodes[i].kind == "module" || project.nodes[i].kind == "app") &&
+            project.target[i] != mm::build::no_target && buildable[i])
+            tree.targets.push_back(std::move(project.targets[project.target[i]]));
+    }
 
     std::cout << "modules.cpp test tool\n";
     std::cout << "  manifest " << manifest_path.string() << "\n";
@@ -90,9 +164,6 @@ int main(int argc, char** argv) {
     // The modules a test uses come from the project tree, not from its own
     // manifest: appending the test as a target lets the ordinary use: machinery
     // resolve them transitively, so a test manifest lists only its own units.
-    auto tree = mm::build::load_tree(".", {.tool = "test", .warn_options = true});
-    if (!tree.ok) return mm::build::exit_manifest;
-
     tree.targets.push_back(std::move(target));
     const auto index = tree.targets.size() - 1;
 
@@ -124,6 +195,8 @@ int main(int argc, char** argv) {
     const auto objects = mm::build::closure(tree, index);
     if (const int status = mm::build::link(toolchain, objects, binary); status != 0)
         return status;
+
+    if (compile_only) return mm::build::exit_ok;
 
     std::cout << "\nRun\n\n";
 

@@ -71,12 +71,15 @@ public:
     // even if the persisted file also carries an unused cross record.
     [[nodiscard]] virtual const Toolchain& host_toolchain() const = 0;
     [[nodiscard]] virtual const Toolchain* target_toolchain() const = 0;
+    [[nodiscard]] virtual const Toolchain* configured_target_toolchain() const = 0;
 
     // Root relative. build_directory() is the selected lane's; the host lane's
     // is always available, since programs that run during a build are host
-    // artifacts whatever selection() is.
+    // artifacts whatever selection() is. target_build_directory() is empty
+    // when no target toolchain is configured.
     [[nodiscard]] virtual std::filesystem::path build_directory() const = 0;
     [[nodiscard]] virtual std::filesystem::path host_build_directory() const = 0;
+    [[nodiscard]] virtual std::filesystem::path target_build_directory() const = 0;
 
     // The one build selected for every compiling tool in the project.
     [[nodiscard]] virtual Build build() const = 0;

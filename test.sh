@@ -3,21 +3,41 @@
 set -eu
 
 verbose=false
+lane=""
+compile_only=false
 for arg in "$@"; do
     case "$arg" in
         -v|--verbose) verbose=true ;;
+        --host|--target)
+            if [ -n "$lane" ]; then
+                echo "test: lane option may be given only once" >&2
+                exit 64
+            fi
+            lane=$arg
+            ;;
+        --compile-only)
+            if [ "$compile_only" = true ]; then
+                echo "test: --compile-only may be given only once" >&2
+                exit 64
+            fi
+            compile_only=true
+            ;;
         *)
-            echo "usage: test.sh [-v|--verbose]" >&2
+            echo "usage: test.sh [-v|--verbose] [--host|--target] [--compile-only]" >&2
             exit 64
             ;;
     esac
 done
 
 run_test_target() {
-    if [ "$verbose" = true ]; then
-        out/bin/test -v "$1"
+    if [ "$verbose" = true ] && [ "$compile_only" = true ]; then
+        out/bin/test -v ${lane:+"$lane"} --compile-only "$1"
+    elif [ "$verbose" = true ]; then
+        out/bin/test -v ${lane:+"$lane"} "$1"
+    elif [ "$compile_only" = true ]; then
+        out/bin/test ${lane:+"$lane"} --compile-only "$1"
     else
-        out/bin/test "$1"
+        out/bin/test ${lane:+"$lane"} "$1"
     fi
 }
 

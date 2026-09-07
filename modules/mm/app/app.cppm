@@ -105,6 +105,13 @@ public:
 
     [[nodiscard]] bool seen(std::string_view name) const { return named(seen_, name); }
 
+    [[nodiscard]] std::size_t count(std::string_view name) const {
+        std::size_t result = 0;
+        for (const auto& entry : seen_)
+            if (entry == name) ++result;
+        return result;
+    }
+
     // Every value given for an option() or assigned() name, in order.
     [[nodiscard]] std::vector<std::string> values(std::string_view name) const {
         const auto it = values_.find(name);
@@ -149,7 +156,7 @@ Cli Options::parse(int argc, char** argv) {
         }
 
         if (named(flags_, arg)) {
-            if (!seen(arg)) seen_.emplace_back(arg);
+            seen_.emplace_back(arg);
             continue;
         }
 

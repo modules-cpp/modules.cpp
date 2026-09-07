@@ -5,9 +5,11 @@ name: docs
 file: compiler-is-all-you-need.mdy
 file: mdy.mdy
 file: modules.mdy
+file: modules-build.mdy
 file: modules-c++20.mdy
 file: modules-configure.mdy
 file: modules-model.mdy
+file: modules-test.mdy
 ---
 
 # Documentation

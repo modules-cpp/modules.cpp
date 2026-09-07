@@ -1,8 +1,10 @@
 // modules.cpp configure tool
 //
-// Usage: configure [-v] [--compiler COMPILER] [--build debug|release]
+// Usage: configure [-v] [--host | --target TRIPLE]
+//                  [--compiler COMPILER] [--build debug|release]
 //                  [<path to mm.mdy>]
-//        (defaults: compiler gcc, build debug, manifest mm.mdy in the current dir)
+//        (defaults: host lane, compiler gcc, build debug, and the current
+//         directory's mm.mdy; a target lane defaults to TRIPLE-g++)
 //
 //
 // Pawel Wodnicki (C) 2026
@@ -17,23 +19,83 @@ import mm.app;
 import mm.build;
 import mm.configure;
 
+namespace {
+
+std::string compile_flags(mm::configure::Build build, mm::configure::CompilerFamily family,
+                          std::string_view target) {
+    std::string flags(mm::configure::build_compile_flags(build));
+    if (family == mm::configure::CompilerFamily::Clang && target != "host")
+        flags += " --target=" + std::string(target);
+    return flags;
+}
+
+std::string link_flags(mm::configure::Build build, mm::configure::CompilerFamily family,
+                       std::string_view target) {
+    std::string flags(mm::configure::build_link_flags(build));
+    if (family == mm::configure::CompilerFamily::Clang && target != "host")
+        flags += " --target=" + std::string(target);
+    return flags;
+}
+
+mm::configure::CompilerSettings compiler_settings(const mm::build::Toolchain& toolchain,
+                                                   mm::configure::Build build) {
+    return {
+        toolchain.family,
+        toolchain.compiler.invocation,
+        toolchain.target,
+        "POSIX",
+        compile_flags(build, toolchain.family, toolchain.target),
+        link_flags(build, toolchain.family, toolchain.target),
+    };
+}
+
+}
+
 int main(int argc, char** argv) {
     mm::app::Options options("configure");
-    options.option("--compiler", "gcc, g++, clang, or clang++, optionally versioned");
+    options.flag("--host");
+    options.option("--target", "a target triple");
+    options.option("--compiler", "a native or target-prefixed GCC or Clang C++ driver");
     options.option("--build", "debug or release");
     if (options.parse(argc, argv) != mm::app::Cli::ok) return mm::build::exit_usage;
 
     const bool verbose = options.verbose();
+    const auto targets = options.values("--target");
+    if (options.count("--host") > 1 || targets.size() > 1) {
+        std::cerr << "configure: lane option may be given only once\n";
+        return mm::build::exit_usage;
+    }
+    if (options.seen("--host") && !targets.empty()) {
+        std::cerr << "configure: --host and --target are mutually exclusive\n";
+        return mm::build::exit_usage;
+    }
+    const bool target_lane = !targets.empty();
+    const std::string target = target_lane ? targets.front() : std::string("host");
+    if (target_lane && !mm::configure::valid_target_triple(target)) {
+        std::cerr << "configure: invalid target triple: " << target << "\n";
+        return mm::build::exit_usage;
+    }
+
     const auto compilers = options.values("--compiler");
     if (compilers.size() > 1) {
         std::cerr << "configure: --compiler may be given only once\n";
         return mm::build::exit_usage;
     }
 
-    const std::string requested = compilers.empty() ? std::string("gcc") : compilers.front();
+    const std::string requested = compilers.empty()
+                                      ? (target_lane ? target + "-g++" : std::string("gcc"))
+                                      : compilers.front();
     const auto compiler = mm::configure::parse_compiler(requested);
     if (!compiler) {
         std::cerr << "configure: unsupported compiler: " << requested << "\n";
+        return mm::build::exit_usage;
+    }
+    if ((!target_lane && !compiler->target_prefix.empty()) ||
+        (target_lane && compiler->family == mm::configure::CompilerFamily::Gcc &&
+         compiler->target_prefix != target) ||
+        (target_lane && !compiler->target_prefix.empty() && compiler->target_prefix != target)) {
+        std::cerr << "configure: compiler " << requested << " is not compatible with "
+                  << target << "\n";
         return mm::build::exit_usage;
     }
 
@@ -106,30 +168,71 @@ int main(int argc, char** argv) {
         return mm::build::exit_manifest;
 
     mm::configure::Settings settings;
-    settings.name = requested + "-" + requested_build;
+    const bool has_configuration = std::filesystem::exists(configuration_path, ec);
+    if (ec) return mm::build::exit_manifest;
+    if (has_configuration) {
+        mm::build::BuildConfiguration existing;
+        if (!mm::build::load_configuration(configuration_path, verbose, existing))
+            return mm::build::exit_manifest;
+        settings.host = compiler_settings(existing.host_toolchain(), *build);
+        if (const auto* cross = existing.cross_toolchain()) {
+            settings.cross = compiler_settings(*cross, *build);
+            settings.target_build_directory = *existing.cross_build_directory();
+        }
+    } else {
+        settings.host = mm::configure::CompilerSettings{
+            mm::configure::CompilerFamily::Gcc,
+            "g++",
+            "host",
+            "POSIX",
+            std::string(mm::configure::build_compile_flags(*build)),
+            std::string(mm::configure::build_link_flags(*build)),
+        };
+    }
+
+    settings.name = (target_lane ? target : compiler->invocation) + "-" + requested_build;
     settings.build = *build;
-    settings.host.family = compiler->family;
-    settings.host.invocation = compiler->invocation;
-    settings.host.target = "host";
-    settings.host.platform = "POSIX";
-    settings.host.compile_flags = mm::configure::build_compile_flags(*build);
-    settings.host.link_flags = mm::configure::build_link_flags(*build);
     settings.host_build_directory = mm::configure::host_output_directory();
-    // Native: one compiler, one lane, so the target artifacts are the host's.
-    settings.target_build_directory = mm::configure::host_output_directory();
+    if (target_lane) {
+        settings.target_compiler = mm::configure::CompilerSelection::Cross;
+        settings.cross = mm::configure::CompilerSettings{
+            compiler->family,
+            compiler->invocation,
+            target,
+            "POSIX",
+            compile_flags(*build, compiler->family, target),
+            link_flags(*build, compiler->family, target),
+        };
+        settings.target_build_directory = mm::configure::target_output_directory(target);
+    } else {
+        settings.target_compiler = mm::configure::CompilerSelection::Host;
+        settings.host = mm::configure::CompilerSettings{
+            compiler->family,
+            compiler->invocation,
+            "host",
+            "POSIX",
+            std::string(mm::configure::build_compile_flags(*build)),
+            std::string(mm::configure::build_link_flags(*build)),
+        };
+        if (!settings.cross)
+            settings.target_build_directory = mm::configure::host_output_directory();
+    }
 
     if (!mm::configure::write_configuration(project_root, settings)) {
         std::cerr << "configure: failed to write " << configuration_path.string() << "\n";
         return mm::build::exit_manifest;
     }
 
-    if (!mm::configure::write_option_records(project_root, settings.target_build_directory, *build,
+    const auto selected_output = target_lane ? settings.target_build_directory
+                                             : settings.host_build_directory;
+    if (!mm::configure::write_option_records(project_root, selected_output, *build,
                                              nodes, resolved, verbose)) {
         std::cerr << "configure: incomplete option snapshot; rerun configure\n";
         return mm::build::exit_manifest;
     }
 
-    std::cout << "Configured " << mm::configure::build_name(*build) << " build with "
+    std::cout << "Configured " << (target_lane ? target : std::string("host")) << " "
+              << mm::configure::build_name(*build) << " build with "
               << mm::configure::compiler_family_name(compiler->family) << " compiler "
               << compiler->invocation << "\n";
     return mm::build::exit_ok;

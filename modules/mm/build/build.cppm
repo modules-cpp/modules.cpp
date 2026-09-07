@@ -64,7 +64,19 @@ public:
     [[nodiscard]] const Toolchain* cross_toolchain() const {
         return cross_ ? &*cross_ : nullptr;
     }
+    [[nodiscard]] const std::filesystem::path* cross_build_directory() const {
+        return cross_build_directory_ ? &*cross_build_directory_ : nullptr;
+    }
     [[nodiscard]] bool selects_cross() const { return selects_cross_; }
+
+    [[nodiscard]] const Toolchain* toolchain_for(bool target) const {
+        if (target) return cross_toolchain();
+        return &host_;
+    }
+    [[nodiscard]] const std::filesystem::path* build_directory_for(bool target) const {
+        if (target) return cross_build_directory();
+        return &host_build_directory;
+    }
 
     // The loader is the only writer of the lane selection, so selects_cross_
     // can never be true without a cross_ value for these accessors to return.
@@ -78,6 +90,7 @@ public:
 private:
     Toolchain host_;
     std::optional<Toolchain> cross_;
+    std::optional<std::filesystem::path> cross_build_directory_;
     bool selects_cross_ = false;
 
     friend bool load_configuration(const std::filesystem::path&, bool, BuildConfiguration&);
@@ -180,6 +193,14 @@ struct Project {
     bool ok = true;
 };
 
+// Resolved build capability for every Project::nodes entry. The selected lane
+// chooses one of these vectors; keeping both preserves the declaration for
+// diagnostics and model consumers without resolving the tree twice.
+struct BuildCapabilities {
+    std::vector<bool> host;
+    std::vector<bool> target;
+};
+
 // The one traversal. load_tree and load_nodes are projections of this.
 Project load_project(const std::filesystem::path& dir, const LoadPolicy& policy = {});
 
@@ -195,6 +216,12 @@ std::vector<mm::configure::OptionNode> configuration_nodes(const Project& projec
 [[nodiscard]] bool validate_capabilities(const std::vector<mm::configure::OptionNode>& nodes,
                                          const std::vector<mm::configure::OptionValues>& resolved,
                                          std::string_view tool = "configure");
+
+// Resolve only the two capability options consumed by build and test. Other
+// options retain their release-1.1 warning-only behavior in those tools.
+[[nodiscard]] bool resolve_capabilities(const std::filesystem::path& project_root, Build build,
+                                        const Project& project, BuildCapabilities& capabilities,
+                                        std::string_view tool);
 
 // Accepts either a manifest path or the directory holding one.
 std::filesystem::path resolve_manifest(std::filesystem::path path);

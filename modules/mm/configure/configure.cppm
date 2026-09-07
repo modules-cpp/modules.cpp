@@ -75,11 +75,13 @@ using OptionValues = std::map<std::string, OptionValue, std::less<>>;
 struct CompilerRequest {
     CompilerFamily family = CompilerFamily::Gcc;
     std::string invocation = "g++";
+    std::string target_prefix;
     std::optional<unsigned> requested_major;
 };
 
-// Accepts gcc, g++, clang, or clang++, optionally followed by -<major>.
+// Accepts native or target-prefixed GCC and Clang drivers, optionally versioned.
 [[nodiscard]] std::optional<CompilerRequest> parse_compiler(std::string_view value);
+[[nodiscard]] bool valid_target_triple(std::string_view value);
 [[nodiscard]] std::string_view compiler_family_name(CompilerFamily family);
 [[nodiscard]] std::optional<Build> parse_build(std::string_view value);
 [[nodiscard]] std::string_view build_name(Build build);

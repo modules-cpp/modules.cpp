@@ -36,6 +36,21 @@ std::vector<std::string> all(const mm::mdy::MDYDocument& doc, std::string_view k
     return values == nullptr ? std::vector<std::string>{} : *values;
 }
 
+std::string_view option_name(std::string_view declaration) {
+    return declaration.substr(0, declaration.find_first_of(" \t"));
+}
+
+bool capability_name(std::string_view name) {
+    return name == "buildable-host" || name == "buildable-target";
+}
+
+std::vector<std::string> capability_declarations(const std::vector<std::string>& declarations) {
+    std::vector<std::string> result;
+    for (const auto& declaration : declarations)
+        if (capability_name(option_name(declaration))) result.push_back(declaration);
+    return result;
+}
+
 bool safe_exists(const std::filesystem::path& path) {
     std::error_code ec;
     const bool found = std::filesystem::exists(path, ec);
@@ -193,6 +208,7 @@ bool valid_mm_version(const mm::mdy::MDYDocument& doc, const std::filesystem::pa
         if (option && policy.warn_options) {
             for (const auto& value : values) {
                 const auto name = value.substr(0, value.find_first_of(" \t"));
+                if (capability_name(name)) continue;
                 std::cerr << policy.tool << ": " << manifest.string() << ": " << key
                           << " " << name << " is ignored; continuing with existing build configuration\n";
             }
@@ -574,10 +590,13 @@ bool load_configuration(const std::filesystem::path& path, bool verbose,
     if (has_cross) cross.verbose = verbose;
     configuration.host_ = std::move(host);
     configuration.cross_ = has_cross ? std::optional<Toolchain>(std::move(cross)) : std::nullopt;
+    configuration.cross_build_directory_ =
+        has_cross ? std::optional<std::filesystem::path>(target_directory) : std::nullopt;
     configuration.selects_cross_ = selection == "cross";
-    configuration.host_build_directory = std::move(host_directory);
+    configuration.host_build_directory = host_directory;
     configuration.build = build;
-    configuration.build_directory = std::move(target_directory);
+    configuration.build_directory = selection == "cross" ? std::move(target_directory)
+                                                           : std::move(host_directory);
     return true;
 }
 
@@ -595,6 +614,7 @@ bool resolve_configuration(const std::filesystem::path& project_root, bool verbo
 
     configuration.host_ = default_toolchain(verbose);
     configuration.cross_.reset();
+    configuration.cross_build_directory_.reset();
     configuration.selects_cross_ = false;
     configuration.build = Build::Debug;
     configuration.build_directory = "out";
@@ -759,6 +779,32 @@ std::vector<mm::configure::OptionNode> configuration_nodes(const Project& projec
                          all(doc, "option"), all(doc, "reset"), all(doc, "read-only")});
     }
     return nodes;
+}
+
+bool resolve_capabilities(const std::filesystem::path& project_root, Build build,
+                          const Project& project, BuildCapabilities& capabilities,
+                          std::string_view tool) {
+    auto nodes = configuration_nodes(project);
+    for (auto& node : nodes) {
+        node.options = capability_declarations(node.options);
+        node.resets = capability_declarations(node.resets);
+        node.read_only = capability_declarations(node.read_only);
+    }
+
+    std::vector<mm::configure::OptionValues> resolved;
+    if (!mm::configure::resolve_options(project_root, build, nodes, resolved, tool) ||
+        !validate_capabilities(nodes, resolved, tool))
+        return false;
+
+    capabilities.host.clear();
+    capabilities.target.clear();
+    capabilities.host.reserve(resolved.size());
+    capabilities.target.reserve(resolved.size());
+    for (const auto& values : resolved) {
+        capabilities.host.push_back(values.find("buildable-host")->second.boolean);
+        capabilities.target.push_back(values.find("buildable-target")->second.boolean);
+    }
+    return true;
 }
 
 // Projections of the single traversal above, kept so callers that want only

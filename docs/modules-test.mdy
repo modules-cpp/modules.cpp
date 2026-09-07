@@ -1,0 +1,133 @@
+---
+mm: 1.0
+kind: doc
+name: modules.cpp test tool specification
+status: official
+release: 1.2
+---
+
+# modules.cpp test tool specification
+
+# Status and authority
+
+This document specifies the implemented test command, host and target lane selection, compile-only operation, capability validation, and exit propagation.
+
+docs/modules-configure.mdy remains authoritative for configured lanes and capability resolution. docs/modules-build.mdy owns the shared meaning of per-invocation host and target selection. This document owns test selection, test artifacts, execution, and runner behavior.
+
+# Command line
+
+test [-v] [--host or --target] [--compile-only] test-manifest
+
+The required positional argument is a registered kind:test mm.mdy manifest or its directory. Test has no default manifest because running every test is the wrapper script's responsibility.
+
+--host and --target are mutually exclusive. Supplying both, repeating either, supplying more than one manifest, or supplying an unknown option is a usage error and exits 64.
+
+--compile-only compiles and links the selected test but does not execute it. It is valid for either lane and is especially useful before a target runner is configured.
+
+Test accepts no compiler, compiler version, target triple, build type, compiler flag, linker flag, runner command, or output-directory override.
+
+# Lane selection
+
+Test uses lanes already defined by configure. Without --host or --target it follows the selection persisted in out/config.mdy.
+
+--host selects the configured host toolchain and buildable-host for this invocation.
+
+--target selects the configured target toolchain and buildable-target for this invocation.
+
+Selection is temporary. Test does not rewrite configuration or resolved option records.
+
+--target without a configured target lane exits 65. No target compiler falls back to the host compiler.
+
+# Capability enforcement
+
+Test resolves capability from the project root through the same resolver used by configure and build, including assignment, reset, inheritance, and read-only rules.
+
+The requested test must be available in the selected lane. An unavailable requested test is an error rather than a silent skip because the user named that test explicitly.
+
+Example diagnostic:
+
+test: tests/device/mm.mdy: device is not buildable-target
+
+Every module reached through use must be available in the same lane. Capability incompatibility is rejected before compilation and identifies the consumer, dependency, lane, and restricting origin.
+
+Capability declarations produce no ignored-option warnings. Other manifest options retain their warning-only behavior until compilation consumes them.
+
+# Compile and link
+
+Test appends the requested kind:test target to the selected project modules, orders only its transitive dependency closure, compiles its unit entries, and links one test executable.
+
+The selected configured toolchain supplies the compiler and linker. The test command cannot select a different compiler or build type from build.
+
+--compile-only completes after a successful link and returns 0. It prints no Run phase and invokes neither a host binary nor a target runner.
+
+# Host execution
+
+For a host lane without --compile-only, test runs the linked executable directly through the existing process execution layer and returns the test program's status.
+
+A failure to start the executable exits 127. A nonzero status returned by the test program is propagated.
+
+# Target execution boundary
+
+A target executable must never be run directly as a host program merely because it is a local file.
+
+No target runner is represented by the current configuration. Therefore test --target without --compile-only exits 65 before compilation and reports:
+
+test: target TARGET-TRIPLE has no test runner; use --compile-only
+
+Future target execution may use an emulator, simulator, device launcher, or remote execution adapter. Such a runner will be configuration associated with the target toolchain, not a test command-line override. Its format and execution contract are outside this release.
+
+Until that configuration exists, compile-only is the only valid target test mode.
+
+# Output directories
+
+Host test artifacts live under:
+
+out-host/tests/TEST-NAME
+
+Target test artifacts live under the configured target lane, for example:
+
+out-target-aarch64-linux-gnu/tests/TEST-NAME
+
+An unconfigured legacy host test may continue to use out/tests/TEST-NAME.
+
+The test binary, objects, compiler module artifacts, and temporary link output remain within that directory. Test never installs its executable into out/bin.
+
+# Diagnostics and exit status
+
+- 0 means compilation, linking, and any requested execution succeeded.
+- 64 means invalid command-line usage.
+- 65 means invalid manifest, configuration, capability, lane, or missing target runner.
+- 80 means compilation failed.
+- 81 means linking failed.
+- 127 means a host test executable could not be started.
+
+Verbose logging prints the selected lane, compiler, build type, flags, output directory, unit count, dependency count, and any executed host command.
+
+# Examples
+
+Run a host test regardless of the configured default lane:
+
+./test --host tests/mm/build
+
+Compile and link a target test without executing it:
+
+./test --target --compile-only tests/device
+
+# Conformance
+
+- Test without a selector follows the persisted default lane.
+- --host uses only the configured host toolchain, buildable-host, and host test directory.
+- --target uses only the configured target toolchain, buildable-target, and target test directory.
+- Explicit selection changes no persisted configuration or option record.
+- Both lane selectors together and repeated selectors exit 64.
+- --target without a target lane exits 65 before compilation.
+- An explicitly requested test unavailable in the lane exits 65 and names that lane.
+- An unavailable dependency is rejected before compilation.
+- --compile-only compiles and links but invokes no executable or runner.
+- Target execution without a runner exits 65 and never executes the target binary directly.
+- Host execution continues to propagate the local test status.
+- Test exposes no compiler or build-type override.
+
+# Current boundary
+
+Explicit --host, --target, and --compile-only selection is implemented. No target runner is represented in configuration, so test --target requires --compile-only and otherwise exits 65 before compilation. Runner-backed target execution remains future work.
