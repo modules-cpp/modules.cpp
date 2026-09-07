@@ -70,3 +70,6 @@ gcm.cache/
 
 # drafts
 drafts/
+
+# local test scritps
+test-*.sh
