@@ -54,7 +54,7 @@ export namespace mm::app {
 // this module needs no dependency to report it. Callers map it onto their
 // own codes, which for every current tool are mm::build::exit_usage and
 // mm::build::exit_manifest.
-enum class Cli { ok, usage, manifest };
+enum class Cli { ok, help, usage, manifest };
 
 // The message every tool prints for a second positional argument.
 void unexpected_argument(std::string_view tool, std::string_view arg) {
@@ -68,7 +68,7 @@ void unexpected_argument(std::string_view tool, std::string_view arg) {
 
 // One command line, parsed once, for every tool that has one.
 //
-// The tools' flags have little in common beyond -v, so rather than a parser
+// The tools' flags have little in common beyond verbose and help, so rather than a parser
 // that knows them all, each tool declares the shapes it accepts and then
 // reads the results back. Four shapes cover every tool here:
 //
@@ -76,6 +76,7 @@ void unexpected_argument(std::string_view tool, std::string_view arg) {
 //   option("-e", "NAME=VALUE argument")   takes the next argument, repeatable
 //   assigned("-o=")           the value follows the '=' in the same argument
 //   positional_limit(2)       how many bare arguments are allowed, default 1
+//   help("tool [options]")    enables -h and --help with this usage text
 //
 // An undeclared argument beginning with a dash is an unknown option and stops
 // parsing. Only arguments that do not look like options can be positional.
@@ -96,6 +97,10 @@ public:
     }
 
     void assigned(std::string_view prefix) { assigned_.emplace_back(prefix); }
+
+    // Opt in because apps/mdy already uses -h for HTML output. Tools that call
+    // this accept both conventional help spellings and stop before doing work.
+    void help(std::string_view usage) { usage_ = usage; }
 
     void positional_limit(std::size_t limit) { limit_ = limit; }
 
@@ -138,6 +143,7 @@ private:
     std::vector<std::string> options_;
     std::vector<std::string> hints_;
     std::vector<std::string> assigned_;
+    std::string usage_;
     std::size_t limit_ = 1;
 
     bool verbose_ = false;
@@ -149,6 +155,11 @@ private:
 Cli Options::parse(int argc, char** argv) {
     for (int i = 1; i < argc; ++i) {
         const std::string_view arg = argv[i];
+
+        if (!usage_.empty() && (arg == "-h" || arg == "--help")) {
+            std::cout << "Usage: " << usage_ << "\n";
+            return Cli::help;
+        }
 
         if (verbose_flag(arg)) {
             verbose_ = true;

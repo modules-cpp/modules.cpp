@@ -51,6 +51,8 @@ configure resolves the option tree on every run; there is no separate subcommand
 ./configure --compiler g++-16 --build release
 ./configure --build debug -v modules/mm/build
 
+-v and --verbose enable configuration diagnostics. -h and --help print the command syntax and exit successfully without reading a manifest or existing configuration.
+
 The optional manifest path locates the containing project. configure always resolves the complete tree from that project's root, even when invoked on a descendant, so the resolved value of every node is independent of where configure was invoked. A requested manifest reachable in the filesystem but not present in the walked tree is an error; it does not become a separate inheritance root.
 
 Compiler selector behavior is unchanged, including versioned spellings. --build accepts debug or release and keeps its existing default. There is no positional build command and no --release shorthand. An unknown command-line option exits 64; a tree, option, or record failure exits 65.

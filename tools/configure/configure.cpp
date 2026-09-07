@@ -1,6 +1,6 @@
 // modules.cpp configure tool
 //
-// Usage: configure [-v] [--host | --target TRIPLE]
+// Usage: configure [-v|--verbose] [-h|--help] [--host | --target TRIPLE]
 //                  [--compiler COMPILER] [--build debug|release]
 //                  [<path to mm.mdy>]
 //        (defaults: host lane, compiler gcc, build debug, and the current
@@ -57,7 +57,11 @@ int main(int argc, char** argv) {
     options.option("--target", "a target triple");
     options.option("--compiler", "a native or target-prefixed GCC or Clang C++ driver");
     options.option("--build", "debug or release");
-    if (options.parse(argc, argv) != mm::app::Cli::ok) return mm::build::exit_usage;
+    options.help("configure [-v|--verbose] [-h|--help] [--host | --target TRIPLE] "
+                 "[--compiler COMPILER] [--build debug|release] [manifest]");
+    const auto cli = options.parse(argc, argv);
+    if (cli == mm::app::Cli::help) return mm::build::exit_ok;
+    if (cli != mm::app::Cli::ok) return mm::build::exit_usage;
 
     const bool verbose = options.verbose();
     const auto targets = options.values("--target");

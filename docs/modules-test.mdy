@@ -16,9 +16,11 @@ docs/modules-configure.mdy remains authoritative for configured lanes and capabi
 
 # Command line
 
-test [-v] [--host or --target] [--compile-only] test-manifest
+test [-v or --verbose] [-h or --help] [--host or --target] [--compile-only] test-manifest
 
 The required positional argument is a registered kind:test mm.mdy manifest or its directory. Test has no default manifest because running every test is the wrapper script's responsibility.
+
+-v and --verbose enable configuration and compiler command logging. -h and --help print the command syntax and exit successfully without requiring a test manifest or configuration.
 
 --host and --target are mutually exclusive. Supplying both, repeating either, supplying more than one manifest, or supplying an unknown option is a usage error and exits 64.
 

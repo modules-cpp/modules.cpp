@@ -76,23 +76,29 @@ status=0
 actual=$(./out/build0 2>&1) || status=$?
 check "build0 tool output" "$expected_status" "$status" "$expected" "$actual"
 
+expected='Usage: build0 [-h|--help] [build1]'
+expected_status=0
+status=0
+actual=$(./out/build0 --help 2>&1) || status=$?
+check "build0 help output" "$expected_status" "$status" "$expected" "$actual"
+
 echo
 echo test build1
 echo
-expected='build: unknown option: -h'
-expected_status=64
+expected='Usage: build [-v|--verbose] [-h|--help] [--host | --target] [manifest]'
+expected_status=0
 status=0
 actual=$(./out/build1 -h 2>&1) || status=$?
-check "build tool output" "$expected_status" "$status" "$expected" "$actual"
+check "build1 help output" "$expected_status" "$status" "$expected" "$actual"
 
 echo
 echo test build
 echo
-expected='build: unknown option: -h'
-expected_status=64
+expected='Usage: build [-v|--verbose] [-h|--help] [--host | --target] [manifest]'
+expected_status=0
 status=0
 actual=$(./out/bin/build -h 2>&1) || status=$?
-check "build tool output" "$expected_status" "$status" "$expected" "$actual"
+check "build help output" "$expected_status" "$status" "$expected" "$actual"
 
 echo
 echo test configure

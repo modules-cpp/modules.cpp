@@ -1,6 +1,7 @@
 // modules.cpp check tool
 //
-// Usage: check [-v] [<path to mm.mdy>]     (default: mm.mdy in the current dir)
+// Usage: check [-v|--verbose] [-h|--help] [<path to mm.mdy>]
+//        (default: mm.mdy in the current dir)
 //
 // Wraps the installed cppcheck tool to run a selected subset of
 // docs/modules-c++20.mdy's rules (see that document's "Enforcement" section
@@ -65,7 +66,10 @@ void collect(const mm::build::Tree& tree, std::set<std::string>& seen,
 
 int main(int argc, char** argv) {
     mm::app::Options options("check");
-    if (options.parse(argc, argv) != mm::app::Cli::ok) return mm::build::exit_usage;
+    options.help("check [-v|--verbose] [-h|--help] [manifest]");
+    const auto cli = options.parse(argc, argv);
+    if (cli == mm::app::Cli::help) return mm::build::exit_ok;
+    if (cli != mm::app::Cli::ok) return mm::build::exit_usage;
 
     const bool verbose = options.verbose();
     auto manifest_path = options.positional().empty()

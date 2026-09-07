@@ -279,6 +279,8 @@ such as quoting across lines, command substitution, or control flow.
 tools/shell is mm.shell's first consumer beyond its own module.
 
 # Tools
+
+Every installed command under tools accepts -v and --verbose for diagnostic output and -h and --help for command syntax. Help exits successfully before manifest or configuration loading. The standalone bootstrap program build0 also accepts -h and --help, but has no verbose mode because it is a minimal compiler-recovery stage rather than a manifest tool. The mdy application is outside tools and retains its historical -h meaning of HTML output.
 ## build0
 tools/build/main.cpp is compiled as out/build0 without importing project
 modules. It creates a recovery boundary that only needs the host compiler.

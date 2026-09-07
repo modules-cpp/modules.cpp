@@ -1,6 +1,6 @@
 // modules.cpp test tool
 //
-// Usage: test [-v] [--host | --target] [--compile-only]
+// Usage: test [-v|--verbose] [-h|--help] [--host | --target] [--compile-only]
 //             <path to a kind:test mm.mdy>
 //
 // Reads a test manifest, compiles every declared unit in order, links the
@@ -27,7 +27,11 @@ int main(int argc, char** argv) {
     options.flag("--host");
     options.flag("--target");
     options.flag("--compile-only");
-    if (options.parse(argc, argv) != mm::app::Cli::ok) return mm::build::exit_usage;
+    options.help("test [-v|--verbose] [-h|--help] [--host | --target] [--compile-only] "
+                 "<test-manifest>");
+    const auto cli = options.parse(argc, argv);
+    if (cli == mm::app::Cli::help) return mm::build::exit_ok;
+    if (cli != mm::app::Cli::ok) return mm::build::exit_usage;
 
     if (options.count("--host") > 1 || options.count("--target") > 1 ||
         options.count("--compile-only") > 1) {

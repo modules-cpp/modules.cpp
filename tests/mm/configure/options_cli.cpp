@@ -207,9 +207,28 @@ void installed_tools_select_configured_lanes() {
            "configure rejects conflicting lane selectors");
 }
 
+void installed_tools_support_common_help() {
+    std::error_code ec;
+    const auto bin = std::filesystem::current_path(ec) / "out/bin";
+    expect(!ec, "installed tool directory available");
+
+    for (const auto tool : {"build", "configure", "test", "check", "model", "shell"}) {
+        const auto log = std::filesystem::temp_directory_path() /
+                         (std::string("mm_help_") + tool + ".log");
+        for (const auto flags : {"-h", "--help", "-v -h", "--verbose --help"}) {
+            expect(invoke(bin / tool, flags, log) == 0,
+                   std::string(tool) + " accepts " + flags);
+            expect(read_text(log).starts_with(std::string("Usage: ") + tool),
+                   std::string(tool) + " prints usage for " + flags);
+        }
+        std::filesystem::remove(log, ec);
+    }
+}
+
 const mm::test::case_ cases[] = {
     {"installed configure and cross-tool 1.1 compatibility", &installed_tools_support_11},
     {"installed tools select configured lanes", &installed_tools_select_configured_lanes},
+    {"installed tools support common help", &installed_tools_support_common_help},
 };
 const mm::test::registrar reg{"mm.configure CLI", cases};
 }

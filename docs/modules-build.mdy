@@ -16,9 +16,11 @@ docs/modules-configure.mdy remains authoritative for lane definitions, compiler 
 
 # Command line
 
-build [-v] [--host or --target] [manifest]
+build [-v or --verbose] [-h or --help] [--host or --target] [manifest]
 
 The optional manifest is an mm.mdy file or a directory containing one. With no manifest, build starts at mm.mdy in the current directory. -v and --verbose enable configuration and compiler command logging.
+
+-h and --help print the command syntax and exit successfully without reading configuration or manifests.
 
 --host and --target are mutually exclusive. Supplying both, repeating either, or supplying an unknown option is a usage error and exits 64.
 

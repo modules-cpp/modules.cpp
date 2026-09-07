@@ -5,6 +5,7 @@
 //                          runnable binary
 //        build0 build1     builds out/build1 via the same fixed steps
 //                          bootstrap.sh performs by hand
+//        build0 -h|--help  prints this interface without starting a build
 //
 // build0 exists only to prove the host compiler works and to reach build1
 // before any manifest or module exists to build with; see bootstrap.sh and
@@ -138,6 +139,12 @@ int build_1()
 // main
 int main(int argc, char** argv)
 {
+    if (argc >= 2 && (std::string_view(argv[1]) == "-h" ||
+                      std::string_view(argv[1]) == "--help")) {
+        std::cout << "Usage: build0 [-h|--help] [build1]\n";
+        return 0;
+    }
+
     std::cout << "modules.cpp build tool" << "\n";
     // arguments
     std::vector<std::string_view> args(argv, argv+argc);

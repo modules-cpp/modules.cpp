@@ -1,6 +1,7 @@
 // modules.cpp shell tool
 //
-// Usage: shell [-v] [-e NAME=VALUE]... [<path to mm.mdy>] <command>
+// Usage: shell [-v|--verbose] [-h|--help] [-e NAME=VALUE]...
+//              [<path to mm.mdy>] <command>
 //        (default manifest: mm.mdy in the current dir)
 //
 // Wraps the system shell: mm::build::run passes command to /bin/sh via
@@ -42,7 +43,11 @@ int main(int argc, char** argv) {
     mm::app::Options options("shell");
     options.option("-e", "a NAME=VALUE argument");
     options.positional_limit(2);
-    if (options.parse(argc, argv) != mm::app::Cli::ok) return mm::build::exit_usage;
+    options.help("shell [-v|--verbose] [-h|--help] [-e NAME=VALUE]... "
+                 "[manifest] <command>");
+    const auto cli = options.parse(argc, argv);
+    if (cli == mm::app::Cli::help) return mm::build::exit_ok;
+    if (cli != mm::app::Cli::ok) return mm::build::exit_usage;
 
     const bool verbose = options.verbose();
     const auto assignments = options.values("-e");

@@ -1,6 +1,7 @@
 // modules.cpp model tool
 //
-// Usage: model [-v] [--configuration] [--tools] [<path to mm.mdy>]
+// Usage: model [-v|--verbose] [-h|--help] [--configuration] [--tools]
+//              [<path to mm.mdy>]
 //        (default: mm.mdy in the current dir)
 //
 // Checks the real project against itself, through the models.* abstract
@@ -104,7 +105,10 @@ int main(int argc, char** argv) {
     mm::app::Options options("model");
     options.flag("--configuration");
     options.flag("--tools");
-    if (options.parse(argc, argv) != mm::app::Cli::ok) return mm::build::exit_usage;
+    options.help("model [-v|--verbose] [-h|--help] [--configuration] [--tools] [manifest]");
+    const auto cli = options.parse(argc, argv);
+    if (cli == mm::app::Cli::help) return mm::build::exit_ok;
+    if (cli != mm::app::Cli::ok) return mm::build::exit_usage;
 
     const bool verbose = options.verbose();
     const bool report_configuration = options.seen("--configuration");

@@ -1,6 +1,7 @@
 // modules.cpp build tool, stage 1
 //
-// Usage: build [-v] [--host | --target] [<path to mm.mdy>]
+// Usage: build [-v|--verbose] [-h|--help] [--host | --target]
+//              [<path to mm.mdy>]
 //
 // Built by stage 0 (tools/build/main.cpp), which exists only to produce this
 // binary. All the work lives in mm.build; this file is the front end.
@@ -32,6 +33,11 @@ int main(int argc, char** argv) {
 
     for (int i = 1; i < argc; ++i) {
         const std::string_view arg = argv[i];
+        if (arg == "-h" || arg == "--help") {
+            std::cout << "Usage: build [-v|--verbose] [-h|--help] [--host | --target] "
+                         "[manifest]\n";
+            return mm::build::exit_ok;
+        }
         if (arg == "-v" || arg == "--verbose")
             verbose = true;
         else if (arg == "--host") {
