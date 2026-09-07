@@ -254,6 +254,23 @@ bool configuration_build(const mm::mdy::MDYDocument& doc,
     return false;
 }
 
+bool configuration_boolean(const mm::mdy::MDYDocument& document, std::string_view key,
+                           const std::filesystem::path& path, bool default_value,
+                           bool& value) {
+    const auto* values = lookup(document, key);
+    if (values == nullptr) {
+        value = default_value;
+        return true;
+    }
+    if (values->size() != 1 || (values->front() != "yes" && values->front() != "no")) {
+        std::cerr << "build: configuration " << key << " must be yes or no: "
+                  << path.string() << "\n";
+        return false;
+    }
+    value = values->front() == "yes";
+    return true;
+}
+
 bool configuration_directory(const mm::mdy::MDYDocument& doc, std::string_view key,
                              const std::filesystem::path& path,
                              std::filesystem::path& directory) {
@@ -579,6 +596,15 @@ bool load_configuration(const std::filesystem::path& path, bool verbose,
             return false;
         }
     }
+    bool target_has_host_capability = false;
+    if (!configuration_boolean(document, "target-host-capability", path, false,
+                               target_has_host_capability))
+        return false;
+    if (target_has_host_capability && !has_cross) {
+        std::cerr << "build: configuration gives host capability to a missing target: "
+                  << path.string() << "\n";
+        return false;
+    }
 
     std::filesystem::path host_directory;
     std::filesystem::path target_directory;
@@ -593,6 +619,7 @@ bool load_configuration(const std::filesystem::path& path, bool verbose,
     configuration.cross_build_directory_ =
         has_cross ? std::optional<std::filesystem::path>(target_directory) : std::nullopt;
     configuration.selects_cross_ = selection == "cross";
+    configuration.target_has_host_capability_ = target_has_host_capability;
     configuration.host_build_directory = host_directory;
     configuration.build = build;
     configuration.build_directory = selection == "cross" ? std::move(target_directory)
@@ -616,6 +643,7 @@ bool resolve_configuration(const std::filesystem::path& project_root, bool verbo
     configuration.cross_.reset();
     configuration.cross_build_directory_.reset();
     configuration.selects_cross_ = false;
+    configuration.target_has_host_capability_ = false;
     configuration.build = Build::Debug;
     configuration.build_directory = "out";
     configuration.host_build_directory = "out";
@@ -805,6 +833,18 @@ bool resolve_capabilities(const std::filesystem::path& project_root, Build build
         capabilities.target.push_back(values.find("buildable-target")->second.boolean);
     }
     return true;
+}
+
+std::vector<bool> BuildCapabilities::lane(bool target_lane,
+                                          bool target_has_host_capability) const {
+    if (!target_lane) return host;
+    if (!target_has_host_capability) return target;
+
+    std::vector<bool> result;
+    result.reserve(target.size());
+    for (std::size_t i = 0; i < target.size(); ++i)
+        result.push_back(target[i] || host[i]);
+    return result;
 }
 
 // Projections of the single traversal above, kept so callers that want only

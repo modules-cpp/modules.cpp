@@ -727,6 +727,7 @@ public:
           persisted_(persisted),
           selection_(configuration.selects_cross() ? models::CompilerSelection::Cross
                                                    : models::CompilerSelection::Host),
+          target_has_host_capability_(configuration.target_has_host_capability()),
           build_directory_(configuration.build_directory),
           host_build_directory_(configuration.host_build_directory),
           target_build_directory_(configuration.cross_build_directory()
@@ -742,6 +743,9 @@ public:
     [[nodiscard]] std::string_view name() const override { return name_; }
     [[nodiscard]] bool persisted() const override { return persisted_; }
     [[nodiscard]] models::CompilerSelection selection() const override { return selection_; }
+    [[nodiscard]] bool target_has_host_capability() const override {
+        return target_has_host_capability_;
+    }
     [[nodiscard]] const models::Toolchain& host_toolchain() const override {
         return host_toolchain_;
     }
@@ -782,6 +786,7 @@ private:
     std::string name_;
     bool persisted_ = false;
     models::CompilerSelection selection_ = models::CompilerSelection::Host;
+    bool target_has_host_capability_ = false;
     std::filesystem::path build_directory_;
     std::filesystem::path host_build_directory_;
     std::filesystem::path target_build_directory_;

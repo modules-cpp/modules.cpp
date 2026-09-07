@@ -66,6 +66,10 @@ public:
 
     [[nodiscard]] virtual CompilerSelection selection() const = 0;
 
+    // True when the configured target is itself a hosted platform and target
+    // builds may also produce artifacts declared buildable-host.
+    [[nodiscard]] virtual bool target_has_host_capability() const = 0;
+
     // The host toolchain is always present. target_toolchain() follows the
     // selection rather than record presence: it is null while Host is selected,
     // even if the persisted file also carries an unused cross record.

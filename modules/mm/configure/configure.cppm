@@ -113,6 +113,7 @@ struct Settings {
     std::string name = "default";
     Build build = Build::Debug;
     CompilerSelection target_compiler = CompilerSelection::Host;
+    bool target_has_host_capability = false;
     CompilerSettings host;
     std::optional<CompilerSettings> cross;
     std::filesystem::path host_build_directory = host_output_directory();

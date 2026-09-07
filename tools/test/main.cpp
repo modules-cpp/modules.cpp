@@ -129,7 +129,8 @@ int main(int argc, char** argv) {
         return mm::build::exit_manifest;
     }
 
-    const auto& buildable = target_lane ? capabilities.target : capabilities.host;
+    const auto buildable = capabilities.lane(
+        target_lane, configuration.target_has_host_capability());
     if (!buildable[test_node]) {
         std::cerr << "test: " << project.nodes[test_node].manifest.string() << ": " << name
                   << " is not buildable-" << (target_lane ? "target" : "host") << "\n";

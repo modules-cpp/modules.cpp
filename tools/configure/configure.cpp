@@ -1,6 +1,7 @@
 // modules.cpp configure tool
 //
 // Usage: configure [-v|--verbose] [-h|--help] [--host | --target TRIPLE]
+//                  [--target-host]
 //                  [--compiler COMPILER] [--build debug|release]
 //                  [<path to mm.mdy>]
 //        (defaults: host lane, compiler gcc, build debug, and the current
@@ -54,10 +55,12 @@ mm::configure::CompilerSettings compiler_settings(const mm::build::Toolchain& to
 int main(int argc, char** argv) {
     mm::app::Options options("configure");
     options.flag("--host");
+    options.flag("--target-host");
     options.option("--target", "a target triple");
     options.option("--compiler", "a native or target-prefixed GCC or Clang C++ driver");
     options.option("--build", "debug or release");
     options.help("configure [-v|--verbose] [-h|--help] [--host | --target TRIPLE] "
+                 "[--target-host] "
                  "[--compiler COMPILER] [--build debug|release] [manifest]");
     const auto cli = options.parse(argc, argv);
     if (cli == mm::app::Cli::help) return mm::build::exit_ok;
@@ -65,7 +68,8 @@ int main(int argc, char** argv) {
 
     const bool verbose = options.verbose();
     const auto targets = options.values("--target");
-    if (options.count("--host") > 1 || targets.size() > 1) {
+    if (options.count("--host") > 1 || options.count("--target-host") > 1 ||
+        targets.size() > 1) {
         std::cerr << "configure: lane option may be given only once\n";
         return mm::build::exit_usage;
     }
@@ -74,6 +78,10 @@ int main(int argc, char** argv) {
         return mm::build::exit_usage;
     }
     const bool target_lane = !targets.empty();
+    if (options.seen("--target-host") && !target_lane) {
+        std::cerr << "configure: --target-host requires --target TRIPLE\n";
+        return mm::build::exit_usage;
+    }
     const std::string target = target_lane ? targets.front() : std::string("host");
     if (target_lane && !mm::configure::valid_target_triple(target)) {
         std::cerr << "configure: invalid target triple: " << target << "\n";
@@ -182,6 +190,8 @@ int main(int argc, char** argv) {
         if (const auto* cross = existing.cross_toolchain()) {
             settings.cross = compiler_settings(*cross, *build);
             settings.target_build_directory = *existing.cross_build_directory();
+            settings.target_has_host_capability =
+                existing.target_has_host_capability();
         }
     } else {
         settings.host = mm::configure::CompilerSettings{
@@ -199,6 +209,7 @@ int main(int argc, char** argv) {
     settings.host_build_directory = mm::configure::host_output_directory();
     if (target_lane) {
         settings.target_compiler = mm::configure::CompilerSelection::Cross;
+        settings.target_has_host_capability = options.seen("--target-host");
         settings.cross = mm::configure::CompilerSettings{
             compiler->family,
             compiler->invocation,

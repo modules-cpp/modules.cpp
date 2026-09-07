@@ -50,6 +50,8 @@ The host lane retains nodes whose resolved buildable-host value is yes.
 
 The target lane retains nodes whose resolved buildable-target value is yes.
 
+When configure records target-host-capability yes, the target lane instead retains the union of nodes whose buildable-host or buildable-target value is yes. This is a configured property of the target and requires no manifest edits. It affects which target artifacts are produced, not which executable drives the current build.
+
 Assignment, reset, inheritance, and read-only rules are identical to configure. Capability declarations are handled without ignored-option warnings. Other manifest options remain warning-only until their values are applied to compiler and linker commands.
 
 An unavailable module or application root is skipped. Build reports the number skipped and the selected capability lane. A retained consumer cannot depend on an unavailable module because capability validation runs before filtering and rejects that use edge.

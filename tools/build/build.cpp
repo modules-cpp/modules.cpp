@@ -161,7 +161,8 @@ int main(int argc, char** argv) {
                                          "build"))
         return mm::build::exit_manifest;
 
-    const auto& buildable = target_lane ? capabilities.target : capabilities.host;
+    const auto buildable = capabilities.lane(
+        target_lane, configuration.target_has_host_capability());
     std::vector<std::size_t> old_to_new(project.targets.size(), mm::build::no_target);
     mm::build::Tree tree;
     for (std::size_t i = 0; i < project.nodes.size(); ++i) {

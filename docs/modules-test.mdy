@@ -36,6 +36,8 @@ Test uses lanes already defined by configure. Without --host or --target it foll
 
 --target selects the configured target toolchain and buildable-target for this invocation.
 
+For a target configured with --target-host, target selection admits the union of buildable-host and buildable-target. This permits compile-only production of host-capability test artifacts for a hosted target without changing their manifests.
+
 Selection is temporary. Test does not rewrite configuration or resolved option records.
 
 --target without a configured target lane exits 65. No target compiler falls back to the host compiler.

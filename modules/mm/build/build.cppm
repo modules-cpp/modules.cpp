@@ -68,6 +68,9 @@ public:
         return cross_build_directory_ ? &*cross_build_directory_ : nullptr;
     }
     [[nodiscard]] bool selects_cross() const { return selects_cross_; }
+    [[nodiscard]] bool target_has_host_capability() const {
+        return target_has_host_capability_;
+    }
 
     [[nodiscard]] const Toolchain* toolchain_for(bool target) const {
         if (target) return cross_toolchain();
@@ -92,6 +95,7 @@ private:
     std::optional<Toolchain> cross_;
     std::optional<std::filesystem::path> cross_build_directory_;
     bool selects_cross_ = false;
+    bool target_has_host_capability_ = false;
 
     friend bool load_configuration(const std::filesystem::path&, bool, BuildConfiguration&);
     friend bool resolve_configuration(const std::filesystem::path&, bool, BuildConfiguration&);
@@ -199,6 +203,12 @@ struct Project {
 struct BuildCapabilities {
     std::vector<bool> host;
     std::vector<bool> target;
+
+    // A hosted target can produce nodes admitted by either capability. The
+    // union changes only target artifact selection, never which tools the
+    // current build invokes from out/bin.
+    [[nodiscard]] std::vector<bool> lane(bool target_lane,
+                                         bool target_has_host_capability) const;
 };
 
 // The one traversal. load_tree and load_nodes are projections of this.

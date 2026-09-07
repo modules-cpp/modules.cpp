@@ -51,7 +51,8 @@ void loads_the_host_selection() {
                      "expected the caller's verbose setting to be retained");
     mm::test::expect(configuration.host_toolchain().target == "host" &&
                          configuration.cross_toolchain() == nullptr &&
-                         !configuration.selects_cross(),
+                         !configuration.selects_cross() &&
+                         !configuration.target_has_host_capability(),
                      "expected one retained host lane");
     mm::test::expect(configuration.build == mm::build::Build::Release,
                      "expected release build selection");
@@ -67,6 +68,7 @@ void loads_the_cross_selection() {
           "kind: configuration\n"
           "name: cross\n"
           "target-compiler: cross\n"
+          "target-host-capability: yes\n"
           "host-compiler-family: clang\n"
           "host-compiler: clang++\n"
           "host-target: host\n"
@@ -96,7 +98,8 @@ void loads_the_cross_selection() {
     mm::test::expect(toolchain.target == "aarch64-linux-gnu" &&
                          configuration.host_toolchain().compiler.invocation == "clang++" &&
                          configuration.cross_toolchain() != nullptr &&
-                         configuration.selects_cross(),
+                         configuration.selects_cross() &&
+                         configuration.target_has_host_capability(),
                      "expected both host and selected cross lanes to be retained");
     mm::test::expect(configuration.build_directory == "out/target/aarch64-linux-gnu",
                      "expected cross target build directory");

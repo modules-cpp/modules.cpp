@@ -60,6 +60,8 @@ docs/modules-build.mdy and docs/modules-test.mdy specify --host and --target sel
 
 Configuration exposes the persisted selection, the always-present host toolchain, the target toolchain selected by configuration, and configured_target_toolchain() for a retained target that is not the default. target_build_directory() retains that lane's output beside host_build_directory() and is empty when no target is configured. This preserves target_toolchain()'s existing selection-following contract while allowing an invocation projection in either direction.
 
+target_has_host_capability() reports the configured target property written by configure --target-host. It is independent of the persisted lane selection and remains visible when a later configure --host retains the target.
+
 Target test execution also needs a runner associated with a target toolchain. No runner role exists today. The model must distinguish the runner being configured from it being invoked, following the existing Toolchain role convention, before tools/test can claim target execution.
 
 # mm.model: the adapter

@@ -104,6 +104,7 @@ bool valid_settings(const Settings& settings) {
         return false;
 
     if (settings.cross && !valid_compiler(*settings.cross)) return false;
+    if (settings.target_has_host_capability && !settings.cross) return false;
     if (settings.target_compiler == CompilerSelection::Cross) {
         if (!settings.cross) return false;
         if (settings.host_build_directory.lexically_normal() ==
@@ -290,6 +291,8 @@ bool write_configuration(const std::filesystem::path& project_root, const Settin
     out << "build: " << build_name(settings.build) << '\n';
     out << "target-compiler: "
         << (settings.target_compiler == CompilerSelection::Host ? "host" : "cross") << '\n';
+    out << "target-host-capability: "
+        << (settings.target_has_host_capability ? "yes" : "no") << '\n';
     write_compiler(out, "host", settings.host);
     if (settings.cross) write_compiler(out, "cross", *settings.cross);
     out << "host-build-directory: " << settings.host_build_directory.generic_string() << '\n';

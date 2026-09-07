@@ -194,14 +194,31 @@ void installed_tools_select_configured_lanes() {
     expect(invoke(bin / "test", "--host --target " + test_arg, log) == 64,
            "test rejects conflicting lane selectors");
 
+    expect(invoke(bin / "configure",
+                  "--target aarch64-linux-gnu --target-host "
+                  "--compiler aarch64-linux-gnu-g++-16 --build release " + root_arg,
+                  log) == 0,
+           "configure gives a hosted target host capability");
+    const auto hosted_configuration = read_text(config);
+    expect(hosted_configuration.find("target-host-capability: yes") != std::string::npos,
+           "target host capability is persisted");
+    expect(invoke_with_path(bin / "build", "--target " + root_arg, log, tree.root()) == 0,
+           "hosted target builds a host-only application");
+    expect(std::filesystem::exists(tree.root() /
+                                   "out-target-aarch64-linux-gnu/app/example"),
+           "host-only application is emitted in the hosted target lane");
+    expect(invoke(bin / "configure", "--target-host " + root_arg, log) == 64,
+           "target host capability requires an explicit target");
+
     expect(invoke(bin / "configure", "--host --compiler g++ --build debug " + root_arg,
                   log) == 0,
            "host reconfiguration retains the target lane");
     const auto host_configuration = read_text(config);
     expect(host_configuration.find("target-compiler: host") != std::string::npos &&
                host_configuration.find("cross-compiler: aarch64-linux-gnu-g++-16") !=
-                   std::string::npos,
-           "host selection preserves the configured target");
+                   std::string::npos &&
+               host_configuration.find("target-host-capability: yes") != std::string::npos,
+           "host selection preserves the configured target and its capability");
     expect(invoke(bin / "configure", "--host --target aarch64-linux-gnu " + root_arg,
                   log) == 64,
            "configure rejects conflicting lane selectors");

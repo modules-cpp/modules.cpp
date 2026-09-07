@@ -216,6 +216,13 @@ void output_safety() {
 // folder-tree resolver never follows. Both halves are checked here: what the
 // resolver produces, and what validate_capabilities rejects on top of it.
 void build_capabilities() {
+    const mm::build::BuildCapabilities projection{{true, false, true},
+                                                   {false, true, true}};
+    expect(projection.lane(true, false) == std::vector<bool>({false, true, true}),
+           "an ordinary target uses target capability only");
+    expect(projection.lane(true, true) == std::vector<bool>({true, true, true}),
+           "a hosted target uses the union of host and target capabilities");
+
     const mm::test::scoped_tree tree{"options_capabilities"};
     tree.manifest("", "kind: project\nname: p\nfolder: modules\nfolder: apps\nfolder: tools\n");
     tree.manifest("modules", "kind: dir\nname: modules\nfolder: lib\n");

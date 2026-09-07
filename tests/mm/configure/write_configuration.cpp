@@ -65,6 +65,7 @@ void writes_a_cross_configuration() {
     auto settings = native_settings();
     settings.name = "aarch64-linux-gnu";
     settings.target_compiler = mm::configure::CompilerSelection::Cross;
+    settings.target_has_host_capability = true;
     settings.cross = mm::configure::CompilerSettings{
         mm::configure::CompilerFamily::Gcc,
         "aarch64-linux-gnu-g++",
@@ -81,6 +82,8 @@ void writes_a_cross_configuration() {
     const auto document = mm::mdy::Parser::parse_file(tree.root() / "out" / "config.mdy");
     mm::test::expect(first(document, "target-compiler") == "cross",
                      "expected cross configuration to select cross");
+    mm::test::expect(first(document, "target-host-capability") == "yes",
+                     "expected target host capability to round trip");
     mm::test::expect(first(document, "cross-compiler") == "aarch64-linux-gnu-g++",
                      "expected cross compiler to round trip");
     mm::test::expect(first(document, "target-build-directory") ==
@@ -165,6 +168,11 @@ void invalid_settings_leave_the_existing_file_unchanged() {
     std::getline(existing, text);
     mm::test::expect(text == "existing configuration",
                      "expected a failed write to preserve config.mdy");
+
+    settings = native_settings();
+    settings.target_has_host_capability = true;
+    mm::test::expect(!mm::configure::write_configuration(tree.root(), settings),
+                     "expected host capability without a target to be rejected");
 }
 
 std::string capture_configuration_log(const mm::configure::ConfigurationLog& log, bool& ok) {
