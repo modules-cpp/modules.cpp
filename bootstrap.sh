@@ -20,7 +20,7 @@ echo "Compiler version"
 echo
 echo ${MCCP_VERSION}
 echo 
-MM_BUILD="out/"
+MM_BUILD="out"
 echo "Build in ${MM_BUILD}"
 echo
 MM_CPPFLAGS="-std=c++20"
