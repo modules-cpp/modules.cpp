@@ -30,7 +30,7 @@ Not implemented, by design, in this release:
 - No tool turns a resolved option into a compiler or linker argument. Records describe requested configuration, not the flags a build uses.
 - Build and test resolve only capability declarations. Other option values and read-only markers remain ignored metadata to them.
 - Compiler and linker tuning options are not applied to build commands.
-- There are no per-option command-line overrides, build-named output branches, target runner, or static toolchain mapping catalog.
+- There are no per-option command-line overrides, build-named output branches, or general static toolchain mapping catalog. Runner support is limited to named profiles compiled into configure.
 
 There are no known deviations between this specification and the implementation.
 
@@ -67,17 +67,21 @@ configure --target aarch64-linux-gnu --compiler aarch64-linux-gnu-g++-16
 
 configure --target m68k-linux-gnu --target-host --compiler m68k-linux-gnu-g++-16
 
+configure --target m68k-linux-gnu --target-host --compiler m68k-linux-gnu-g++-16 --runner qemu-user
+
 --host configures and selects the host lane. It is the default when neither lane option is supplied.
 
 --target takes one target triple, configures that target lane, and selects it. The compiler option applies to the lane being configured. Configure derives that lane's compiler family, flags, platform, and output directory; build and test cannot override them.
 
 --target-host is valid only with --target. It records that the target is itself a hosted platform capable of receiving applications normally restricted to the host capability. It changes no manifest value. For that target, build and test select the union of buildable-host and buildable-target. Without this flag a target selects buildable-target only.
 
+--runner is valid only with --target and accepts none or a compatible named profile. qemu-user is compatible with m68k-linux-gnu and resolves to qemu-m68k with -L and /usr/m68k-linux-gnu before the executable image. Reconfiguring a target without --runner, or with --runner none, removes its runner. Configuring the host retains an existing target runner.
+
 The host lane always remains present. Configuring a target retains the configured host lane, or initializes it from the shared host default when no prior configuration exists. Configuring the host retains an existing target lane. The debug or release build is project-wide and applies consistently to both retained lanes.
 
 The two lane options are mutually exclusive and may not be repeated. --target-host may not be repeated and requires --target. A malformed target triple, an unsupported compiler for that triple, or an invalid lane combination exits 64 before configuration is written.
 
-One successful write publishes the complete host lane, optional target lane, target host-capability setting, selected default, and both output directories atomically in out/config.mdy. The host directory is out-host. A target directory is out-target- followed by the normalized target triple. Older configurations without target-host-capability load as no.
+One successful write publishes the complete host lane, optional target lane and runner, target host-capability setting, selected default, and both output directories atomically in out/config.mdy. The host directory is out-host. A target directory is out-target- followed by the normalized target triple. Older configurations without target-host-capability or runner fields remain valid.
 
 The configure implementation proves:
 
@@ -215,9 +219,9 @@ buildable-target no and locks it, which makes build, configure, test, check,
 model, and shell unavailable to an ordinary target and keeps any one of them
 from opting back in without that being a visible edit to tools/mm.mdy. A target
 configured with --target-host admits them through their unchanged buildable-host
-capability. tests declares buildable-target no,
-because the current test tool has no target runner and must not execute a
-cross-compiled test as a host program.
+capability. tests declares buildable-target no because runner availability is
+a toolchain property rather than a promise that every target can execute tests;
+a hosted target may admit those tests and a configured runner may execute them.
 apps/mdy declares buildable-target no, because document.sh runs it on the build
 machine; apps/main stays buildable everywhere. Everything under modules keeps
 the permissive default, and the use: rule is what keeps that honest.

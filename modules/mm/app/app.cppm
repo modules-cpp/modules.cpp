@@ -99,6 +99,10 @@ public:
 
     void positional_limit(std::size_t limit) { limit_ = limit; }
 
+    // Opt in to a conventional -- separator. Everything after it is passed
+    // through verbatim instead of being interpreted as this tool's options.
+    void separator() { separator_ = true; }
+
     [[nodiscard]] Cli parse(int argc, char** argv);
 
     [[nodiscard]] bool verbose() const { return verbose_; }
@@ -125,6 +129,7 @@ public:
     }
 
     [[nodiscard]] const std::vector<std::string>& positional() const { return positional_; }
+    [[nodiscard]] const std::vector<std::string>& trailing() const { return trailing_; }
 
 private:
     [[nodiscard]] static bool named(const std::vector<std::string>& names, std::string_view arg) {
@@ -140,16 +145,23 @@ private:
     std::vector<std::string> assigned_;
     std::string usage_;
     std::size_t limit_ = 1;
+    bool separator_ = false;
 
     bool verbose_ = false;
     std::vector<std::string> seen_;
     std::map<std::string, std::vector<std::string>, std::less<>> values_;
     std::vector<std::string> positional_;
+    std::vector<std::string> trailing_;
 };
 
 Cli Options::parse(int argc, char** argv) {
     for (int i = 1; i < argc; ++i) {
         const std::string_view arg = argv[i];
+
+        if (separator_ && arg == "--") {
+            for (++i; i < argc; ++i) trailing_.emplace_back(argv[i]);
+            break;
+        }
 
         if (!usage_.empty() && (arg == "-h" || arg == "--help")) {
             std::cout << "Usage: " << usage_ << "\n";

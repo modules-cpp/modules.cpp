@@ -81,6 +81,11 @@ void loads_the_cross_selection() {
           "cross-platform: POSIX\n"
           "cross-compile-flags: cross compile flags\n"
           "cross-link-flags: cross link flags\n"
+          "cross-runner: qemu-m68k\n"
+          "cross-runner-prefix-argument: -L\n"
+          "cross-runner-prefix-argument: /sysroot\n"
+          "cross-runner-image: positional\n"
+          "cross-runner-forwards-arguments: yes\n"
           "host-build-directory: out-host\n"
           "target-build-directory: out/target/aarch64-linux-gnu\n");
 
@@ -101,6 +106,11 @@ void loads_the_cross_selection() {
                          configuration.selects_cross() &&
                          configuration.target_has_host_capability(),
                      "expected both host and selected cross lanes to be retained");
+    mm::test::expect(toolchain.runner && toolchain.runner->invocation == "qemu-m68k" &&
+                         toolchain.runner->prefix_arguments.size() == 2 &&
+                         toolchain.runner->prefix_arguments[1] == "/sysroot" &&
+                         toolchain.runner->forwards_arguments,
+                     "expected ordered target runner settings");
     mm::test::expect(configuration.build_directory == "out/target/aarch64-linux-gnu",
                      "expected cross target build directory");
     mm::test::expect(configuration.build_directory_for(false) != nullptr &&
@@ -262,6 +272,19 @@ void rejects_an_unknown_compiler_family() {
                      "expected an unknown compiler family to fail");
 }
 
+void rejects_a_runner_without_a_target() {
+    const mm::test::scoped_tree tree{"build_runner_without_target"};
+    const auto path = tree.root() / "out" / "config.mdy";
+    std::string text(native_configuration);
+    text += "cross-runner: qemu-m68k\n"
+            "cross-runner-image: positional\n";
+    write(path, text);
+
+    mm::build::BuildConfiguration configuration;
+    mm::test::expect(!mm::build::load_configuration(path, false, configuration),
+                     "expected a runner without a target toolchain to fail");
+}
+
 const mm::test::case_ cases[] = {
     {"loads the host selection", &loads_the_host_selection},
     {"loads the cross selection", &loads_the_cross_selection},
@@ -274,6 +297,7 @@ const mm::test::case_ cases[] = {
     {"older configuration defaults to debug", &treats_an_older_configuration_as_debug},
     {"rejects unknown build", &rejects_an_unknown_build},
     {"rejects unknown compiler family", &rejects_an_unknown_compiler_family},
+    {"rejects runner without target", &rejects_a_runner_without_a_target},
 };
 
 const mm::test::registrar reg{"mm.build configuration", cases};

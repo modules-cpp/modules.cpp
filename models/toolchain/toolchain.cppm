@@ -7,6 +7,7 @@
 module;
 
 #include <string_view>
+#include <vector>
 
 export module models.toolchain;
 
@@ -16,6 +17,18 @@ export namespace models {
 
 enum class CompilerFamily { Gcc, Clang };
 enum class ToolRole { Compiler, Assembler, Linker, Librarian, Debugger };
+enum class RunnerImage { Positional, Option };
+
+class Runner {
+public:
+    virtual ~Runner() = default;
+    [[nodiscard]] virtual const Tool& program() const = 0;
+    [[nodiscard]] virtual std::vector<std::string_view> prefix_arguments() const = 0;
+    [[nodiscard]] virtual RunnerImage image() const = 0;
+    [[nodiscard]] virtual std::string_view image_option() const = 0;
+    [[nodiscard]] virtual std::vector<std::string_view> suffix_arguments() const = 0;
+    [[nodiscard]] virtual bool forwards_arguments() const = 0;
+};
 
 class Toolchain {
 public:
@@ -29,6 +42,7 @@ public:
     // Describes the build implementation, not configuration data. compile
     // invokes Compiler and link invokes Linker; no other role is run directly.
     [[nodiscard]] virtual bool invoked(ToolRole role) const = 0;
+    [[nodiscard]] virtual const Runner* runner() const = 0;
 };
 
 }  // namespace models

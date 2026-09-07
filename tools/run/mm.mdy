@@ -1,0 +1,13 @@
+---
+mm: 1.0
+kind: app
+name: run
+file: main.cpp
+use: mm.app
+use: mm.build
+use: mm.configure
+---
+
+# run tool
+
+Executes one previously built kind: app artifact directly in the host lane or through the target lane's configured runner.

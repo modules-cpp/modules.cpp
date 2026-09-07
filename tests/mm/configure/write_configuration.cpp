@@ -63,18 +63,19 @@ void writes_a_native_configuration() {
 void writes_a_cross_configuration() {
     const mm::test::scoped_tree tree{"configure_cross"};
     auto settings = native_settings();
-    settings.name = "aarch64-linux-gnu";
+    settings.name = "m68k-linux-gnu";
     settings.target_compiler = mm::configure::CompilerSelection::Cross;
     settings.target_has_host_capability = true;
+    settings.cross_runner = mm::configure::runner_profile("qemu-user", "m68k-linux-gnu");
     settings.cross = mm::configure::CompilerSettings{
         mm::configure::CompilerFamily::Gcc,
-        "aarch64-linux-gnu-g++",
-        "aarch64-linux-gnu",
+        "m68k-linux-gnu-g++",
+        "m68k-linux-gnu",
         "POSIX",
         "-std=c++20 -fmodules-ts -x c++",
         "-std=c++20",
     };
-    settings.target_build_directory = "out/target/aarch64-linux-gnu";
+    settings.target_build_directory = "out/target/m68k-linux-gnu";
 
     mm::test::expect(mm::configure::write_configuration(tree.root(), settings),
                      "expected cross config.mdy write to succeed");
@@ -84,10 +85,13 @@ void writes_a_cross_configuration() {
                      "expected cross configuration to select cross");
     mm::test::expect(first(document, "target-host-capability") == "yes",
                      "expected target host capability to round trip");
-    mm::test::expect(first(document, "cross-compiler") == "aarch64-linux-gnu-g++",
+    mm::test::expect(first(document, "cross-runner") == "qemu-m68k" &&
+                         first(document, "cross-runner-image") == "positional",
+                     "expected runner profile to be persisted");
+    mm::test::expect(first(document, "cross-compiler") == "m68k-linux-gnu-g++",
                      "expected cross compiler to round trip");
     mm::test::expect(first(document, "target-build-directory") ==
-                         "out/target/aarch64-linux-gnu",
+                         "out/target/m68k-linux-gnu",
                      "expected cross target build directory to round trip");
 }
 
@@ -219,6 +223,7 @@ void logs_default_and_verbose_configurations() {
             .compiler = "g++-15",
             .compile_flags = "-std=c++20",
             .link_flags = "-std=c++20",
+            .runner = "qemu-m68k",
             .target = "out-host",
             .verbose = true,
         },
@@ -231,6 +236,7 @@ void logs_default_and_verbose_configurations() {
                                    "    compiler      g++-15\n"
                                    "    compile flags -std=c++20\n"
                                    "    link flags    -std=c++20\n"
+                                   "    runner        qemu-m68k\n"
                                    "  target out-host\n",
                      "expected verbose logging to print shared configuration details");
 }

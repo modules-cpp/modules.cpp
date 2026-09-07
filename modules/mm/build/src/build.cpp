@@ -348,6 +348,59 @@ bool has_configuration_compiler(const mm::mdy::MDYDocument& document,
            lookup(document, std::string(prefix) + "-link-flags") != nullptr;
 }
 
+bool configuration_runner(const mm::mdy::MDYDocument& document,
+                          const std::filesystem::path& path,
+                          std::optional<ToolchainRunner>& result) {
+    const auto* invocation = lookup(document, "cross-runner");
+    const bool has_any = invocation != nullptr ||
+        lookup(document, "cross-runner-prefix-argument") != nullptr ||
+        lookup(document, "cross-runner-image") != nullptr ||
+        lookup(document, "cross-runner-image-option") != nullptr ||
+        lookup(document, "cross-runner-suffix-argument") != nullptr ||
+        lookup(document, "cross-runner-forwards-arguments") != nullptr;
+    if (!has_any) {
+        result.reset();
+        return true;
+    }
+    if (invocation == nullptr || invocation->size() != 1 || invocation->front().empty()) {
+        std::cerr << "build: configuration requires one non-empty cross-runner: "
+                  << path.string() << "\n";
+        return false;
+    }
+
+    ToolchainRunner runner;
+    runner.invocation = invocation->front();
+    if (const auto* values = lookup(document, "cross-runner-prefix-argument"))
+        runner.prefix_arguments = *values;
+    if (const auto* values = lookup(document, "cross-runner-suffix-argument"))
+        runner.suffix_arguments = *values;
+
+    std::string image;
+    if (!configuration_scalar(document, "cross-runner-image", path, image)) return false;
+    if (image == "positional") {
+        runner.image = RunnerImage::Positional;
+        if (lookup(document, "cross-runner-image-option") != nullptr) {
+            std::cerr << "build: positional runner cannot have cross-runner-image-option: "
+                      << path.string() << "\n";
+            return false;
+        }
+    } else if (image == "option") {
+        runner.image = RunnerImage::Option;
+        if (!configuration_scalar(document, "cross-runner-image-option", path,
+                                  runner.image_option))
+            return false;
+    } else {
+        std::cerr << "build: configuration cross-runner-image must be positional or option: "
+                  << path.string() << "\n";
+        return false;
+    }
+    if (!configuration_boolean(document, "cross-runner-forwards-arguments", path, true,
+                               runner.forwards_arguments))
+        return false;
+    result = std::move(runner);
+    return true;
+}
+
 bool valid_manifest(const mm::mdy::MDYDocument& doc, std::string_view kind, std::string_view name,
                     const std::filesystem::path& manifest, const LoadPolicy& policy) {
     if (!valid_mm_version(doc, manifest, policy)) return false;
@@ -588,6 +641,15 @@ bool load_configuration(const std::filesystem::path& path, bool verbose,
     Toolchain cross;
     const bool has_cross = has_configuration_compiler(document, "cross");
     if (has_cross && !configuration_compiler(document, "cross", path, cross)) return false;
+
+    std::optional<ToolchainRunner> cross_runner;
+    if (!configuration_runner(document, path, cross_runner)) return false;
+    if (cross_runner && !has_cross) {
+        std::cerr << "build: configuration gives a runner to a missing target: "
+                  << path.string() << "\n";
+        return false;
+    }
+    if (cross_runner) cross.runner = std::move(cross_runner);
 
     if (selection == "cross") {
         if (!has_cross) {
@@ -960,6 +1022,33 @@ int run(const Toolchain& toolchain, const std::string& command) {
     if (WIFEXITED(status)) return WEXITSTATUS(status);
     if (WIFSIGNALED(status)) return 128 + WTERMSIG(status);
     return -1;
+}
+
+int execute(const Toolchain& toolchain, bool target_lane,
+            const std::filesystem::path& executable,
+            const std::vector<std::string>& arguments) {
+    std::string command;
+    if (!target_lane) {
+        command = shell_quote(executable);
+        for (const auto& argument : arguments)
+            command += " " + shell_quote(std::filesystem::path(argument));
+        return run(toolchain, command);
+    }
+    if (!toolchain.runner) return -1;
+
+    const auto& runner = *toolchain.runner;
+    command = shell_quote(std::filesystem::path(runner.invocation));
+    for (const auto& argument : runner.prefix_arguments)
+        command += " " + shell_quote(std::filesystem::path(argument));
+    if (runner.image == RunnerImage::Option)
+        command += " " + shell_quote(std::filesystem::path(runner.image_option));
+    command += " " + shell_quote(executable);
+    for (const auto& argument : runner.suffix_arguments)
+        command += " " + shell_quote(std::filesystem::path(argument));
+    if (runner.forwards_arguments)
+        for (const auto& argument : arguments)
+            command += " " + shell_quote(std::filesystem::path(argument));
+    return run(toolchain, command);
 }
 
 // Single quotes disable every form of shell expansion, and the only character

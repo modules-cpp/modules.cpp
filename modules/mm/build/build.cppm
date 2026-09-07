@@ -29,6 +29,17 @@ struct ToolchainProgram {
     std::string arguments;
 };
 
+using RunnerImage = mm::configure::RunnerImage;
+
+struct ToolchainRunner {
+    std::string invocation;
+    std::vector<std::string> prefix_arguments;
+    RunnerImage image = RunnerImage::Positional;
+    std::string image_option;
+    std::vector<std::string> suffix_arguments;
+    bool forwards_arguments = true;
+};
+
 struct Toolchain {
     CompilerFamily family = CompilerFamily::Gcc;
     std::string target = "host";
@@ -39,6 +50,7 @@ struct Toolchain {
         "g++", std::string(mm::configure::build_link_flags(mm::configure::Build::Debug))};
     ToolchainProgram librarian;
     ToolchainProgram debugger;
+    std::optional<ToolchainRunner> runner;
     bool verbose = false;
 };
 
@@ -268,6 +280,12 @@ std::string shell_quote(const std::filesystem::path& path);
 // Runs a command through /bin/sh, returning its exit code rather than a wait
 // status. Every path interpolated into the command must go through shell_quote.
 int run(const Toolchain& toolchain, const std::string& command);
+
+// Executes a host image directly or a target image through its configured
+// runner. Returns -1 when a target runner is unavailable.
+int execute(const Toolchain& toolchain, bool target_lane,
+            const std::filesystem::path& executable,
+            const std::vector<std::string>& arguments = {});
 
 // Compiles every source of a target, appending to target.objects.
 int compile(const Toolchain& toolchain, BuildableNode& target, const std::filesystem::path& build_dir);

@@ -2,7 +2,8 @@
 //
 // Usage: configure [-v|--verbose] [-h|--help] [--host | --target TRIPLE]
 //                  [--target-host]
-//                  [--compiler COMPILER] [--build debug|release]
+//                  [--compiler COMPILER] [--runner none|PROFILE]
+//                  [--build debug|release]
 //                  [<path to mm.mdy>]
 //        (defaults: host lane, compiler gcc, build debug, and the current
 //         directory's mm.mdy; a target lane defaults to TRIPLE-g++)
@@ -10,8 +11,10 @@
 //
 // Pawel Wodnicki (C) 2026
 // 32bitmicro LLC (C) 2026
+#include <cstdlib>
 #include <filesystem>
 #include <iostream>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -21,6 +24,34 @@ import mm.build;
 import mm.configure;
 
 namespace {
+
+bool available_program(std::string_view invocation) {
+    const auto executable = [](const std::filesystem::path& path) {
+        std::error_code ec;
+        const auto status = std::filesystem::status(path, ec);
+        if (ec || !std::filesystem::is_regular_file(status)) return false;
+        const auto execute = std::filesystem::perms::owner_exec |
+                             std::filesystem::perms::group_exec |
+                             std::filesystem::perms::others_exec;
+        return (status.permissions() & execute) != std::filesystem::perms::none;
+    };
+    const std::filesystem::path program(invocation);
+    if (program.has_parent_path()) return executable(program);
+    const char* raw_path = std::getenv("PATH");
+    if (raw_path == nullptr) return false;
+    std::string_view path(raw_path);
+    for (std::size_t begin = 0; begin <= path.size();) {
+        const auto end = path.find(':', begin);
+        const auto part = path.substr(begin, end == std::string_view::npos ? path.size() - begin
+                                                                          : end - begin);
+        const auto directory = part.empty() ? std::filesystem::path(".")
+                                            : std::filesystem::path(part);
+        if (executable(directory / program)) return true;
+        if (end == std::string_view::npos) break;
+        begin = end + 1;
+    }
+    return false;
+}
 
 std::string compile_flags(mm::configure::Build build, mm::configure::CompilerFamily family,
                           std::string_view target) {
@@ -50,6 +81,15 @@ mm::configure::CompilerSettings compiler_settings(const mm::build::Toolchain& to
     };
 }
 
+std::optional<mm::configure::RunnerSettings> runner_settings(
+    const mm::build::Toolchain& toolchain) {
+    if (!toolchain.runner) return std::nullopt;
+    const auto& source = *toolchain.runner;
+    return mm::configure::RunnerSettings{source.invocation, source.prefix_arguments,
+                                         source.image, source.image_option,
+                                         source.suffix_arguments, source.forwards_arguments};
+}
+
 }
 
 int main(int argc, char** argv) {
@@ -58,10 +98,12 @@ int main(int argc, char** argv) {
     options.flag("--target-host");
     options.option("--target", "a target triple");
     options.option("--compiler", "a native or target-prefixed GCC or Clang C++ driver");
+    options.option("--runner", "none or a supported runner profile");
     options.option("--build", "debug or release");
     options.help("configure [-v|--verbose] [-h|--help] [--host | --target TRIPLE] "
                  "[--target-host] "
-                 "[--compiler COMPILER] [--build debug|release] [manifest]");
+                 "[--compiler COMPILER] [--runner none|PROFILE] "
+                 "[--build debug|release] [manifest]");
     const auto cli = options.parse(argc, argv);
     if (cli == mm::app::Cli::help) return mm::build::exit_ok;
     if (cli != mm::app::Cli::ok) return mm::build::exit_usage;
@@ -78,8 +120,13 @@ int main(int argc, char** argv) {
         return mm::build::exit_usage;
     }
     const bool target_lane = !targets.empty();
-    if (options.seen("--target-host") && !target_lane) {
-        std::cerr << "configure: --target-host requires --target TRIPLE\n";
+    const auto runners = options.values("--runner");
+    if (runners.size() > 1) {
+        std::cerr << "configure: --runner may be given only once\n";
+        return mm::build::exit_usage;
+    }
+    if ((options.seen("--target-host") || !runners.empty()) && !target_lane) {
+        std::cerr << "configure: --target-host and --runner require --target TRIPLE\n";
         return mm::build::exit_usage;
     }
     const std::string target = target_lane ? targets.front() : std::string("host");
@@ -192,6 +239,7 @@ int main(int argc, char** argv) {
             settings.target_build_directory = *existing.cross_build_directory();
             settings.target_has_host_capability =
                 existing.target_has_host_capability();
+            settings.cross_runner = runner_settings(*cross);
         }
     } else {
         settings.host = mm::configure::CompilerSettings{
@@ -218,6 +266,20 @@ int main(int argc, char** argv) {
             compile_flags(*build, compiler->family, target),
             link_flags(*build, compiler->family, target),
         };
+        settings.cross_runner.reset();
+        if (!runners.empty() && runners.front() != "none") {
+            settings.cross_runner = mm::configure::runner_profile(runners.front(), target);
+            if (!settings.cross_runner) {
+                std::cerr << "configure: runner " << runners.front()
+                          << " is not compatible with " << target << "\n";
+                return mm::build::exit_usage;
+            }
+            if (!available_program(settings.cross_runner->invocation)) {
+                std::cerr << "configure: runner is not available: "
+                          << settings.cross_runner->invocation << "\n";
+                return mm::build::exit_usage;
+            }
+        }
         settings.target_build_directory = mm::configure::target_output_directory(target);
     } else {
         settings.target_compiler = mm::configure::CompilerSelection::Host;
@@ -250,5 +312,8 @@ int main(int argc, char** argv) {
               << mm::configure::build_name(*build) << " build with "
               << mm::configure::compiler_family_name(compiler->family) << " compiler "
               << compiler->invocation << "\n";
+    if (verbose && target_lane)
+        std::cout << "  runner "
+                  << (settings.cross_runner ? settings.cross_runner->invocation : "none") << "\n";
     return mm::build::exit_ok;
 }

@@ -96,6 +96,17 @@ bool valid_compiler(const CompilerSettings& compiler) {
            valid_scalar(compiler.link_flags);
 }
 
+bool valid_runner(const RunnerSettings& runner) {
+    if (!valid_scalar(runner.invocation)) return false;
+    for (const auto& argument : runner.prefix_arguments)
+        if (!valid_scalar(argument, true)) return false;
+    for (const auto& argument : runner.suffix_arguments)
+        if (!valid_scalar(argument, true)) return false;
+    return runner.image == RunnerImage::Positional
+               ? runner.image_option.empty()
+               : valid_scalar(runner.image_option);
+}
+
 bool valid_settings(const Settings& settings) {
     if (!valid_scalar(settings.name) || !valid_scalar(build_name(settings.build)) ||
         !valid_compiler(settings.host) ||
@@ -104,6 +115,8 @@ bool valid_settings(const Settings& settings) {
         return false;
 
     if (settings.cross && !valid_compiler(*settings.cross)) return false;
+    if (settings.cross_runner && (!settings.cross || !valid_runner(*settings.cross_runner)))
+        return false;
     if (settings.target_has_host_capability && !settings.cross) return false;
     if (settings.target_compiler == CompilerSelection::Cross) {
         if (!settings.cross) return false;
@@ -123,6 +136,20 @@ void write_compiler(std::ostream& out, std::string_view prefix,
     out << prefix << "-platform: " << compiler.platform << '\n';
     out << prefix << "-compile-flags: " << compiler.compile_flags << '\n';
     out << prefix << "-link-flags: " << compiler.link_flags << '\n';
+}
+
+void write_runner(std::ostream& out, const RunnerSettings& runner) {
+    out << "cross-runner: " << runner.invocation << '\n';
+    for (const auto& argument : runner.prefix_arguments)
+        out << "cross-runner-prefix-argument: " << argument << '\n';
+    out << "cross-runner-image: "
+        << (runner.image == RunnerImage::Positional ? "positional" : "option") << '\n';
+    if (runner.image == RunnerImage::Option)
+        out << "cross-runner-image-option: " << runner.image_option << '\n';
+    for (const auto& argument : runner.suffix_arguments)
+        out << "cross-runner-suffix-argument: " << argument << '\n';
+    out << "cross-runner-forwards-arguments: "
+        << (runner.forwards_arguments ? "yes" : "no") << '\n';
 }
 
 }  // namespace
@@ -199,6 +226,17 @@ bool valid_target_triple(std::string_view value) {
     return true;
 }
 
+std::optional<RunnerSettings> runner_profile(std::string_view profile,
+                                             std::string_view target) {
+    if (profile == "qemu-user" && target == "m68k-linux-gnu") {
+        RunnerSettings runner;
+        runner.invocation = "qemu-m68k";
+        runner.prefix_arguments = {"-L", "/usr/m68k-linux-gnu"};
+        return runner;
+    }
+    return std::nullopt;
+}
+
 std::string_view compiler_family_name(CompilerFamily family) {
     return family == CompilerFamily::Gcc ? "gcc" : "clang";
 }
@@ -271,6 +309,7 @@ bool log_configuration(const ConfigurationLog& log) {
         std::cout << "    compiler      " << log.compiler << "\n";
         std::cout << "    compile flags " << log.compile_flags << "\n";
         std::cout << "    link flags    " << log.link_flags << "\n";
+        std::cout << "    runner        " << (log.runner.empty() ? "none" : log.runner) << "\n";
     }
     std::cout << "  target " << log.target.string() << "\n";
     return true;
@@ -295,6 +334,7 @@ bool write_configuration(const std::filesystem::path& project_root, const Settin
         << (settings.target_has_host_capability ? "yes" : "no") << '\n';
     write_compiler(out, "host", settings.host);
     if (settings.cross) write_compiler(out, "cross", *settings.cross);
+    if (settings.cross_runner) write_runner(out, *settings.cross_runner);
     out << "host-build-directory: " << settings.host_build_directory.generic_string() << '\n';
     out << "target-build-directory: " << settings.target_build_directory.generic_string() << '\n';
     out << "---\n";

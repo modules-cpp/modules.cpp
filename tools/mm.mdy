@@ -9,6 +9,7 @@ folder: configure
 folder: test
 folder: check
 folder: model
+folder: run
 folder: shell
 ---
 

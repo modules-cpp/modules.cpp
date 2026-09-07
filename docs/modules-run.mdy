@@ -1,0 +1,21 @@
+---
+mm: 1.0
+kind: file
+name: modules.cpp run tool
+---
+
+# Run
+
+run executes one previously built kind: app artifact from the selected host or target lane.
+
+run -h
+
+run --host apps/main -- -v
+
+run --target apps/main -- -h
+
+Arguments after -- belong to the application and are passed without being interpreted as run options. The host lane executes its application directly. The target lane requires a configured runner and executes the application through that runner.
+
+run does not build an application. A missing artifact is diagnosed with an instruction to run build first. Invalid manifests, non-app manifests, and applications unavailable in the selected lane are rejected.
+
+A configured runner and target host capability are independent. Host capability controls which nodes may be built in the target lane. A runner controls whether an artifact from that lane can be executed by this machine.

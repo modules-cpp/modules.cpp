@@ -99,6 +99,17 @@ void escapes_repeated_single_quotes() {
                      "expected each embedded single quote to be escaped");
 }
 
+void executes_directly_or_through_a_runner() {
+    auto toolchain = mm::build::default_toolchain();
+    mm::test::expect(mm::build::execute(toolchain, false, "/bin/true") == 0,
+                     "expected a host executable to run directly");
+    mm::test::expect(mm::build::execute(toolchain, true, "/bin/true") == -1,
+                     "expected a target without a runner to be unavailable");
+    toolchain.runner = mm::build::ToolchainRunner{.invocation = "/bin/true"};
+    mm::test::expect(mm::build::execute(toolchain, true, "guest image", {"a; false"}) == 0,
+                     "expected a configured target runner to execute safely");
+}
+
 const mm::test::case_ cases[] = {
     { "wraps a plain path in single quotes",  &wraps_a_plain_path_in_single_quotes },
     { "quotes an empty path",                 &quotes_an_empty_path },
@@ -112,6 +123,7 @@ const mm::test::case_ cases[] = {
     { "escapes an embedded single quote",     &escapes_an_embedded_single_quote },
     { "escapes a leading single quote",       &escapes_a_leading_single_quote },
     { "escapes repeated single quotes",       &escapes_repeated_single_quotes },
+    { "executes directly or through runner",  &executes_directly_or_through_a_runner },
 };
 
 const mm::test::registrar reg{"mm.build quoting", cases};

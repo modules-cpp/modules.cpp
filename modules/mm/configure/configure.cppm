@@ -107,6 +107,22 @@ struct CompilerSettings {
     std::string link_flags;
 };
 
+enum class RunnerImage { Positional, Option };
+
+struct RunnerSettings {
+    std::string invocation;
+    std::vector<std::string> prefix_arguments;
+    RunnerImage image = RunnerImage::Positional;
+    std::string image_option;
+    std::vector<std::string> suffix_arguments;
+    bool forwards_arguments = true;
+};
+
+// Resolves a named, statically supported runner profile for a target.
+// "none" means no runner; an unknown or incompatible profile is rejected.
+[[nodiscard]] std::optional<RunnerSettings> runner_profile(std::string_view profile,
+                                                           std::string_view target);
+
 // Values written to project-root/out/config.mdy. A native configuration has no
 // cross compiler and selects Host; selecting Cross requires cross settings.
 struct Settings {
@@ -116,6 +132,7 @@ struct Settings {
     bool target_has_host_capability = false;
     CompilerSettings host;
     std::optional<CompilerSettings> cross;
+    std::optional<RunnerSettings> cross_runner;
     std::filesystem::path host_build_directory = host_output_directory();
     std::filesystem::path target_build_directory = host_output_directory();
 };
@@ -130,6 +147,7 @@ struct ConfigurationLog {
     std::string_view compiler;
     std::string_view compile_flags;
     std::string_view link_flags;
+    std::string_view runner;
     std::filesystem::path target;
     bool verbose = false;
 };

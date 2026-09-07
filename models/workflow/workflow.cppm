@@ -4,9 +4,9 @@
 // picture.
 //
 // Operation is the script layer, above models.tool: bootstrap.sh, build.sh,
-// test.sh, document.sh, check.sh, model.sh, and clean.sh are each an
+// test.sh, document.sh, check.sh, model.sh, run.sh, and clean.sh are each an
 // Operation. A single ordered invokes() sequence is not enough for all
-// seven: bootstrap.sh tries build0 first and only falls back to driving the
+// nine: bootstrap.sh tries build0 first and only falls back to driving the
 // host compiler directly and repeatedly if that does not produce build1, so
 // an Operation can have more than one branch — most have exactly one.
 // role() replaces a plain optional bool: clean.sh is not "optional" the way

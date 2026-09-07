@@ -16,3 +16,5 @@ gcc, g++, clang, or clang++, optionally followed by a numeric major version.
 the same persisted compiler and build selection. `--target-host` marks an
 explicit target as capable of receiving both host-buildable and target-buildable
 artifacts without changing any source manifest.
+`--runner` accepts none or a compatible named profile. The qemu-user profile
+configures qemu-m68k for m68k-linux-gnu target execution.

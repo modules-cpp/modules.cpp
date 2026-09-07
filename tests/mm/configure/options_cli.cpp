@@ -121,7 +121,9 @@ void installed_tools_select_configured_lanes() {
     tree.manifest_raw("", "mm: 1.1\nkind: project\nname: lanes\nfolder: app\nfolder: test\n");
     tree.manifest_raw("app", "mm: 1.1\nkind: app\nname: example\nfile: main.cpp\noption: buildable-target no\n");
     tree.manifest("test", "kind: test\nname: example_test\nunit: app/main.cpp\n");
-    std::ofstream(tree.root() / "app/main.cpp") << "int main() { return 0; }\n";
+    std::ofstream(tree.root() / "app/main.cpp")
+        << "#include <iostream>\nint main(int argc, char** argv) { "
+           "if (argc > 1) std::cout << argv[1] << '\\n'; return 0; }\n";
     const auto driver = tree.root() / "aarch64-linux-gnu-g++-16";
     std::ofstream(driver) << "#!/bin/sh\nexec g++ \"$@\"\n";
     std::filesystem::permissions(
@@ -222,6 +224,35 @@ void installed_tools_select_configured_lanes() {
     expect(invoke(bin / "configure", "--host --target aarch64-linux-gnu " + root_arg,
                   log) == 64,
            "configure rejects conflicting lane selectors");
+
+    const auto m68k_driver = tree.root() / "m68k-linux-gnu-g++-16";
+    std::ofstream(m68k_driver) << "#!/bin/sh\nexec g++ \"$@\"\n";
+    const auto runner = tree.root() / "qemu-m68k";
+    std::ofstream(runner) << "#!/bin/sh\nshift 2\nexec \"$@\"\n";
+    for (const auto& program : {m68k_driver, runner})
+        std::filesystem::permissions(
+            program,
+            std::filesystem::perms::owner_read | std::filesystem::perms::owner_write |
+                std::filesystem::perms::owner_exec,
+            std::filesystem::perm_options::replace, ec);
+    expect(!ec, "fixture compiler and target runner are executable");
+    expect(invoke_with_path(
+               bin / "configure",
+               "--target m68k-linux-gnu --target-host --compiler m68k-linux-gnu-g++-16 "
+               "--runner qemu-user --build release " + root_arg,
+               log, tree.root()) == 0,
+           "configure accepts a compatible named runner profile");
+    expect(invoke_with_path(bin / "build", "--target " + root_arg, log, tree.root()) == 0,
+           "runner fixture target application builds");
+    expect(invoke_with_path(bin / "run", "--target " +
+                                mm::build::shell_quote(tree.root() / "app") + " -- -h",
+                            log, tree.root()) == 0,
+           "run executes a target application through its configured runner");
+    expect(read_text(log).find("-h") != std::string::npos,
+           "run forwards application arguments after the separator");
+    expect(invoke(bin / "configure", "--target aarch64-linux-gnu --runner qemu-user " +
+                                      root_arg, log) == 64,
+           "configure rejects an incompatible runner profile");
 }
 
 void installed_tools_support_common_help() {
@@ -229,7 +260,7 @@ void installed_tools_support_common_help() {
     const auto bin = std::filesystem::current_path(ec) / "out/bin";
     expect(!ec, "installed tool directory available");
 
-    for (const auto tool : {"build", "configure", "test", "check", "model", "shell"}) {
+    for (const auto tool : {"build", "configure", "test", "check", "model", "run", "shell"}) {
         const auto log = std::filesystem::temp_directory_path() /
                          (std::string("mm_help_") + tool + ".log");
         for (const auto flags : {"-h", "--help", "-v -h", "--verbose --help"}) {

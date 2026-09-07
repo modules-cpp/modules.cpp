@@ -496,7 +496,7 @@ private:
     bool ok_ = false;
 };
 
-// Fixed, hand authored data: the seven *.sh scripts and how they relate are
+// Fixed, hand authored data: the nine *.sh scripts and how they relate are
 // not something any manifest declares, the same reasoning as build0/build1
 // in build_tools(). invokes() is precomputed per branch rather than derived
 // on demand, since it only ever needs to hand back what was given at
@@ -546,9 +546,10 @@ std::vector<std::unique_ptr<models::Operation>> build_operations(
     const auto* test_runner = find_tool(tools, "test");
     const auto* check = find_tool(tools, "check");
     const auto* model = find_tool(tools, "model");
+    const auto* run_tool = find_tool(tools, "run");
     const auto* configure = find_tool(tools, "configure");
 
-    // operations() is fixed data describing this repository's own eight
+    // operations() is fixed data describing this repository's own scripts,
     // *.sh scripts (see the class comment above), not something meaningful
     // for an arbitrary tree Loaded::load() also accepts. find_tool()
     // returns nullptr for any of the above that a foreign project's tools()
@@ -560,7 +561,7 @@ std::vector<std::unique_ptr<models::Operation>> build_operations(
     // of the above resolved to a real Tool.
     if (cxx == nullptr || build0 == nullptr || build1 == nullptr || build == nullptr ||
         main_tool == nullptr || mdy == nullptr || test_runner == nullptr || check == nullptr ||
-        model == nullptr || configure == nullptr)
+        model == nullptr || run_tool == nullptr || configure == nullptr)
         return {};
 
     // Every kind:app manifest's compiled/linked/installed output, the
@@ -573,7 +574,7 @@ std::vector<std::unique_ptr<models::Operation>> build_operations(
     };
 
     std::vector<std::unique_ptr<models::Operation>> result;
-    result.reserve(7);
+    result.reserve(9);
 
     // bootstrap.sh: compile build0, then either build0 builds build1
     // (branch 0) or, only if that leaves no executable build1, the same
@@ -645,6 +646,13 @@ std::vector<std::unique_ptr<models::Operation>> build_operations(
         std::vector<models::ArtifactKind>{}));
 
     result.push_back(std::make_unique<RealOperation>(
+        "run", "run.sh", models::Role::UserInitiated,
+        std::vector<std::vector<const models::Tool*>>{{run_tool}},
+        std::vector<models::ArtifactKind>{models::ArtifactKind::InstalledBinary,
+                                          models::ArtifactKind::AppExecutable},
+        std::vector<models::ArtifactKind>{}));
+
+    result.push_back(std::make_unique<RealOperation>(
         "clean", "clean.sh", models::Role::UserInitiated,
         std::vector<std::vector<const models::Tool*>>{{}},
         std::vector<models::ArtifactKind>{}, std::vector<models::ArtifactKind>{}));
@@ -673,6 +681,10 @@ public:
         bind(models::ToolRole::Linker, source.linker);
         bind(models::ToolRole::Librarian, source.librarian);
         bind(models::ToolRole::Debugger, source.debugger);
+        if (source.runner) {
+            const auto& value = *source.runner;
+            runner_ = std::make_unique<RealRunner>(*program(value.invocation), value);
+        }
     }
 
     [[nodiscard]] std::string_view target() const override { return target_; }
@@ -689,27 +701,66 @@ public:
         // separate role invocation.
         return role == models::ToolRole::Compiler || role == models::ToolRole::Linker;
     }
+    [[nodiscard]] const models::Runner* runner() const override { return runner_.get(); }
 
 private:
+    class RealRunner final : public models::Runner {
+    public:
+        RealRunner(const models::Tool& program, const mm::build::ToolchainRunner& source)
+            : program_(program), prefix_(source.prefix_arguments),
+              image_(source.image == mm::build::RunnerImage::Positional
+                         ? models::RunnerImage::Positional
+                         : models::RunnerImage::Option),
+              image_option_(source.image_option), suffix_(source.suffix_arguments),
+              forwards_(source.forwards_arguments) {}
+
+        [[nodiscard]] const models::Tool& program() const override { return program_; }
+        [[nodiscard]] std::vector<std::string_view> prefix_arguments() const override {
+            return views(prefix_);
+        }
+        [[nodiscard]] models::RunnerImage image() const override { return image_; }
+        [[nodiscard]] std::string_view image_option() const override { return image_option_; }
+        [[nodiscard]] std::vector<std::string_view> suffix_arguments() const override {
+            return views(suffix_);
+        }
+        [[nodiscard]] bool forwards_arguments() const override { return forwards_; }
+
+    private:
+        static std::vector<std::string_view> views(const std::vector<std::string>& values) {
+            std::vector<std::string_view> result;
+            result.reserve(values.size());
+            for (const auto& value : values) result.push_back(value);
+            return result;
+        }
+        const models::Tool& program_;
+        std::vector<std::string> prefix_;
+        models::RunnerImage image_ = models::RunnerImage::Positional;
+        std::string image_option_;
+        std::vector<std::string> suffix_;
+        bool forwards_ = true;
+    };
+
     void bind(models::ToolRole role, const mm::build::ToolchainProgram& program) {
         const auto index = role_index(role);
         arguments_[index] = program.arguments;
         if (program.invocation.empty()) return;
 
-        for (const auto& existing : programs_) {
-            if (existing->invocation() != program.invocation) continue;
-            bindings_[index] = existing.get();
-            return;
-        }
+        bindings_[index] = this->program(program.invocation);
+    }
 
+    const models::Tool* program(std::string_view invocation) {
+        for (const auto& existing : programs_)
+            if (existing->invocation().string() == invocation) return existing.get();
         programs_.push_back(std::make_unique<FixedTool>(
-            program.invocation, program.invocation, nullptr, models::Provenance::ThirdParty));
-        bindings_[index] = programs_.back().get();
+            std::string(invocation), std::filesystem::path(invocation), nullptr,
+            models::Provenance::ThirdParty));
+        return programs_.back().get();
     }
 
     std::string target_;
     models::CompilerFamily family_ = models::CompilerFamily::Gcc;
     std::vector<std::unique_ptr<models::Tool>> programs_;
+    std::unique_ptr<RealRunner> runner_;
     std::array<const models::Tool*, 5> bindings_{};
     std::array<std::string, 5> arguments_{};
 };
@@ -981,8 +1032,9 @@ std::unique_ptr<models::Configuration> configuration(const std::filesystem::path
 
 std::vector<const models::Operation*> recommended_sequence(
     const std::vector<const models::Operation*>& operations) {
-    static constexpr std::array<std::string_view, 8> order = {
+    static constexpr std::array<std::string_view, 9> order = {
         "clean", "bootstrap", "configure", "build", "test", "document", "check", "model",
+        "run",
     };
 
     std::vector<const models::Operation*> result;

@@ -80,6 +80,11 @@ resulting `out/config.mdy` and cannot select different values:
 ./configure --compiler clang++-20 --build release
 ./build
 ./test
+
+./configure --target m68k-linux-gnu --target-host \
+    --compiler m68k-linux-gnu-g++-16 --runner qemu-user --build release
+./build --target
+./run --target apps/main -- -h
 ```
 
 Accepted compiler selectors are `gcc`, `g++`, `clang`, and `clang++`, with an
@@ -94,7 +99,7 @@ If something fails partway through, `./clean.sh` removes all generated output
 
 ## Everyday commands
 
-Once bootstrapped, `out/bin/build` and `out/bin/test` are the tools you use
+Once bootstrapped, `out/bin/build`, `out/bin/test`, and `out/bin/run` are the tools you use
 day to day, pointed at a manifest file (`mm.mdy`):
 
 ```sh
@@ -103,11 +108,12 @@ day to day, pointed at a manifest file (`mm.mdy`):
 ./out/bin/test tests/mm/build/mm.mdy # run one test target
 ./out/bin/test -v tests/mm/mdy       # run a test directory, verbose output
 ./test -v                            # run every target with verbose toolchain output
+./run --host apps/main -- -v         # run an already-built application
 ```
 
 `-v` prints extra diagnostic output and is supported by all of the project's
-tools (`build`, `test`, `check`, `model`, `shell`, `mdy`); `--verbose` is
-also accepted by `build`, `test`, `check`, `model`, and `shell`, but not by
+tools (`build`, `configure`, `test`, `run`, `check`, `model`, `shell`, `mdy`); `--verbose` is
+also accepted by `build`, `configure`, `test`, `run`, `check`, `model`, and `shell`, but not by
 `mdy`, which only recognizes `-v`.
 
 ## Layout
@@ -115,7 +121,7 @@ also accepted by `build`, `test`, `check`, `model`, and `shell`, but not by
 - `apps/` — example and utility applications (`main`, `mdy`).
 - `modules/mm/` — the reusable core modules (parsing, build graph, test
   framework, application base class).
-- `tools/` — command-line front ends (`build`, `test`) that use those
+- `tools/` — command-line front ends (`build`, `configure`, `test`, `run`) that use those
   modules.
 - `tests/mm/` — public integration and regression tests.
 - `docs/` — the project's own documentation, written in MDY and rendered by

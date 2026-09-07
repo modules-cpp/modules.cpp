@@ -5,8 +5,7 @@
 //
 // Reads a test manifest, compiles every declared unit in order, links the
 // objects directly into one test binary, and either stops for --compile-only
-// or runs a host binary and propagates its exit code. Target execution is
-// rejected until configuration can represent a target runner.
+// or executes it directly on the host or through a configured target runner.
 // All the work lives in mm.build; this file is the front end. The rules it
 // relies on are specified by docs/modules-test.mdy.
 //
@@ -136,7 +135,7 @@ int main(int argc, char** argv) {
                   << " is not buildable-" << (target_lane ? "target" : "host") << "\n";
         return mm::build::exit_manifest;
     }
-    if (target_lane && !compile_only) {
+    if (target_lane && !compile_only && !toolchain.runner) {
         std::cerr << "test: target " << toolchain.target
                   << " has no test runner; use --compile-only\n";
         return mm::build::exit_manifest;
@@ -159,6 +158,7 @@ int main(int argc, char** argv) {
             .compiler = toolchain.compiler.invocation,
             .compile_flags = toolchain.compiler.arguments,
             .link_flags = toolchain.linker.arguments,
+            .runner = toolchain.runner ? toolchain.runner->invocation : std::string_view{},
             .target = root / build_dir,
             .verbose = verbose,
         }))
@@ -205,7 +205,7 @@ int main(int argc, char** argv) {
 
     std::cout << "\nRun\n\n";
 
-    const int status = mm::build::run(toolchain, mm::build::shell_quote(binary));
+    const int status = mm::build::execute(toolchain, target_lane, binary);
     if (status < 0) {
         std::cerr << "test: failed to run " << binary.string() << "\n";
         return mm::build::exit_run;

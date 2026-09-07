@@ -115,9 +115,11 @@ The source tree is organized by responsibility.
 |   +-- test/                 mm.test
 +-- tools/
 |   +-- build/                bootstrap and build front ends
+|   +-- configure/            compiler, lane, and runner configuration
 |   +-- test/                 test front end
 |   +-- check/                cppcheck front end and addon; see check.sh
 |   +-- model/                consistency front end; see docs/modules-model.mdy
+|   +-- run/                  configured application execution
 |   +-- shell/                system shell front end over mm.build and mm.shell
 +-- tests/mm/
 |   +-- build/                mm.build tests
@@ -242,9 +244,8 @@ passing, it becomes xpass and fails the run until the stale marker is removed.
 This turns known defects into executable records without weakening regressions.
 
 docs/modules-test.mdy is the detailed test command specification. It separates
-host execution, target compilation, and compile-only operation. The lane
-selectors are implemented. A target runner is not configured yet, so target
-tests require --compile-only and direct target execution fails safely.
+host execution, target compilation, compile-only operation, and configured
+target-runner execution.
 
 ## models/ and mm.model
 models/ is a second, independent description of this project's own structure: 
@@ -337,6 +338,12 @@ Common commands are:
 - ./out/bin/test tests/mm/build/mm.mdy
 - ./out/bin/test tests/mm/mdy/mm.mdy
 - ./out/bin/test -v tests/mm/build
+
+## run
+tools/run/main.cpp is installed as out/bin/run. It resolves one registered
+kind:app manifest and executes its already-built artifact directly for the host
+lane or through the target toolchain runner. Arguments after -- are passed to
+the application. See docs/modules-run.mdy.
 
 ## model
 tools/model/model.cpp is installed as out/bin/model. It loads the manifest
@@ -449,10 +456,10 @@ depends on nothing outside the project; it is optional because it is an
 additional cross-check, not because anything else is missing to run it.
 
 ## Shell tool wrapper scripts
-Each of the seven scripts above (clean, bootstrap, build, test, document,
-check, model) has a second, no-extension counterpart at the project root
+Each of the nine scripts above (clean, bootstrap, configure, build, test,
+document, check, model, run) has a second, no-extension counterpart at the project root
 with no shebang: `bootstrap`, `build`, `clean`, `check`, `document`, `model`,
-`test`. Where the `.sh` version runs its work directly through the system
+`test`, `configure`, `run`. Where the `.sh` version runs its work directly through the system
 shell, the no-extension version routes the same command through
 out/bin/shell (mm.shell, tools/shell) instead. Once out/bin/shell exists,
 the two are otherwise equivalent, argument for argument: `./document
@@ -494,7 +501,7 @@ These are the gaps between the Design goals and today's implementation.
 
 docs/modules-configure.mdy is the official configure and manifest-option specification for release 1.1. configure implements typed options, branch-local resets and read-only settings, and records beneath out. All manifest-reading tools accept 1.0 and 1.1 through the shared gate. Build and test resolve buildable-host and buildable-target and enforce the selected lane; other option declarations remain warning-only and are not yet applied to compilation.
 
-docs/modules-build.mdy and docs/modules-test.mdy specify the implemented --host, --target, and --compile-only lane interface. Target-runner configuration remains future work.
+docs/modules-build.mdy, docs/modules-test.mdy, and docs/modules-run.mdy specify the implemented lane, compile-only, and runner-backed execution interfaces.
 
 - App defines the application boundary but stores no state; shared lifecycle, context, logging, or argument services can be added there without coupling them to build policy.
 - Bootstrap follows GCC modules-ts conventions; the self-hosted compiler driver

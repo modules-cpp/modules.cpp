@@ -43,6 +43,10 @@ mm::configure::Settings settings_with_cross(bool select_cross, std::string targe
         "cross link flags",
     };
     settings.target_has_host_capability = true;
+    settings.cross_runner = mm::configure::RunnerSettings{
+        .invocation = "target-runner",
+        .prefix_arguments = {"--sysroot", "/target"},
+    };
     settings.target_build_directory = "out-target-test";
     return settings;
 }
@@ -124,6 +128,10 @@ void an_unselected_cross_record_is_not_a_target_toolchain() {
                configuration->configured_target_toolchain()->target() == "aarch64-linux-gnu" &&
                configuration->target_build_directory() == "out-target-test",
            "an unselected target remains available for invocation projection");
+    const auto* runner = configuration->configured_target_toolchain()->runner();
+    expect(runner != nullptr && runner->program().invocation() == "target-runner" &&
+               runner->prefix_arguments().size() == 2 && runner->forwards_arguments(),
+           "the configured target exposes its execution runner");
 }
 
 void equal_targets_are_not_cross_compilation() {

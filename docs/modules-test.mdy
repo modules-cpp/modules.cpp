@@ -70,17 +70,17 @@ For a host lane without --compile-only, test runs the linked executable directly
 
 A failure to start the executable exits 127. A nonzero status returned by the test program is propagated.
 
-# Target execution boundary
+# Target execution
 
 A target executable must never be run directly as a host program merely because it is a local file.
 
-No target runner is represented by the current configuration. Therefore test --target without --compile-only exits 65 before compilation and reports:
+A target configured with a runner executes its linked test through that runner and propagates the resulting status. Runner program, ordered arguments, executable-image placement, and application-argument forwarding are configuration rather than test options.
+
+A target without a runner rejects execution before compilation and reports:
 
 test: target TARGET-TRIPLE has no test runner; use --compile-only
 
-Future target execution may use an emulator, simulator, device launcher, or remote execution adapter. Such a runner will be configuration associated with the target toolchain, not a test command-line override. Its format and execution contract are outside this release.
-
-Until that configuration exists, compile-only is the only valid target test mode.
+The target binary is never executed directly. --compile-only remains valid whether or not the target has a runner and never invokes it.
 
 # Output directories
 
@@ -134,4 +134,4 @@ Compile and link a target test without executing it:
 
 # Current boundary
 
-Explicit --host, --target, and --compile-only selection is implemented. No target runner is represented in configuration, so test --target requires --compile-only and otherwise exits 65 before compilation. Runner-backed target execution remains future work.
+Explicit --host, --target, and --compile-only selection and runner-backed target execution are implemented. A target without a configured runner requires --compile-only.

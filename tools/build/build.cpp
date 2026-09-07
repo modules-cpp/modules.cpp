@@ -122,6 +122,7 @@ int main(int argc, char** argv) {
             .compiler = toolchain.compiler.invocation,
             .compile_flags = toolchain.compiler.arguments,
             .link_flags = toolchain.linker.arguments,
+            .runner = toolchain.runner ? toolchain.runner->invocation : std::string_view{},
             .target = build_dir,
             .verbose = verbose,
         }))

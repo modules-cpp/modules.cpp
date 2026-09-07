@@ -1,0 +1,13 @@
+#!/bin/sh
+# Run run.sh through the project's shell tool.
+
+MM_BUILD="out"
+echo "Run application"
+echo
+
+cmd="sh run.sh"
+for arg in "$@"; do
+    cmd="$cmd '$(printf '%s' "$arg" | sed "s/'/'\\\\''/g")'"
+done
+
+${MM_BUILD}/bin/shell "$cmd"
