@@ -71,5 +71,6 @@ gcm.cache/
 # drafts
 drafts/
 
-# local test scritps
+# local test and debug scripts
 test-*.sh
+debug-*.sh
