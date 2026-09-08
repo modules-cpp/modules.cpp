@@ -135,7 +135,7 @@ int main(int argc, char** argv) {
     if (!buildable[test_node]) {
         std::cerr << "test: " << project.nodes[test_node].manifest.string() << ": " << name
                   << " is not buildable-" << (target_lane ? "target" : "host") << "\n";
-        return mm::build::exit_manifest;
+        return mm::build::exit_unavailable;
     }
     if (target_lane && !compile_only && !toolchain.runner) {
         std::cerr << "test: target " << toolchain.target

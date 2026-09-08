@@ -34,26 +34,23 @@ done
 # (docs/modules-test.mdy), but this script names all of them, so for it an
 # unbuildable suite is a lane fact rather than a fault.
 #
-# The tool's output is captured to a file rather than piped: a pipeline would
-# make $? the exit status of the last stage, masking every failure, and would
-# run the counter update in a subshell where it could not be seen again.
+# The test tool returns 77 only when the requested suite is unavailable in the
+# selected lane. That lets output remain connected to the terminal while this
+# wrapper classifies the result without parsing diagnostic text.
 skipped_suites=0
-suite_log=$(mktemp)
-trap 'rm -f "$suite_log"' EXIT
 
 run_test_target() {
     status=0
     if [ "$verbose" = true ] && [ "$compile_only" = true ]; then
-        out/bin/test -v ${lane:+"$lane"} --compile-only "$1" >"$suite_log" 2>&1 || status=$?
+        out/bin/test -v ${lane:+"$lane"} --compile-only "$1" || status=$?
     elif [ "$verbose" = true ]; then
-        out/bin/test -v ${lane:+"$lane"} "$1" >"$suite_log" 2>&1 || status=$?
+        out/bin/test -v ${lane:+"$lane"} "$1" || status=$?
     elif [ "$compile_only" = true ]; then
-        out/bin/test ${lane:+"$lane"} --compile-only "$1" >"$suite_log" 2>&1 || status=$?
+        out/bin/test ${lane:+"$lane"} --compile-only "$1" || status=$?
     else
-        out/bin/test ${lane:+"$lane"} "$1" >"$suite_log" 2>&1 || status=$?
+        out/bin/test ${lane:+"$lane"} "$1" || status=$?
     fi
-    cat "$suite_log"
-    if [ "$status" -ne 0 ] && grep -q "is not buildable-" "$suite_log"; then
+    if [ "$status" -eq 77 ]; then
         skipped_suites=$((skipped_suites + 1))
         status=0
     fi

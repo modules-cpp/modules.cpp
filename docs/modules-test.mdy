@@ -46,7 +46,7 @@ Selection is temporary. Test does not rewrite configuration or resolved option r
 
 Test resolves capability from the project root through the same resolver used by configure and build, including assignment, reset, inheritance, and read-only rules.
 
-The requested test must be available in the selected lane. An unavailable requested test is an error rather than a silent skip because the user named that test explicitly.
+The requested test must be available in the selected lane. An unavailable requested test exits 77 rather than becoming a silent success because the user named that test explicitly. The distinct status lets test.sh classify a suite it selected itself as skipped without capturing or parsing the tool's output.
 
 Example diagnostic:
 
@@ -101,6 +101,7 @@ The test binary, objects, compiler module artifacts, and temporary link output r
 - 0 means compilation, linking, and any requested execution succeeded.
 - 64 means invalid command-line usage.
 - 65 means invalid manifest, configuration, capability, lane, or missing target runner.
+- 77 means the requested test is not buildable in the selected lane.
 - 80 means compilation failed.
 - 81 means linking failed.
 - 127 means a host test executable could not be started.
@@ -125,7 +126,7 @@ Compile and link a target test without executing it:
 - Explicit selection changes no persisted configuration or option record.
 - Both lane selectors together and repeated selectors exit 64.
 - --target without a target lane exits 65 before compilation.
-- An explicitly requested test unavailable in the lane exits 65 and names that lane.
+- An explicitly requested test unavailable in the lane exits 77 and names that lane.
 - An unavailable dependency is rejected before compilation.
 - --compile-only compiles and links but invokes no executable or runner.
 - Target execution without a runner exits 65 and never executes the target binary directly.

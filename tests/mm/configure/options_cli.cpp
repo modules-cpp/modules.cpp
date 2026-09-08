@@ -96,7 +96,8 @@ void installed_tools_support_11() {
     expect(read_text(log).find("1 module/app target(s) skipped; not buildable-host") != std::string::npos,
            "build identifies the unavailable lane");
     tree.manifest_raw("test", "mm: 1.1\nkind: test\nname: example_test\nunit: app/main.cpp\noption: buildable-host no\n");
-    expect(invoke(bin / "test", mm::build::shell_quote(tree.root() / "test"), log) == 65,
+    expect(invoke(bin / "test", mm::build::shell_quote(tree.root() / "test"), log) ==
+               mm::build::exit_unavailable,
            "test rejects a target unavailable in the host lane");
     expect(read_text(log).find("example_test is not buildable-host") != std::string::npos,
            "test identifies the unavailable test and lane");
