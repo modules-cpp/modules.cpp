@@ -51,9 +51,9 @@ c++ -std=c++20 -fmodules-ts -x c++ -c /dev/null -o /dev/null && echo "modules OK
 From a clean checkout:
 
 ```sh
-./bootstrap.sh    # builds out/build0 and out/build1, then runs build1 to
-                   # compile and install the full project, out/bin/build included
-./build.sh        # rebuilds via out/bin/build, e.g. after a later source change
+./bootstrap.sh    # stages build0, build1, configure1, and out/bin/build
+./configure --compiler gcc-15 --build debug
+./build.sh        # performs the configured full-project build
 ./test.sh         # runs the smoke and regression tests
 ./document.sh     # generates HTML docs under out/ from the MDY manifests
 ```
@@ -62,11 +62,11 @@ From a clean checkout:
 this project and written using modules — bootstrap compiles just enough by
 hand to produce a working `build1` binary (trying `build0 build1` first,
 falling back to hardcoded compiler commands if that fails or produces
-nothing), then runs it, which builds everything else, `out/bin/build`
-included. This is what "self-hosting" means in this project. `build.sh` is
-not needed on a fresh checkout — bootstrap.sh already leaves a fully built
-project — but is what you run afterward, once `out/bin/build` exists, on any
-later change.
+nothing). It then uses build1 to build only the real build and configure
+tools and their module dependencies. The bootstrap configure is staged as
+`out/configure1`; `out/bin/build` is installed for the next step. `build.sh`
+is required on a fresh checkout and performs the configured full-project
+build, which installs the normal commands under `out/bin`.
 
 Bootstrap always uses the compiler named `c++`. After bootstrapping, select
 one project compiler and build with `configure`; both build and test read the

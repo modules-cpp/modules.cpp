@@ -11,9 +11,10 @@
 // with the compile, link, and run codes they belong beside. Callers pair
 // the two, which costs a line and keeps this module free of both.
 //
-// tools/build deliberately does not use any of this. It is compiled by a
-// fixed file list in bootstrap.sh and in build0, and adding mm.app to that
-// list would grow the minimal bootstrap set; see docs/modules.mdy.
+// tools/build deliberately does not use any of this. It is compiled by the
+// fixed build1 file list in bootstrap.sh and build0. configure1 is then built
+// by build1 from the real configure manifest, so mm.app enters bootstrap only
+// through that manifest's ordinary dependency closure; see docs/modules.mdy.
 //
 // Pawel Wodnicki (C) 2026
 // 32bitmicro LLC (C) 2026

@@ -443,18 +443,21 @@ A clean repository can produce all project tools with this sequence:
 - ./test.sh
 - ./document.sh
 
-bootstrap.sh creates out/build0 and out/build1, then runs build1 itself to
-build and install the complete project, out/bin/build included. It clears
-gcm.cache first: stage zero and its fallback both compile module interfaces
-with raw compiler commands, so a cache left from an earlier build could
-otherwise supply BMIs for interfaces that have since changed.
+bootstrap.sh creates out/build0 and out/build1, then uses build1 for two scoped
+builds. The first installs out/bin/build. The second builds the real modular
+configure application and stages it as out/configure1. Each scoped build loads
+the complete project and follows the selected application's dependency closure,
+but does not build sibling applications, tests, models, or documentation tools.
+Bootstrap clears gcm.cache first: stage zero and its fallback compile module
+interfaces with raw compiler commands, so an older cache could otherwise supply
+BMIs for interfaces that have since changed.
 
-build.sh runs that installed out/bin/build to rebuild the project after a
-later change, which makes the toolchain self-hosting. It is not required on
-a fresh checkout, since bootstrap.sh already produced everything it would;
-models.workflow therefore gives it Role::Optional, and what the steps after
-it actually need is stated by their own requires_artifacts() rather than by
-build.sh having run.
+configure.sh runs out/configure1 until the configured full build installs
+out/bin/configure. build.sh runs the bootstrap-installed out/bin/build to build
+the complete project with the persisted compiler, build, and lane selection.
+It is required on a fresh checkout because bootstrap deliberately leaves every
+nonessential target unbuilt. Later invocations rebuild through the installed
+build tool in the same way.
 
 An optional, experimental step can follow test.sh:
 
@@ -482,7 +485,9 @@ document, check, model, run, debug) has a second, no-extension counterpart at th
 with no shebang: `bootstrap`, `build`, `clean`, `check`, `document`, `model`,
 `test`, `configure`, `run`, `debug`. Where the `.sh` version runs its work directly through the system
 shell, the no-extension version routes the same command through
-out/bin/shell (mm.shell, tools/shell) instead. Once out/bin/shell exists,
+out/bin/shell (mm.shell, tools/shell) instead. Before the first full build,
+the configure and build wrappers fall back to configure.sh and build.sh because
+bootstrap intentionally has not built mm.shell. Once out/bin/shell exists,
 the two are otherwise equivalent, argument for argument: `./document
 modules/mm.mdy` and `./document.sh modules/mm.mdy` render the same subtree.
 `./bootstrap` is the one exception: it needs out/bin/shell to already
@@ -503,9 +508,10 @@ live under tests. Expected failures are reserved for understood, deferred
 defects and become ordinary regression tests when fixed.
 
 # Generated artifacts
-- out/build0 and out/build1 contain the bootstrap compilers.
-- out/modules, out/apps and out/tools contain the objects and executables of an
-  unconfigured bootstrap build.
+- out/build0, out/build1, and out/configure1 are staged bootstrap tools.
+- out/modules and out/tools initially contain only objects and executables in
+  the build and configure dependency closures. A later unconfigured build may
+  also write out/apps and the rest of the project beneath out.
 - out/bin contains installed commands, from either build.
 - out/config.mdy names the selected compiler, build and lane; it stays in out
   because it is what tells a tool which lane to read.

@@ -7,6 +7,12 @@ MM_BUILD="out"
 echo "Run build"
 echo
 
+# Bootstrap installs the build tool but deliberately does not build mm.shell.
+# Keep the first configured build usable through the plain launcher.
+if [ ! -x "${MM_BUILD}/bin/shell" ]; then
+    exec sh build.sh "$@"
+fi
+
 cmd="sh build.sh"
 for arg in "$@"; do
     cmd="$cmd '$(printf '%s' "$arg" | sed "s/'/'\\\\''/g")'"

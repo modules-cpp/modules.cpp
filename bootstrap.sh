@@ -107,10 +107,24 @@ if [ "${mm_build1_status}" -ne 0 ] || [ ! -x "${MM_BUILD}/build1" ]; then
     mv "${MM_BUILD}/build1.tmp" "${MM_BUILD}/build1" || exit $?
 fi
 
-# build1 walks the manifest tree from mm.mdy in the current directory,
-# compiling, linking and installing every target it declares, tools/build's
-# own "build" app included: this is the same thing build.sh does afterward,
-# run once here so bootstrap.sh finishes with a fully built, installed
-# project rather than stopping at build1.
-echo "Build build"
-"${MM_BUILD}/build1" || exit $?
+# Bootstrap stops once the two tools needed to configure and build the project
+# are available. Each scoped build still loads the project root and follows the
+# selected app's complete module dependency closure; it does not build sibling
+# applications, tests, models, or documentation tools.
+echo "Build bootstrap build tool"
+"${MM_BUILD}/build1" --host tools/build/mm.mdy || exit $?
+echo
+
+echo "Build configure1"
+"${MM_BUILD}/build1" --host tools/configure/mm.mdy || exit $?
+
+# The scoped build installs the normal app name. Keep the bootstrap-built copy
+# distinct: the configured full build replaces out/bin/configure with the
+# selected compiler, while configure.sh can use configure1 before that build.
+rm -f "${MM_BUILD}/configure1"
+mv "${MM_BUILD}/bin/configure" "${MM_BUILD}/configure1" || exit $?
+
+if [ ! -x "${MM_BUILD}/bin/build" ] || [ ! -x "${MM_BUILD}/configure1" ]; then
+    echo "bootstrap: failed to produce build and configure1" >&2
+    exit 65
+fi

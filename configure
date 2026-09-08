@@ -7,6 +7,12 @@ MM_BUILD="out"
 echo "Run configure"
 echo
 
+# mm.shell is installed by the configured full build. On a fresh checkout,
+# configure1 must run before that build exists, so use the plain launcher.
+if [ ! -x "${MM_BUILD}/bin/shell" ]; then
+    exec sh configure.sh "$@"
+fi
+
 cmd="sh configure.sh"
 # Each argument is single-quoted so it survives the second /bin/sh the
 # shell tool runs the command through: without that, spaces and shell

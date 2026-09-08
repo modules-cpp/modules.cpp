@@ -10,9 +10,9 @@
 // example, holds both main.cpp.o and the uninstalled main executable
 // build.sh links before installing it to out/bin, and a single AppObject
 // kind cannot tell those apart. Staged adds what the bullet list does not
-// mention at all: out/build0 and out/build1, the pre-manifest executables
-// bootstrap.sh produces directly from the compiler, named by neither a
-// kind:app manifest nor any of the per-directory kinds below.
+// mention at all: out/build0, out/build1, and out/configure1. The first two
+// reach the manifest-aware build; configure1 is the real modular configure
+// application staged before the configured full build installs normal tools.
 //
 // Pawel Wodnicki (C) 2026
 // 32bitmicro LLC (C) 2026

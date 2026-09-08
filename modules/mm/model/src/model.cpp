@@ -566,8 +566,8 @@ std::vector<std::unique_ptr<models::Operation>> build_operations(
         return {};
 
     // Every kind:app manifest's compiled/linked/installed output, the
-    // common shape of "a full build happened": bootstrap.sh's final build1
-    // invocation and build.sh both produce this.
+    // common shape of a full build. Only build.sh produces this now;
+    // bootstrap stops after the build and configure dependency closures.
     const std::vector<models::ArtifactKind> full_build = {
         models::ArtifactKind::ModuleObject,   models::ArtifactKind::AppObject,
         models::ArtifactKind::AppExecutable,  models::ArtifactKind::ToolObject,
@@ -579,43 +579,36 @@ std::vector<std::unique_ptr<models::Operation>> build_operations(
 
     // bootstrap.sh: compile build0, then either build0 builds build1
     // (branch 0) or, only if that leaves no executable build1, the same
-    // fixed steps run by hand instead (branch 1); either way the script
-    // finishes by running build1 to build everything, "build" included.
+    // fixed steps run by hand instead (branch 1). Both paths then invoke
+    // build1 twice to stage only build and configure with their closures.
     {
-        std::vector<models::ArtifactKind> produces = {models::ArtifactKind::Staged};
-        produces.insert(produces.end(), full_build.begin(), full_build.end());
+        std::vector<models::ArtifactKind> produces = {
+            models::ArtifactKind::Staged, models::ArtifactKind::ModuleObject,
+            models::ArtifactKind::ToolObject, models::ArtifactKind::ToolExecutable,
+            models::ArtifactKind::InstalledBinary,
+        };
         result.push_back(std::make_unique<RealOperation>(
             "bootstrap", "bootstrap.sh", models::Role::Required,
             std::vector<std::vector<const models::Tool*>>{
-                {cxx, build0, build1},
-                {cxx, build0, cxx, cxx, cxx, cxx, cxx, cxx, build1},
+                {cxx, build0, build1, build1},
+                {cxx, build0, cxx, cxx, cxx, cxx, cxx, cxx, build1, build1},
             },
             std::vector<models::ArtifactKind>{}, std::move(produces)));
     }
 
-    // build.sh runs out/bin/build, not out/build1: since bootstrap.sh's own
-    // last step now runs a full build too, build.sh is the installed tool
-    // rebuilding itself on every subsequent change, not a second consumer
-    // of the staged bootstrap artifacts.
-    //
-    // Optional rather than Required for the same reason: Role::Required
-    // means nothing after it can meaningfully run without it, and
-    // bootstrap.sh already produces every artifact build.sh would. Nothing
-    // in the sequence after it (test, document, check, model) needs
-    // build.sh to have run in this session; what they actually need is
-    // stated by their own requires_artifacts().
-    // Optional for the reason spelled out under build.sh below: a build with
-    // no out/config.mdy falls back to the shared default lane rather than
-    // failing.
+    // configure.sh initially runs staged configure1. A configured full build
+    // later installs out/bin/configure, which the same launcher prefers.
     result.push_back(std::make_unique<RealOperation>(
         "configure", "configure.sh", models::Role::Optional,
         std::vector<std::vector<const models::Tool*>>{{configure}},
-        std::vector<models::ArtifactKind>{models::ArtifactKind::InstalledBinary},
+        std::vector<models::ArtifactKind>{models::ArtifactKind::Staged},
         std::vector<models::ArtifactKind>{models::ArtifactKind::Configuration,
                                           models::ArtifactKind::ResolvedOptions}));
 
+    // build.sh runs bootstrap's out/bin/build and is the required step that
+    // turns the staged bootstrap into a complete, installed project.
     result.push_back(std::make_unique<RealOperation>(
-        "build", "build.sh", models::Role::Optional,
+        "build", "build.sh", models::Role::Required,
         std::vector<std::vector<const models::Tool*>>{{build}},
         std::vector<models::ArtifactKind>{models::ArtifactKind::InstalledBinary}, full_build));
 

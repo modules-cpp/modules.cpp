@@ -15,9 +15,9 @@
 //
 // requires_artifacts() and produces() are the input and output side of what
 // used to be a single depends_on() "must run first" edge: build.sh's real
-// requirement is that out/build1 (ArtifactKind::Staged) exists, not that
-// bootstrap.sh executed in the current session, so an incremental workflow
-// where build1 already exists from an earlier run is not something this
+// requirement is that the needed artifact exists, not that its producing
+// script executed in the current session, so an incremental workflow where
+// staged tools already exist from an earlier run is not something this
 // model reports as invalid the way a strict "ran before me" edge would.
 //
 // ArtifactKind lives here rather than in models.artifacts because the
@@ -54,7 +54,7 @@ enum class ArtifactKind {
     AppExecutable,     // <build directory>/apps/**/<name>, before install
     ToolObject,        // <build directory>/tools/**/*.o
     ToolExecutable,    // <build directory>/tools/**/<name>, before install
-    Staged,            // out/build0, out/build1
+    Staged,            // out/build0, out/build1, out/configure1
     InstalledBinary,   // out/bin/<name>
     TestBuild,         // out/tests
     Documentation,     // out/index.html and nested pages
