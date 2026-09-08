@@ -3,7 +3,7 @@ mm: 1.0
 kind: doc
 name: modules.cpp build tool specification
 status: official
-release: 1.2
+release: v1.1.0
 ---
 
 # modules.cpp build tool specification

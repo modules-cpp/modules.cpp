@@ -139,7 +139,7 @@ The source tree is organized by responsibility.
 |   +-- modules.mdy           this guide
 |   +-- modules-build.mdy     build tool and lane-selection specification
 |   +-- modules-c++20.mdy     C++20 language subset specification
-|   +-- modules-configure.mdy official configure specification for release 1.1
+|   +-- modules-configure.mdy official configure specification for release v1.1.0
 |   +-- modules-debug.mdy     debug tool and debugger specification
 |   +-- modules-model.mdy     the abstract data model
 |   +-- modules-test.mdy      test tool and target execution specification
@@ -520,7 +520,7 @@ defects and become ordinary regression tests when fixed.
 # Current boundaries
 These are the gaps between the Design goals and today's implementation.
 
-docs/modules-configure.mdy is the official configure and manifest-option specification through release 1.3. configure implements typed options, branch-local resets and read-only settings, lanes, runners, debuggers, and records beneath out. All manifest-reading tools accept 1.0 and 1.1 through the shared gate. Build and test resolve buildable-host and buildable-target and enforce the selected lane; other option declarations remain warning-only and are not yet applied to compilation.
+docs/modules-configure.mdy is the official configure and manifest-option specification for release v1.1.0. configure implements typed options, branch-local resets and read-only settings, lanes, runners, debuggers, and records beneath out. All eight manifest-reading tools accept 1.0 and 1.1 through the shared gate. Build, test, run, and debug resolve buildable-host and buildable-target and enforce the selected lane; other option declarations remain warning-only and are not yet applied to compilation.
 
 docs/modules-build.mdy, docs/modules-test.mdy, docs/modules-run.mdy, and docs/modules-debug.mdy specify the implemented lane, compile-only, runner-backed execution, and debugging interfaces.
 

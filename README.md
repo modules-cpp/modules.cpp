@@ -141,7 +141,8 @@ manifest format, every core module and tool in detail, and the TDD workflow
 for making changes. This README only covers getting the project running for
 the first time.
 
-[Configure specification for release 1.1](docs/modules-configure.mdy) defines
+[Configure specification for release v1.1.0](docs/modules-configure.mdy) defines
 the official manifest-option, reset, and read-only requirements. Its Current
-boundaries section describes the implemented configure-only scope; build and
-test warn about these declarations but do not apply their values yet.
+boundaries section describes the implemented capability-only scope; build,
+test, run, and debug warn about tuning declarations but do not apply their
+values yet.
