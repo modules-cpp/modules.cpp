@@ -1,0 +1,95 @@
+name: build
+
+# A clean build on every commit: bootstrap from source, configure, build, test.
+# Nothing is cached. The point is to prove a fresh checkout still bootstraps
+# itself, which a cached out/ or gcm.cache would quietly hide.
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        build: [debug, release]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # bootstrap.sh deliberately invokes the literal command c++, so the
+      # default must be a compiler with C++20 module support. Ubuntu 24.04
+      # ships GCC 13 as c++, which is not enough for this project.
+      - name: Install a modules-capable GCC
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++-14
+          sudo update-alternatives --install /usr/bin/c++ c++ /usr/bin/g++-14 100
+          c++ --version
+
+      - name: Bootstrap from source
+        run: ./bootstrap.sh
+
+      - name: Configure
+        run: ./configure --compiler gcc-14 --build ${{ matrix.build }}
+
+      - name: Build
+        run: ./build.sh
+
+      - name: Test
+        run: ./test.sh
+
+      - name: Check the manifest tree against itself
+        run: ./model.sh
+
+      - name: Generate documentation
+        run: ./document.sh
+
+      # The recovery path never runs during a successful bootstrap, so it is
+      # exercised explicitly. A stale out/ or gcm.cache would let it pass
+      # without recompiling anything, so it runs in a pristine copy.
+      - name: Verify the bootstrap fallback
+        if: matrix.build == 'debug'
+        run: |
+          rm -rf /tmp/fallback && mkdir -p /tmp/fallback
+          git archive HEAD | tar -x -C /tmp/fallback
+          cd /tmp/fallback
+          test ! -e out && test ! -e gcm.cache
+          B=out; F=-std=c++20
+          mkdir -p $B/modules/mm/mdy/src $B/modules/mm/build/src \
+                   $B/modules/mm/configure/src $B/tools/build
+          for f in modules/mm/mdy/mdy.cppm modules/mm/mdy/src/mdy.cpp \
+                   modules/mm/configure/configure.cppm \
+                   modules/mm/configure/src/configure.cpp \
+                   modules/mm/build/build.cppm modules/mm/build/src/build.cpp \
+                   tools/build/build.cpp; do
+            c++ -fmodules-ts $F -x c++ -c "$f" -o "$B/${f%.*}.o"
+          done
+          c++ $F $B/modules/mm/mdy/mdy.o $B/modules/mm/mdy/src/mdy.o \
+                 $B/modules/mm/build/build.o $B/modules/mm/build/src/build.o \
+                 $B/modules/mm/configure/configure.o \
+                 $B/modules/mm/configure/src/configure.o \
+                 $B/tools/build/build.o -o $B/build1
+          ./$B/build1 -h
+
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    continue-on-error: true    # cppcheck findings should not gate a commit
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++-14 cppcheck
+          sudo update-alternatives --install /usr/bin/c++ c++ /usr/bin/g++-14 100
+      - run: ./bootstrap.sh
+      - run: ./configure --compiler gcc-14 --build debug
+      - run: ./build.sh
+      - run: ./check.sh

@@ -1,0 +1,112 @@
+name: release
+
+# A manually triggered release build. This does not create the branch, tag, or
+# GitHub release: scripts/release.sh does that from a development machine,
+# where the docs and version checks live. This workflow builds the artifacts
+# for a tag that already exists and, when asked, uploads them to its release.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Tag to build, for example v1.1.0'
+        required: true
+        type: string
+      build:
+        description: 'Build type'
+        required: false
+        default: release
+        type: choice
+        options: [release, debug]
+      upload:
+        description: 'Upload the artifacts to the GitHub release for this tag'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write        # needed only by the upload step
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.version }}
+          fetch-depth: 0
+
+      - name: Install a modules-capable GCC
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++-14
+          sudo update-alternatives --install /usr/bin/c++ c++ /usr/bin/g++-14 100
+          c++ --version
+
+      # The tag must describe itself. Releasing a tag whose specifications
+      # claim a different version is the mistake most worth catching here,
+      # and it is the same check scripts/release.sh makes before tagging.
+      - name: Verify the tag matches the documented release
+        run: |
+          declared=$(grep -h '^release:' docs/*.mdy | sort -u | sed 's/^release: *//')
+          echo "docs declare: ${declared:-none}"
+          if [ -n "$declared" ] && [ "$declared" != "${{ inputs.version }}" ]; then
+            echo "docs/ declare $declared, not ${{ inputs.version }}" >&2
+            exit 1
+          fi
+
+      - name: Bootstrap from source
+        run: ./bootstrap.sh
+
+      - name: Configure
+        run: ./configure --compiler gcc-14 --build ${{ inputs.build }}
+
+      - name: Build
+        run: ./build.sh
+
+      - name: Test
+        run: ./test.sh
+
+      - name: Check the manifest tree against itself
+        run: ./model.sh
+
+      - name: Generate documentation
+        run: ./document.sh
+
+      - name: Package
+        id: package
+        run: |
+          name="modules.cpp-${{ inputs.version }}-linux-x86_64"
+          mkdir -p "dist/$name"
+          cp -r out/bin "dist/$name/bin"
+          mkdir -p "dist/$name/docs"
+          # document.sh writes the rendered tree under out/; take the pages and
+          # leave the object files and module cache behind.
+          (cd out && find . -name '*.html' -print0 | tar --null -T - -cf -) \
+            | (cd "dist/$name/docs" && tar -xf -)
+          cp README.md LICENSE "dist/$name/"
+          tar -czf "dist/$name.tar.gz" -C dist "$name"
+          sha256sum "dist/$name.tar.gz" > "dist/$name.tar.gz.sha256"
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+          ls -la dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.package.outputs.name }}
+          path: |
+            dist/*.tar.gz
+            dist/*.sha256
+          if-no-files-found: error
+
+      - name: Upload to the GitHub release
+        if: ${{ inputs.upload }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "${{ inputs.version }}" >/dev/null \
+            || { echo "no GitHub release for ${{ inputs.version }}; create it with scripts/release.sh first" >&2; exit 1; }
+          gh release upload "${{ inputs.version }}" \
+            "dist/${{ steps.package.outputs.name }}.tar.gz" \
+            "dist/${{ steps.package.outputs.name }}.tar.gz.sha256" \
+            --clobber
