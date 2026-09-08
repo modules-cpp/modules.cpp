@@ -74,3 +74,6 @@ drafts/
 # local test and debug scripts
 test-*.sh
 debug-*.sh
+
+# local release scripts
+release-*.sh
