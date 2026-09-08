@@ -11,6 +11,7 @@ module;
 export module mm.debug;
 
 import mm.build;
+import mm.run;
 
 export namespace mm::debug {
 

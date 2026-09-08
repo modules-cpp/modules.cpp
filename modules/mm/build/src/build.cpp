@@ -1099,33 +1099,6 @@ int run(const Toolchain& toolchain, const std::string& command) {
     return -1;
 }
 
-int execute(const Toolchain& toolchain, bool target_lane,
-            const std::filesystem::path& executable,
-            const std::vector<std::string>& arguments) {
-    std::string command;
-    if (!target_lane) {
-        command = shell_quote(executable);
-        for (const auto& argument : arguments)
-            command += " " + shell_quote(std::filesystem::path(argument));
-        return run(toolchain, command);
-    }
-    if (!toolchain.runner) return -1;
-
-    const auto& runner = *toolchain.runner;
-    command = shell_quote(std::filesystem::path(runner.invocation));
-    for (const auto& argument : runner.prefix_arguments)
-        command += " " + shell_quote(std::filesystem::path(argument));
-    if (runner.image == RunnerImage::Option)
-        command += " " + shell_quote(std::filesystem::path(runner.image_option));
-    command += " " + shell_quote(executable);
-    for (const auto& argument : runner.suffix_arguments)
-        command += " " + shell_quote(std::filesystem::path(argument));
-    if (runner.forwards_arguments)
-        for (const auto& argument : arguments)
-            command += " " + shell_quote(std::filesystem::path(argument));
-    return run(toolchain, command);
-}
-
 // Single quotes disable every form of shell expansion, and the only character
 // that cannot appear between them is the single quote itself, which is handled
 // by closing the run, emitting an escaped quote and reopening. Double quotes

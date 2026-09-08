@@ -10,6 +10,7 @@
 import mm.app;
 import mm.build;
 import mm.configure;
+import mm.run;
 
 int main(int argc, char** argv) {
     mm::app::Options options("run");
@@ -116,7 +117,7 @@ int main(int argc, char** argv) {
         std::cout << "  app    " << app.name << "\n";
         std::cout << "  target " << executable.string() << "\n";
     }
-    const int status = mm::build::execute(*toolchain, target_lane, executable,
-                                          options.trailing());
+    const int status = mm::run::execute(*toolchain, target_lane, executable,
+                                        options.trailing());
     return status < 0 ? mm::build::exit_run : status;
 }

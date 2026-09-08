@@ -37,7 +37,7 @@ Configure m68k runner-remote debugging with:
 
 For the host, gdb resolves to direct mode and receives --args followed by the executable and application arguments.
 
-For m68k-linux-gnu, gdb resolves to gdb-multiarch in runner-remote mode. The debug module starts qemu-m68k with the configured sysroot and -g 1234, then starts gdb-multiarch with the target executable and connects it to localhost:1234. Exiting GDB cleans up the runner process. This debugs the guest application; it does not attach GDB to the QEMU host process.
+For m68k-linux-gnu, gdb resolves to gdb-multiarch in runner-remote mode. The debug module asks mm.run to construct the qemu-m68k command with the configured sysroot and -g 1234, then starts gdb-multiarch with the target executable and connects it to localhost:1234. Exiting GDB cleans up the runner process. This debugs the guest application; it does not attach GDB to the QEMU host process.
 
 A runner-remote debugger requires a runner in the same target toolchain. A direct debugger is valid only for the host lane. Other target debugger profiles are not yet supported.
 

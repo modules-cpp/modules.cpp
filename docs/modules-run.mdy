@@ -6,7 +6,7 @@ name: modules.cpp run tool
 
 # Run
 
-run executes one previously built kind: app artifact from the selected host or target lane.
+run resolves one previously built kind: app artifact from the selected host or target lane and delegates command construction and execution to mm.run.
 
 run -h
 

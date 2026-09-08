@@ -20,7 +20,7 @@ Examples use Opening fence and Closing fence instead of literal front matter del
 
 Implemented and required:
 
-- The shared manifest gate accepts mm: 1.0 and mm: 1.1 for all six manifest-reading tools: configure, build, test, check, model, and document.
+- The shared manifest gate accepts mm: 1.0 and mm: 1.1 for all eight manifest-reading tools: configure, build, test, check, model, document, run, and debug.
 - configure resolves named options, resets, and read-only locks over the complete manifest tree and writes one resolved-options.mdy per node beneath the lane build directory.
 - The typed build-default policy is the single source of the debug and release baseline compile and link flags.
 - Build and test resolve buildable-host and buildable-target, validate capability across use edges, and select nodes for the configured lane. They warn about declarations for the other options they do not consume. Check, model, and document accept the keys silently.

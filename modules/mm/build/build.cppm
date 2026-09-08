@@ -291,12 +291,6 @@ std::string shell_quote(const std::filesystem::path& path);
 // status. Every path interpolated into the command must go through shell_quote.
 int run(const Toolchain& toolchain, const std::string& command);
 
-// Executes a host image directly or a target image through its configured
-// runner. Returns -1 when a target runner is unavailable.
-int execute(const Toolchain& toolchain, bool target_lane,
-            const std::filesystem::path& executable,
-            const std::vector<std::string>& arguments = {});
-
 // Compiles every source of a target, appending to target.objects.
 int compile(const Toolchain& toolchain, BuildableNode& target, const std::filesystem::path& build_dir);
 

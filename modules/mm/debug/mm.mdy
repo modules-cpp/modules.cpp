@@ -4,6 +4,7 @@ kind: module
 name: debug
 module: mm.debug
 use: mm.build
+use: mm.run
 file: debug.cppm
 file: src/debug.cpp
 ---

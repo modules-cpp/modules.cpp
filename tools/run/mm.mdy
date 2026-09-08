@@ -6,8 +6,9 @@ file: main.cpp
 use: mm.app
 use: mm.build
 use: mm.configure
+use: mm.run
 ---
 
 # run tool
 
-Executes one previously built kind: app artifact directly in the host lane or through the target lane's configured runner.
+Resolves one previously built kind: app artifact and delegates direct or target-runner execution to mm.run.

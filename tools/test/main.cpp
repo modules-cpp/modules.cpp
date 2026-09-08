@@ -6,8 +6,9 @@
 // Reads a test manifest, compiles every declared unit in order, links the
 // objects directly into one test binary, and either stops for --compile-only
 // or executes it directly on the host or through a configured target runner.
-// All the work lives in mm.build; this file is the front end. The rules it
-// relies on are specified by docs/modules-test.mdy.
+// Compilation and linking live in mm.build; execution lives in mm.run. This
+// file is the front end. The rules it relies on are specified by
+// docs/modules-test.mdy.
 //
 // Pawel Wodnicki (C) 2026
 // 32bitmicro LLC (C) 2026
@@ -20,6 +21,7 @@
 import mm.app;
 import mm.build;
 import mm.configure;
+import mm.run;
 
 int main(int argc, char** argv) {
     mm::app::Options options("test");
@@ -206,7 +208,7 @@ int main(int argc, char** argv) {
 
     std::cout << "\nRun\n\n";
 
-    const int status = mm::build::execute(toolchain, target_lane, binary);
+    const int status = mm::run::execute(toolchain, target_lane, binary);
     if (status < 0) {
         std::cerr << "test: failed to run " << binary.string() << "\n";
         return mm::build::exit_run;

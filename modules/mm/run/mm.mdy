@@ -1,0 +1,13 @@
+---
+mm: 1.0
+kind: module
+name: run
+module: mm.run
+use: mm.build
+file: run.cppm
+file: src/run.cpp
+---
+
+# mm.run
+
+Constructs and executes safely quoted host or configured target-runner commands for built artifacts.

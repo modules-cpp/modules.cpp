@@ -1,0 +1,14 @@
+---
+mm: 1.0
+kind: test
+name: run
+use: mm.test
+use: mm.build
+use: mm.run
+unit: tests/mm/run/run.cpp
+unit: tests/main.cpp
+---
+
+# mm.run test target
+
+Verifies host and target command construction, safe argument quoting, runner extension arguments, and execution.
