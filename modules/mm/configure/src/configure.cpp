@@ -2,6 +2,7 @@
 // 32bitmicro LLC (C) 2026
 module;
 
+#include <array>
 #include <charconv>
 #include <cctype>
 #include <chrono>
@@ -520,7 +521,10 @@ struct OptionSpec {
     std::int64_t maximum = 3;
 };
 
-const std::vector<OptionSpec> registry = {
+// A fixed table, so std::array rather than a std::vector built at static
+// initialization: the vector allocates before main, and passing its
+// initializer_list by value draws a psabi note from the 32-bit ARM backend.
+constexpr std::array<OptionSpec, 8> registry = {{
     {"warnings", OptionType::Boolean, DefaultSource::Off},
     {"warnings-error", OptionType::Boolean, DefaultSource::Off},
     {"optimize", OptionType::Number, DefaultSource::Optimization},
@@ -531,7 +535,7 @@ const std::vector<OptionSpec> registry = {
     // default yes, so restriction is opt-in and today's tree is unchanged.
     {"buildable-host", OptionType::Boolean, DefaultSource::On},
     {"buildable-target", OptionType::Boolean, DefaultSource::On},
-};
+}};
 
 const OptionSpec* option_spec(std::string_view name) {
     for (const auto& spec : registry)
