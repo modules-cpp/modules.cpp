@@ -14,18 +14,6 @@
 // collects the file list and drives the process. All the file collection
 // lives in mm.build; this file is the front end.
 //
-// Known limitation: a subtree containing a kind:test manifest cannot be
-// checked on its own. A kind:test manifest's unit: entries are project
-// relative, while every kind:module and kind:app file: entry is relative to
-// its own manifest's directory, and a subtree walk is rooted at the
-// subtree. Both kinds end up in one list here, so for a root below the
-// project the unit: paths resolve one level too deep and cppcheck reports
-// "could not find or open any of the paths given". In this tree that means
-// `check tests/mm.mdy` fails while `check modules/mm.mdy` and a whole-tree
-// check both work, and the whole-tree check does cover the test sources.
-// Resolving it means deciding what a unit: path means under a subtree walk,
-// which is an mm.build question rather than a defect in this file.
-//
 // The root manifest's folder: tests entry puts kind:test manifests in the
 // same single walk as everything else, so tree.tests already covers them;
 // this tool does not load a second tree. tools/build/main.cpp is added
@@ -52,14 +40,30 @@ namespace {
 // tests/main.cpp is the shared runner unit: entry in more than one kind:test
 // manifest, so collecting straight into a vector would hand cppcheck the
 // same path twice.
-void collect(const mm::build::Tree& tree, std::set<std::string>& seen,
-             std::vector<std::filesystem::path>& files) {
-    for (const auto& target : tree.targets)
-        for (const auto& unit : target.sources)
-            if (seen.insert(unit.path).second) files.push_back(unit.path);
-    for (const auto& target : tree.tests)
-        for (const auto& unit : target.sources)
-            if (seen.insert(unit.path).second) files.push_back(unit.path);
+bool beneath(const mm::build::Project& project, std::size_t node, std::size_t scope) {
+    for (auto current = node; current != mm::build::no_parent;
+         current = project.nodes[current].parent)
+        if (current == scope) return true;
+    return false;
+}
+
+void collect(const mm::build::Project& project, std::size_t scope,
+             std::set<std::string>& seen, std::vector<std::filesystem::path>& files) {
+    for (std::size_t i = 0; i < project.nodes.size(); ++i) {
+        if (!beneath(project, i, scope) || project.target[i] == mm::build::no_target) continue;
+        const mm::build::BuildableNode* target = nullptr;
+        if (project.nodes[i].kind == "test") target = &project.tests[project.target[i]];
+        else if (project.nodes[i].kind == "module" || project.nodes[i].kind == "app")
+            target = &project.targets[project.target[i]];
+        if (target == nullptr) continue;
+        for (const auto& unit : target->sources)
+            if (seen.insert(unit.path).second) files.emplace_back(unit.path);
+    }
+    for (const auto& board : project.boards) {
+        if (!beneath(project, board.node, scope)) continue;
+        for (const auto& source : board.sources)
+            if (seen.insert(source.generic_string()).second) files.push_back(source);
+    }
 }
 
 }
@@ -78,29 +82,45 @@ int main(int argc, char** argv) {
     manifest_path = mm::build::resolve_manifest(manifest_path);
 
     std::filesystem::path root;
-    if (const auto status = mm::app::open_manifest("check", manifest_path, root, true);
+    if (const auto status = mm::app::open_manifest("check", manifest_path, root, false);
         status != mm::app::Cli::ok)
         return status == mm::app::Cli::usage ? mm::build::exit_usage : mm::build::exit_manifest;
 
     std::cout << "modules.cpp check tool\n";
     std::cout << "  root " << root.string() << "\n\n";
 
-    auto tree = mm::build::load_tree(".", {.tool = "check"});
-    if (!tree.ok) return mm::build::exit_manifest;
-
-    std::set<std::string> seen;
-    std::vector<std::filesystem::path> files;
-    collect(tree, seen, files);
-
-    // The addon lives at a fixed path under the project root, not under
-    // root: root is wherever the given manifest lives, which is the project
-    // root for a plain `check` but a subdirectory for a partial check such
-    // as `check modules/mm.mdy`.
     auto project_root = mm::build::find_project_root(root);
     if (project_root.empty()) {
         std::cerr << "check: no kind:project mm.mdy above " << root.string() << "\n";
         return mm::build::exit_manifest;
     }
+    std::error_code ec;
+    const auto requested_root = std::filesystem::weakly_canonical(root, ec);
+    if (ec) return mm::build::exit_manifest;
+    std::filesystem::current_path(project_root, ec);
+    if (ec) {
+        std::cerr << "check: cannot enter project root: " << ec.message() << "\n";
+        return mm::build::exit_manifest;
+    }
+    auto project = mm::build::load_project(".", {.tool = "check"});
+    if (!project.ok) return mm::build::exit_manifest;
+    std::size_t scope = mm::build::no_parent;
+    for (std::size_t i = 0; i < project.nodes.size(); ++i) {
+        const auto directory = std::filesystem::weakly_canonical(project.nodes[i].dir, ec);
+        if (!ec && directory == requested_root) {
+            scope = i;
+            break;
+        }
+        ec.clear();
+    }
+    if (scope == mm::build::no_parent) {
+        std::cerr << "check: requested manifest is not in the project tree\n";
+        return mm::build::exit_manifest;
+    }
+
+    std::set<std::string> seen;
+    std::vector<std::filesystem::path> files;
+    collect(project, scope, seen, files);
 
     // Only for a full project check, not a partial one: tools/build/main.cpp
     // has no manifest anywhere (see the note above main()), so the walk
@@ -108,7 +128,6 @@ int main(int argc, char** argv) {
     // deliberately narrowed `check modules/mm.mdy` would be surprising.
     if (root == project_root) {
         const auto stage_zero = project_root / "tools/build/main.cpp";
-        std::error_code ec;
         const auto relative_stage_zero = std::filesystem::relative(stage_zero, root, ec);
         if (!ec && std::filesystem::exists(stage_zero) &&
             seen.insert(relative_stage_zero.string()).second)
@@ -139,14 +158,11 @@ int main(int argc, char** argv) {
         " --addon=" + mm::build::shell_quote(addon);
     if (verbose) command += " --verbose";
 
-    // Absolute, not relative to root: the addon recognises its documented
-    // exceptions by project relative path (modules/mm/test/src/test.cpp),
-    // and root is the given manifest's directory, which for a partial check
-    // such as `check modules/mm.mdy` is a subdirectory. Relative paths would
-    // then reach the addon as mm/test/src/test.cpp, matching nothing, and a
-    // partial check would report the very files the specification exempts.
+    // Sources are stored project-relative even when the requested scope is a
+    // subtree. Anchor them to the project root, not the requested directory,
+    // so both unit: and file: retain the same meaning in a narrowed check.
     for (const auto& file : files)
-        command += " " + mm::build::shell_quote(root / file);
+        command += " " + mm::build::shell_quote(project_root / file);
 
     std::cout << "Checking " << files.size() << " source file(s) against "
               << addon.string() << "\n\n";

@@ -94,10 +94,13 @@ int main(int argc, char** argv) {
         return mm::build::exit_manifest;
     const auto buildable = capabilities.lane(
         target_lane, configuration.target_has_host_capability());
-    if (!buildable[node]) {
-        std::cerr << "run: " << project.nodes[node].name << " is not buildable-"
-                  << (target_lane ? "target" : "host") << "\n";
-        return mm::build::exit_manifest;
+    const auto available = mm::build::availability(
+        project, node, buildable[node], target_lane,
+        target_lane ? configuration.configured_target_platform() : &configuration.host_platform());
+    if (!available.available) {
+        std::cerr << "run: " << project.nodes[node].manifest.string() << ": "
+                  << available.reason << "\n";
+        return mm::build::exit_unavailable;
     }
 
     const auto& app = project.targets[project.target[node]];

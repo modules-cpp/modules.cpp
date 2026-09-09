@@ -3,12 +3,12 @@ mm: 1.0
 kind: doc
 name: modules.cpp configure specification
 status: official
-release: v1.1.0
+release: v1.2.0
 ---
 
 # modules.cpp configure specification
 
-This is the configure and manifest-option specification for release v1.1.0. Manifest options, explicit host and target lane configuration, runner profiles, and configured debugger profiles are part of this release. It describes implemented behavior. Every rule below is enforced by the code in modules/mm/build and modules/mm/configure and is covered by the tests named in Conformance; where the implementation falls short of a rule, Current boundaries says so explicitly rather than lowering the rule.
+This is the configure and manifest-option specification for release v1.2.0. Manifest options, explicit host and target lane configuration, platform selection, runner profiles, and configured debugger profiles are part of this release. It describes implemented behavior. Every rule below is enforced by the code in modules/mm/build and modules/mm/configure and is covered by the tests named in Conformance; where the implementation falls short of a rule, Current boundaries says so explicitly rather than lowering the rule.
 
 configure validates named options declared in a manifest tree, resolves their inheritance, and writes a mirrored tree of resolved records beneath out. Build, test, run, and debug consume buildable-host and buildable-target through the same resolver and warn about the other options they do not yet consume. No tool converts an option into a compiler argument in this release.
 
@@ -20,7 +20,8 @@ Examples use Opening fence and Closing fence instead of literal front matter del
 
 Implemented and required:
 
-- The shared manifest gate accepts mm: 1.0 and mm: 1.1 for all eight manifest-reading tools: configure, build, test, check, model, document, run, and debug.
+- The shared manifest gate accepts mm: 1.0, mm: 1.1, and mm: 1.2 for all eight manifest-reading tools: configure, build, test, check, model, document, run, and debug.
+- configure selects one SDK and an optional board for every newly configured target lane. docs/modules-platforms.mdy specifies the platform declarations, validation, and generated record.
 - configure resolves named options, resets, and read-only locks over the complete manifest tree and writes one resolved-options.mdy per node beneath the lane build directory.
 - The typed build-default policy is the single source of the debug and release baseline compile and link flags.
 - Build, test, run, and debug resolve buildable-host and buildable-target, validate capability across use edges, and select nodes for the configured lane. They warn about declarations for the other options they do not consume. Check, model, and document accept the keys silently.
@@ -30,7 +31,7 @@ Not implemented, by design, in this release:
 - No tool turns a resolved option into a compiler or linker argument. Records describe requested configuration, not the flags a build uses.
 - Build, test, run, and debug resolve only capability declarations. Other option values and read-only markers remain ignored metadata to them.
 - Compiler and linker tuning options are not applied to build commands.
-- There are no per-option command-line overrides, build-named output branches, or general static toolchain mapping catalog. Runner and debugger support is limited to named profiles compiled into configure.
+- There are no per-option command-line overrides, build-named output branches, or external toolchain catalog. SDKs and boards live in the manifest tree. Compiler argument, runner, and debugger mappings remain static registries in configure.
 
 There are no known deviations between this specification and the implementation.
 
@@ -59,33 +60,35 @@ Compiler selector behavior is unchanged, including versioned spellings. --build 
 
 # Lane configuration
 
-docs/modules-build.mdy and docs/modules-test.mdy require configure to define the lanes they select. Release v1.1.0 provides:
+docs/modules-build.mdy and docs/modules-test.mdy require configure to define the lanes they select. Release v1.2.0 provides:
 
 configure --host --compiler clang++-21
 
-configure --target aarch64-linux-gnu --compiler aarch64-linux-gnu-g++-16
+configure --target aarch64-linux-gnu --compiler aarch64-linux-gnu-g++-16 --sdk aarch64-linux-glibc
 
-configure --target m68k-linux-gnu --target-host --compiler m68k-linux-gnu-g++-16
+configure --target m68k-linux-gnu --target-host --compiler m68k-linux-gnu-g++-16 --sdk m68k-linux-glibc
 
-configure --target m68k-linux-gnu --target-host --compiler m68k-linux-gnu-g++-16 --runner qemu-user
+configure --target m68k-linux-gnu --target-host --compiler m68k-linux-gnu-g++-16 --sdk m68k-linux-glibc --runner qemu-user
 
-configure --target m68k-linux-gnu --target-host --compiler m68k-linux-gnu-g++-16 --runner qemu-user --debugger gdb
+configure --target m68k-linux-gnu --target-host --compiler m68k-linux-gnu-g++-16 --sdk m68k-linux-glibc --runner qemu-user --debugger gdb
+
+configure --target arm-none-eabi --compiler arm-none-eabi-gcc --board mps2-an385 --runner qemu-system
 
 --host configures and selects the host lane. It is the default when neither lane option is supplied.
 
---target takes one target triple, configures that target lane, and selects it. The compiler option applies to the lane being configured. Configure derives that lane's compiler family, flags, platform, and output directory; build and test cannot override them.
+--target takes one target triple, configures that target lane, and selects it. The compiler option applies to the lane being configured. Every new target configuration also names --sdk or --board. A board implies its SDK; both options together are accepted only when they agree. Configure derives that lane's compiler family, flags, platform, and output directory; build and test cannot override them.
 
 --target-host is valid only with --target. It records that the target is itself a hosted platform capable of receiving applications normally restricted to the host capability. It changes no manifest value. For that target, build, test, run, and debug select the union of buildable-host and buildable-target. Without this flag a target selects buildable-target only.
 
---runner is valid only with --target and accepts none or a compatible named profile. qemu-user is compatible with m68k-linux-gnu and resolves to qemu-m68k with -L and /usr/m68k-linux-gnu before the executable image. Reconfiguring a target without --runner, or with --runner none, removes its runner. Configuring the host retains an existing target runner.
+--runner is valid only with --target and accepts none or a compatible named profile. qemu-user is compatible with hosted m68k-linux-gnu and resolves to qemu-m68k with -L and the selected SDK's runtime-prefix before the executable image. qemu-system is compatible with arm-none-eabi when the selected board supplies a recognized machine, and places the image after -kernel without forwarding application arguments. Reconfiguring a target without --runner, or with --runner none, removes its runner. Configuring the host retains an existing target runner.
 
 --debugger accepts none or gdb. For the host, gdb resolves to direct gdb. For m68k-linux-gnu it resolves to gdb-multiarch using the qemu-user remote stub, so it requires --runner qemu-user on that target configuration command. Reconfiguring a lane without --debugger, or with --debugger none, removes that lane's debugger and preserves the other lane.
 
 The host lane always remains present. Configuring a target retains the configured host lane, or initializes it from the shared host default when no prior configuration exists. Configuring the host retains an existing target lane. The debug or release build is project-wide and applies consistently to both retained lanes.
 
-The two lane options are mutually exclusive and may not be repeated. --target-host may not be repeated and requires --target. A malformed target triple, an unsupported compiler for that triple, or an invalid lane combination exits 64 before configuration is written.
+The two lane options are mutually exclusive and may not be repeated. --target-host may not be repeated and requires --target. --sdk and --board are target-only and may not be repeated. A malformed target triple, an unsupported compiler for that triple, an unknown or incompatible SDK or board, or an invalid lane combination exits 64 before configuration is written. A selected external resource, specs probe, or responsibility failure exits 65.
 
-One successful write publishes the complete host lane, optional target lane, runner and debugger, target host-capability setting, selected default, and both output directories atomically in out/config.mdy. The host directory is out-host. A target directory is out-target- followed by the normalized target triple. Older configurations without target-host-capability, runner, or debugger fields remain valid.
+One successful write publishes the complete host lane, optional target lane and platform, runner and debugger, target host-capability setting, selected default, and both output directories atomically in out/config.mdy. The host directory is out-host. A target directory is out-target- followed by the normalized target triple. A record with a selected target platform uses mm: 2.0 and schema: configuration-2 so older readers cannot ignore platform-critical fields. Host-only and legacy records remain mm: 1.0. docs/modules-platforms.mdy specifies both record forms and preservation rules.
 
 The configure implementation proves:
 
@@ -226,9 +229,11 @@ configured with --target-host admits them through their unchanged buildable-host
 capability. tests declares buildable-target no because runner availability is
 a toolchain property rather than a promise that every target can execute tests;
 a hosted target may admit those tests and a configured runner may execute them.
-apps/mdy declares buildable-target no, because document.sh runs it on the build
-machine; apps/main stays buildable everywhere. Everything under modules keeps
-the permissive default, and the use: rule is what keeps that honest.
+apps/mdy and apps/main declare buildable-target no because they are host
+applications. apps/target-smoke and apps/target-smoke-any are target-only
+acceptance applications; the first additionally requires mps2-an385. Everything
+under modules keeps the permissive default, and the use: rule is what keeps that
+honest.
 
 Build, test, run, and debug act on both values. Build resolves the capability tree, validates
 every use edge, and removes module and app roots unavailable in the selected
@@ -248,7 +253,7 @@ selected lane.
 
 # Shared ownership
 
-- mm.build owns the reusable manifest walk and the single version and structural-key gate used by configure, build, test, check, model, document, run, and debug. Front ends do not implement their own copies of the 1.0/1.1 or key-version rules. The gate is reachable directly as validate_manifest_schema for a tool rendering one manifest outside a walk.
+- mm.build owns the reusable manifest walk and the single version and structural-key gate used by configure, build, test, check, model, document, run, and debug. Front ends do not implement their own copies of the 1.0, 1.1, 1.2, or key-version rules. The gate is reachable directly as validate_manifest_schema for a tool rendering one manifest outside a walk.
 - mm.configure owns the option registry, typed value and domain validation, the default policy, the inheritance and read-only resolver, provenance, and the record format. It imports nothing and starts no manifest walk.
 - The configure front end requests a strict folder-tree view from the shared loader through LoadPolicy, then adapts the parsed nodes, documents, and parent indices with configuration_nodes into the resolver's neutral OptionNode input. The adaptation carries data without re-parsing files or duplicating validation. The resolver accepts that neutral parent-indexed input, not an mm.build type, so mm.configure needs no reverse dependency.
 - Strict-tree traversal is a configure-only loader policy. In that mode the loader reports a repeated canonical directory before discarding its second occurrence, and rejects a manifest inside a generated root output lane named out or out- followed by any suffix. Unrelated names such as outside remain valid. Default policy and traversal behavior for every other tool are unchanged.
@@ -293,9 +298,9 @@ Names are serialized in lexical order, which the resolved map provides directly.
 
 # Version and diagnostics
 
-The single shared gate accepts mm: 1.0 and mm: 1.1 for configure, build, test, check, model, document, run, and debug, including the standalone test-manifest load. A manifest declaring option, reset, or read-only uses 1.1. A 1.0 manifest without those declarations is valid and inherits values and locks normally from a 1.1 parent during configure. These key-version rules are enforced once in the shared loader, never separately in a front end.
+The single shared gate accepts mm: 1.0, mm: 1.1, and mm: 1.2 for configure, build, test, check, model, document, run, and debug, including the standalone test-manifest load. A manifest declaring option, reset, or read-only uses 1.1. The sdk and board kinds and their platform keys use 1.2; requires-board also uses 1.2. A 1.0 manifest without newer declarations is valid and inherits values and locks normally from a 1.1 parent during configure. These key-version rules are enforced once in the shared loader, never separately in a front end.
 
-The gate recognizes option, reset, and read-only as valid 1.1 keys. An unknown key in a 1.1 manifest is an error under the strict traversal and a warning elsewhere. Unrelated keys in a 1.0 manifest keep their existing permissive treatment. Format errors, unsupported versions, and existing structural failures remain fatal in every tool.
+The gate recognizes option, reset, and read-only as valid 1.1 keys and the platform schema as 1.2 keys on their declared kinds. Unknown keys in a 1.1 or 1.2 manifest are errors under the strict traversal and warnings elsewhere. Unrelated keys in a 1.0 manifest keep their existing permissive treatment. option, reset, and read-only are rejected on sdk and board manifests because those declarations do not participate in the resolved build tree. Format errors, unsupported versions, and existing structural failures remain fatal in every tool.
 
 configure rejects unknown option names and invalid values rather than writing a partial interpretation. A failure in tree validation, version validation, option parsing, or resolution happens before anything is published. Its diagnostics take the form of the tool name, the manifest, the option, and the reason:
 
@@ -324,7 +329,7 @@ Check, model, and document accept and preserve the recognized 1.1 metadata throu
 
 Warnings alone never make build, test, run, or debug fail. Capability errors, structural errors, and unsupported versions are fatal, as is an option, reset, or read-only declaration in a 1.0 manifest. An unknown command-line flag such as --release remains fatal; the warning policy covers manifest declarations, not command-line typos.
 
-An older binary that accepts only 1.0 still rejects 1.1. Every manifest-reading tool is rebuilt and verified with the shared gate before 1.1 source manifests are adopted; a passing configure run alone is not sufficient evidence of compatibility.
+An older binary that accepts only 1.0 still rejects 1.1 and 1.2 source manifests. Every manifest-reading tool is rebuilt and verified with the shared gate before newer source manifests are adopted; a passing configure run alone is not sufficient evidence of compatibility.
 
 # Resolved output tree
 
@@ -439,8 +444,8 @@ The requirements above are covered by tests/mm/configure/options.cpp, which exer
 - Boolean misspellings, leading-plus numbers, overflow, trailing characters, and out-of-range optimization levels fail with a diagnostic naming the permitted domain.
 - A directory is anchored at its declaring manifest and does not move when inherited. Missing directories, regular files, and escapes through parent components or symlinks fail validation.
 - configure rejects a repeated canonical node and a recursive folder reference as invalid tree input, and never chooses a parent by comparing option maps. Other tools keep their existing repeat-visit and cycle behavior.
-- A 1.0 manifest inherits values and locks normally, but declaring option, reset, or read-only requires 1.1. configure rejects unknown 1.1 keys, and all three declaration keys on a doc manifest.
-- With a mixed 1.0 and 1.1 tree containing option, reset, and read-only, all eight manifest-reading tools complete their ordinary workflows when their existing prerequisites are met. No tool fails on the version or the recognized keys, and none requires a record.
+- A 1.0 manifest inherits values and locks normally, but declaring option, reset, or read-only requires 1.1. configure rejects unknown 1.1 and 1.2 keys, all three declaration keys on a doc manifest, and option declarations on sdk and board manifests.
+- With a mixed 1.0, 1.1, and 1.2 tree containing options and platform definitions, all eight manifest-reading tools complete their ordinary workflows when their existing prerequisites are met. No tool fails on a supported version or recognized key, and none requires a generated configuration record merely to read the manifest tree.
 - Every manifest-reading tool uses the same gate to reject a declaration in a 1.0 manifest, including the standalone test load. Unsupported versions and structural errors stay fatal.
 - Build, test, run, and debug handle buildable-host and buildable-target assignments, resets, and locks without ignored warnings. Build skips module and app targets unavailable in the selected lane; test rejects an unavailable requested test; run and debug reject an unavailable requested application. Other options, including an unknown name, still warn and continue. An unknown command-line flag still exits 64.
 - Reordering distinct declarations, or moving read-only markers, changes no resolved value. Records identify defaults, assignments, resets, unset values, read-only state, value origins, and lock origins accurately.

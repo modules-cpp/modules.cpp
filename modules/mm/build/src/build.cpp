@@ -6,6 +6,7 @@ module;
 #include <iostream>
 #include <map>
 #include <optional>
+#include <set>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -20,6 +21,8 @@ import mm.mdy;
 namespace mm::build {
 
 namespace {
+
+std::optional<mm::configure::Responsibility> parse_responsibility(std::string_view value);
 
 const std::vector<std::string>* lookup(const mm::mdy::MDYDocument& doc, std::string_view key) {
     const auto it = doc.metadata.find(key);
@@ -42,6 +45,67 @@ std::string_view option_name(std::string_view declaration) {
 
 bool capability_name(std::string_view name) {
     return name == "buildable-host" || name == "buildable-target";
+}
+
+int manifest_version(std::string_view version) {
+    if (version == "1.0") return 10;
+    if (version == "1.1") return 11;
+    if (version == "1.2") return 12;
+    return -1;
+}
+
+bool kind_in(std::string_view kind, std::string_view kinds) {
+    for (std::size_t begin = 0; begin < kinds.size();) {
+        const auto end = kinds.find(' ', begin);
+        const auto candidate = kinds.substr(begin, end == std::string_view::npos
+                                                       ? kinds.size() - begin
+                                                       : end - begin);
+        if (kind == candidate) return true;
+        if (end == std::string_view::npos) break;
+        begin = end + 1;
+    }
+    return false;
+}
+
+struct ManifestKeyRule {
+    std::string_view key;
+    int introduced;
+    std::string_view kinds;
+};
+
+const std::vector<ManifestKeyRule> manifest_key_rules = {
+    {"mm", 10, "project dir module app test doc sdk board"},
+    {"kind", 10, "project dir module app test doc sdk board"},
+    {"name", 10, "project dir module app test doc sdk board"},
+    {"folder", 10, "project dir"},
+    {"module", 10, "module"},
+    {"file", 10, "module app doc board"},
+    {"unit", 10, "test"},
+    {"use", 10, "module app test"},
+    {"option", 11, "project dir module app test"},
+    {"reset", 11, "project dir module app test"},
+    {"read-only", 11, "project dir module app test"},
+    {"target", 12, "sdk"},
+    {"compiler-family", 12, "sdk"},
+    {"runtime", 12, "sdk"},
+    {"specs-profile", 12, "sdk"},
+    {"specs-file", 12, "sdk"},
+    {"sysroot", 12, "sdk"},
+    {"runtime-prefix", 12, "sdk"},
+    {"provides", 12, "sdk board"},
+    {"sdk", 12, "board"},
+    {"cpu", 12, "board"},
+    {"instruction-set", 12, "board"},
+    {"float-abi", 12, "board"},
+    {"machine", 12, "board"},
+    {"linker-script", 12, "board"},
+    {"requires-board", 12, "app test"},
+};
+
+const ManifestKeyRule* manifest_key_rule(std::string_view key) {
+    for (const auto& rule : manifest_key_rules)
+        if (rule.key == key) return &rule;
+    return nullptr;
 }
 
 std::vector<std::string> capability_declarations(const std::vector<std::string>& declarations) {
@@ -141,7 +205,7 @@ Enter enter_manifest(const std::filesystem::path& dir, WalkState& state,
 // independent of whether the walk that reached it builds a BuildableNode (walk) or
 // only records a ManifestNode (load_nodes' walk_nodes). Both walks share it: without
 // this, load_nodes recorded whatever a manifest's front matter said, kind
-// included, with no check that it named one of the six kinds this project
+// included, with no check that it named one of the eight kinds this project
 // defines at all.
 bool is_safe_name(std::string_view name) {
     return !name.empty() && name != "." && name != ".." &&
@@ -184,27 +248,33 @@ bool valid_mm_version(const mm::mdy::MDYDocument& doc, const std::filesystem::pa
                       const LoadPolicy& policy) {
     const auto* versions = lookup(doc, "mm");
     if (doc.status != mm::mdy::ParseStatus::Ok || versions == nullptr ||
-        versions->size() != 1 || (versions->front() != "1.0" && versions->front() != "1.1")) {
+        versions->size() != 1 || manifest_version(versions->front()) < 0) {
         std::cerr << policy.tool << ": invalid or unsupported mm: version in "
-                  << manifest.string() << " (supported: 1.0, 1.1)\n";
+                  << manifest.string() << " (supported: 1.0, 1.1, 1.2)\n";
         return false;
     }
+    const auto version = manifest_version(versions->front());
+    const auto kind = first(doc, "kind");
     for (const auto& [key, values] : doc.metadata) {
-        const bool option = key == "option" || key == "reset" || key == "read-only";
-        if (option && versions->front() == "1.0") {
-            std::cerr << policy.tool << ": " << manifest.string() << ": " << key
-                      << " requires mm: 1.1\n";
-            return false;
-        }
-        const bool known = option || key == "mm" || key == "kind" || key == "name" ||
-                           key == "module" || key == "folder" || key == "file" ||
-                           key == "unit" || key == "use";
-        if (!known && versions->front() == "1.1") {
+        const auto* rule = manifest_key_rule(key);
+        if (rule == nullptr && version >= 11) {
             std::cerr << policy.tool << ": " << manifest.string()
                       << ": unknown manifest key: " << key
                       << (policy.strict_tree ? "\n" : " (ignored)\n");
             if (policy.strict_tree) return false;
         }
+        if (rule == nullptr) continue;
+        if (version < rule->introduced) {
+            std::cerr << policy.tool << ": " << manifest.string() << ": " << key
+                      << " requires mm: " << (rule->introduced == 11 ? "1.1" : "1.2") << "\n";
+            return false;
+        }
+        if (!kind_in(kind, rule->kinds)) {
+            std::cerr << policy.tool << ": " << manifest.string() << ": " << key
+                      << " is not valid on kind: " << kind << "\n";
+            return false;
+        }
+        const bool option = key == "option" || key == "reset" || key == "read-only";
         if (option && policy.warn_options) {
             for (const auto& value : values) {
                 const auto name = value.substr(0, value.find_first_of(" \t"));
@@ -294,7 +364,8 @@ bool configuration_directory(const mm::mdy::MDYDocument& doc, std::string_view k
 }
 
 bool configuration_compiler(const mm::mdy::MDYDocument& document, std::string_view prefix,
-                            const std::filesystem::path& path, Toolchain& toolchain) {
+                            const std::filesystem::path& path, Toolchain& toolchain,
+                            bool read_platform = true) {
     std::string platform;
     const auto family_key = std::string(prefix) + "-compiler-family";
     const auto* family_values = lookup(document, family_key);
@@ -319,14 +390,16 @@ bool configuration_compiler(const mm::mdy::MDYDocument& document, std::string_vi
                               toolchain.compiler.invocation) ||
         !configuration_scalar(document, std::string(prefix) + "-target", path,
                               toolchain.target) ||
-        !configuration_scalar(document, std::string(prefix) + "-platform", path, platform) ||
         !configuration_scalar(document, std::string(prefix) + "-compile-flags", path,
                               toolchain.compiler.arguments) ||
         !configuration_scalar(document, std::string(prefix) + "-link-flags", path,
                               toolchain.linker.arguments))
         return false;
 
-    if (platform != "POSIX") {
+    if (read_platform &&
+        !configuration_scalar(document, std::string(prefix) + "-platform", path, platform))
+        return false;
+    if (read_platform && platform != "POSIX") {
         std::cerr << "build: configuration names unsupported " << prefix
                   << " platform: " << platform << "\n";
         return false;
@@ -335,6 +408,267 @@ bool configuration_compiler(const mm::mdy::MDYDocument& document, std::string_vi
     toolchain.linker.invocation = toolchain.compiler.invocation;
     toolchain.librarian = {};
     toolchain.debugger.reset();
+    return true;
+}
+
+bool configuration_optional_scalar(const mm::mdy::MDYDocument& document,
+                                   std::string_view key,
+                                   const std::filesystem::path& path,
+                                   std::string& value) {
+    const auto* values = lookup(document, key);
+    if (values == nullptr) {
+        value.clear();
+        return true;
+    }
+    if (values->size() != 1 || values->front().empty()) {
+        std::cerr << "build: configuration requires at most one non-empty " << key << ": "
+                  << path.string() << "\n";
+        return false;
+    }
+    value = values->front();
+    return true;
+}
+
+bool configuration_2_key(std::string_view key) {
+    static const std::set<std::string, std::less<>> keys = {
+        "mm", "schema", "kind", "name", "build", "target-compiler",
+        "target-host-capability", "host-compiler-family", "host-compiler", "host-target",
+        "host-platform", "host-compile-flags", "host-link-flags", "host-debugger",
+        "host-debugger-prefix-argument", "host-debugger-connection",
+        "host-debugger-remote-endpoint", "host-debugger-runner-argument",
+        "cross-compiler-family", "cross-compiler", "cross-target", "cross-compile-flags",
+        "cross-link-flags", "cross-debugger", "cross-debugger-prefix-argument",
+        "cross-debugger-connection", "cross-debugger-remote-endpoint",
+        "cross-debugger-runner-argument", "cross-runner", "cross-runner-prefix-argument",
+        "cross-runner-image", "cross-runner-image-option", "cross-runner-suffix-argument",
+        "cross-runner-forwards-arguments", "host-build-directory", "target-build-directory",
+        "cross-system", "cross-runtime", "cross-sdk", "cross-sdk-manifest",
+        "cross-sdk-compiler-family", "cross-sdk-sysroot", "cross-sdk-runtime-prefix",
+        "cross-sdk-specs-argument", "cross-sdk-provides", "cross-board",
+        "cross-board-manifest", "cross-board-machine", "cross-board-linker-script",
+        "cross-board-source", "cross-board-provides", "cross-board-argument",
+        "cross-unresolved"};
+    return keys.contains(key);
+}
+
+std::optional<mm::configure::PlatformSystem> parse_system(std::string_view value) {
+    using S = mm::configure::PlatformSystem;
+    if (value == "linux") return S::Linux;
+    if (value == "bare-metal") return S::BareMetal;
+    if (value == "unknown") return S::Unknown;
+    return std::nullopt;
+}
+
+std::optional<mm::configure::PlatformRuntime> parse_runtime(std::string_view value) {
+    using R = mm::configure::PlatformRuntime;
+    if (value == "unknown") return R::Unknown;
+    if (value == "glibc") return R::Glibc;
+    if (value == "newlib") return R::Newlib;
+    if (value == "picolibc") return R::Picolibc;
+    if (value == "none") return R::None;
+    return std::nullopt;
+}
+
+bool configuration_project_file(const std::filesystem::path& configuration,
+                                std::string_view key, std::string_view raw,
+                                std::filesystem::path& result) {
+    const std::filesystem::path relative(raw);
+    const auto normalized = relative.lexically_normal();
+    if (relative.is_absolute() || normalized.empty() || normalized == ".") {
+        std::cerr << "build: unsafe " << key << " in " << configuration.string() << "\n";
+        return false;
+    }
+    for (const auto& component : normalized) {
+        if (component != "..") continue;
+        std::cerr << "build: unsafe " << key << " in " << configuration.string() << "\n";
+        return false;
+    }
+
+    std::error_code ec;
+    const auto root = std::filesystem::weakly_canonical(
+        configuration.parent_path().parent_path(), ec);
+    if (ec) return false;
+    const auto file = std::filesystem::weakly_canonical(root / normalized, ec);
+    const auto inside = file.lexically_relative(root);
+    if (ec || inside.empty() || *inside.begin() == ".." ||
+        !std::filesystem::is_regular_file(file, ec) || ec) {
+        std::cerr << "build: " << key << " is not a project file: " << raw << "\n";
+        return false;
+    }
+    result = normalized;
+    return true;
+}
+
+bool configuration_external_directory(const std::filesystem::path& configuration,
+                                      std::string_view key, std::string_view raw,
+                                      std::optional<std::filesystem::path>& result) {
+    if (raw.empty()) {
+        result.reset();
+        return true;
+    }
+    const std::filesystem::path directory(raw);
+    std::error_code ec;
+    if (!directory.is_absolute() || !std::filesystem::is_directory(directory, ec) || ec) {
+        std::cerr << "build: " << key << " is not an existing absolute directory in "
+                  << configuration.string() << "\n";
+        return false;
+    }
+    result = directory;
+    return true;
+}
+
+bool load_platform(const mm::mdy::MDYDocument& document,
+                   const std::filesystem::path& path,
+                   const Toolchain& cross,
+                   Platform& platform) {
+    std::string system;
+    std::string runtime;
+    std::string sdk;
+    std::string sdk_manifest;
+    std::string sdk_family;
+    if (!configuration_scalar(document, "cross-system", path, system) ||
+        !configuration_scalar(document, "cross-runtime", path, runtime) ||
+        !configuration_scalar(document, "cross-sdk", path, sdk) ||
+        !configuration_scalar(document, "cross-sdk-manifest", path, sdk_manifest) ||
+        !configuration_scalar(document, "cross-sdk-compiler-family", path, sdk_family))
+        return false;
+    const auto parsed_system = parse_system(system);
+    const auto parsed_runtime = parse_runtime(runtime);
+    if (!parsed_system || !parsed_runtime || (sdk_family != "gcc" && sdk_family != "clang")) {
+        std::cerr << "build: invalid target platform in " << path.string() << "\n";
+        return false;
+    }
+    platform = {};
+    platform.target = cross.target;
+    platform.system = *parsed_system;
+    platform.runtime = *parsed_runtime;
+    const auto derived_system = mm::configure::target_system(cross.target);
+    if (!derived_system || *derived_system != *parsed_system) {
+        std::cerr << "build: target platform system disagrees with target " << cross.target
+                  << "\n";
+        return false;
+    }
+    platform.sdk = sdk;
+    std::filesystem::path sdk_manifest_path;
+    if (!configuration_project_file(path, "cross-sdk-manifest", sdk_manifest,
+                                    sdk_manifest_path))
+        return false;
+    platform.sdk_manifest = std::move(sdk_manifest_path);
+    platform.sdk_family = sdk_family == "gcc" ? CompilerFamily::Gcc : CompilerFamily::Clang;
+    if (platform.sdk_family != cross.family) {
+        std::cerr << "build: target platform compiler family disagrees with toolchain\n";
+        return false;
+    }
+    std::string value;
+    if (!configuration_optional_scalar(document, "cross-sdk-sysroot", path, value) ||
+        !configuration_external_directory(path, "cross-sdk-sysroot", value,
+                                          platform.sysroot))
+        return false;
+    if (!configuration_optional_scalar(document, "cross-sdk-runtime-prefix", path, value) ||
+        !configuration_external_directory(path, "cross-sdk-runtime-prefix", value,
+                                          platform.runtime_prefix))
+        return false;
+    if (!configuration_optional_scalar(document, "cross-sdk-specs-argument", path, platform.specs_argument))
+        return false;
+    if (!configuration_optional_scalar(document, "cross-board", path, value)) return false;
+    if (!value.empty()) platform.board = value;
+    if (!configuration_optional_scalar(document, "cross-board-manifest", path, value)) return false;
+    if (!value.empty()) {
+        std::filesystem::path board_manifest;
+        if (!configuration_project_file(path, "cross-board-manifest", value, board_manifest))
+            return false;
+        platform.board_manifest = std::move(board_manifest);
+    }
+    if (platform.board.has_value() != platform.board_manifest.has_value()) {
+        std::cerr << "build: incomplete board platform in " << path.string() << "\n";
+        return false;
+    }
+    if (!configuration_optional_scalar(document, "cross-board-machine", path, platform.machine) ||
+        !configuration_optional_scalar(document, "cross-board-linker-script", path, value))
+        return false;
+    if (!value.empty() &&
+        !configuration_project_file(path, "cross-board-linker-script", value,
+                                    platform.linker_script))
+        return false;
+    for (const auto& source : all(document, "cross-board-source")) {
+        std::filesystem::path file;
+        if (!configuration_project_file(path, "cross-board-source", source, file)) return false;
+        platform.board_sources.push_back(std::move(file));
+    }
+    platform.compiler_arguments = all(document, "cross-board-argument");
+
+    const bool has_board_details = !platform.machine.empty() || !platform.linker_script.empty() ||
+                                   !platform.board_sources.empty() ||
+                                   !platform.compiler_arguments.empty() ||
+                                   lookup(document, "cross-board-provides") != nullptr;
+    if (!platform.board && has_board_details) {
+        std::cerr << "build: board details require cross-board in " << path.string() << "\n";
+        return false;
+    }
+    if (platform.board) {
+        const std::vector<std::string> expected = {
+            "-mcpu=cortex-m3", "-mthumb", "-mfloat-abi=soft"};
+        if (*parsed_system != mm::configure::PlatformSystem::BareMetal ||
+            platform.linker_script.empty() || platform.board_sources.empty() ||
+            platform.compiler_arguments != expected) {
+            std::cerr << "build: invalid board platform in " << path.string() << "\n";
+            return false;
+        }
+        if (cross.runner && cross.runner->image == RunnerImage::Option &&
+            platform.machine != "mps2-an385") {
+            std::cerr << "build: target system runner requires board machine mps2-an385\n";
+            return false;
+        }
+    }
+
+    std::set<mm::configure::Responsibility> seen;
+    auto add_owned = [&](std::string_view key, const std::string& owner) {
+        for (const auto& text : all(document, key)) {
+            const auto responsibility = parse_responsibility(text);
+            if (!responsibility || !seen.insert(*responsibility).second) {
+                std::cerr << "build: invalid or duplicate " << key << ": " << text << "\n";
+                return false;
+            }
+            platform.responsibility_owners[*responsibility] = owner;
+        }
+        return true;
+    };
+    if (!add_owned("cross-sdk-provides", sdk)) return false;
+    if (platform.board && !add_owned("cross-board-provides", *platform.board)) return false;
+    for (const auto& text : all(document, "cross-unresolved")) {
+        const auto responsibility = parse_responsibility(text);
+        if (!responsibility || !seen.insert(*responsibility).second) {
+            std::cerr << "build: invalid or duplicate cross-unresolved: " << text << "\n";
+            return false;
+        }
+        platform.unresolved.push_back(*responsibility);
+    }
+    platform.models_responsibilities = platform.system == mm::configure::PlatformSystem::BareMetal;
+    if (!platform.models_responsibilities && !seen.empty()) {
+        std::cerr << "build: hosted platform cannot carry responsibility state in "
+                  << path.string() << "\n";
+        return false;
+    }
+    if (platform.models_responsibilities && seen.size() != 5) {
+        std::cerr << "build: incomplete responsibility state in " << path.string() << "\n";
+        return false;
+    }
+    if (platform.models_responsibilities && platform.board && !platform.unresolved.empty()) {
+        std::cerr << "build: configured board cannot leave responsibilities unresolved in "
+                  << path.string() << "\n";
+        return false;
+    }
+    if (platform.models_responsibilities && !platform.board) {
+        const std::vector<mm::configure::Responsibility> expected = {
+            mm::configure::Responsibility::ResetVector,
+            mm::configure::Responsibility::InitialStack,
+            mm::configure::Responsibility::MemoryLayout};
+        if (platform.unresolved != expected) {
+            std::cerr << "build: invalid boardless responsibility state in "
+                      << path.string() << "\n";
+            return false;
+        }
+    }
     return true;
 }
 
@@ -457,7 +791,8 @@ bool valid_manifest(const mm::mdy::MDYDocument& doc, std::string_view kind, std:
                     const std::filesystem::path& manifest, const LoadPolicy& policy) {
     if (!valid_mm_version(doc, manifest, policy)) return false;
     if (kind != "project" && kind != "dir" && kind != "module" &&
-        kind != "app" && kind != "test" && kind != "doc") {
+        kind != "app" && kind != "test" && kind != "doc" &&
+        kind != "sdk" && kind != "board") {
         std::cerr << policy.tool << ": unknown kind \"" << kind << "\" in " << manifest.string() << "\n";
         return false;
     }
@@ -531,12 +866,15 @@ void walk_project(const std::filesystem::path& dir, std::size_t parent, Project&
     // duplicate target for it.
     state.visited.push_back(canonical);
 
+    if (kind == "sdk" || kind == "board") return;
+
     BuildableNode target;
     target.kind = kind;
     target.name = name;
     target.module_name = first(doc, "module");
     target.dir = dir.lexically_normal();
     target.uses = all(doc, "use");
+    target.requires_board = first(doc, "requires-board");
 
     const auto push_source = [&](std::string_view value, bool join_with_dir) {
         auto unit = parse_unit(value);
@@ -597,6 +935,257 @@ void walk_project(const std::filesystem::path& dir, std::size_t parent, Project&
 
     project.targets.push_back(std::move(target));
     project.target[index] = project.targets.size() - 1;
+}
+
+bool definition_scalar(const mm::mdy::MDYDocument& doc, std::string_view key,
+                       const std::filesystem::path& manifest, std::string& value,
+                       std::string_view tool, bool required = true) {
+    const auto* values = lookup(doc, key);
+    if (values == nullptr) {
+        if (!required) {
+            value.clear();
+            return true;
+        }
+        std::cerr << tool << ": " << manifest.string() << ": requires one " << key << "\n";
+        return false;
+    }
+    if (values->size() != 1 || values->front().empty()) {
+        std::cerr << tool << ": " << manifest.string() << ": requires one non-empty " << key
+                  << "\n";
+        return false;
+    }
+    value = values->front();
+    return true;
+}
+
+std::optional<mm::configure::Responsibility> parse_responsibility(std::string_view value) {
+    using R = mm::configure::Responsibility;
+    if (value == "reset-vector") return R::ResetVector;
+    if (value == "initial-stack") return R::InitialStack;
+    if (value == "memory-layout") return R::MemoryLayout;
+    if (value == "runtime-init") return R::RuntimeInit;
+    if (value == "syscalls") return R::Syscalls;
+    return std::nullopt;
+}
+
+bool definition_responsibilities(const mm::mdy::MDYDocument& doc,
+                                 const std::filesystem::path& manifest,
+                                 std::vector<mm::configure::Responsibility>& result,
+                                 std::string_view tool) {
+    std::set<mm::configure::Responsibility> seen;
+    for (const auto& value : all(doc, "provides")) {
+        const auto responsibility = parse_responsibility(value);
+        if (!responsibility) {
+            std::cerr << tool << ": " << manifest.string()
+                      << ": unknown responsibility: " << value << "\n";
+            return false;
+        }
+        if (!seen.insert(*responsibility).second) {
+            std::cerr << tool << ": " << manifest.string()
+                      << ": duplicate provides: " << value << "\n";
+            return false;
+        }
+        result.push_back(*responsibility);
+    }
+    return true;
+}
+
+bool definition_path(const std::filesystem::path& root, const ManifestNode& node,
+                     std::string_view raw, std::filesystem::path& result,
+                     std::string_view key, std::string_view tool) {
+    const std::filesystem::path relative(raw);
+    const auto joined = node.dir / relative;
+    if (!is_safe_relative_path(relative, joined)) {
+        std::cerr << tool << ": " << node.manifest.string() << ": unsafe " << key << ": "
+                  << raw << "\n";
+        return false;
+    }
+    result = joined.lexically_normal();
+    std::error_code ec;
+    const auto canonical_root = std::filesystem::weakly_canonical(root, ec);
+    if (ec) return false;
+    const auto canonical_path = std::filesystem::weakly_canonical(root / result, ec);
+    const auto inside = canonical_path.lexically_relative(canonical_root);
+    if (ec || inside.empty() || *inside.begin() == ".." ||
+        !std::filesystem::is_regular_file(canonical_path, ec) || ec) {
+        std::cerr << tool << ": " << node.manifest.string() << ": " << key
+                  << " is not a project file: " << raw << "\n";
+        return false;
+    }
+    return true;
+}
+
+bool parse_definitions(Project& project, const std::filesystem::path& root,
+                       const LoadPolicy& policy) {
+    std::map<std::string, std::filesystem::path, std::less<>> sdk_names;
+    std::map<std::string, std::filesystem::path, std::less<>> board_names;
+
+    for (std::size_t i = 0; i < project.nodes.size(); ++i) {
+        const auto& node = project.nodes[i];
+        const auto& doc = project.documents[i];
+        if (node.kind == "sdk") {
+            SdkDefinition sdk;
+            sdk.node = i;
+            sdk.name = node.name;
+            sdk.manifest = node.manifest;
+            std::string family;
+            std::string runtime;
+            std::string sysroot;
+            std::string runtime_prefix;
+            if (!definition_scalar(doc, "target", node.manifest, sdk.target, policy.tool) ||
+                !definition_scalar(doc, "compiler-family", node.manifest, family, policy.tool) ||
+                !definition_scalar(doc, "runtime", node.manifest, runtime, policy.tool) ||
+                !definition_scalar(doc, "specs-profile", node.manifest, sdk.specs_profile,
+                                   policy.tool, false) ||
+                !definition_scalar(doc, "sysroot", node.manifest, sysroot,
+                                   policy.tool, false) ||
+                !definition_scalar(doc, "runtime-prefix", node.manifest, runtime_prefix,
+                                   policy.tool, false))
+                return false;
+            if (family == "gcc") sdk.family = CompilerFamily::Gcc;
+            else if (family == "clang") sdk.family = CompilerFamily::Clang;
+            else {
+                std::cerr << policy.tool << ": " << node.manifest.string()
+                          << ": compiler-family must be gcc or clang\n";
+                return false;
+            }
+            if (runtime == "glibc") sdk.runtime = mm::configure::PlatformRuntime::Glibc;
+            else if (runtime == "newlib") sdk.runtime = mm::configure::PlatformRuntime::Newlib;
+            else if (runtime == "picolibc") sdk.runtime = mm::configure::PlatformRuntime::Picolibc;
+            else if (runtime == "none") sdk.runtime = mm::configure::PlatformRuntime::None;
+            else {
+                std::cerr << policy.tool << ": " << node.manifest.string()
+                          << ": unsupported runtime: " << runtime << "\n";
+                return false;
+            }
+            if (!mm::configure::target_system(sdk.target)) {
+                std::cerr << policy.tool << ": " << node.manifest.string()
+                          << ": unsupported target: " << sdk.target << "\n";
+                return false;
+            }
+            const auto* specs_file_values = lookup(doc, "specs-file");
+            if (!sdk.specs_profile.empty() && specs_file_values != nullptr) {
+                std::cerr << policy.tool << ": " << node.manifest.string()
+                          << ": specs-profile and specs-file are mutually exclusive\n";
+                return false;
+            }
+            if (specs_file_values != nullptr) {
+                std::string specs_file;
+                if (!definition_scalar(doc, "specs-file", node.manifest, specs_file, policy.tool) ||
+                    !definition_path(root, node, specs_file, sdk.specs_file, "specs-file", policy.tool))
+                    return false;
+            }
+            for (const auto& pair : {std::pair{std::string_view("sysroot"), &sysroot},
+                                     std::pair{std::string_view("runtime-prefix"), &runtime_prefix}}) {
+                if (pair.second->empty()) continue;
+                std::filesystem::path path(*pair.second);
+                if (!path.is_absolute()) {
+                    std::cerr << policy.tool << ": " << node.manifest.string() << ": "
+                              << pair.first << " must be absolute\n";
+                    return false;
+                }
+                if (pair.first == "sysroot") sdk.sysroot = path;
+                else sdk.runtime_prefix = path;
+            }
+            if (!definition_responsibilities(doc, node.manifest, sdk.provides, policy.tool))
+                return false;
+            const bool hosted = *mm::configure::target_system(sdk.target) ==
+                                mm::configure::PlatformSystem::Linux;
+            if (hosted && !sdk.provides.empty()) {
+                std::cerr << policy.tool << ": " << node.manifest.string()
+                          << ": hosted SDK cannot declare provides\n";
+                return false;
+            }
+            if (!sdk.specs_profile.empty() && !sdk.provides.empty()) {
+                std::cerr << policy.tool << ": " << node.manifest.string()
+                          << ": specs-profile SDK cannot declare provides\n";
+                return false;
+            }
+            if (!sdk.specs_file.empty()) {
+                std::set<mm::configure::Responsibility> supplied(sdk.provides.begin(), sdk.provides.end());
+                if (!supplied.contains(mm::configure::Responsibility::RuntimeInit) ||
+                    !supplied.contains(mm::configure::Responsibility::Syscalls) || supplied.size() != 2) {
+                    std::cerr << policy.tool << ": " << node.manifest.string()
+                              << ": specs-file SDK must provide runtime-init and syscalls\n";
+                    return false;
+                }
+            }
+            if (!sdk.specs_profile.empty() &&
+                !(sdk.family == CompilerFamily::Gcc && sdk.target == "arm-none-eabi" &&
+                  sdk.specs_profile == "rdimon")) {
+                std::cerr << policy.tool << ": " << node.manifest.string()
+                          << ": unknown specs profile: " << sdk.specs_profile << "\n";
+                return false;
+            }
+            const auto duplicate = sdk_names.find(sdk.name);
+            if (duplicate != sdk_names.end()) {
+                std::cerr << policy.tool << ": SDK name \"" << sdk.name
+                          << "\" is declared by both " << duplicate->second.string() << " and "
+                          << sdk.manifest.string() << "\n";
+                return false;
+            }
+            sdk_names[sdk.name] = sdk.manifest;
+            project.sdks.push_back(std::move(sdk));
+        } else if (node.kind == "board") {
+            BoardDefinition board;
+            board.node = i;
+            board.name = node.name;
+            board.manifest = node.manifest;
+            std::string linker;
+            if (!definition_scalar(doc, "sdk", node.manifest, board.sdk, policy.tool) ||
+                !definition_scalar(doc, "cpu", node.manifest, board.cpu, policy.tool) ||
+                !definition_scalar(doc, "instruction-set", node.manifest,
+                                   board.instruction_set, policy.tool) ||
+                !definition_scalar(doc, "float-abi", node.manifest, board.float_abi,
+                                   policy.tool) ||
+                !definition_scalar(doc, "machine", node.manifest, board.machine,
+                                   policy.tool, false) ||
+                !definition_scalar(doc, "linker-script", node.manifest, linker, policy.tool) ||
+                !definition_path(root, node, linker, board.linker_script,
+                                 "linker-script", policy.tool))
+                return false;
+            for (const auto& source : all(doc, "file")) {
+                std::filesystem::path path;
+                if (!definition_path(root, node, source, path, "file", policy.tool)) return false;
+                board.sources.push_back(std::move(path));
+            }
+            if (board.sources.empty()) {
+                std::cerr << policy.tool << ": " << node.manifest.string()
+                          << ": board requires at least one file\n";
+                return false;
+            }
+            if (!definition_responsibilities(doc, node.manifest, board.provides, policy.tool))
+                return false;
+            const auto duplicate = board_names.find(board.name);
+            if (duplicate != board_names.end()) {
+                std::cerr << policy.tool << ": board name \"" << board.name
+                          << "\" is declared by both " << duplicate->second.string() << " and "
+                          << board.manifest.string() << "\n";
+                return false;
+            }
+            board_names[board.name] = board.manifest;
+            project.boards.push_back(std::move(board));
+        }
+    }
+
+    for (const auto& board : project.boards) {
+        const SdkDefinition* sdk = nullptr;
+        for (const auto& candidate : project.sdks)
+            if (candidate.name == board.sdk) sdk = &candidate;
+        if (sdk == nullptr) {
+            std::cerr << policy.tool << ": " << board.manifest.string()
+                      << ": board references unknown SDK: " << board.sdk << "\n";
+            return false;
+        }
+        if (!(sdk->family == CompilerFamily::Gcc && sdk->target == "arm-none-eabi" &&
+              board.cpu == "cortex-m3" && board.instruction_set == "thumb" &&
+              board.float_abi == "soft")) {
+            std::cerr << policy.tool << ": " << board.manifest.string()
+                      << ": unknown processor combination for SDK " << sdk->name << "\n";
+            return false;
+        }
+    }
+    return true;
 }
 
 
@@ -670,11 +1259,47 @@ bool load_configuration(const std::filesystem::path& path, bool verbose,
     std::string kind;
     std::string name;
     std::string selection;
-    if (!configuration_scalar(document, "mm", path, version) || version != "1.0" ||
+    if (!configuration_scalar(document, "mm", path, version) ||
+        (version != "1.0" && version != "2.0") ||
         !configuration_scalar(document, "kind", path, kind) || kind != "configuration" ||
         !configuration_scalar(document, "name", path, name) ||
         !configuration_scalar(document, "target-compiler", path, selection)) {
         std::cerr << "build: invalid configuration: " << path.string() << "\n";
+        return false;
+    }
+    const bool configuration_2 = version == "2.0";
+    std::string schema;
+    if (configuration_2) {
+        if (!configuration_scalar(document, "schema", path, schema) ||
+            schema != "configuration-2") {
+            std::cerr << "build: mm 2.0 configuration requires schema configuration-2: "
+                      << path.string() << "\n";
+            return false;
+        }
+        for (const auto& [key, values] : document.metadata) {
+            if (!configuration_2_key(key)) {
+                std::cerr << "build: unknown configuration-2 key: " << key << "\n";
+                return false;
+            }
+            const bool repeated = key == "cross-sdk-provides" ||
+                                  key == "cross-board-source" ||
+                                  key == "cross-board-provides" ||
+                                  key == "cross-board-argument" ||
+                                  key == "cross-unresolved" ||
+                                  key.ends_with("-prefix-argument") ||
+                                  key.ends_with("-suffix-argument") ||
+                                  key.ends_with("-runner-argument");
+            if (!repeated && values.size() != 1) {
+                std::cerr << "build: duplicated configuration-2 key: " << key << "\n";
+                return false;
+            }
+        }
+        if (lookup(document, "cross-platform") != nullptr) {
+            std::cerr << "build: cross-platform is not valid in configuration-2\n";
+            return false;
+        }
+    } else if (lookup(document, "schema") != nullptr) {
+        std::cerr << "build: mm 1.0 configuration cannot carry schema\n";
         return false;
     }
 
@@ -698,7 +1323,13 @@ bool load_configuration(const std::filesystem::path& path, bool verbose,
 
     Toolchain cross;
     const bool has_cross = has_configuration_compiler(document, "cross");
-    if (has_cross && !configuration_compiler(document, "cross", path, cross)) return false;
+    if (configuration_2 && !has_cross) {
+        std::cerr << "build: configuration-2 requires a target toolchain: "
+                  << path.string() << "\n";
+        return false;
+    }
+    if (has_cross && !configuration_compiler(document, "cross", path, cross, !configuration_2))
+        return false;
     if (!configuration_debugger(document, "cross", path, cross.debugger)) return false;
     if (cross.debugger && !has_cross) {
         std::cerr << "build: configuration gives a debugger to a missing target: "
@@ -733,6 +1364,36 @@ bool load_configuration(const std::filesystem::path& path, bool verbose,
             return false;
         }
     }
+
+    Platform host_platform;
+    host_platform.target = "host";
+    host_platform.system = mm::configure::PlatformSystem::Posix;
+    host_platform.runtime = mm::configure::PlatformRuntime::Unknown;
+    std::optional<Platform> cross_platform;
+    if (has_cross) {
+        Platform value;
+        if (configuration_2) {
+            if (!load_platform(document, path, cross, value)) return false;
+            for (const auto& argument : value.compiler_arguments) {
+                cross.compiler.arguments += " " + argument;
+                cross.linker.arguments += " " + argument;
+            }
+            if (value.sysroot) {
+                cross.compiler.arguments += " --sysroot " + shell_quote(*value.sysroot);
+                cross.linker.arguments += " --sysroot " + shell_quote(*value.sysroot);
+            }
+            if (!value.specs_argument.empty())
+                cross.linker.arguments += " " + value.specs_argument;
+            if (!value.linker_script.empty())
+                cross.linker.arguments += " -T " + shell_quote(value.linker_script);
+        } else {
+            value.target = cross.target;
+            value.system = mm::configure::target_system(cross.target).value_or(
+                mm::configure::PlatformSystem::Unknown);
+            value.runtime = mm::configure::PlatformRuntime::Unknown;
+        }
+        cross_platform = std::move(value);
+    }
     bool target_has_host_capability = false;
     if (!configuration_boolean(document, "target-host-capability", path, false,
                                target_has_host_capability))
@@ -757,6 +1418,9 @@ bool load_configuration(const std::filesystem::path& path, bool verbose,
         has_cross ? std::optional<std::filesystem::path>(target_directory) : std::nullopt;
     configuration.selects_cross_ = selection == "cross";
     configuration.target_has_host_capability_ = target_has_host_capability;
+    configuration.host_platform_ = std::move(host_platform);
+    configuration.cross_platform_ = std::move(cross_platform);
+    configuration.configuration_2_ = configuration_2;
     configuration.host_build_directory = host_directory;
     configuration.build = build;
     configuration.build_directory = selection == "cross" ? std::move(target_directory)
@@ -779,8 +1443,13 @@ bool resolve_configuration(const std::filesystem::path& project_root, bool verbo
     configuration.host_ = default_toolchain(verbose);
     configuration.cross_.reset();
     configuration.cross_build_directory_.reset();
+    configuration.host_platform_ = {};
+    configuration.host_platform_.target = "host";
+    configuration.host_platform_.system = mm::configure::PlatformSystem::Posix;
+    configuration.cross_platform_.reset();
     configuration.selects_cross_ = false;
     configuration.target_has_host_capability_ = false;
+    configuration.configuration_2_ = false;
     configuration.build = Build::Debug;
     configuration.build_directory = "out";
     configuration.host_build_directory = "out";
@@ -878,6 +1547,10 @@ Project load_project(const std::filesystem::path& dir, const LoadPolicy& policy)
 
     walk_project(dir, no_parent, project, state);
     if (!project.ok) return project;
+    if (!parse_definitions(project, state.root, policy)) {
+        project.ok = false;
+        return project;
+    }
 
     // Checked once the whole tree is built, not incrementally during the
     // walk, since a duplicate can only be found once every candidate name
@@ -984,6 +1657,51 @@ std::vector<bool> BuildCapabilities::lane(bool target_lane,
     return result;
 }
 
+Availability availability(const Project& project, std::size_t node, bool capability,
+                          bool target_lane, const Platform* platform) {
+    if (node >= project.nodes.size()) return {false, "manifest node is not registered"};
+    if (!capability) {
+        return {false, project.nodes[node].name + " is not buildable-" +
+                           (target_lane ? "target" : "host")};
+    }
+    if (!target_lane || project.target[node] == no_target) return {true, {}};
+
+    const BuildableNode* buildable = nullptr;
+    if (project.nodes[node].kind == "test")
+        buildable = &project.tests[project.target[node]];
+    else if (project.nodes[node].kind == "app" || project.nodes[node].kind == "module")
+        buildable = &project.targets[project.target[node]];
+    if (buildable == nullptr || buildable->requires_board.empty()) return {true, {}};
+
+    const std::string selected = platform != nullptr && platform->board
+                                     ? *platform->board
+                                     : std::string("none");
+    if (selected == buildable->requires_board) return {true, {}};
+    return {false, buildable->name + " requires board " + buildable->requires_board +
+                       "; selected board is " + selected};
+}
+
+bool can_link_executable(const Platform* platform, std::string_view tool,
+                         std::string_view name) {
+    if (platform == nullptr || !platform->models_responsibilities || platform->unresolved.empty())
+        return true;
+    std::cerr << tool << ": " << name << ": unresolved platform responsibility: "
+              << mm::configure::responsibility_name(platform->unresolved.front()) << "\n";
+    return false;
+}
+
+std::optional<BuildableNode> platform_unit(const Platform* platform) {
+    if (platform == nullptr || !platform->board || platform->board_sources.empty())
+        return std::nullopt;
+    BuildableNode unit;
+    unit.kind = "board";
+    unit.name = *platform->board;
+    if (platform->board_manifest) unit.dir = platform->board_manifest->parent_path();
+    for (const auto& source : platform->board_sources)
+        unit.sources.push_back({source.generic_string(), {}});
+    return unit;
+}
+
 // Projections of the single traversal above, kept so callers that want only
 // one view need not know about the other.
 Tree load_tree(const std::filesystem::path& dir, const LoadPolicy& policy) {
@@ -1016,7 +1734,8 @@ BuildableNode load_test(const std::filesystem::path& manifest_path, bool& ok,
 
     const auto doc = mm::mdy::Parser::parse_file(manifest_path);
 
-    if (!valid_mm_version(doc, manifest_path, policy)) return target;
+    if (!valid_manifest(doc, first(doc, "kind"), first(doc, "name"), manifest_path, policy))
+        return target;
 
     const auto kind = first(doc, "kind");
     if (kind != "test") {
@@ -1029,6 +1748,7 @@ BuildableNode load_test(const std::filesystem::path& manifest_path, bool& ok,
     target.module_name = first(doc, "module");
     target.dir = manifest_path.parent_path();
     target.uses = all(doc, "use");
+    target.requires_board = first(doc, "requires-board");
 
     if (target.name.empty()) {
         std::cerr << policy.tool << ": manifest has no name\n";

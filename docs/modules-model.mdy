@@ -17,8 +17,8 @@ Like everything else in the project, models/ follows docs/modules-c++20.mdy:
 modules instead of headers, no exceptions, no new templates, enum class,
 [[nodiscard]] on accessors, and explicit virtual destructors on every base.
 
-# The nine modules
-Nine modules, each under models/<name>/<name>.cppm with its own mm.mdy:
+# The ten modules
+Ten modules, each under models/<name>/<name>.cppm with its own mm.mdy:
 
 - models.document — front matter and body blocks for one MDY file (models::Document, models::Block). Foundational: every MDY file is a document, including a manifest, so everything else sits above this.
 - models.configuration — the project's build configuration
@@ -34,12 +34,15 @@ Nine modules, each under models/<name>/<name>.cppm with its own mm.mdy:
   toolchain's compilers produces target artifacts, where a build following this
   configuration writes, and where the host lane writes whatever the selection,
   since programs that run during a build are always host artifacts. bootstrap.sh
-  and build0 remain the fixed plain-c++ recovery path. platform()/locale()/shell() state fixed
-  project policy (POSIX, C, /bin/sh). A Configuration is an input to running a
+  and build0 remain the fixed plain-c++ recovery path. host_platform(),
+  target_platform(), and configured_target_platform() expose the corresponding
+  lane platform in the same selection-following shape as the toolchain trio.
+  locale()/shell() state fixed project policy (C, /bin/sh). A Configuration is an input to running a
   tool, not a structural fact about the repository. It imports models.toolchain
-  so it can expose the host and selected target toolchains.
-- models.manifest — the manifest kind taxonomy docs/modules.mdy defines: project, dir, module, app, test, doc (models::Kind, models::ManifestNode, models::BuildableNode, models::TranslationUnit, and one class per kind). BuildableNode also carries buildable_host() and buildable_target(), which say which lanes a node can be built for: structural, like kind() and uses(), and constrained across use: edges, because building a node for a lane means building everything it uses for that lane too. The tuning options sharing that manifest syntax are inputs to a compile rather than facts about the tree, and are deliberately absent here; mm.model takes both values from the one resolver in mm.configure, since they are inherited down the folder tree and a manifest's own declarations would answer the wrong question. ManifestNode, BuildableNode and TranslationUnit deliberately carry the same names as the mm::build structs they abstract, so one concept reads under one name in both layers; the one place the sets differ is kind:doc, which mm::build::BuildableNode also holds but models::DocNode does not, since a doc's file: entries are prose rather than sources. Imports models.document, because every manifest is one.
-- models.repository — the aggregate view over a whole manifest tree (models::Repository): a project's root plus every module, app, test, and doc reachable from it. Imports models.manifest.
+  so it can expose the host and selected target toolchains and platforms.
+- models.platform — the total lane platform (models::Platform): target, system, runtime, optional SDK and board identities and origins, and optional responsibility ownership. The optional parts let the same interface represent the always-present host, a legacy target, and a configuration-2 target without inventing data. Imports no other model module.
+- models.manifest — the manifest kind taxonomy docs/modules.mdy defines: project, dir, module, app, test, doc, sdk, board (models::Kind, models::ManifestNode, models::BuildableNode, models::TranslationUnit, and one class per kind). SdkNode and BoardNode expose platform declarations without pretending they are buildable use-graph nodes. BuildableNode also carries buildable_host() and buildable_target(), which say which lanes a node can be built for: structural, like kind() and uses(), and constrained across use: edges, because building a node for a lane means building everything it uses for that lane too. The tuning options sharing that manifest syntax are inputs to a compile rather than facts about the tree, and are deliberately absent here; mm.model takes both values from the one resolver in mm.configure, since they are inherited down the folder tree and a manifest's own declarations would answer the wrong question. ManifestNode, BuildableNode and TranslationUnit deliberately carry the same names as the mm::build structs they abstract, so one concept reads under one name in both layers; the one place the sets differ is kind:doc, which mm::build::BuildableNode also holds but models::DocNode does not, since a doc's file: entries are prose rather than sources. Imports models.document, because every manifest is one.
+- models.repository — the aggregate view over a whole manifest tree (models::Repository): a project's root plus every module, app, test, doc, SDK, and board reachable from it. Imports models.manifest.
 - models.tool — an invocable tool (models::Tool), distinct from models::ModuleNode's declaration: a Tool may have no declaring manifest at all, such as a third party tool or the pre-manifest bootstrap artifacts build0/build1. Imports models.manifest.
 - models.toolchain — one target's compiler, assembler, linker, librarian, and
   debugger roles (models::Toolchain). Compiler, assembler, and linker share the
@@ -60,6 +63,8 @@ Nine modules, each under models/<name>/<name>.cppm with its own mm.mdy:
 docs/modules-build.mdy and docs/modules-test.mdy specify --host and --target selectors. They project one already configured toolchain for a single invocation rather than mutating models::Configuration. The persisted selection remains the default projection; an explicit selector chooses the host or configured target toolchain and its recorded output directory without changing compiler, target triple, build type, or flags.
 
 Configuration exposes the persisted selection, the always-present host toolchain, the target toolchain selected by configuration, and configured_target_toolchain() for a retained target that is not the default. target_build_directory() retains that lane's output beside host_build_directory() and is empty when no target is configured. This preserves target_toolchain()'s existing selection-following contract while allowing an invocation projection in either direction.
+
+The platform trio mirrors those contracts. host_platform() always returns a reference. target_platform() is null while the host is selected, even when a target is retained. configured_target_platform() exposes that retained target. A host platform reports target host, system POSIX, runtime unknown, and no SDK, board, origins, or responsibility state. A legacy target derives its system when possible and otherwise reports unknown. A configuration-2 target exposes the selected SDK, optional board, their manifest origins, and the resolved responsibility owners and gaps.
 
 target_has_host_capability() reports the configured target property written by configure --target-host. It is independent of the persisted lane selection and remains visible when a later configure --host retains the target.
 
@@ -141,8 +146,8 @@ that root would actually follow, resolved through the same mm.build loader
 build and test use, so the model cannot describe a lane the build would not
 take. persisted() distinguishes a written out/config.mdy from the shared
 unconfigured default; selection(), build_directory() and host_build_directory()
-describe the lane, and the fixed platform/locale/shell policy is reported
-alongside. Independent of the manifest tree, so it is reported even when the
+describe the lane, the selected platform is projected from that lane, and the
+fixed locale/shell policy is reported alongside. Independent of the manifest tree, so it is reported even when the
 checks above fail to load one.
 
 The configuration report also shows its host Toolchain and, when cross is

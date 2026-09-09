@@ -3,4 +3,5 @@ mm: 1.0
 kind: dir
 name: tests
 folder: mm
+folder: target
 ---

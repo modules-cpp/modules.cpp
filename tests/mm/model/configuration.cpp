@@ -10,6 +10,7 @@ import mm.configure;
 import mm.model;
 import mm.test;
 import models.configuration;
+import models.platform;
 import models.tool;
 import models.toolchain;
 
@@ -179,25 +180,69 @@ void equal_invocations_do_not_unify_toolchains() {
            "different targets make the derived cross-compilation question true");
 }
 
-// The platform/locale/shell facts are fixed project policy, not derived
-// from the environment.
-void platform_locale_and_shell_are_fixed() {
+// The host platform identity and locale/shell facts are fixed project policy.
+void host_platform_locale_and_shell_are_fixed() {
     const mm::test::scoped_tree tree{"model_configuration_fixed"};
     const auto first = mm::model::configuration(tree.root(), false);
     const auto second = mm::model::configuration(tree.root(), true);
     expect(first != nullptr && second != nullptr, "both resolve");
     if (first == nullptr || second == nullptr) return;
 
-    expect(first->platform() == "POSIX", "expected platform() to be POSIX");
+    expect(first->host_platform().target() == "host" &&
+               first->host_platform().system() == models::PlatformSystem::Posix,
+           "expected the host platform to be POSIX");
     expect(first->locale() == "C", "expected locale() to be C");
     expect(first->shell() == "/bin/sh", "expected shell() to be /bin/sh");
 
-    expect(second->platform() == first->platform(),
-           "expected platform() not to vary with compiler or verbose");
+    expect(second->host_platform().system() == first->host_platform().system(),
+           "expected host platform not to vary with compiler or verbose");
     expect(second->locale() == first->locale(),
            "expected locale() not to vary with compiler or verbose");
     expect(second->shell() == first->shell(),
            "expected shell() not to vary with compiler or verbose");
+}
+
+void configured_platform_follows_lane_selection() {
+    const mm::test::scoped_tree tree{"model_configuration_platform"};
+    tree.manifest_raw("platforms/sdk",
+                      "mm: 1.2\nkind: sdk\nname: arm-none-eabi-newlib\n"
+                      "target: arm-none-eabi\ncompiler-family: gcc\nruntime: newlib\n");
+    auto settings = settings_with_cross(false, "arm-none-eabi", "arm-none-eabi-g++");
+    settings.configuration_2 = true;
+    mm::configure::PlatformSettings platform;
+    platform.target = "arm-none-eabi";
+    platform.system = mm::configure::PlatformSystem::BareMetal;
+    platform.runtime = mm::configure::PlatformRuntime::Newlib;
+    platform.sdk = "arm-none-eabi-newlib";
+    platform.sdk_manifest = "platforms/sdk/mm.mdy";
+    platform.sdk_family = mm::configure::CompilerFamily::Gcc;
+    platform.models_responsibilities = true;
+    platform.responsibility_owners[mm::configure::Responsibility::RuntimeInit] =
+        "arm-none-eabi-newlib";
+    platform.responsibility_owners[mm::configure::Responsibility::Syscalls] =
+        "arm-none-eabi-newlib";
+    platform.unresolved = {
+        mm::configure::Responsibility::ResetVector,
+        mm::configure::Responsibility::InitialStack,
+        mm::configure::Responsibility::MemoryLayout};
+    settings.cross_platform = platform;
+    expect(mm::configure::write_configuration(tree.root(), settings),
+           "platform configuration written");
+
+    const auto configuration = mm::model::configuration(tree.root(), false);
+    expect(configuration != nullptr, "platform configuration resolves");
+    if (configuration == nullptr) return;
+    expect(configuration->target_platform() == nullptr &&
+               configuration->configured_target_platform() != nullptr,
+           "selected and configured platform accessors mirror toolchains");
+    const auto* configured = configuration->configured_target_platform();
+    const auto sdk = configured->sdk();
+    expect(configured->system() == models::PlatformSystem::BareMetal &&
+               configured->runtime() == models::PlatformRuntime::Newlib &&
+               sdk && *sdk == "arm-none-eabi-newlib" &&
+               !configured->board() && configured->models_responsibilities() &&
+               configured->unresolved().size() == 3,
+           "configured platform exposes its SDK and responsibility state");
 }
 
 const mm::test::case_ cases[] = {
@@ -206,7 +251,8 @@ const mm::test::case_ cases[] = {
     { "unselected cross is not a target",        &an_unselected_cross_record_is_not_a_target_toolchain },
     { "equal targets are not cross compilation", &equal_targets_are_not_cross_compilation },
     { "equal invocations remain separate",       &equal_invocations_do_not_unify_toolchains },
-    { "platform, locale and shell are fixed",    &platform_locale_and_shell_are_fixed },
+    { "host platform, locale and shell are fixed", &host_platform_locale_and_shell_are_fixed },
+    { "configured platform follows selection",  &configured_platform_follows_lane_selection },
 };
 
 const mm::test::registrar reg{"mm.model configuration", cases};

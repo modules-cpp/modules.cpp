@@ -12,10 +12,14 @@ run -h
 
 run --host apps/main -- -v
 
-run --target apps/main -- -h
+run --target apps/target-smoke
 
 Arguments after -- belong to the application and are passed without being interpreted as run options. The host lane executes its application directly. The target lane requires a configured runner and executes the application through that runner.
+
+User-mode runners place the executable in their positional command and may forward application arguments. The qemu-system ARM profile instead places the image after -kernel and does not forward arguments to QEMU, because they would be emulator options rather than guest arguments. Its machine, CPU, runtime prefix, and image placement come from the selected platform and runner record; run accepts no SDK, board, or runner override.
 
 run does not build an application. A missing artifact is diagnosed with an instruction to run build first. Invalid manifests, non-app manifests, and applications unavailable in the selected lane are rejected.
 
 A configured runner and target host capability are independent. Host capability controls which nodes may be built in the target lane. A runner controls whether an artifact from that lane can be executed by this machine.
+
+requires-board participates in the same availability check as build and test. A mismatch exits 77 and names the required and selected boards before artifact lookup.

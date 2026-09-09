@@ -1,0 +1,9 @@
+---
+mm: 1.2
+kind: sdk
+name: arm-none-eabi-newlib
+target: arm-none-eabi
+compiler-family: gcc
+runtime: newlib
+specs-profile: rdimon
+---

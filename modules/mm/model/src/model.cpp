@@ -8,6 +8,7 @@ module;
 #include <iostream>
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -22,6 +23,7 @@ import models.configuration;
 import models.document;
 import models.manifest;
 import models.modules;
+import models.platform;
 import models.tool;
 import models.toolchain;
 import models.workflow;
@@ -240,6 +242,57 @@ private:
     std::vector<std::filesystem::path> files_;
 };
 
+class RealSdkNode : public models::SdkNode {
+public:
+    RealSdkNode(NodeData data, const mm::build::SdkDefinition& sdk)
+        : data_(std::move(data)), target_(sdk.target),
+          family_(sdk.family == mm::build::CompilerFamily::Gcc ? "gcc" : "clang"),
+          runtime_(mm::configure::platform_runtime_name(sdk.runtime)) {}
+
+    [[nodiscard]] std::string_view name() const override { return data_.name(); }
+    [[nodiscard]] std::filesystem::path manifest_path() const override { return data_.manifest_path(); }
+    [[nodiscard]] std::filesystem::path directory() const override { return data_.directory(); }
+    [[nodiscard]] const models::ManifestNode* parent() const override { return data_.parent(); }
+    [[nodiscard]] std::vector<const models::ManifestNode*> children() const override { return data_.children(); }
+    [[nodiscard]] const models::Document& document() const override { return data_.document(); }
+    [[nodiscard]] std::string_view target() const override { return target_; }
+    [[nodiscard]] std::string_view compiler_family() const override { return family_; }
+    [[nodiscard]] std::string_view runtime() const override { return runtime_; }
+
+private:
+    NodeData data_;
+    std::string target_;
+    std::string family_;
+    std::string runtime_;
+};
+
+class RealBoardNode : public models::BoardNode {
+public:
+    RealBoardNode(NodeData data, const mm::build::BoardDefinition& board)
+        : data_(std::move(data)), sdk_(board.sdk), cpu_(board.cpu), machine_(board.machine),
+          linker_script_(board.linker_script), sources_(board.sources) {}
+
+    [[nodiscard]] std::string_view name() const override { return data_.name(); }
+    [[nodiscard]] std::filesystem::path manifest_path() const override { return data_.manifest_path(); }
+    [[nodiscard]] std::filesystem::path directory() const override { return data_.directory(); }
+    [[nodiscard]] const models::ManifestNode* parent() const override { return data_.parent(); }
+    [[nodiscard]] std::vector<const models::ManifestNode*> children() const override { return data_.children(); }
+    [[nodiscard]] const models::Document& document() const override { return data_.document(); }
+    [[nodiscard]] std::string_view sdk() const override { return sdk_; }
+    [[nodiscard]] std::string_view cpu() const override { return cpu_; }
+    [[nodiscard]] std::string_view machine() const override { return machine_; }
+    [[nodiscard]] std::filesystem::path linker_script() const override { return linker_script_; }
+    [[nodiscard]] std::vector<std::filesystem::path> sources() const override { return sources_; }
+
+private:
+    NodeData data_;
+    std::string sdk_;
+    std::string cpu_;
+    std::string machine_;
+    std::filesystem::path linker_script_;
+    std::vector<std::filesystem::path> sources_;
+};
+
 class RealModuleNode : public models::ModuleNode {
 public:
     RealModuleNode(NodeData data, const mm::build::BuildableNode& target, bool buildable_host,
@@ -369,15 +422,20 @@ public:
     RealRepository(const RealProjectNode* root, std::vector<const models::ModuleNode*> modules,
                     std::vector<const models::AppNode*> apps,
                     std::vector<const models::TestNode*> tests,
-                    std::vector<const models::DocNode*> docs)
+                    std::vector<const models::DocNode*> docs,
+                    std::vector<const models::SdkNode*> sdks,
+                    std::vector<const models::BoardNode*> boards)
         : root_(root), modules_(std::move(modules)), apps_(std::move(apps)),
-          tests_(std::move(tests)), docs_(std::move(docs)) {}
+          tests_(std::move(tests)), docs_(std::move(docs)), sdks_(std::move(sdks)),
+          boards_(std::move(boards)) {}
 
     [[nodiscard]] const models::ProjectNode& root() const override { return *root_; }
     [[nodiscard]] std::vector<const models::ModuleNode*> modules() const override { return modules_; }
     [[nodiscard]] std::vector<const models::AppNode*> apps() const override { return apps_; }
     [[nodiscard]] std::vector<const models::TestNode*> tests() const override { return tests_; }
     [[nodiscard]] std::vector<const models::DocNode*> docs() const override { return docs_; }
+    [[nodiscard]] std::vector<const models::SdkNode*> sdks() const override { return sdks_; }
+    [[nodiscard]] std::vector<const models::BoardNode*> boards() const override { return boards_; }
 
 private:
     const RealProjectNode* root_;
@@ -385,6 +443,8 @@ private:
     std::vector<const models::AppNode*> apps_;
     std::vector<const models::TestNode*> tests_;
     std::vector<const models::DocNode*> docs_;
+    std::vector<const models::SdkNode*> sdks_;
+    std::vector<const models::BoardNode*> boards_;
 };
 
 // Every models::Tool this adapter produces. One shape covers them all: a
@@ -616,7 +676,7 @@ std::vector<std::unique_ptr<models::Operation>> build_operations(
         "test", "test.sh", models::Role::Optional,
         std::vector<std::vector<const models::Tool*>>{
             {build0, build1, build, main_tool, mdy, test_runner, test_runner, test_runner,
-             test_runner, test_runner, test_runner, test_runner}},
+             test_runner, test_runner, test_runner, test_runner, test_runner}},
         std::vector<models::ArtifactKind>{models::ArtifactKind::Staged,
                                           models::ArtifactKind::InstalledBinary},
         std::vector<models::ArtifactKind>{models::ArtifactKind::TestBuild}));
@@ -664,9 +724,8 @@ std::vector<std::unique_ptr<models::Operation>> build_operations(
 
 // Every value is copied rather than pointed into, since configuration()
 // hands the caller ownership and the BuildConfiguration that built this is a
-// local about to go out of scope. platform()/locale()/shell() return string_view
-// into string literals, valid for the program's whole lifetime: they are
-// fixed policy, not derived from anything with a shorter lifetime.
+// local about to go out of scope. The platform adapter therefore owns all
+// strings and paths projected from the selected BuildConfiguration as well.
 constexpr std::size_t role_index(models::ToolRole role) {
     return static_cast<std::size_t>(role);
 }
@@ -818,6 +877,95 @@ private:
     std::array<std::string, 5> arguments_{};
 };
 
+models::PlatformSystem model_system(mm::configure::PlatformSystem value) {
+    using Source = mm::configure::PlatformSystem;
+    using Target = models::PlatformSystem;
+    switch (value) {
+        case Source::Posix: return Target::Posix;
+        case Source::Linux: return Target::Linux;
+        case Source::BareMetal: return Target::BareMetal;
+        case Source::Unknown: return Target::Unknown;
+    }
+    return Target::Unknown;
+}
+
+models::PlatformRuntime model_runtime(mm::configure::PlatformRuntime value) {
+    using Source = mm::configure::PlatformRuntime;
+    using Target = models::PlatformRuntime;
+    switch (value) {
+        case Source::Unknown: return Target::Unknown;
+        case Source::Glibc: return Target::Glibc;
+        case Source::Newlib: return Target::Newlib;
+        case Source::Picolibc: return Target::Picolibc;
+        case Source::None: return Target::None;
+    }
+    return Target::Unknown;
+}
+
+models::PlatformResponsibility model_responsibility(mm::configure::Responsibility value) {
+    using Source = mm::configure::Responsibility;
+    using Target = models::PlatformResponsibility;
+    switch (value) {
+        case Source::ResetVector: return Target::ResetVector;
+        case Source::InitialStack: return Target::InitialStack;
+        case Source::MemoryLayout: return Target::MemoryLayout;
+        case Source::RuntimeInit: return Target::RuntimeInit;
+        case Source::Syscalls: return Target::Syscalls;
+    }
+    return Target::Syscalls;
+}
+
+class RealPlatform final : public models::Platform {
+public:
+    explicit RealPlatform(const mm::build::Platform& source)
+        : target_(source.target), system_(model_system(source.system)),
+          runtime_(model_runtime(source.runtime)), sdk_(source.sdk),
+          sdk_manifest_(source.sdk_manifest), board_(source.board),
+          board_manifest_(source.board_manifest), models_responsibilities_(source.models_responsibilities) {
+        for (const auto& [responsibility, owner] : source.responsibility_owners)
+            owners_.push_back({model_responsibility(responsibility), owner});
+        for (const auto responsibility : source.unresolved)
+            unresolved_.push_back(model_responsibility(responsibility));
+    }
+
+    [[nodiscard]] std::string_view target() const override { return target_; }
+    [[nodiscard]] models::PlatformSystem system() const override { return system_; }
+    [[nodiscard]] models::PlatformRuntime runtime() const override { return runtime_; }
+    [[nodiscard]] std::optional<std::string_view> sdk() const override {
+        return sdk_ ? std::optional<std::string_view>(*sdk_) : std::nullopt;
+    }
+    [[nodiscard]] std::optional<std::filesystem::path> sdk_manifest() const override {
+        return sdk_manifest_;
+    }
+    [[nodiscard]] std::optional<std::string_view> board() const override {
+        return board_ ? std::optional<std::string_view>(*board_) : std::nullopt;
+    }
+    [[nodiscard]] std::optional<std::filesystem::path> board_manifest() const override {
+        return board_manifest_;
+    }
+    [[nodiscard]] bool models_responsibilities() const override {
+        return models_responsibilities_;
+    }
+    [[nodiscard]] std::vector<models::ResponsibilityOwner> responsibility_owners() const override {
+        return owners_;
+    }
+    [[nodiscard]] std::vector<models::PlatformResponsibility> unresolved() const override {
+        return unresolved_;
+    }
+
+private:
+    std::string target_;
+    models::PlatformSystem system_ = models::PlatformSystem::Unknown;
+    models::PlatformRuntime runtime_ = models::PlatformRuntime::Unknown;
+    std::optional<std::string> sdk_;
+    std::optional<std::filesystem::path> sdk_manifest_;
+    std::optional<std::string> board_;
+    std::optional<std::filesystem::path> board_manifest_;
+    bool models_responsibilities_ = false;
+    std::vector<models::ResponsibilityOwner> owners_;
+    std::vector<models::PlatformResponsibility> unresolved_;
+};
+
 class RealConfiguration final : public models::Configuration {
 public:
     RealConfiguration(std::string name, bool persisted,
@@ -827,6 +975,11 @@ public:
                                            ? std::make_unique<RealToolchain>(
                                                  *configuration.cross_toolchain())
                                            : nullptr),
+          host_platform_(configuration.host_platform()),
+          configured_target_platform_(configuration.configured_target_platform()
+                                          ? std::make_unique<RealPlatform>(
+                                                *configuration.configured_target_platform())
+                                          : nullptr),
           name_(std::move(name)),
           persisted_(persisted),
           selection_(configuration.selects_cross() ? models::CompilerSelection::Cross
@@ -861,6 +1014,17 @@ public:
     [[nodiscard]] const models::Toolchain* configured_target_toolchain() const override {
         return configured_target_toolchain_.get();
     }
+    [[nodiscard]] const models::Platform& host_platform() const override {
+        return host_platform_;
+    }
+    [[nodiscard]] const models::Platform* target_platform() const override {
+        return selection_ == models::CompilerSelection::Cross
+                   ? configured_target_platform_.get()
+                   : nullptr;
+    }
+    [[nodiscard]] const models::Platform* configured_target_platform() const override {
+        return configured_target_platform_.get();
+    }
     [[nodiscard]] std::filesystem::path build_directory() const override {
         return build_directory_;
     }
@@ -880,13 +1044,14 @@ public:
     [[nodiscard]] std::string_view linker_flags() const override { return linker_flags_; }
     [[nodiscard]] bool verbose() const override { return verbose_; }
 
-    [[nodiscard]] std::string_view platform() const override { return "POSIX"; }
     [[nodiscard]] std::string_view locale() const override { return "C"; }
     [[nodiscard]] std::string_view shell() const override { return "/bin/sh"; }
 
 private:
     RealToolchain host_toolchain_;
     std::unique_ptr<RealToolchain> configured_target_toolchain_;
+    RealPlatform host_platform_;
+    std::unique_ptr<RealPlatform> configured_target_platform_;
     std::string name_;
     bool persisted_ = false;
     models::CompilerSelection selection_ = models::CompilerSelection::Host;
@@ -916,6 +1081,8 @@ struct Loaded::Impl {
     std::vector<std::unique_ptr<RealAppNode>> apps;
     std::vector<std::unique_ptr<RealTestNode>> tests;
     std::vector<std::unique_ptr<RealDocNode>> docs;
+    std::vector<std::unique_ptr<RealSdkNode>> sdks;
+    std::vector<std::unique_ptr<RealBoardNode>> boards;
 
     std::unique_ptr<RealRepository> repository;
     std::vector<std::unique_ptr<models::Tool>> tools;
@@ -1010,6 +1177,20 @@ Loaded Loaded::load(const std::filesystem::path& root_dir, bool& ok) {
             impl->docs.push_back(
                 std::make_unique<RealDocNode>(std::move(data), project.docs[target]));
             impl->index[i] = impl->docs.back().get();
+        } else if (node.kind == "sdk") {
+            const mm::build::SdkDefinition* definition = nullptr;
+            for (const auto& sdk : project.sdks)
+                if (sdk.node == i) definition = &sdk;
+            if (definition == nullptr) return loaded;
+            impl->sdks.push_back(std::make_unique<RealSdkNode>(std::move(data), *definition));
+            impl->index[i] = impl->sdks.back().get();
+        } else if (node.kind == "board") {
+            const mm::build::BoardDefinition* definition = nullptr;
+            for (const auto& board : project.boards)
+                if (board.node == i) definition = &board;
+            if (definition == nullptr) return loaded;
+            impl->boards.push_back(std::make_unique<RealBoardNode>(std::move(data), *definition));
+            impl->index[i] = impl->boards.back().get();
         }
     }
 
@@ -1021,9 +1202,14 @@ Loaded Loaded::load(const std::filesystem::path& root_dir, bool& ok) {
     for (const auto& t : impl->tests) test_ptrs.push_back(t.get());
     std::vector<const models::DocNode*> doc_ptrs;
     for (const auto& d : impl->docs) doc_ptrs.push_back(d.get());
+    std::vector<const models::SdkNode*> sdk_ptrs;
+    for (const auto& s : impl->sdks) sdk_ptrs.push_back(s.get());
+    std::vector<const models::BoardNode*> board_ptrs;
+    for (const auto& b : impl->boards) board_ptrs.push_back(b.get());
 
     impl->repository = std::make_unique<RealRepository>(
-        impl->projects.front().get(), module_ptrs, app_ptrs, test_ptrs, doc_ptrs);
+        impl->projects.front().get(), module_ptrs, app_ptrs, test_ptrs, doc_ptrs,
+        sdk_ptrs, board_ptrs);
     impl->tools = build_tools(app_ptrs);
     impl->operations = build_operations(impl->tools);
 

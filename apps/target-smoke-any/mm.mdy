@@ -1,0 +1,7 @@
+---
+mm: 1.1
+kind: app
+name: target-smoke-any
+option: buildable-host no
+file: main.cpp
+---

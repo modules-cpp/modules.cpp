@@ -1,0 +1,8 @@
+---
+mm: 1.2
+kind: test
+name: target-board
+option: buildable-host no
+requires-board: mps2-an385
+unit: tests/target/board/main.cpp
+---

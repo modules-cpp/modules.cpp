@@ -82,10 +82,17 @@ resulting `out/config.mdy` and cannot select different values:
 ./test
 
 ./configure --target m68k-linux-gnu --target-host \
-    --compiler m68k-linux-gnu-g++-16 --runner qemu-user --debugger gdb --build release
+    --compiler m68k-linux-gnu-g++-16 --sdk m68k-linux-glibc \
+    --runner qemu-user --debugger gdb --build release
 ./build --target
 ./run --target apps/main -- -h
 ./debug --target apps/main
+
+./configure --target arm-none-eabi --compiler arm-none-eabi-gcc \
+    --board mps2-an385 --runner qemu-system --build debug
+./build --target
+./run --target apps/target-smoke
+./test --target --compile-only
 ```
 
 Accepted compiler selectors are `gcc`, `g++`, `clang`, and `clang++`, with an
@@ -119,12 +126,13 @@ also accepted by `build`, `configure`, `test`, `run`, `check`, `model`, and `she
 
 ## Layout
 
-- `apps/` — example and utility applications (`main`, `mdy`).
+- `apps/` — host examples and target acceptance applications.
 - `modules/mm/` — the reusable core modules (parsing, build graph, test
   framework, application base class).
 - `tools/` — command-line front ends (`build`, `configure`, `test`, `run`) that use those
   modules.
 - `tests/mm/` — public integration and regression tests.
+- `platforms/` — SDK and board manifests, board sources, and linker scripts.
 - `docs/` — the project's own documentation, written in MDY and rendered by
   the `mdy` app. Start with [docs/modules.mdy](docs/modules.mdy) for the full
   developer guide, and [docs/mdy.mdy](docs/mdy.mdy) for the MDY format itself.
@@ -141,8 +149,12 @@ manifest format, every core module and tool in detail, and the TDD workflow
 for making changes. This README only covers getting the project running for
 the first time.
 
-[Configure specification for release v1.1.0](docs/modules-configure.mdy) defines
+[Configure specification for release v1.2.0](docs/modules-configure.mdy) defines
 the official manifest-option, reset, and read-only requirements. Its Current
 boundaries section describes the implemented capability-only scope; build,
 test, run, and debug warn about tuning declarations but do not apply their
 values yet.
+
+[Platforms specification for release v1.2.0](docs/modules-platforms.mdy) defines
+SDK and board manifests, target platform selection, responsibility ownership,
+and the strict configuration-2 record.

@@ -28,7 +28,7 @@
 //
 // --configuration additionally reports the project's build configuration
 // (models.configuration, via mm::model::default_configuration): the live
-// build/compiler/flags/verbose plus the fixed platform/locale/shell policy.
+// build/compiler/flags/verbose plus the selected platform and fixed locale/shell policy.
 // Independent of the manifest tree, so it is reported even when the checks
 // above fail to load one.
 //
@@ -53,6 +53,7 @@ import mm.app;
 import mm.build;
 import mm.model;
 import models.configuration;
+import models.platform;
 import models.manifest;
 import models.tool;
 import models.toolchain;
@@ -162,7 +163,17 @@ int main(int argc, char** argv) {
         std::cout << "  compiler flags " << configuration->compiler_flags() << "\n";
         std::cout << "  linker flags   " << configuration->linker_flags() << "\n";
         std::cout << "  verbose        " << (configuration->verbose() ? "true" : "false") << "\n";
-        std::cout << "  platform       " << configuration->platform() << "\n";
+        const auto* selected_platform = configuration->target_platform();
+        const auto& platform = selected_platform != nullptr ? *selected_platform
+                                                             : configuration->host_platform();
+        std::string_view platform_name = "unknown";
+        switch (platform.system()) {
+            case models::PlatformSystem::Posix: platform_name = "POSIX"; break;
+            case models::PlatformSystem::Linux: platform_name = "linux"; break;
+            case models::PlatformSystem::BareMetal: platform_name = "bare-metal"; break;
+            case models::PlatformSystem::Unknown: break;
+        }
+        std::cout << "  platform       " << platform_name << "\n";
         std::cout << "  locale         " << configuration->locale()
                   << "  [declared, not enforced: no setlocale/LC_ALL/LANG]\n";
         std::cout << "  shell          " << configuration->shell() << "\n\n";
@@ -237,6 +248,10 @@ int main(int argc, char** argv) {
         // not a root relative path: invocation() is a bare command name for
         // them, and checking it against root would always fail.
         if (tool->provenance() != models::Provenance::BuiltIn) continue;
+        // out/bin contains host-installed applications only. A target-only
+        // app is a modeled Tool, but its absence from the host installation
+        // is a capability fact rather than an incomplete build.
+        if (tool->declared_by() != nullptr && !tool->declared_by()->buildable_host()) continue;
         ++checked;
 
         const auto binary = root / tool->invocation();

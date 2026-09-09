@@ -1,0 +1,9 @@
+---
+mm: 1.2
+kind: sdk
+name: arm-linux-gnueabihf-glibc
+target: arm-linux-gnueabihf
+compiler-family: gcc
+runtime: glibc
+runtime-prefix: /usr/arm-linux-gnueabihf
+---

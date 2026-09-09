@@ -96,9 +96,12 @@ The source tree is organized by responsibility.
 +-- apps/
 |   +-- main/                 minimal application
 |   +-- mdy/                  MDY and documentation application
+|   +-- target-smoke/         board-specific bare-metal acceptance application
+|   +-- target-smoke-any/     boardless target acceptance application
 +-- models/                   the abstract data model; see docs/modules-model.mdy
 |   +-- document/             models.document
 |   +-- configuration/        models.configuration
+|   +-- platform/             models.platform
 |   +-- manifest/             models.manifest
 |   +-- repository/           models.repository
 |   +-- tool/                 models.tool
@@ -106,6 +109,9 @@ The source tree is organized by responsibility.
 |   +-- modules/              models.modules
 |   +-- workflow/             models.workflow
 |   +-- artifacts/            models.artifacts
++-- platforms/                target SDK and board manifests
+|   +-- arm-none-eabi/        newlib SDK
+|   +-- mps2-an385/           Cortex-M3 board, vectors, and linker script
 +-- modules/mm/
 |   +-- app/                  mm.app
 |   +-- build/                mm.build
@@ -133,19 +139,23 @@ The source tree is organized by responsibility.
 |   +-- model/                mm.model tests
 |   +-- run/                  mm.run tests
 |   +-- shell/                mm.shell tests
++-- tests/target/             target-only compile fixtures
+|   +-- board/                selected-board test fixture
 +-- docs/
 |   +-- mm.mdy                documentation manifest
 |   +-- mdy.mdy               MDY format reference
 |   +-- modules.mdy           this guide
 |   +-- modules-build.mdy     build tool and lane-selection specification
 |   +-- modules-c++20.mdy     C++20 language subset specification
-|   +-- modules-configure.mdy official configure specification for release v1.1.0
+|   +-- modules-configure.mdy official configure specification for release v1.2.0
 |   +-- modules-debug.mdy     debug tool and debugger specification
 |   +-- modules-model.mdy     the abstract data model
+|   +-- modules-platforms.mdy SDK, board, and platform specification
 |   +-- modules-test.mdy      test tool and target execution specification
 |
 +-- out/                      bootstrap output, installed commands, configuration
 +-- out-host/                 configured native build output
++-- out-target-TARGET/        configured target build output
 +-- gcm.cache/                gcc modules cache
 
 Bootstrap products, installed commands, out/config.mdy, and generated
@@ -229,10 +239,13 @@ through the shell. Child exit and signal states become tool exit codes.
 
 One project configuration in out/config.mdy selects debug or release and
 either GCC or Clang, including versioned drivers such as g++-15 and
-clang++-20. Build and test both resolve that file and expose no independent
-build or compiler override. The GCC backend uses modules-ts; the Clang backend
-writes BMIs beneath the active build directory. A full build clears both
-families' module state before compiling.
+clang++-20. A newly configured target also selects an SDK and optional board
+from platforms/. Build and test both resolve that file and expose no independent
+build, compiler, SDK, or board override. Platform processor flags reach compile
+and link commands; SDK specs and a board linker script reach links; board sources
+are linked implicitly into target executables. The GCC backend uses modules-ts;
+the Clang backend writes BMIs beneath the active build directory. A full build
+clears both families' module state before compiling.
 
 docs/modules-build.mdy is the detailed build command specification. It records
 the current pipeline and the --host and --target selectors. Those
@@ -264,7 +277,7 @@ target-runner execution.
 ## models/ and mm.model
 models/ is a second, independent description of this project's own structure: 
 small modules (models.document, models.configuration,
-models.manifest, models.repository, models.tool, models.toolchain,
+models.platform, models.manifest, models.repository, models.tool, models.toolchain,
 models.modules, models.workflow,
 models.artifacts) that model the manifest kind taxonomy,
 tools, workflow, and generated output as abstract C++20 interfaces, rather
@@ -526,9 +539,9 @@ defects and become ordinary regression tests when fixed.
 # Current boundaries
 These are the gaps between the Design goals and today's implementation.
 
-docs/modules-configure.mdy is the official configure and manifest-option specification for release v1.1.0. configure implements typed options, branch-local resets and read-only settings, lanes, runners, debuggers, and records beneath out. All eight manifest-reading tools accept 1.0 and 1.1 through the shared gate. Build, test, run, and debug resolve buildable-host and buildable-target and enforce the selected lane; other option declarations remain warning-only and are not yet applied to compilation.
+docs/modules-configure.mdy is the official configure and manifest-option specification for release v1.2.0. configure implements typed options, branch-local resets and read-only settings, lanes, platforms, runners, debuggers, and records beneath out. All eight manifest-reading tools accept 1.0, 1.1, and 1.2 through the shared gate. Build, test, run, and debug resolve buildable-host, buildable-target, and requires-board and enforce the selected lane; other option declarations remain warning-only and are not yet applied to compilation.
 
-docs/modules-build.mdy, docs/modules-test.mdy, docs/modules-run.mdy, and docs/modules-debug.mdy specify the implemented lane, compile-only, runner-backed execution, and debugging interfaces.
+docs/modules-build.mdy, docs/modules-test.mdy, docs/modules-run.mdy, docs/modules-debug.mdy, and docs/modules-platforms.mdy specify the implemented lane, compile-only, platform, runner-backed execution, and debugging interfaces.
 
 - App defines the application boundary but stores no state; shared lifecycle, context, logging, or argument services can be added there without coupling them to build policy.
 - Bootstrap follows GCC modules-ts conventions; the self-hosted compiler driver

@@ -23,12 +23,9 @@
 //     fixed recovery path through plain "c++". A Configuration describes the
 //     self-hosted rule, not bootstrap's fixed one.
 //
-// platform() and shell() are comparatively safe: mm::build::run always
-// execs /bin/sh regardless of $SHELL (docs/modules.mdy, mm.shell), and
-// "Process execution and bootstrap scripts require POSIX services" is an
-// existing documented boundary (docs/modules.mdy's "Current boundaries"
-// section) - both are closer to actually-true-everywhere than locale() is,
-// but still declared policy rather than something this type measures.
+// shell() is comparatively safe: mm::build::run always execs /bin/sh
+// regardless of $SHELL (docs/modules.mdy, mm.shell). The platform accessors
+// below adapt the configured lane rather than stating fixed project policy.
 //
 // selection(), build_directory() and host_build_directory() describe the lane
 // rather than the compiler: which of a toolchain's compilers produces target
@@ -49,6 +46,7 @@ module;
 export module models.configuration;
 
 import models.toolchain;
+import models.platform;
 
 export namespace models {
 
@@ -77,6 +75,10 @@ public:
     [[nodiscard]] virtual const Toolchain* target_toolchain() const = 0;
     [[nodiscard]] virtual const Toolchain* configured_target_toolchain() const = 0;
 
+    [[nodiscard]] virtual const Platform& host_platform() const = 0;
+    [[nodiscard]] virtual const Platform* target_platform() const = 0;
+    [[nodiscard]] virtual const Platform* configured_target_platform() const = 0;
+
     // Root relative. build_directory() is the selected lane's; the host lane's
     // is always available, since programs that run during a build are host
     // artifacts whatever selection() is. target_build_directory() is empty
@@ -104,9 +106,6 @@ public:
 
     // Whether a run should echo the commands it executes.
     [[nodiscard]] virtual bool verbose() const = 0;
-
-    // Fixed project policy, not derived from the environment: "POSIX".
-    [[nodiscard]] virtual std::string_view platform() const = 0;
 
     // Fixed, declared project policy: "C". Not measured or enforced -
     // nothing in this repository calls setlocale(3) or sets LC_ALL/LANG.

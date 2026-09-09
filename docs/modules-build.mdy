@@ -3,7 +3,7 @@ mm: 1.0
 kind: doc
 name: modules.cpp build tool specification
 status: official
-release: v1.1.0
+release: v1.2.0
 ---
 
 # modules.cpp build tool specification
@@ -28,7 +28,7 @@ Build accepts no command-line compiler, compiler version, target triple, build t
 
 # Configured lanes
 
-A lane is defined only by configure and persisted in out/config.mdy. It binds a toolchain, target identity, one project-wide debug or release build, flags, and an output directory.
+A lane is defined only by configure and persisted in out/config.mdy. It binds a toolchain, target identity, platform, one project-wide debug or release build, flags, and an output directory.
 
 The host lane always exists. A target lane exists only when configuration contains a complete target toolchain and target triple.
 
@@ -56,6 +56,8 @@ Assignment, reset, inheritance, and read-only rules are identical to configure. 
 
 An unavailable module or application root is skipped. Build reports the number skipped and the selected capability lane. A retained consumer cannot depend on an unavailable module because capability validation runs before filtering and rejects that use edge.
 
+requires-board further restricts a target application to the named configured board. A root build skips mismatches as unavailable for the target lane. An explicitly requested mismatch exits 77 and names both the required and selected boards. It is not reported as buildable-target no, because its target capability remains yes.
+
 If a manifest tree declares module or application targets but none is available in the selected lane, build reports them as skipped and succeeds without clearing caches, compiling, linking, or installing anything.
 
 A tree declaring no module or application targets remains a manifest error and exits 65.
@@ -69,9 +71,11 @@ For the selected lane build performs these phases:
 - Resolve and validate host and target capabilities.
 - Remove roots unavailable in the selected lane.
 - Topologically order modules before their consumers.
+- Resolve the selected board unit and reject a bare-metal executable with an unresolved startup responsibility.
 - Clear module state for the selected build.
 - Compile translation units in declared order.
-- Link retained applications from their transitive object closure.
+- Compile the selected board unit once in this build output tree.
+- Link retained applications from their transitive object closure and the board objects.
 - Install eligible host applications.
 
 Unknown modules and dependency cycles are manifest errors. Compile and link failures stop the pipeline immediately.
@@ -101,6 +105,7 @@ Bootstrap output remains under out and is not a configured lane.
 - 0 means the requested build completed or every declared root was intentionally skipped for the selected lane.
 - 64 means invalid command-line usage.
 - 65 means invalid manifest, configuration, capability, or dependency structure.
+- 77 means an explicitly requested root is unavailable for the selected board.
 - 80 means compilation failed.
 - 81 means linking or installation failed.
 
@@ -130,6 +135,10 @@ Build target applications without changing the configured default:
 - --target without a configured target lane exits 65 before cache removal or compilation.
 - Host-only roots are skipped by a target build and target-only roots are skipped by a host build.
 - A retained consumer with an unavailable dependency is rejected before filtering.
+- A board requirement mismatch is skipped in a root build and exits 77 when explicitly requested.
+- Platform compiler arguments reach both compilation and linking; SDK specs and board linker script arguments reach linking only.
+- A selected board unit is compiled once per build output tree and its objects are linked into every retained executable.
+- A configuration-2 bare-metal executable with an unresolved responsibility exits 65 before linking; modules remain compilable.
 - A descendant invocation cannot bypass capability inherited from an ancestor.
 - A target build never installs an executable over a host command in out/bin.
 - No build option can override compiler, target triple, build type, flags, or output directory.

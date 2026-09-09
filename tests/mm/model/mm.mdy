@@ -5,6 +5,7 @@ name: model
 use: mm.test
 use: mm.model
 use: mm.configure
+use: models.platform
 unit: tests/mm/model/structure.cpp
 unit: tests/mm/model/configuration.cpp
 unit: tests/mm/model/workflow.cpp

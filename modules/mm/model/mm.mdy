@@ -10,6 +10,7 @@ use: models.configuration
 use: models.document
 use: models.manifest
 use: models.modules
+use: models.platform
 use: models.repository
 use: models.tool
 use: models.toolchain

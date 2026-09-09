@@ -4,4 +4,6 @@ kind: dir
 name: apps
 folder: main
 folder: mdy
+folder: target-smoke
+folder: target-smoke-any
 ---

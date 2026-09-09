@@ -119,9 +119,17 @@ void installed_tools_select_configured_lanes() {
     expect(!ec, "repository directory available");
     const auto bin = repository / "out/bin";
     const mm::test::scoped_tree tree{"lane_cli"};
-    tree.manifest_raw("", "mm: 1.1\nkind: project\nname: lanes\nfolder: app\nfolder: test\n");
+    tree.manifest_raw("", "mm: 1.1\nkind: project\nname: lanes\nfolder: app\nfolder: test\nfolder: platforms\n");
     tree.manifest_raw("app", "mm: 1.1\nkind: app\nname: example\nfile: main.cpp\noption: buildable-target no\n");
     tree.manifest("test", "kind: test\nname: example_test\nunit: app/main.cpp\n");
+    tree.manifest_raw("platforms", "mm: 1.1\nkind: dir\nname: platforms\nfolder: aarch64\nfolder: m68k\n");
+    tree.manifest_raw("platforms/aarch64",
+                      "mm: 1.2\nkind: sdk\nname: aarch64-linux-glibc\n"
+                      "target: aarch64-linux-gnu\ncompiler-family: gcc\nruntime: glibc\n");
+    tree.manifest_raw("platforms/m68k",
+                      "mm: 1.2\nkind: sdk\nname: m68k-linux-glibc\n"
+                      "target: m68k-linux-gnu\ncompiler-family: gcc\nruntime: glibc\n"
+                      "runtime-prefix: " + tree.root().string() + "\n");
     std::ofstream(tree.root() / "app/main.cpp")
         << "#include <iostream>\nint main(int argc, char** argv) { "
            "if (argc > 1) std::cout << argv[1] << '\\n'; return 0; }\n";
@@ -148,7 +156,8 @@ void installed_tools_select_configured_lanes() {
            "missing target lane is diagnosed");
 
     expect(invoke(bin / "configure",
-                  "--target aarch64-linux-gnu --compiler aarch64-linux-gnu-g++-16 --build release " +
+                  "--target aarch64-linux-gnu --sdk aarch64-linux-glibc "
+                  "--compiler aarch64-linux-gnu-g++-16 --build release " +
                       root_arg,
                   log) == 0,
            "configure writes and selects a target lane");
@@ -198,7 +207,7 @@ void installed_tools_select_configured_lanes() {
            "test rejects conflicting lane selectors");
 
     expect(invoke(bin / "configure",
-                  "--target aarch64-linux-gnu --target-host "
+                  "--target aarch64-linux-gnu --sdk aarch64-linux-glibc --target-host "
                   "--compiler aarch64-linux-gnu-g++-16 --build release " + root_arg,
                   log) == 0,
            "configure gives a hosted target host capability");
@@ -244,7 +253,7 @@ void installed_tools_select_configured_lanes() {
     expect(invoke_with_path(
                bin / "configure",
                "--target m68k-linux-gnu --target-host --compiler m68k-linux-gnu-g++-16 "
-               "--runner qemu-user --debugger gdb --build release " + root_arg,
+               "--sdk m68k-linux-glibc --runner qemu-user --debugger gdb --build release " + root_arg,
                log, tree.root()) == 0,
            "configure accepts a compatible named runner profile");
     expect(invoke_with_path(bin / "build", "--target " + root_arg, log, tree.root()) == 0,
@@ -259,7 +268,8 @@ void installed_tools_select_configured_lanes() {
                                 mm::build::shell_quote(tree.root() / "app"),
                             log, tree.root()) == 0,
            "debug connects a configured target debugger through its runner");
-    expect(invoke(bin / "configure", "--target aarch64-linux-gnu --runner qemu-user " +
+    expect(invoke(bin / "configure", "--target aarch64-linux-gnu --sdk aarch64-linux-glibc "
+                                      "--runner qemu-user " +
                                       root_arg, log) == 64,
            "configure rejects an incompatible runner profile");
 }

@@ -1,0 +1,118 @@
+// Manifest-side platform definition and version-gate tests.
+#include <filesystem>
+#include <fstream>
+
+import mm.build;
+import mm.test;
+
+namespace {
+
+using mm::test::expect;
+
+void make_platform_tree(const mm::test::scoped_tree& tree) {
+    tree.manifest("", "kind: project\nname: p\nfolder: platforms\n");
+    tree.manifest("platforms",
+                  "kind: dir\nname: platforms\nfolder: sdk\nfolder: board\n");
+    tree.manifest_raw("platforms/sdk",
+                      "mm: 1.2\nkind: sdk\nname: arm-none-eabi-newlib\n"
+                      "target: arm-none-eabi\ncompiler-family: gcc\nruntime: newlib\n"
+                      "specs-profile: rdimon\n");
+    tree.manifest_raw("platforms/board",
+                      "mm: 1.2\nkind: board\nname: mps2-an385\n"
+                      "sdk: arm-none-eabi-newlib\ncpu: cortex-m3\n"
+                      "instruction-set: thumb\nfloat-abi: soft\n"
+                      "machine: mps2-an385\nlinker-script: link.ld\n"
+                      "file: vectors.cpp\nprovides: reset-vector\n"
+                      "provides: initial-stack\nprovides: memory-layout\n");
+    std::ofstream(tree.root() / "platforms/board/link.ld") << "SECTIONS {}\n";
+    std::ofstream(tree.root() / "platforms/board/vectors.cpp") << "int vector;\n";
+}
+
+void loads_sdk_and_board_definitions() {
+    const mm::test::scoped_tree tree{"platform_definitions"};
+    make_platform_tree(tree);
+    const auto project = mm::build::load_project(tree.root());
+    expect(project.ok && project.sdks.size() == 1 && project.boards.size() == 1,
+           "platform definitions load from the ordinary manifest walk");
+    expect(project.sdks.front().target == "arm-none-eabi" &&
+               project.sdks.front().specs_profile == "rdimon",
+           "SDK definition preserves target and profile");
+    expect(project.boards.front().sdk == "arm-none-eabi-newlib" &&
+               project.boards.front().sources.size() == 1,
+           "board definition resolves its SDK and project source");
+}
+
+void validates_platform_keys_by_version_and_kind() {
+    const mm::test::scoped_tree tree{"platform_key_gate"};
+    tree.manifest_raw("",
+                      "mm: 1.1\nkind: sdk\nname: old\ntarget: arm-none-eabi\n"
+                      "compiler-family: gcc\nruntime: newlib\n");
+    expect(!mm::build::load_project(tree.root()).ok,
+           "platform keys require manifest version 1.2");
+
+    tree.manifest_raw("",
+                      "mm: 1.2\nkind: sdk\nname: bad\ntarget: arm-none-eabi\n"
+                      "compiler-family: gcc\nruntime: newlib\nfile: source.cpp\n");
+    expect(!mm::build::load_project(tree.root()).ok,
+           "file is not valid on an SDK");
+
+    tree.manifest_raw("",
+                      "mm: 1.2\nkind: board\nname: bad\ntarget: arm-none-eabi\n");
+    expect(!mm::build::load_project(tree.root()).ok,
+           "target is not valid on a board");
+
+    tree.manifest_raw("",
+                      "mm: 1.2\nkind: module\nname: bad\nmodule: bad\n"
+                      "file: source.cpp\nrequires-board: mps2-an385\n");
+    expect(!mm::build::load_project(tree.root()).ok,
+           "requires-board is not valid on a module");
+}
+
+void rejects_bad_references_and_registry_values() {
+    const mm::test::scoped_tree missing{"platform_missing_sdk"};
+    make_platform_tree(missing);
+    missing.manifest_raw("platforms/board",
+                         "mm: 1.2\nkind: board\nname: mps2-an385\n"
+                         "sdk: absent\ncpu: unknown\ninstruction-set: thumb\n"
+                         "float-abi: soft\nlinker-script: link.ld\nfile: vectors.cpp\n");
+    expect(!mm::build::load_project(missing.root()).ok,
+           "a missing SDK reference is rejected before processor lookup");
+
+    const mm::test::scoped_tree profile{"platform_unknown_profile"};
+    make_platform_tree(profile);
+    profile.manifest_raw("platforms/sdk",
+                         "mm: 1.2\nkind: sdk\nname: arm-none-eabi-newlib\n"
+                         "target: arm-none-eabi\ncompiler-family: gcc\nruntime: newlib\n"
+                         "specs-profile: unknown\n");
+    expect(!mm::build::load_project(profile.root()).ok,
+           "an unknown specs profile is rejected without invoking a compiler");
+}
+
+void external_directories_are_only_spelling_checked_by_the_walk() {
+    const mm::test::scoped_tree tree{"platform_external_directory"};
+    tree.manifest("", "kind: project\nname: p\nfolder: sdk\n");
+    tree.manifest_raw("sdk",
+                      "mm: 1.2\nkind: sdk\nname: m68k-linux-glibc\n"
+                      "target: m68k-linux-gnu\ncompiler-family: gcc\nruntime: glibc\n"
+                      "runtime-prefix: /directory/that/need/not/exist/here\n");
+    expect(mm::build::load_project(tree.root()).ok,
+           "the walk does not require an unselected SDK's machine directory");
+
+    tree.manifest_raw("sdk",
+                      "mm: 1.2\nkind: sdk\nname: m68k-linux-glibc\n"
+                      "target: m68k-linux-gnu\ncompiler-family: gcc\nruntime: glibc\n"
+                      "runtime-prefix: relative\n");
+    expect(!mm::build::load_project(tree.root()).ok,
+           "the walk rejects a relative machine directory");
+}
+
+const mm::test::case_ cases[] = {
+    {"loads SDK and board definitions", &loads_sdk_and_board_definitions},
+    {"validates platform keys by version and kind", &validates_platform_keys_by_version_and_kind},
+    {"rejects bad references and registry values", &rejects_bad_references_and_registry_values},
+    {"external directories are selection-scoped", &external_directories_are_only_spelling_checked_by_the_walk},
+};
+
+const mm::test::registrar reg{"mm.build platform", cases};
+
+}

@@ -13,6 +13,7 @@
 // Pawel Wodnicki (C) 2026
 // 32bitmicro LLC (C) 2026
 #include <cstdlib>
+#include <cstdio>
 #include <filesystem>
 #include <iostream>
 #include <optional>
@@ -100,6 +101,155 @@ std::optional<mm::configure::DebuggerSettings> debugger_settings(
         source.remote_endpoint, source.runner_arguments};
 }
 
+bool existing_directory(const std::optional<std::filesystem::path>& path) {
+    if (!path) return true;
+    std::error_code ec;
+    return std::filesystem::is_directory(*path, ec) && !ec;
+}
+
+bool probe_specs(std::string_view compiler, std::string_view profile) {
+    const std::string query = std::string(profile) + ".specs";
+    const std::string command = mm::build::shell_quote(std::filesystem::path(compiler)) +
+                                " -print-file-name=" +
+                                mm::build::shell_quote(std::filesystem::path(query));
+    FILE* pipe = ::popen(command.c_str(), "r");
+    if (pipe == nullptr) return false;
+    std::string output;
+    char buffer[512];
+    while (std::fgets(buffer, sizeof(buffer), pipe) != nullptr) output += buffer;
+    const int status = ::pclose(pipe);
+    while (!output.empty() && (output.back() == '\n' || output.back() == '\r' ||
+                              output.back() == ' ' || output.back() == '\t'))
+        output.pop_back();
+    if (status != 0 || output.empty() || output == query) return false;
+    std::error_code ec;
+    return std::filesystem::is_regular_file(output, ec) && !ec;
+}
+
+const mm::build::SdkDefinition* find_sdk(const mm::build::Project& project,
+                                         std::string_view name) {
+    for (const auto& sdk : project.sdks)
+        if (sdk.name == name) return &sdk;
+    return nullptr;
+}
+
+const mm::build::BoardDefinition* find_board(const mm::build::Project& project,
+                                             std::string_view name) {
+    for (const auto& board : project.boards)
+        if (board.name == name) return &board;
+    return nullptr;
+}
+
+int resolve_platform(const mm::build::Project& project,
+                     std::string_view sdk_name, std::string_view board_name,
+                     std::string_view target, mm::configure::CompilerFamily family,
+                     std::string_view compiler,
+                     mm::configure::PlatformSettings& platform) {
+    const mm::build::BoardDefinition* board = nullptr;
+    if (!board_name.empty()) {
+        board = find_board(project, board_name);
+        if (board == nullptr) {
+            std::cerr << "configure: unknown board: " << board_name << "\n";
+            return mm::build::exit_usage;
+        }
+        if (!sdk_name.empty() && sdk_name != board->sdk) {
+            std::cerr << "configure: board " << board_name << " uses SDK " << board->sdk
+                      << ", not " << sdk_name << "\n";
+            return mm::build::exit_usage;
+        }
+        sdk_name = board->sdk;
+    }
+    const auto* sdk = find_sdk(project, sdk_name);
+    if (sdk == nullptr) {
+        std::cerr << "configure: unknown SDK: " << sdk_name << "\n";
+        return mm::build::exit_usage;
+    }
+    if (sdk->target != target || sdk->family != family) {
+        std::cerr << "configure: SDK " << sdk->name << " is not compatible with " << target
+                  << " and " << mm::configure::compiler_family_name(family) << "\n";
+        return mm::build::exit_usage;
+    }
+    if (!existing_directory(sdk->sysroot) || !existing_directory(sdk->runtime_prefix)) {
+        std::cerr << "configure: SDK " << sdk->name
+                  << " names an installed directory that does not exist\n";
+        return mm::build::exit_manifest;
+    }
+    if (!sdk->specs_profile.empty() && !probe_specs(compiler, sdk->specs_profile)) {
+        std::cerr << "configure: compiler cannot resolve specs profile "
+                  << sdk->specs_profile << "\n";
+        return mm::build::exit_manifest;
+    }
+
+    platform = {};
+    platform.target = std::string(target);
+    platform.system = *mm::configure::target_system(target);
+    platform.runtime = sdk->runtime;
+    platform.sdk = sdk->name;
+    platform.sdk_manifest = sdk->manifest;
+    platform.sdk_family = sdk->family;
+    platform.sysroot = sdk->sysroot;
+    platform.runtime_prefix = sdk->runtime_prefix;
+    if (!sdk->specs_profile.empty())
+        platform.specs_argument = "--specs=" + sdk->specs_profile + ".specs";
+    else if (!sdk->specs_file.empty())
+        platform.specs_argument = "--specs=" + mm::build::shell_quote(sdk->specs_file);
+
+    for (const auto responsibility : sdk->provides)
+        platform.responsibility_owners[responsibility] = sdk->name;
+    if (!sdk->specs_profile.empty()) {
+        platform.responsibility_owners[mm::configure::Responsibility::RuntimeInit] = sdk->name;
+        platform.responsibility_owners[mm::configure::Responsibility::Syscalls] = sdk->name;
+    }
+
+    if (board != nullptr) {
+        platform.board = board->name;
+        platform.board_manifest = board->manifest;
+        platform.machine = board->machine;
+        platform.linker_script = board->linker_script;
+        platform.board_sources = board->sources;
+        platform.compiler_arguments = {"-mcpu=" + board->cpu};
+        if (board->instruction_set == "thumb") platform.compiler_arguments.push_back("-mthumb");
+        platform.compiler_arguments.push_back("-mfloat-abi=" + board->float_abi);
+        for (const auto responsibility : board->provides) {
+            const auto found = platform.responsibility_owners.find(responsibility);
+            if (found != platform.responsibility_owners.end()) {
+                std::cerr << "configure: responsibility "
+                          << mm::configure::responsibility_name(responsibility)
+                          << " is provided by both " << found->second << " and " << board->name
+                          << "\n";
+                return mm::build::exit_manifest;
+            }
+            platform.responsibility_owners[responsibility] = board->name;
+        }
+    }
+
+    if (platform.system == mm::configure::PlatformSystem::BareMetal) {
+        platform.models_responsibilities = true;
+        for (const auto responsibility : {
+                 mm::configure::Responsibility::ResetVector,
+                 mm::configure::Responsibility::InitialStack,
+                 mm::configure::Responsibility::MemoryLayout,
+                 mm::configure::Responsibility::RuntimeInit,
+                 mm::configure::Responsibility::Syscalls}) {
+            if (!platform.responsibility_owners.contains(responsibility))
+                platform.unresolved.push_back(responsibility);
+        }
+        if (board != nullptr && !platform.unresolved.empty()) {
+            std::cerr << "configure: board " << board->name << " leaves responsibility "
+                      << mm::configure::responsibility_name(platform.unresolved.front())
+                      << " unresolved\n";
+            return mm::build::exit_manifest;
+        }
+        if (!platform.responsibility_owners.contains(mm::configure::Responsibility::RuntimeInit) ||
+            !platform.responsibility_owners.contains(mm::configure::Responsibility::Syscalls)) {
+            std::cerr << "configure: SDK " << sdk->name
+                      << " does not supply runtime-init and syscalls\n";
+            return mm::build::exit_manifest;
+        }
+    }
+    return mm::build::exit_ok;
+}
+
 }
 
 int main(int argc, char** argv) {
@@ -109,11 +259,14 @@ int main(int argc, char** argv) {
     options.option("--target", "a target triple");
     options.option("--compiler", "a native or target-prefixed GCC or Clang C++ driver");
     options.option("--runner", "none or a supported runner profile");
+    options.option("--sdk", "a supported SDK manifest name");
+    options.option("--board", "a supported board manifest name");
     options.option("--debugger", "none or gdb");
     options.option("--build", "debug or release");
     options.help("configure [-v|--verbose] [-h|--help] [--host | --target TRIPLE] "
                  "[--target-host] "
-                 "[--compiler COMPILER] [--runner none|PROFILE] [--debugger none|gdb] "
+                 "[--compiler COMPILER] [--sdk SDK] [--board BOARD] "
+                 "[--runner none|PROFILE] [--debugger none|gdb] "
                  "[--build debug|release] [manifest]");
     const auto cli = options.parse(argc, argv);
     if (cli == mm::app::Cli::help) return mm::build::exit_ok;
@@ -131,6 +284,12 @@ int main(int argc, char** argv) {
         return mm::build::exit_usage;
     }
     const bool target_lane = !targets.empty();
+    const auto sdks = options.values("--sdk");
+    const auto boards = options.values("--board");
+    if (sdks.size() > 1 || boards.size() > 1) {
+        std::cerr << "configure: --sdk and --board may each be given only once\n";
+        return mm::build::exit_usage;
+    }
     const auto runners = options.values("--runner");
     if (runners.size() > 1) {
         std::cerr << "configure: --runner may be given only once\n";
@@ -141,8 +300,9 @@ int main(int argc, char** argv) {
         std::cerr << "configure: --debugger may be given only once\n";
         return mm::build::exit_usage;
     }
-    if ((options.seen("--target-host") || !runners.empty()) && !target_lane) {
-        std::cerr << "configure: --target-host and --runner require --target TRIPLE\n";
+    if ((options.seen("--target-host") || !runners.empty() || !sdks.empty() ||
+         !boards.empty()) && !target_lane) {
+        std::cerr << "configure: --target-host, --sdk, --board, and --runner require --target TRIPLE\n";
         return mm::build::exit_usage;
     }
     const std::string target = target_lane ? targets.front() : std::string("host");
@@ -242,6 +402,35 @@ int main(int argc, char** argv) {
     if (!mm::build::validate_capabilities(nodes, resolved, "configure"))
         return mm::build::exit_manifest;
 
+    std::optional<mm::configure::PlatformSettings> selected_platform;
+    if (target_lane) {
+        if (!mm::configure::target_system(target)) {
+            std::cerr << "configure: unsupported target platform: " << target << "\n";
+            return mm::build::exit_usage;
+        }
+        if (sdks.empty() && boards.empty()) {
+            std::cerr << "configure: target " << target
+                      << " requires --sdk or --board; compatible SDKs:";
+            bool any = false;
+            for (const auto& sdk : project.sdks) {
+                if (sdk.target != target || sdk.family != compiler->family) continue;
+                std::cerr << (any ? ", " : " ") << sdk.name;
+                any = true;
+            }
+            if (!any) std::cerr << " none";
+            std::cerr << "\n";
+            return mm::build::exit_usage;
+        }
+        mm::configure::PlatformSettings platform;
+        if (const int status = resolve_platform(
+                project, sdks.empty() ? std::string_view{} : sdks.front(),
+                boards.empty() ? std::string_view{} : boards.front(), target,
+                compiler->family, compiler->invocation, platform);
+            status != mm::build::exit_ok)
+            return status;
+        selected_platform = std::move(platform);
+    }
+
     mm::configure::Settings settings;
     const bool has_configuration = std::filesystem::exists(configuration_path, ec);
     if (ec) return mm::build::exit_manifest;
@@ -249,6 +438,8 @@ int main(int argc, char** argv) {
         mm::build::BuildConfiguration existing;
         if (!mm::build::load_configuration(configuration_path, verbose, existing))
             return mm::build::exit_manifest;
+        settings.configuration_2 = existing.configuration_2();
+        settings.host_platform = existing.host_platform();
         settings.host = compiler_settings(existing.host_toolchain(), *build);
         settings.host_debugger = debugger_settings(existing.host_toolchain());
         if (const auto* cross = existing.cross_toolchain()) {
@@ -258,6 +449,8 @@ int main(int argc, char** argv) {
                 existing.target_has_host_capability();
             settings.cross_runner = runner_settings(*cross);
             settings.cross_debugger = debugger_settings(*cross);
+            if (const auto* platform = existing.configured_target_platform())
+                settings.cross_platform = *platform;
         }
     } else {
         settings.host = mm::configure::CompilerSettings{
@@ -274,6 +467,8 @@ int main(int argc, char** argv) {
     settings.build = *build;
     settings.host_build_directory = mm::configure::host_output_directory();
     if (target_lane) {
+        settings.configuration_2 = true;
+        settings.cross_platform = selected_platform;
         settings.target_compiler = mm::configure::CompilerSelection::Cross;
         settings.target_has_host_capability = options.seen("--target-host");
         settings.cross = mm::configure::CompilerSettings{
@@ -286,7 +481,8 @@ int main(int argc, char** argv) {
         };
         settings.cross_runner.reset();
         if (!runners.empty() && runners.front() != "none") {
-            settings.cross_runner = mm::configure::runner_profile(runners.front(), target);
+            settings.cross_runner = mm::configure::runner_profile(
+                runners.front(), target, &*settings.cross_platform);
             if (!settings.cross_runner) {
                 std::cerr << "configure: runner " << runners.front()
                           << " is not compatible with " << target << "\n";

@@ -20,6 +20,14 @@ export namespace mm::configure {
 enum class CompilerFamily { Gcc, Clang };
 enum class CompilerSelection { Host, Cross };
 enum class Build { Debug, Release };
+enum class PlatformSystem { Posix, Linux, BareMetal, Unknown };
+enum class PlatformRuntime { Unknown, Glibc, Newlib, Picolibc, None };
+enum class Responsibility { ResetVector, InitialStack, MemoryLayout, RuntimeInit, Syscalls };
+
+[[nodiscard]] std::string_view platform_system_name(PlatformSystem system);
+[[nodiscard]] std::string_view platform_runtime_name(PlatformRuntime runtime);
+[[nodiscard]] std::string_view responsibility_name(Responsibility responsibility);
+[[nodiscard]] std::optional<PlatformSystem> target_system(std::string_view target);
 
 struct BuildDefaults {
     int optimize;
@@ -107,6 +115,31 @@ struct CompilerSettings {
     std::string link_flags;
 };
 
+// A resolved lane platform. Optional values are genuinely absent for the host
+// and for legacy configuration records; an empty string is never used as an
+// alternate spelling of absence. Responsibility ownership is present only for
+// configuration-2 bare-metal lanes.
+struct PlatformSettings {
+    std::string target = "host";
+    PlatformSystem system = PlatformSystem::Posix;
+    PlatformRuntime runtime = PlatformRuntime::Unknown;
+    std::optional<std::string> sdk;
+    std::optional<std::filesystem::path> sdk_manifest;
+    CompilerFamily sdk_family = CompilerFamily::Gcc;
+    std::optional<std::string> board;
+    std::optional<std::filesystem::path> board_manifest;
+    std::map<Responsibility, std::string> responsibility_owners;
+    std::vector<Responsibility> unresolved;
+    std::optional<std::filesystem::path> sysroot;
+    std::optional<std::filesystem::path> runtime_prefix;
+    std::string specs_argument;
+    std::vector<std::string> compiler_arguments;
+    std::string machine;
+    std::filesystem::path linker_script;
+    std::vector<std::filesystem::path> board_sources;
+    bool models_responsibilities = false;
+};
+
 enum class RunnerImage { Positional, Option };
 
 struct RunnerSettings {
@@ -131,7 +164,8 @@ struct DebuggerSettings {
 // Resolves a named, statically supported runner profile for a target.
 // "none" means no runner; an unknown or incompatible profile is rejected.
 [[nodiscard]] std::optional<RunnerSettings> runner_profile(std::string_view profile,
-                                                           std::string_view target);
+                                                           std::string_view target,
+                                                           const PlatformSettings* platform = nullptr);
 
 // Resolves the gdb profile for one lane. Host debugging invokes gdb directly;
 // the supported QEMU user target uses gdb-multiarch and the runner's remote
@@ -151,6 +185,9 @@ struct Settings {
     std::optional<DebuggerSettings> host_debugger;
     std::optional<DebuggerSettings> cross_debugger;
     std::optional<RunnerSettings> cross_runner;
+    PlatformSettings host_platform;
+    std::optional<PlatformSettings> cross_platform;
+    bool configuration_2 = false;
     std::filesystem::path host_build_directory = host_output_directory();
     std::filesystem::path target_build_directory = host_output_directory();
 };

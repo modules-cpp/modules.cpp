@@ -1,0 +1,438 @@
+---
+mm: 1.0
+kind: doc
+name: modules.cpp platforms specification
+status: official
+release: v1.2.0
+---
+
+# modules.cpp platforms specification
+
+# Status and authority
+
+This document specifies the implemented platforms directory, the sdk and board manifest kinds, platform selection at configure time, and the platform block of the configuration record for release v1.2.0. Its drafting history is in drafts/plan-platform-and-sdk-2 and drafts/plan-platforms-directory through 10, which it supersedes.
+
+status: official gives this document the same authority as the other implemented specifications in docs.
+
+docs/modules-configure.mdy remains authoritative for lane definitions, compiler selection, build type, option inheritance, read-only settings, and buildable-host and buildable-target. docs/modules-build.mdy and docs/modules-test.mdy remain authoritative for lane selection. docs/modules-model.mdy remains authoritative for the abstract model, including the platform accessor this document replaces. This document owns what a platform is, how it is declared, how it is selected, and what it contributes to a command.
+
+Examples use Opening fence and Closing fence instead of literal front matter delimiters, following docs/mdy.mdy.
+
+# Model
+
+A platform is the machine an executable is built for, described completely enough that a link succeeds. It has five parts: a target triple, a system, a C runtime, one SDK, and an optional board.
+
+An SDK describes a toolchain's runtime environment for one target: which C library, which specs, where its files live. A board describes one machine within that environment: which processor, which memory layout, which reset path, which emulated machine name.
+
+The two are separate because they vary independently. One SDK serves many boards, and a hosted target has an SDK and no board at all.
+
+Platforms are declared in the manifest tree, not in a separate catalog. configure already walks the complete project strictly and pairs every node with its parsed document, so a platform declared as a node is already read, already validated, already version-gated, and already reachable by name. No tool opens a platform manifest a second time and no tool performs a second traversal.
+
+The declaration and the selection are distinct representations, and the distinction fixes what is stale when.
+
+- SdkDefinition and BoardDefinition come from the manifest walk. They carry what a manifest says. configure, check, model, and document all see every definition in the tree, configured or not.
+- PlatformUnit comes from the configuration record. It carries the selected board's sources resolved against the selected lane, with object paths. Build and test consume this and not the definitions, because object paths and lane membership come from the configuration and the build directory, which the walk does not know.
+
+Changing a board manifest's settings or source list requires configure again, because the record is what build reads. Changing the contents of a listed source takes effect on the next build, because the path is unchanged. This is the rule resolved-options.mdy already follows.
+
+# Repository layout
+
+Opening fence
+platforms/mm.mdy                       kind: dir, one folder: per SDK and board
+platforms/arm-none-eabi/mm.mdy         kind: sdk
+platforms/mps2-an385/mm.mdy            kind: board
+platforms/mps2-an385/link.ld           linker script
+platforms/mps2-an385/vectors.cpp       vector table and reset handler
+Closing fence
+
+The project root manifest gains folder: platforms. Board sources are compiled by the build like any other declared source.
+
+# SDK manifests
+
+Opening fence
+mm: 1.2
+kind: sdk
+name: arm-none-eabi-newlib
+target: arm-none-eabi
+compiler-family: gcc
+runtime: newlib
+specs-profile: rdimon
+Closing fence
+
+Opening fence
+mm: 1.2
+kind: sdk
+name: m68k-linux-glibc
+target: m68k-linux-gnu
+compiler-family: gcc
+runtime: glibc
+runtime-prefix: /usr/m68k-linux-gnu
+Closing fence
+
+- target is the target triple this SDK serves. Required.
+- compiler-family is gcc or clang. Required. rdimon.specs is GCC driver behavior, and nothing else prevents an SDK being selected with a foreign driver, where the failure would arrive at link time.
+- runtime names the C library: glibc, newlib, picolibc, or none. Required.
+- specs-profile names a profile the compiler resolves through its own search. specs-file names a file in this repository. They are different things, at most one may appear, and merging them into one key is how a path reaches a parameter that expected a name.
+- sysroot and runtime-prefix are optional, absolute, and name directories outside the project. sysroot is passed to the compiler when its own default is wrong. runtime-prefix is passed to a runner and reaches no compiler invocation.
+- provides names a responsibility this SDK's runtime supplies. Repeatable.
+
+file is not valid on an sdk manifest. An SDK declares a runtime; it contributes no sources.
+
+# Board manifests
+
+Opening fence
+mm: 1.2
+kind: board
+name: mps2-an385
+sdk: arm-none-eabi-newlib
+cpu: cortex-m3
+instruction-set: thumb
+float-abi: soft
+machine: mps2-an385
+linker-script: link.ld
+file: vectors.cpp
+provides: reset-vector
+provides: initial-stack
+provides: memory-layout
+Closing fence
+
+- sdk names the SDK this board belongs to. Exactly one. Required.
+- cpu, instruction-set, and float-abi are the processor properties. Their spellings are registry values, not compiler arguments.
+- machine names an emulated machine. Optional, and required only when a system-emulation runner is selected.
+- linker-script is a path relative to the manifest.
+- file entries are the board's own sources: vector table, reset handler, and any syscall implementation the runtime leaves to the machine. Paths are relative to the manifest, as on a module manifest.
+- provides names a responsibility this board supplies. Repeatable.
+
+target is not valid on a board manifest. A board's target is its SDK's. Declaring it as well would place a second copy of one value one hop from the first, and the only thing a check between them buys is catching a wrong copy.
+
+Board sources are C++ in this release, because compile forces -x c++. A vector table and reset handler are expressible in C++ with extern "C" linkage and no runtime dependencies.
+
+# Names, references and lane compatibility
+
+Names are unique within a kind. Two SDKs sharing a name, or two boards, is an error naming both manifests. An SDK and a board may share a name; they are selected by different options.
+
+Two board reference rules are checked at walk time, for every board in the tree:
+
+- A board references exactly one SDK. Zero is an error and so is more than one.
+- The referenced SDK exists.
+
+One compatibility rule is checked at configure time, for the selection only:
+
+- The selected SDK's target and compiler family agree with the configured lane.
+
+Reference resolution precedes registry validation. A board obtains its target and compiler family from its SDK, and the registries are keyed on both, so a board cannot be registry-checked in isolation. A board whose SDK reference is broken reports that and stops, rather than reporting an unknown processor combination for a target it could not determine.
+
+# Validation levels
+
+Every SDK and board in the tree is seen by every manifest-reading tool, so validating each one's installed files would make ./configure --host require every cross toolchain to be present. Validation is therefore split by who owns the value.
+
+Checked at walk time, for every SDK and board, on any machine, with no cross toolchain installed:
+
+- Syntax, required keys, closed-set values, and keys valid on the kind.
+- Absolute spelling of sysroot and runtime-prefix.
+- Registry compatibility: the specs profile is known for the declared compiler family and target, and the processor properties are known for that family and architecture.
+- Project-internal paths: the linker script and every declared source exist and resolve inside the project.
+- The two board reference rules.
+
+Checked at configure time, for the selected SDK and board only:
+
+- sysroot and runtime-prefix name existing directories.
+- The selected compiler resolves the specs profile.
+- Lane compatibility.
+
+A value the repository owns is checked always. A value the machine owns is checked when the configuration depends on it. The sysroot rule has a half on each side: its spelling is the repository's to get right, its existence is the machine's.
+
+# Registries
+
+The specs registry is keyed on compiler family, target, and profile name. It records the argument the profile normalizes to and the responsibilities it supplies. For gcc, arm-none-eabi, and rdimon, the argument is --specs=rdimon.specs and the responsibilities are runtime-init and syscalls. A combination the registry does not know is an error at walk time.
+
+The processor registry is keyed on compiler family, target architecture, and the property combination. For gcc on ARM, cortex-m3 with thumb and soft becomes -mcpu=cortex-m3 -mthumb -mfloat-abi=soft. These arguments select a multilib, so the mapping decides which prebuilt runtime the link uses, and an unmapped combination is an error rather than a default.
+
+A recognized profile name does not mean the installed toolchain ships the file. The compiler answers directly, and returns the query unchanged when it cannot resolve it:
+
+Opening fence
+arm-none-eabi-g++ -print-file-name=rdimon.specs
+  /usr/lib/gcc/arm-none-eabi/14.2.1/../../../arm-none-eabi/lib/rdimon.specs
+
+arm-none-eabi-g++ -print-file-name=nosuchprofile.specs
+  nosuchprofile.specs
+Closing fence
+
+configure requires the command to succeed, the trimmed answer to differ from the query, and the answer to name an existing regular file. Both the compiler invocation and the query are shell-quoted, because a compiler name and a profile name both come from a manifest.
+
+The registry lookup and this probe are the same question asked of two authorities. The registry knows whether the project understands the profile, and answers for every SDK on any machine. Only the selected lane's compiler knows whether the file is installed, and there is no compiler to ask before a selection exists. This is the one compiler invocation configure makes that produces no artifact.
+
+# Responsibilities
+
+Five responsibilities must be owned before a bare-metal executable can be linked: reset-vector, initial-stack, memory-layout, runtime-init, and syscalls. Program exit belongs to syscalls.
+
+Checking has three states.
+
+- A hosted lane does not model them. The five describe a bare-metal startup path. A hosted system has runtime initialization and system calls, and its operating system owns them; no manifest here describes that. No check applies and a hosted SDK declares nothing.
+- A bare-metal lane with no board records reset-vector, initial-stack, and memory-layout as unresolved, and configures successfully. runtime-init and syscalls must still be covered.
+- A bare-metal lane with a board requires all five, each owned exactly once. A gap names the missing responsibility. An overlap names both claimants.
+
+Build and test reject an executable while any responsibility is unresolved, naming the unowned one, before invoking the linker. Modules and archives are unaffected: a boardless bare-metal lane compiles.
+
+A registry-known specs-profile supplies its responsibilities from the registry. A project-supplied specs-file has no registry entry and therefore no other source for them, so an SDK using specs-file declares provides itself. The permission is conditional:
+
+- With specs-file, the SDK declares both runtime-init and syscalls. Declaring neither is an error, and so is declaring one. A specs file that supplies a runtime supplies both, and a partial declaration leaves a responsibility unowned with nothing to notice it.
+- With specs-profile, SDK provides is rejected. The registry is authoritative and a manifest that could add to it is a second source of truth.
+- A hosted SDK rejects provides as inapplicable.
+- A duplicate provides value is rejected.
+
+Declaring a responsibility and contributing a source are separate permissions. An SDK is granted the first and not the second.
+
+# What a runtime does not supply
+
+The C runtime of a bare-metal SDK starts at its entry symbol and assumes the machine has already reached it. For newlib with rdimon, the startup object defines _start, _mainCRTStartup, _stack_init, and __stack_base__, and leaves main, exit, atexit, memset, __libc_init_array, __libc_fini_array, initialise_monitor_handles, __bss_start__, __bss_end__, __end__, __heap_limit, and __stack undefined.
+
+There is no reset vector in it. On Cortex-M the processor loads the initial stack pointer from address 0 and the reset handler address from address 4, and nothing in the C runtime places them there. Semihosting is a host-service interface, not a reset mechanism.
+
+The board supplies the vector table and a linker script that places it at the reset address and defines the symbols the runtime leaves undefined. The script retains the vector section explicitly: nothing references the table, because the hardware reads it, so a linker free to discard unreferenced sections will discard it.
+
+# Selection
+
+A target configuration names its platform:
+
+./configure --target arm-none-eabi --compiler arm-none-eabi-gcc --board mps2-an385 --runner qemu-system
+
+./configure --target arm-none-eabi --compiler arm-none-eabi-gcc --sdk arm-none-eabi-newlib
+
+./configure --target m68k-linux-gnu --compiler m68k-linux-gnu-g++-16 --sdk m68k-linux-glibc --runner qemu-user
+
+--board selects a board and implies the SDK its manifest names. --sdk selects an SDK with no board. Both together are accepted only when they agree. Both are valid only with --target.
+
+A target configuration naming neither is an error listing the SDKs compatible with that target, including when exactly one exists. Selecting a sole match automatically would become ambiguous the moment a second SDK appears.
+
+configure creates no runner on its own, so --runner is named explicitly on any lane that will execute.
+
+A lane may be configured with an SDK and no board. That is a complete configuration for a hosted target, and a partial one for a bare-metal target: it compiles modules and fails when an executable is required, naming the unowned responsibilities. The build has no librarian and creates no archives.
+
+A host reconfiguration preserves the target lane's SDK, board, arguments, responsibility state, machine, and runner. This extends the guarantee configure already keeps for the target compiler. Reconfiguring the same target replaces that lane; a target reconfigured without --runner has no runner, because that is a deliberate reconfiguration rather than a preservation.
+
+# Argument placement
+
+- Processor, instruction-set, and ABI arguments reach compilation and linking, identically in both. Objects compiled for one multilib and linked against another do not belong together.
+- Specs, from a profile or a file, reach the link only.
+- The linker script reaches the link only, as -T followed by its path.
+- sysroot reaches compilation and linking, as --sysroot, only when the SDK declares one.
+- runtime-prefix reaches runner construction only. No compiler invocation sees it.
+
+A board's arguments are identical in the compile command, the link command, and any external library built for that lane.
+
+# System derivation
+
+The system is derived from the target triple and from nothing else:
+
+Opening fence
+m68k-linux-gnu        linux
+aarch64-linux-gnu     linux
+arm-linux-gnueabihf   linux
+arm-none-eabi         bare-metal
+Closing fence
+
+The runtime is never derived. arm-none-eabi names an ABI, and a lane using it may be on newlib, picolibc, or no C library. The runtime, specs, sysroot, and runtime-prefix come from the selected SDK and nowhere else.
+
+There is no host row, and the table never produces posix. A host lane is not derived from a triple. A target absent from the table is an error naming the target, except when read from a record written before this release.
+
+# Attaching a board to a build
+
+A board contributes an implicit link edge, not a use edge. The build adds it after ordering, to every executable in the lane the board belongs to, applications and test binaries alike.
+
+The capability rule is untouched. For every use edge, the validator requires the consumer's capability to be a subset of the dependency's. A board edge is lane-conditional and is not that relation: it exists only in the lane whose configuration selected the board. An application buildable in both lanes therefore depends on a target-only board with no change to its own capability declarations.
+
+Board objects are produced once per build output tree, not once per lane. Each test target builds into its own directory beneath the lane, so a lane with four test targets and one application produces the board's objects five times.
+
+# Board requirement
+
+requires-board is valid on app and test manifests, requires mm: 1.2, and names the one board the node is for. It is not valid on a module manifest; a module that exists for one machine is a later question.
+
+It refines target availability and nothing else.
+
+- Host availability still follows buildable-host, unchanged.
+- It is read live from the manifest, like every other capability declaration, and is not persisted in the configuration record.
+- It is evaluated after the target-host capability union, so a lane admitting host-capability nodes still filters them by board.
+- Resolution yields an availability carrying a reason and, on a mismatch, the required and the selected board names. The diagnostic has to name both, which a boolean cannot supply.
+- A root build skips a mismatch, counts it among the unavailable, and reports it as unavailable for the target lane rather than as not buildable-target, because a skipped board mismatch has buildable-target yes.
+- An explicit request through build, test, run, or debug exits 77, which is the code these tools already return for a node unavailable in the selected lane.
+
+requires-sdk does not exist. A board implies its SDK, and an application that needs a runtime without caring which board has not appeared.
+
+# The platform model
+
+models::Configuration exposes the platform trio in the shape it already uses for toolchains: host_platform returns a reference, target_platform follows the selection, and configured_target_platform exposes a preserved one. The ambiguity after configuring a target and then selecting the host resolves the way it already resolves for toolchains.
+
+A Platform carries the target, the system, the runtime, an optional SDK, an optional board, optional responsibility ownership, and the manifest origin of each definition. Responsibility ownership belongs on the platform because that is the question a consumer asks of a platform rather than of either manifest alone.
+
+Because host_platform returns a reference it must always be constructible, so the optional parts are optional in the type and not merely absent in practice. Three configurations read as one type:
+
+- A host platform carries the recorded host target, system posix, runtime unknown, no SDK, no board, no origins, and no responsibility ownership. Absent ownership means not modeled, not unowned, which is the hosted state above.
+- A legacy target platform carries the target from the record, the system derived from the table or unknown, runtime unknown, and nothing else.
+- A configured target platform carries all of it.
+
+platform() returning a fixed string is replaced by this accessor rather than reinterpreted. A host platform's system prints POSIX, so model --configuration is unchanged in what it shows for a host lane, and docs/modules-model.mdy stops describing the value as fixed project policy.
+
+# The configuration record
+
+The record gate changes, because a schema name alone protects nothing: the loader requires mm to be exactly 1.0 and never iterates unknown keys, so an older binary would read a platform record, ignore its linker script, and link.
+
+Opening fence
+mm: 2.0
+schema: configuration-2
+Closing fence
+
+A reader from this release accepts 1.0 with no schema key as the legacy record and 2.0 with configuration-2 as the current one. Every binary from an earlier release rejects 2.0, because its gate already requires exactly 1.0. schema is the readable name; mm is what does the work.
+
+Requiredness follows the record's own version rather than being conditional within one schema.
+
+- A record with no configured target platform is written as mm 1.0. That covers a host-only configuration, and it covers running this release's configure --host over a legacy cross configuration. Neither has a platform block, so neither needs protecting, and both remain readable by earlier binaries.
+- A record is upgraded to mm 2.0 with schema configuration-2 when a target is configured with --sdk or --board, which is the first moment a reader that ignores platform keys would build something wrong.
+- Once a record is configuration-2 it stays configuration-2, including across a host reconfiguration that preserves the target lane.
+
+A configuration-2 record is validated as a whole rather than read key by key. It rejects an unknown key, a missing required platform key, a duplicated scalar, an invalid repeated value, mm 2.0 without schema configuration-2, mm 1.0 carrying a schema key, and cross-platform. The record loader's existing permissiveness stays for legacy records and ends here, so a corrupted current record cannot be partially interpreted.
+
+configuration-2 does not carry cross-platform. configure writes that key unconditionally today, so an ARM record would assert both cross-platform POSIX and cross-system bare-metal. configuration-1 keeps the key, unread except by the derivation rule, because that is what legacy records contain.
+
+The platform block, shown as an extension fragment. A complete record also carries kind, name, build, the compiler selection and programs, and the build directories.
+
+Opening fence
+mm: 2.0
+schema: configuration-2
+cross-system: bare-metal
+cross-runtime: newlib
+cross-sdk: arm-none-eabi-newlib
+cross-sdk-manifest: platforms/arm-none-eabi/mm.mdy
+cross-sdk-compiler-family: gcc
+cross-sdk-specs-argument: --specs=rdimon.specs
+cross-sdk-provides: runtime-init
+cross-sdk-provides: syscalls
+cross-board: mps2-an385
+cross-board-manifest: platforms/mps2-an385/mm.mdy
+cross-board-machine: mps2-an385
+cross-board-linker-script: platforms/mps2-an385/link.ld
+cross-board-source: platforms/mps2-an385/vectors.cpp
+cross-board-provides: reset-vector
+cross-board-provides: initial-stack
+cross-board-provides: memory-layout
+cross-board-argument: -mcpu=cortex-m3
+cross-board-argument: -mthumb
+cross-board-argument: -mfloat-abi=soft
+Closing fence
+
+A boardless bare-metal lane records the SDK half and names each unowned responsibility, so the state is visible rather than inferred from an absence:
+
+Opening fence
+cross-unresolved: reset-vector
+cross-unresolved: initial-stack
+cross-unresolved: memory-layout
+Closing fence
+
+The board records no target of its own; cross-target and the SDK carry it. Absent optional keys are omitted rather than written empty. The specs argument is recorded already normalized. Manifest paths are recorded so a reader can find what produced the record. Paths inside the project are validated with canonical containment, so a symlink cannot point a script or a source outside it.
+
+The manifest is authoritative and the record is a snapshot, exactly as resolved-options.mdy is a snapshot of manifest options. Editing a platform manifest takes effect on the next configure.
+
+# Legacy records
+
+A legacy record is one carrying mm 1.0 and no schema key. It derives its system from the table, carries runtime unknown, and keeps its recorded compiler and runner arguments untouched.
+
+Where the table does not recognize the target, a legacy record loads with system unknown rather than failing. configure accepts any target spelled from alphanumerics, hyphen, underscore, and dot, so a record may name a target the table has never heard of, and rejecting those would break configurations that work today. unknown is not selectable in a new configuration; it is the honest reading of a record written before the field existed.
+
+Legacy bare-metal executables are not rejected. Responsibility enforcement is a property of configuration-2, so a legacy record links an executable with no board, no specs, and no linker script, exactly as it does now. Because --sdk or --board is required for a new target configuration, no newly written target record is configuration-1, so every newly configured bare-metal lane is enforced and only an unreconfigured record escapes, once.
+
+# Manifest version
+
+valid_mm_version accepts 1.2. Two rules become table-driven at the same time, because neither survives a third version as a literal.
+
+- The unknown-key rule compares against the oldest version that rejects unknown keys, so 1.1 and every later version reject them. Adding 1.2 without this change would make unknown keys in a 1.2 manifest silently accepted.
+- The introduced-in rule compares against the version that introduced each key, rather than testing for 1.0.
+
+Each key names its introducing version and the kinds it is valid on. A processor key on a module manifest is an error, file on an sdk manifest is an error, target on a board manifest is an error, and requires-board on a module manifest is an error.
+
+valid_manifest accepts sdk and board as kinds. Without that, adding platforms to the root manifest breaks every manifest-reading tool at once.
+
+A tool built before this change rejects a 1.2 manifest by version, rather than ignoring keys that decide what gets linked. The manifest gate and the first 1.2 manifests therefore land together. The manifest gate and the record gate are independent changes.
+
+# Analysis and reporting
+
+check analyzes board sources. It collects from the walk's targets and tests, and a board definition is neither, so a vector table would be compiled by the build and never analyzed. It is the one file in the project where a mistake is hardest to diagnose, because it runs before anything else exists.
+
+check obtains a project projection rather than a tree alone, loads and validates the whole project once, and then filters the sources it analyzes to those beneath the given root. Reference resolution is never subtree-scoped, so a subtree holding a board whose SDK is elsewhere validates. Board file entries are manifest-relative, like a module's, so they are analyzable under a narrowed root.
+
+model and document report SDK and board definitions alongside the other manifest-derived collections, and model --configuration reports the selected platform.
+
+# Diagnostics and exit status
+
+- 0 is success.
+- 64 is invalid command syntax, including --sdk or --board without --target, a repeated selector, or both selectors disagreeing.
+- 65 is an invalid manifest, an invalid platform declaration, a failed reference or registry lookup, an unresolvable specs profile, a missing external directory, an unresolved responsibility, or an invalid configuration record.
+- 77 is a node unavailable in the selected lane, including a requires-board mismatch requested explicitly.
+
+Every platform diagnostic names the manifest it came from. A mismatch names both values. A duplicate names both manifests. An unknown selection lists the names that exist.
+
+# Examples
+
+./configure --target arm-none-eabi --compiler arm-none-eabi-gcc --board mps2-an385 --runner qemu-system
+
+./build --target
+
+./run --target target-smoke
+
+./test --target --compile-only
+
+./configure --target arm-none-eabi --compiler arm-none-eabi-gcc --sdk arm-none-eabi-newlib
+
+./model --configuration
+
+./check platforms
+
+# Conformance
+
+- A platform manifest is read from the walk configure already performs, and no tool opens it a second time.
+- A tool built before this release rejects a 1.2 manifest by version; after it, an unknown key in a 1.2 manifest is rejected as in a 1.1 one.
+- A platform key on a manifest whose kind does not accept it is an error, including file on an sdk manifest, target on a board manifest, and requires-board on a module manifest.
+- Two SDKs or two boards sharing a name are rejected, naming both manifests.
+- A board referencing no SDK, more than one, or a missing one is rejected, and reports that rather than an unknown processor combination.
+- A board's target, compiler family, and processor registry lookup come from its SDK.
+- ./configure --host, check, model, and document succeed on a tree containing every SDK with no cross toolchain installed, and no compiler is invoked before a selection exists.
+- A specs profile unknown to the registry is rejected at walk time; a profile the installed compiler cannot resolve is rejected at configure time, not at link time.
+- A specs probe whose command fails, whose answer is unchanged, or whose answer is not an existing regular file is rejected.
+- A relative sysroot or runtime-prefix is rejected at walk time for any SDK; a selected SDK's sysroot or runtime-prefix that is not an existing directory is rejected at configure time.
+- An SDK whose compiler family does not match the lane's compiler is rejected at configure time.
+- A target configuration naming neither --sdk nor --board is an error listing the compatible SDKs, even when there is one.
+- A hosted lane requires no responsibility declarations.
+- A boardless bare-metal lane configures, records three unresolved responsibilities, builds modules, and fails an executable naming the unowned responsibility before invoking the linker.
+- A bare-metal lane with a board requires all five exactly once; a gap names the missing one and an overlap names both claimants.
+- An SDK using specs-file may declare provides and must declare both runtime-init and syscalls; an SDK with specs-profile and any provides is rejected; a hosted SDK with provides is rejected; a duplicate provides value is rejected; an SDK declaring file is rejected.
+- A board with no machine, configured with a system-emulation runner, is rejected, as is a machine the profile does not recognize.
+- Processor arguments appear identically in the compile and link commands; specs and the linker script appear in the link command only; sysroot appears in both; runtime-prefix appears in neither.
+- An application buildable in both lanes depends on a target-only board with no change to its own capability values.
+- Board objects are produced once per build output tree, so each test target has its own, distinct from an application's.
+- An application or test declaring requires-board is skipped as unavailable by a root build in a lane with a different board or none, is counted among the skipped, reported as unavailable for the target lane, and exits 77 when requested explicitly.
+- A host reconfiguration preserves the target lane's SDK, board, arguments, responsibility state, machine, and runner, and a target build and run still succeed; reconfiguring the same target without --runner leaves no runner.
+- A binary from an earlier release rejects a record carrying mm 2.0.
+- A host-only configuration, and a legacy cross configuration reconfigured for the host, are both written as mm 1.0; configuring a target with an SDK or a board upgrades the record, and it stays upgraded.
+- A configuration-2 record with an unknown key, a missing required platform key, a duplicated scalar, mm 2.0 without its schema, mm 1.0 with a schema key, or cross-platform is rejected; a legacy record keeps its permissive reading and a legacy record carrying cross-platform still loads.
+- A legacy record naming a target outside the derivation table loads with system unknown and its recorded arguments unchanged, and links a bare-metal executable as it does now.
+- models::Configuration exposes host_platform returning a reference, and target_platform and configured_target_platform returning pointers, matching the toolchain trio.
+- host_platform returns a valid platform for a host-only configuration and for a legacy cross one, with system posix for the host, runtime unknown, and no SDK, board, origins, or responsibility ownership.
+- model --configuration prints POSIX for a host platform, unchanged from the current output.
+- check analyzes every board source on an unconfigured tree; a check rooted at a subtree analyzes only the board sources beneath it while resolving SDK references against the whole project.
+- Changing a board manifest's source list without reconfiguring does not change what build links.
+- A native configuration's compile and link commands are byte-identical to the preceding release.
+- A clean bootstrap succeeds with platforms registered in the root manifest.
+- One board runs under an emulator, reaching main, writing observable output, and terminating under control, with no application argument reaching the emulator.
+
+# Current boundaries
+
+Not implemented, by design, in this release:
+
+- C and assembly board sources. Board sources are C++ because compile forces -x c++.
+- SDK sources. file remains invalid on an sdk manifest.
+- More than one board per lane, or more than one target per configuration.
+- A board overriding a property of its SDK.
+- Nonzero exit status from a semihosted target, which requires SYS_EXIT_EXTENDED. A target test suite is therefore compiled and linked but not executed, because a target test that cannot report failure is a test that cannot fail.
+- Guest arguments through a system-emulation runner, which requires a semihosting mapping.
+- Archives. The build has no librarian.
+- picolibc and no-libc SDKs, which the schema admits and no manifest describes.
+- External library argument propagation, which belongs to the third-party library work.

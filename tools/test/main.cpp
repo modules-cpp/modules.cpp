@@ -104,6 +104,8 @@ int main(int argc, char** argv) {
     }
     const auto& toolchain = *toolchain_ptr;
     const auto build_dir = *lane_directory / "tests" / name;
+    const auto* platform = target_lane ? configuration.configured_target_platform()
+                                       : &configuration.host_platform();
 
     auto project = mm::build::load_project(".", {.tool = "test", .warn_options = true});
     if (!project.ok) return mm::build::exit_manifest;
@@ -132,9 +134,11 @@ int main(int argc, char** argv) {
 
     const auto buildable = capabilities.lane(
         target_lane, configuration.target_has_host_capability());
-    if (!buildable[test_node]) {
-        std::cerr << "test: " << project.nodes[test_node].manifest.string() << ": " << name
-                  << " is not buildable-" << (target_lane ? "target" : "host") << "\n";
+    const auto test_availability = mm::build::availability(
+        project, test_node, buildable[test_node], target_lane, platform);
+    if (!test_availability.available) {
+        std::cerr << "test: " << project.nodes[test_node].manifest.string() << ": "
+                  << test_availability.reason << "\n";
         return mm::build::exit_unavailable;
     }
     if (target_lane && !compile_only && !toolchain.runner) {
@@ -196,11 +200,21 @@ int main(int argc, char** argv) {
             return status;
     }
 
+    auto board = mm::build::platform_unit(platform);
+    if (board) {
+        std::cout << "  board " << board->name << "\n";
+        if (const int status = mm::build::compile(toolchain, *board, build_dir); status != 0)
+            return status;
+    }
+
     const auto binary = build_dir / name;
 
     std::cout << "\nLink\n  " << binary.string() << "\n";
 
-    const auto objects = mm::build::closure(tree, index);
+    if (!mm::build::can_link_executable(platform, "test", name))
+        return mm::build::exit_manifest;
+    auto objects = mm::build::closure(tree, index);
+    if (board) objects.insert(objects.end(), board->objects.begin(), board->objects.end());
     if (const int status = mm::build::link(toolchain, objects, binary); status != 0)
         return status;
 

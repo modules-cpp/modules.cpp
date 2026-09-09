@@ -3,7 +3,7 @@ mm: 1.0
 kind: doc
 name: modules.cpp test tool specification
 status: official
-release: v1.1.0
+release: v1.2.0
 ---
 
 # modules.cpp test tool specification
@@ -52,13 +52,17 @@ Example diagnostic:
 
 test: tests/device/mm.mdy: device is not buildable-target
 
+A test declaring requires-board is available only when the selected target platform names that board. A mismatch also exits 77 and names both boards; it is not described as buildable-target no.
+
 Every module reached through use must be available in the same lane. Capability incompatibility is rejected before compilation and identifies the consumer, dependency, lane, and restricting origin.
 
 Capability declarations produce no ignored-option warnings. Other manifest options retain their warning-only behavior until compilation consumes them.
 
 # Compile and link
 
-Test appends the requested kind:test target to the selected project modules, orders only its transitive dependency closure, compiles its unit entries, and links one test executable.
+Test appends the requested kind:test target to the selected project modules, orders only its transitive dependency closure, compiles its unit entries, compiles the configured board unit in that test's output tree, and links one test executable with the board objects.
+
+A configuration-2 bare-metal test with an unresolved startup responsibility exits 65 before linking. Module compilation remains available in a boardless lane.
 
 The selected configured toolchain supplies the compiler and linker. The test command cannot select a different compiler or build type from build.
 
@@ -127,7 +131,11 @@ Compile and link a target test without executing it:
 - Both lane selectors together and repeated selectors exit 64.
 - --target without a target lane exits 65 before compilation.
 - An explicitly requested test unavailable in the lane exits 77 and names that lane.
+- A requires-board mismatch exits 77 and names the required and selected boards.
 - An unavailable dependency is rejected before compilation.
+- Platform compiler arguments reach test and board compilation and linking; specs and linker script arguments reach linking only.
+- The configured board unit is compiled in the selected test output tree and linked into the test executable.
+- An unresolved responsibility exits 65 before linking an executable.
 - --compile-only compiles and links but invokes no executable or runner.
 - Target execution without a runner exits 65 and never executes the target binary directly.
 - Host execution continues to propagate the local test status.

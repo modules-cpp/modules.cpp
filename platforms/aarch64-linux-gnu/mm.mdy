@@ -1,0 +1,9 @@
+---
+mm: 1.2
+kind: sdk
+name: aarch64-linux-glibc
+target: aarch64-linux-gnu
+compiler-family: gcc
+runtime: glibc
+runtime-prefix: /usr/aarch64-linux-gnu
+---

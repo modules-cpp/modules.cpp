@@ -1,0 +1,11 @@
+---
+mm: 1.0
+kind: module
+name: platform
+module: models.platform
+file: platform.cppm
+---
+
+# models.platform
+
+The selected host or target platform as data: system, runtime, optional SDK and board, and bare-metal responsibility ownership.

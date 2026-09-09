@@ -1,0 +1,10 @@
+---
+mm: 1.0
+kind: dir
+name: platforms
+folder: arm-none-eabi
+folder: mps2-an385
+folder: m68k-linux-gnu
+folder: aarch64-linux-gnu
+folder: arm-linux-gnueabihf
+---

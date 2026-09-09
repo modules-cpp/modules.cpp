@@ -50,6 +50,23 @@ void root_children_include_a_real_directory_node() {
         mm::test::expect(apps->kind() == models::Kind::Directory, "expected apps/ to be Kind::Directory");
 }
 
+void repository_exposes_platform_definitions() {
+    bool ok = false;
+    auto loaded = mm::model::Loaded::load(".", ok);
+    const auto sdks = loaded.repository().sdks();
+    const auto boards = loaded.repository().boards();
+    mm::test::expect(ok && sdks.size() == 4,
+                     "expected all four SDK definitions from the manifest walk");
+    mm::test::expect(boards.size() == 1,
+                     "expected the board definition from the manifest walk");
+    if (boards.empty()) return;
+    mm::test::expect(boards.front()->kind() == models::Kind::Board &&
+                         boards.front()->sdk() == "arm-none-eabi-newlib" &&
+                         boards.front()->cpu() == "cortex-m3" &&
+                         boards.front()->sources().size() == 1,
+                     "expected the board's SDK, processor, and source");
+}
+
 void child_and_parent_agree_with_each_other() {
     bool ok = false;
     auto loaded = mm::model::Loaded::load(".", ok);
@@ -141,6 +158,7 @@ const mm::test::case_ cases[] = {
     { "load of the real root succeeds",                &load_of_the_real_root_succeeds },
     { "root reflects the real project manifest",       &root_reflects_the_real_project_manifest },
     { "root children include a real directory node",   &root_children_include_a_real_directory_node },
+    { "repository exposes platform definitions",       &repository_exposes_platform_definitions },
     { "child and parent agree with each other",        &child_and_parent_agree_with_each_other },
     { "every app reaches the root by walking parent",  &every_app_reaches_the_root_by_walking_parent },
     { "load of a nonexistent directory fails",         &load_of_a_nonexistent_directory_fails },

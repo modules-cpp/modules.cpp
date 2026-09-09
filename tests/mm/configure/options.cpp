@@ -104,7 +104,8 @@ void locks_and_leaf_intent() {
     }
     for (const auto& kind : {std::string("module"), std::string("app"), std::string("test")}) {
         const auto sources = kind == "test" ? "unit: child.cpp\n" : "file: child.cpp\n";
-        tree.manifest_raw("child", "mm: 1.1\nkind: " + kind + "\nname: child\nmodule: child\n" + sources + "read-only: optimize\nread-only: warnings\noption: warnings yes\n");
+        const auto module = kind == "module" ? "module: child\n" : "";
+        tree.manifest_raw("child", "mm: 1.1\nkind: " + kind + "\nname: child\n" + module + sources + "read-only: optimize\nread-only: warnings\noption: warnings yes\n");
         Resolution result;
         expect(resolve(tree, Build::Debug, result), "leaf lock and reordered assignment are permitted");
         expect(result.values[1].at("optimize").lock_source == tree.root() / "mm.mdy", "idempotent inherited marker retains first lock");

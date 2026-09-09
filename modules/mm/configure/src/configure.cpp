@@ -18,6 +18,46 @@ module mm.configure;
 
 namespace mm::configure {
 
+std::string_view platform_system_name(PlatformSystem system) {
+    switch (system) {
+        case PlatformSystem::Posix: return "POSIX";
+        case PlatformSystem::Linux: return "linux";
+        case PlatformSystem::BareMetal: return "bare-metal";
+        case PlatformSystem::Unknown: return "unknown";
+    }
+    return "unknown";
+}
+
+std::string_view platform_runtime_name(PlatformRuntime runtime) {
+    switch (runtime) {
+        case PlatformRuntime::Unknown: return "unknown";
+        case PlatformRuntime::Glibc: return "glibc";
+        case PlatformRuntime::Newlib: return "newlib";
+        case PlatformRuntime::Picolibc: return "picolibc";
+        case PlatformRuntime::None: return "none";
+    }
+    return "unknown";
+}
+
+std::string_view responsibility_name(Responsibility responsibility) {
+    switch (responsibility) {
+        case Responsibility::ResetVector: return "reset-vector";
+        case Responsibility::InitialStack: return "initial-stack";
+        case Responsibility::MemoryLayout: return "memory-layout";
+        case Responsibility::RuntimeInit: return "runtime-init";
+        case Responsibility::Syscalls: return "syscalls";
+    }
+    return {};
+}
+
+std::optional<PlatformSystem> target_system(std::string_view target) {
+    if (target == "m68k-linux-gnu" || target == "aarch64-linux-gnu" ||
+        target == "arm-linux-gnueabihf")
+        return PlatformSystem::Linux;
+    if (target == "arm-none-eabi") return PlatformSystem::BareMetal;
+    return std::nullopt;
+}
+
 namespace {
 
 bool valid_scalar(std::string_view value, bool allow_empty = false) {
@@ -90,10 +130,23 @@ bool write_atomic(const std::filesystem::path& root, const std::filesystem::path
     return ok;
 }
 
-bool valid_compiler(const CompilerSettings& compiler) {
+bool valid_compiler(const CompilerSettings& compiler, bool require_platform = true) {
     return valid_scalar(compiler.invocation) && valid_scalar(compiler.target) &&
-           valid_scalar(compiler.platform) && valid_scalar(compiler.compile_flags) &&
+           (!require_platform || valid_scalar(compiler.platform)) &&
+           valid_scalar(compiler.compile_flags) &&
            valid_scalar(compiler.link_flags);
+}
+
+bool valid_platform(const PlatformSettings& platform, bool configured) {
+    if (!valid_scalar(platform.target) || platform.target == "host") return !configured;
+    if (!configured) return true;
+    if (!platform.sdk || !platform.sdk_manifest ||
+        !valid_scalar(*platform.sdk) || platform.sdk_manifest->empty())
+        return false;
+    if (platform.board.has_value() != platform.board_manifest.has_value()) return false;
+    for (const auto& argument : platform.compiler_arguments)
+        if (!valid_scalar(argument)) return false;
+    return true;
 }
 
 bool valid_runner(const RunnerSettings& runner) {
@@ -125,7 +178,14 @@ bool valid_settings(const Settings& settings) {
         !valid_build_directory(settings.target_build_directory))
         return false;
 
-    if (settings.cross && !valid_compiler(*settings.cross)) return false;
+    if (settings.cross && !valid_compiler(*settings.cross, !settings.configuration_2)) return false;
+    if (settings.host.target != "host" || settings.host_platform.target != "host" ||
+        settings.host_platform.system != PlatformSystem::Posix)
+        return false;
+    if (settings.configuration_2 &&
+        (!settings.cross || !settings.cross_platform ||
+         !valid_platform(*settings.cross_platform, true)))
+        return false;
     if (settings.host_debugger && !valid_debugger(*settings.host_debugger)) return false;
     if (settings.host_debugger &&
         settings.host_debugger->connection != DebuggerConnection::Direct)
@@ -153,13 +213,44 @@ bool valid_settings(const Settings& settings) {
 }
 
 void write_compiler(std::ostream& out, std::string_view prefix,
-                    const CompilerSettings& compiler) {
+                    const CompilerSettings& compiler, bool write_platform = true) {
     out << prefix << "-compiler-family: " << compiler_family_name(compiler.family) << '\n';
     out << prefix << "-compiler: " << compiler.invocation << '\n';
     out << prefix << "-target: " << compiler.target << '\n';
-    out << prefix << "-platform: " << compiler.platform << '\n';
+    if (write_platform) out << prefix << "-platform: " << compiler.platform << '\n';
     out << prefix << "-compile-flags: " << compiler.compile_flags << '\n';
     out << prefix << "-link-flags: " << compiler.link_flags << '\n';
+}
+
+void write_platform(std::ostream& out, const PlatformSettings& platform) {
+    out << "cross-system: " << platform_system_name(platform.system) << '\n';
+    out << "cross-runtime: " << platform_runtime_name(platform.runtime) << '\n';
+    out << "cross-sdk: " << *platform.sdk << '\n';
+    out << "cross-sdk-manifest: " << platform.sdk_manifest->generic_string() << '\n';
+    out << "cross-sdk-compiler-family: " << compiler_family_name(platform.sdk_family) << '\n';
+    if (platform.sysroot) out << "cross-sdk-sysroot: " << platform.sysroot->generic_string() << '\n';
+    if (platform.runtime_prefix)
+        out << "cross-sdk-runtime-prefix: " << platform.runtime_prefix->generic_string() << '\n';
+    if (!platform.specs_argument.empty())
+        out << "cross-sdk-specs-argument: " << platform.specs_argument << '\n';
+    for (const auto& [responsibility, owner] : platform.responsibility_owners)
+        if (owner == *platform.sdk)
+            out << "cross-sdk-provides: " << responsibility_name(responsibility) << '\n';
+    if (platform.board) {
+        out << "cross-board: " << *platform.board << '\n';
+        out << "cross-board-manifest: " << platform.board_manifest->generic_string() << '\n';
+        if (!platform.machine.empty()) out << "cross-board-machine: " << platform.machine << '\n';
+        out << "cross-board-linker-script: " << platform.linker_script.generic_string() << '\n';
+        for (const auto& source : platform.board_sources)
+            out << "cross-board-source: " << source.generic_string() << '\n';
+        for (const auto& [responsibility, owner] : platform.responsibility_owners)
+            if (owner == *platform.board)
+                out << "cross-board-provides: " << responsibility_name(responsibility) << '\n';
+        for (const auto& argument : platform.compiler_arguments)
+            out << "cross-board-argument: " << argument << '\n';
+    }
+    for (const auto responsibility : platform.unresolved)
+        out << "cross-unresolved: " << responsibility_name(responsibility) << '\n';
 }
 
 void write_runner(std::ostream& out, const RunnerSettings& runner) {
@@ -266,11 +357,24 @@ bool valid_target_triple(std::string_view value) {
 }
 
 std::optional<RunnerSettings> runner_profile(std::string_view profile,
-                                             std::string_view target) {
+                                             std::string_view target,
+                                             const PlatformSettings* platform) {
     if (profile == "qemu-user" && target == "m68k-linux-gnu") {
         RunnerSettings runner;
         runner.invocation = "qemu-m68k";
-        runner.prefix_arguments = {"-L", "/usr/m68k-linux-gnu"};
+        if (platform != nullptr && platform->runtime_prefix)
+            runner.prefix_arguments = {"-L", platform->runtime_prefix->string()};
+        return runner;
+    }
+    if (profile == "qemu-system" && target == "arm-none-eabi" && platform != nullptr &&
+        platform->machine == "mps2-an385") {
+        RunnerSettings runner;
+        runner.invocation = "qemu-system-arm";
+        runner.prefix_arguments = {"-M", "mps2-an385", "-cpu", "cortex-m3",
+                                   "-nographic", "-semihosting"};
+        runner.image = RunnerImage::Option;
+        runner.image_option = "-kernel";
+        runner.forwards_arguments = false;
         return runner;
     }
     return std::nullopt;
@@ -382,7 +486,8 @@ bool write_configuration(const std::filesystem::path& project_root, const Settin
     std::ostringstream out;
 
     out << "---\n";
-    out << "mm: 1.0\n";
+    out << "mm: " << (settings.configuration_2 ? "2.0" : "1.0") << '\n';
+    if (settings.configuration_2) out << "schema: configuration-2\n";
     out << "kind: configuration\n";
     out << "name: " << settings.name << '\n';
     out << "build: " << build_name(settings.build) << '\n';
@@ -392,9 +497,10 @@ bool write_configuration(const std::filesystem::path& project_root, const Settin
         << (settings.target_has_host_capability ? "yes" : "no") << '\n';
     write_compiler(out, "host", settings.host);
     if (settings.host_debugger) write_debugger(out, "host", *settings.host_debugger);
-    if (settings.cross) write_compiler(out, "cross", *settings.cross);
+    if (settings.cross) write_compiler(out, "cross", *settings.cross, !settings.configuration_2);
     if (settings.cross_debugger) write_debugger(out, "cross", *settings.cross_debugger);
     if (settings.cross_runner) write_runner(out, *settings.cross_runner);
+    if (settings.configuration_2) write_platform(out, *settings.cross_platform);
     out << "host-build-directory: " << settings.host_build_directory.generic_string() << '\n';
     out << "target-build-directory: " << settings.target_build_directory.generic_string() << '\n';
     out << "---\n";

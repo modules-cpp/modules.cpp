@@ -1,0 +1,8 @@
+---
+mm: 1.2
+kind: app
+name: target-smoke
+option: buildable-host no
+requires-board: mps2-an385
+file: main.cpp
+---

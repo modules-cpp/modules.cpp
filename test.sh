@@ -177,6 +177,7 @@ run_test_target tests/mm/mdy/ || exit $?
 run_test_target tests/mm/shell/ || exit $?
 run_test_target tests/mm/model/ || exit $?
 run_test_target tests/mm/run/ || exit $?
+run_test_target tests/target/board/ || exit $?
 
 if [ "$skipped_suites" -gt 0 ]; then
     echo

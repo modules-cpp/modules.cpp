@@ -10,6 +10,7 @@ file: modules-c++20.mdy
 file: modules-configure.mdy
 file: modules-debug.mdy
 file: modules-model.mdy
+file: modules-platforms.mdy
 file: modules-run.mdy
 file: modules-test.mdy
 ---

@@ -4,10 +4,12 @@ kind: test
 name: build
 use: mm.test
 use: mm.build
+use: mm.configure
 unit: tests/mm/build/quote.cpp
 unit: tests/mm/build/walk.cpp
 unit: tests/mm/build/order.cpp
 unit: tests/mm/build/configuration.cpp
+unit: tests/mm/build/platform.cpp
 unit: tests/main.cpp
 ---
 

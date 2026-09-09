@@ -7,8 +7,8 @@
 // module covers, the dependency order between them, and how mm.model and
 // tools/model consume this one.
 //
-// ManifestNode models the six kinds docs/modules.mdy defines: project, dir,
-// module, app, test, and doc. It mirrors mm::build::ManifestNode
+// ManifestNode models the eight kinds docs/modules.mdy defines: project, dir,
+// module, app, test, doc, sdk, and board. It mirrors mm::build::ManifestNode
 // (modules/mm/build/build.cppm) conceptually, as an abstract interface
 // instead of that module's flat struct. See models.repository for the
 // aggregate view over a whole tree of these nodes.
@@ -32,7 +32,7 @@ import models.document;
 
 export namespace models {
 
-enum class Kind { Project, Directory, Module, App, Test, Doc };
+enum class Kind { Project, Directory, Module, App, Test, Doc, Sdk, Board };
 
 // A single file: or unit: entry. Source order is declaration order, per
 // docs/modules.mdy's "Repeated manifest values retain declaration order."
@@ -172,6 +172,24 @@ public:
     // never walks a doc's file: entries into nodes of their own, so there
     // is nothing here for children() to return (see ManifestNode).
     [[nodiscard]] virtual std::vector<std::filesystem::path> files() const = 0;
+};
+
+class SdkNode : public ManifestNode {
+public:
+    [[nodiscard]] Kind kind() const override { return Kind::Sdk; }
+    [[nodiscard]] virtual std::string_view target() const = 0;
+    [[nodiscard]] virtual std::string_view compiler_family() const = 0;
+    [[nodiscard]] virtual std::string_view runtime() const = 0;
+};
+
+class BoardNode : public ManifestNode {
+public:
+    [[nodiscard]] Kind kind() const override { return Kind::Board; }
+    [[nodiscard]] virtual std::string_view sdk() const = 0;
+    [[nodiscard]] virtual std::string_view cpu() const = 0;
+    [[nodiscard]] virtual std::string_view machine() const = 0;
+    [[nodiscard]] virtual std::filesystem::path linker_script() const = 0;
+    [[nodiscard]] virtual std::vector<std::filesystem::path> sources() const = 0;
 };
 
 }  // namespace models

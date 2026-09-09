@@ -27,11 +27,11 @@ Each metadata entry is written as a key, a colon, and a value.
 Although the fences resemble YAML front matter, MDY does not implement YAML.
 
 ## Manifest metadata
-The mm key identifies the format version. mm::build's shared manifest gate supports 1.0 and 1.1 and rejects missing, unsupported, or duplicated mm values. A source manifest declaring option, reset, or read-only requires 1.1; a 1.0 manifest without those declarations remains valid. See docs/modules-configure.mdy for configure semantics and the compatibility policy used by configure, build, test, check, model, document, run, and debug.
+The mm key identifies the format version. mm::build's shared manifest gate supports 1.0, 1.1, and 1.2 and rejects missing, unsupported, or duplicated mm values. A source manifest declaring option, reset, or read-only requires 1.1. The sdk and board kinds, their platform keys, and requires-board require 1.2. A 1.0 manifest without newer declarations remains valid. See docs/modules-configure.mdy and docs/modules-platforms.mdy for the compatibility and platform rules used by configure, build, test, check, model, document, run, and debug.
 
-The kind key identifies the manifest role. Values currently used in the repository are project, dir, module, app, and doc.
+The kind key identifies the manifest role. Values currently used in the repository are project, dir, module, app, test, doc, sdk, and board.
 
-The name key gives the logical name of the described project, directory, module, application, or document.
+The name key gives the logical name of the described project, directory, module, application, test, document, SDK, or board.
 
 The file key names a source or document file associated with module, app, and doc manifests.
 

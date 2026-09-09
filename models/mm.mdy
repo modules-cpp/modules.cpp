@@ -3,6 +3,7 @@ mm: 1.0
 kind: dir
 name: models
 folder: document
+folder: platform
 folder: configuration
 folder: manifest
 folder: repository

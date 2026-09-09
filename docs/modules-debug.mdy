@@ -31,7 +31,7 @@ Configure the host debugger with:
 
 Configure m68k runner-remote debugging with:
 
-./configure --target m68k-linux-gnu --target-host --compiler m68k-linux-gnu-g++-16 --runner qemu-user --debugger gdb
+./configure --target m68k-linux-gnu --target-host --compiler m68k-linux-gnu-g++-16 --sdk m68k-linux-glibc --runner qemu-user --debugger gdb
 
 --debugger accepts none or gdb. Omitting it or selecting none removes the debugger from the lane being configured and preserves the other lane. The configure tool verifies that the resolved debugger program is executable before writing the configuration.
 
@@ -40,6 +40,8 @@ For the host, gdb resolves to direct mode and receives --args followed by the ex
 For m68k-linux-gnu, gdb resolves to gdb-multiarch in runner-remote mode. The debug module asks mm.run to construct the qemu-m68k command with the configured sysroot and -g 1234, then starts gdb-multiarch with the target executable and connects it to localhost:1234. Exiting GDB cleans up the runner process. This debugs the guest application; it does not attach GDB to the QEMU host process.
 
 A runner-remote debugger requires a runner in the same target toolchain. A direct debugger is valid only for the host lane. Other target debugger profiles are not yet supported.
+
+Debug accepts no SDK or board override. It uses the platform already selected by configure, applies requires-board availability, and exits 77 for a mismatch. The qemu-system ARM runner is usable by run, but no ARM debugger profile is configured in this release.
 
 # Exit behavior
 

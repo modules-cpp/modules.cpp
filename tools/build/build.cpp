@@ -115,6 +115,8 @@ int main(int argc, char** argv) {
     }
     const auto& toolchain = *toolchain_ptr;
     const auto& build_dir = *build_dir_ptr;
+    const auto* platform = target_lane ? configuration.configured_target_platform()
+                                       : &configuration.host_platform();
     if (!mm::configure::log_configuration({
             .tool = "build",
             .build = mm::build::build_name(configuration.build),
@@ -165,11 +167,22 @@ int main(int argc, char** argv) {
 
     const auto buildable = capabilities.lane(
         target_lane, configuration.target_has_host_capability());
+    std::vector<mm::build::Availability> available;
+    available.reserve(project.nodes.size());
+    for (std::size_t i = 0; i < project.nodes.size(); ++i)
+        available.push_back(mm::build::availability(project, i, buildable[i], target_lane,
+                                                    platform));
+    if ((project.nodes[scope].kind == "app" || project.nodes[scope].kind == "test") &&
+        !available[scope].available) {
+        std::cerr << "build: " << project.nodes[scope].manifest.string() << ": "
+                  << available[scope].reason << "\n";
+        return mm::build::exit_unavailable;
+    }
     std::vector<std::size_t> old_to_new(project.targets.size(), mm::build::no_target);
     mm::build::Tree tree;
     for (std::size_t i = 0; i < project.nodes.size(); ++i) {
         if ((project.nodes[i].kind == "module" || project.nodes[i].kind == "app") &&
-            project.target[i] != mm::build::no_target && buildable[i]) {
+            project.target[i] != mm::build::no_target && available[i].available) {
             const auto old = project.target[i];
             if (old_to_new[old] == mm::build::no_target) {
                 old_to_new[old] = tree.targets.size();
@@ -187,7 +200,7 @@ int main(int argc, char** argv) {
         if (!in_scope[i]) continue;
         if (project.nodes[i].kind == "module" || project.nodes[i].kind == "app") {
             ++declared_targets;
-            if (!buildable[i])
+            if (!available[i].available)
                 ++unavailable_targets;
             else
                 roots.push_back(old_to_new[project.target[i]]);
@@ -238,6 +251,13 @@ int main(int argc, char** argv) {
             return status;
     }
 
+    auto board = mm::build::platform_unit(platform);
+    if (board) {
+        std::cout << "  board " << board->name << "\n";
+        if (const int status = mm::build::compile(toolchain, *board, build_dir); status != 0)
+            return status;
+    }
+
     // Linked artifacts follow the configured build directory, but installed
     // host tools keep their stable launcher path. In particular, ./build and
     // build.sh execute out/bin/build, so a configured build must replace that
@@ -253,7 +273,10 @@ int main(int argc, char** argv) {
 
         std::cout << "  app " << target.name << " -> " << output.string() << "\n";
 
-        const auto objects = mm::build::closure(tree, index);
+        if (!mm::build::can_link_executable(platform, "build", target.name))
+            return mm::build::exit_manifest;
+        auto objects = mm::build::closure(tree, index);
+        if (board) objects.insert(objects.end(), board->objects.begin(), board->objects.end());
         if (const int status = mm::build::link(toolchain, objects, output); status != 0)
             return status;
 
@@ -265,8 +288,8 @@ int main(int argc, char** argv) {
 
     if (!target_lane) std::cout << "\nInstalled to " << bin_dir.string() << "\n";
     if (unavailable_targets != 0)
-        std::cout << unavailable_targets << " module/app target(s) skipped; not buildable-"
-                  << (target_lane ? "target" : "host") << "\n";
+        std::cout << unavailable_targets << " module/app target(s) skipped; unavailable for the "
+                  << (target_lane ? "target" : "host") << " lane\n";
     if (skipped_tests != 0)
         std::cout << skipped_tests << " kind:test target(s) skipped; run them with tools/test\n";
     if (skipped_docs != 0)

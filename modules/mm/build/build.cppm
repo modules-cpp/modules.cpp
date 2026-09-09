@@ -65,6 +65,8 @@ struct Toolchain {
     bool verbose = false;
 };
 
+using Platform = mm::configure::PlatformSettings;
+
 using mm::configure::compiler_family_name;
 using mm::configure::build_name;
 
@@ -94,6 +96,14 @@ public:
     [[nodiscard]] bool target_has_host_capability() const {
         return target_has_host_capability_;
     }
+    [[nodiscard]] const Platform& host_platform() const { return host_platform_; }
+    [[nodiscard]] const Platform* target_platform() const {
+        return selects_cross_ ? configured_target_platform() : nullptr;
+    }
+    [[nodiscard]] const Platform* configured_target_platform() const {
+        return cross_platform_ ? &*cross_platform_ : nullptr;
+    }
+    [[nodiscard]] bool configuration_2() const { return configuration_2_; }
 
     [[nodiscard]] const Toolchain* toolchain_for(bool target) const {
         if (target) return cross_toolchain();
@@ -117,8 +127,11 @@ private:
     Toolchain host_;
     std::optional<Toolchain> cross_;
     std::optional<std::filesystem::path> cross_build_directory_;
+    Platform host_platform_;
+    std::optional<Platform> cross_platform_;
     bool selects_cross_ = false;
     bool target_has_host_capability_ = false;
+    bool configuration_2_ = false;
 
     friend bool load_configuration(const std::filesystem::path&, bool, BuildConfiguration&);
     friend bool resolve_configuration(const std::filesystem::path&, bool, BuildConfiguration&);
@@ -156,7 +169,36 @@ struct BuildableNode {
     std::filesystem::path dir;                   // root relative
     std::vector<TranslationUnit> sources;        // root relative
     std::vector<std::string> uses;               // module names
+    std::string requires_board;                  // kind:app or kind:test only
     std::vector<std::filesystem::path> objects;  // filled in by compile
+};
+
+struct SdkDefinition {
+    std::size_t node = static_cast<std::size_t>(-1);
+    std::string name;
+    std::filesystem::path manifest;
+    std::string target;
+    CompilerFamily family = CompilerFamily::Gcc;
+    mm::configure::PlatformRuntime runtime = mm::configure::PlatformRuntime::Unknown;
+    std::string specs_profile;
+    std::filesystem::path specs_file;
+    std::optional<std::filesystem::path> sysroot;
+    std::optional<std::filesystem::path> runtime_prefix;
+    std::vector<mm::configure::Responsibility> provides;
+};
+
+struct BoardDefinition {
+    std::size_t node = static_cast<std::size_t>(-1);
+    std::string name;
+    std::filesystem::path manifest;
+    std::string sdk;
+    std::string cpu;
+    std::string instruction_set;
+    std::string float_abi;
+    std::string machine;
+    std::filesystem::path linker_script;
+    std::vector<std::filesystem::path> sources;
+    std::vector<mm::configure::Responsibility> provides;
 };
 
 struct Tree {
@@ -217,8 +259,24 @@ struct Project {
     std::vector<BuildableNode> targets;           // kind:module and kind:app
     std::vector<BuildableNode> tests;
     std::vector<BuildableNode> docs;
+    std::vector<SdkDefinition> sdks;
+    std::vector<BoardDefinition> boards;
     bool ok = true;
 };
+
+struct Availability {
+    bool available = false;
+    std::string reason;
+};
+
+[[nodiscard]] Availability availability(const Project& project, std::size_t node,
+                                        bool capability, bool target_lane,
+                                        const Platform* platform);
+
+[[nodiscard]] bool can_link_executable(const Platform* platform, std::string_view tool,
+                                       std::string_view name);
+
+[[nodiscard]] std::optional<BuildableNode> platform_unit(const Platform* platform);
 
 // Resolved build capability for every Project::nodes entry. The selected lane
 // chooses one of these vectors; keeping both preserves the declaration for
