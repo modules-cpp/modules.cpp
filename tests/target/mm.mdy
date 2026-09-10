@@ -4,4 +4,5 @@ kind: dir
 name: target
 folder: board
 folder: rp2040
+folder: rp2350
 ---

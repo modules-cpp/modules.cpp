@@ -3,4 +3,5 @@ mm: 1.0
 kind: dir
 name: pico
 folder: rp2040-ram
+folder: rp2350-ram
 ---

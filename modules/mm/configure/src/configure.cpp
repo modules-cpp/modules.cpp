@@ -408,11 +408,11 @@ std::optional<RunnerSettings> runner_profile(std::string_view profile,
 }
 
 std::optional<DebuggerSettings> debugger_profile(std::string_view profile,
-                                                  std::string_view target) {
-    if (profile != "gdb") return std::nullopt;
-    if (target == "host")
+                                                  std::string_view target,
+                                                  const PlatformSettings* platform) {
+    if (profile == "gdb" && target == "host")
         return DebuggerSettings{.invocation = "gdb"};
-    if (target == "m68k-linux-gnu") {
+    if (profile == "gdb" && target == "m68k-linux-gnu") {
         return DebuggerSettings{
             .invocation = "gdb-multiarch",
             .prefix_arguments = {"-q"},
@@ -420,6 +420,19 @@ std::optional<DebuggerSettings> debugger_profile(std::string_view profile,
             .remote_endpoint = "localhost:1234",
             .runner_arguments = {"-g", "1234"},
         };
+    }
+    if ((profile == "gdb" || profile == "openocd") && target == "arm-none-eabi" &&
+        platform != nullptr) {
+        const auto* machine_entry = find_runner_machine("openocd", target, platform->machine);
+        if (machine_entry != nullptr) {
+            return DebuggerSettings{
+                .invocation = "gdb-multiarch",
+                .prefix_arguments = {"-q"},
+                .connection = DebuggerConnection::RunnerRemote,
+                .remote_endpoint = "localhost:3333",
+                .runner_arguments = {},
+            };
+        }
     }
     return std::nullopt;
 }

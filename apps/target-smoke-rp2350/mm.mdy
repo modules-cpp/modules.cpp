@@ -1,0 +1,12 @@
+---
+mm: 1.2
+kind: app
+name: target-smoke-rp2350
+option: buildable-host no
+requires-board: rp2350-ram
+file: main.cpp
+---
+
+# target-smoke-rp2350
+
+Smoke application requiring the rp2350-ram board. It verifies that an executable declaring board requirements compiles and links successfully when the rp2350-ram platform provides reset-vector, initial-stack, and memory-layout responsibilities.

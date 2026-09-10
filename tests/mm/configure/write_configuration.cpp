@@ -281,6 +281,28 @@ void openocd_runner_profile_and_configuration() {
     mm::test::expect(!mm::configure::runner_profile("qemu-system", "arm-none-eabi", &platform).has_value(),
                      "expected qemu-system profile to reject rp2040");
 
+    const auto openocd_debugger = mm::configure::debugger_profile("gdb", "arm-none-eabi", &platform);
+    mm::test::expect(openocd_debugger.has_value(), "expected openocd debugger profile to resolve for rp2040");
+    mm::test::expect(openocd_debugger->invocation == "gdb-multiarch", "expected gdb-multiarch invocation");
+    mm::test::expect(openocd_debugger->connection == mm::configure::DebuggerConnection::RunnerRemote,
+                     "expected runner-remote connection");
+    mm::test::expect(openocd_debugger->remote_endpoint == "localhost:3333",
+                     "expected localhost:3333 remote endpoint");
+    mm::test::expect(openocd_debugger->runner_arguments.empty(), "expected empty runner_arguments");
+    mm::test::expect(openocd_debugger->prefix_arguments == std::vector<std::string>{"-q"},
+                     "expected -q prefix argument");
+
+    mm::test::expect(mm::configure::debugger_profile("openocd", "arm-none-eabi", &platform).has_value(),
+                     "expected openocd named debugger profile to resolve for rp2040");
+
+    platform.machine = "rp2350";
+    mm::test::expect(mm::configure::debugger_profile("gdb", "arm-none-eabi", &platform).has_value(),
+                     "expected openocd debugger profile to resolve for rp2350");
+
+    platform.machine = "mps2-an385";
+    mm::test::expect(!mm::configure::debugger_profile("gdb", "arm-none-eabi", &platform).has_value(),
+                     "expected openocd debugger profile to reject mps2-an385");
+
     const mm::test::scoped_tree tree{"configure_openocd"};
     auto settings = native_settings();
     settings.name = "arm-none-eabi";
@@ -288,6 +310,7 @@ void openocd_runner_profile_and_configuration() {
     platform.machine = "rp2040";
     settings.cross_platform = platform;
     settings.cross_runner = openocd;
+    settings.cross_debugger = openocd_debugger;
     settings.cross = mm::configure::CompilerSettings{
         mm::configure::CompilerFamily::Gcc,
         "arm-none-eabi-g++",
@@ -311,6 +334,14 @@ void openocd_runner_profile_and_configuration() {
                      "expected cross-runner-image-argument entries");
     mm::test::expect(first(document, "cross-runner-forwards-arguments") == "no",
                      "expected cross-runner-forwards-arguments no");
+    mm::test::expect(first(document, "cross-debugger") == "gdb-multiarch",
+                     "expected cross-debugger gdb-multiarch");
+    mm::test::expect(first(document, "cross-debugger-connection") == "runner-remote",
+                     "expected cross-debugger-connection runner-remote");
+    mm::test::expect(first(document, "cross-debugger-remote-endpoint") == "localhost:3333",
+                     "expected cross-debugger-remote-endpoint localhost:3333");
+    mm::test::expect(all(document, "cross-debugger-prefix-argument") == std::vector<std::string>{"-q"},
+                     "expected cross-debugger-prefix-argument -q");
 }
 
 const mm::test::case_ cases[] = {

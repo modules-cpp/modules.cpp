@@ -267,12 +267,12 @@ int main(int argc, char** argv) {
     options.option("--runner", "none or a supported runner profile");
     options.option("--sdk", "a supported SDK manifest name");
     options.option("--board", "a supported board manifest name");
-    options.option("--debugger", "none or gdb");
+    options.option("--debugger", "none, gdb, or openocd");
     options.option("--build", "debug or release");
     options.help("configure [-v|--verbose] [-h|--help] [--host | --target TRIPLE] "
                  "[--target-host] "
                  "[--compiler COMPILER] [--sdk SDK] [--board BOARD] "
-                 "[--runner none|PROFILE] [--debugger none|gdb] "
+                 "[--runner none|PROFILE] [--debugger none|gdb|openocd] "
                  "[--build debug|release] [manifest]");
     const auto cli = options.parse(argc, argv);
     if (cli == mm::app::Cli::help) return mm::build::exit_ok;
@@ -502,8 +502,9 @@ int main(int argc, char** argv) {
         }
         settings.cross_debugger.reset();
         if (!debuggers.empty() && debuggers.front() != "none") {
-            settings.cross_debugger =
-                mm::configure::debugger_profile(debuggers.front(), target);
+            settings.cross_debugger = mm::configure::debugger_profile(
+                debuggers.front(), target,
+                settings.cross_platform ? &*settings.cross_platform : nullptr);
             if (!settings.cross_debugger) {
                 std::cerr << "configure: debugger " << debuggers.front()
                           << " is not compatible with " << target << "\n";

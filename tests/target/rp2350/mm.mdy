@@ -1,0 +1,12 @@
+---
+mm: 1.2
+kind: test
+name: target-rp2350
+option: buildable-host no
+requires-board: rp2350-ram
+unit: tests/target/rp2350/main.cpp
+---
+
+# target-rp2350
+
+Target test requiring the rp2350-ram board. It exercises board-scoped test selection and compile-only target verification without importing mm.test or depending on a test runner.

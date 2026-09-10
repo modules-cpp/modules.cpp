@@ -199,11 +199,13 @@ struct DebuggerSettings {
                                                            std::string_view target,
                                                            const PlatformSettings* platform = nullptr);
 
-// Resolves the gdb profile for one lane. Host debugging invokes gdb directly;
+// Resolves the gdb or openocd profile for one lane. Host debugging invokes gdb directly;
 // the supported QEMU user target uses gdb-multiarch and the runner's remote
-// stub. Other target/profile combinations are rejected.
-[[nodiscard]] std::optional<DebuggerSettings> debugger_profile(std::string_view profile,
-                                                               std::string_view target);
+// stub; openocd targets use gdb-multiarch connecting to openocd on localhost:3333.
+// Other target/profile combinations are rejected.
+[[nodiscard]] std::optional<DebuggerSettings> debugger_profile(
+    std::string_view profile, std::string_view target,
+    const PlatformSettings* platform = nullptr);
 
 // Values written to project-root/out/config.mdy. A native configuration has no
 // cross compiler and selects Host; selecting Cross requires cross settings.
