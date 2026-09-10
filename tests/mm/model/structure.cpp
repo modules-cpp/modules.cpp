@@ -57,14 +57,24 @@ void repository_exposes_platform_definitions() {
     const auto boards = loaded.repository().boards();
     mm::test::expect(ok && sdks.size() == 4,
                      "expected all four SDK definitions from the manifest walk");
-    mm::test::expect(boards.size() == 1,
-                     "expected the board definition from the manifest walk");
-    if (boards.empty()) return;
-    mm::test::expect(boards.front()->kind() == models::Kind::Board &&
-                         boards.front()->sdk() == "arm-none-eabi-newlib" &&
-                         boards.front()->cpu() == "cortex-m3" &&
-                         boards.front()->sources().size() == 1,
-                     "expected the board's SDK, processor, and source");
+    mm::test::expect(boards.size() == 2,
+                     "expected both board definitions from the manifest walk");
+    const models::BoardNode* mps2 = nullptr;
+    const models::BoardNode* rp2040 = nullptr;
+    for (const auto* b : boards) {
+        if (b->name() == "mps2-an385") mps2 = b;
+        if (b->name() == "rp2040-ram") rp2040 = b;
+    }
+    mm::test::expect(mps2 != nullptr && mps2->kind() == models::Kind::Board &&
+                         mps2->sdk() == "arm-none-eabi-newlib" &&
+                         mps2->cpu() == "cortex-m3" &&
+                         mps2->sources().size() == 1,
+                     "expected mps2 board's SDK, processor, and source");
+    mm::test::expect(rp2040 != nullptr && rp2040->kind() == models::Kind::Board &&
+                         rp2040->sdk() == "arm-none-eabi-newlib" &&
+                         rp2040->cpu() == "cortex-m0plus" &&
+                         rp2040->sources().size() == 1,
+                     "expected rp2040 board's SDK, processor, and source");
 }
 
 void child_and_parent_agree_with_each_other() {

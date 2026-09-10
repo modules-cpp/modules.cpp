@@ -1,0 +1,8 @@
+---
+mm: 1.2
+kind: app
+name: target-smoke-rp2040
+option: buildable-host no
+requires-board: rp2040-ram
+file: main.cpp
+---

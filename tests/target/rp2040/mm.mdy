@@ -1,0 +1,8 @@
+---
+mm: 1.2
+kind: test
+name: target-rp2040
+option: buildable-host no
+requires-board: rp2040-ram
+unit: tests/target/rp2040/main.cpp
+---

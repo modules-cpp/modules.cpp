@@ -86,6 +86,41 @@ void rejects_bad_references_and_registry_values() {
                          "specs-profile: unknown\n");
     expect(!mm::build::load_project(profile.root()).ok,
            "an unknown specs profile is rejected without invoking a compiler");
+
+    const mm::test::scoped_tree unknown_cpu{"platform_unknown_cpu"};
+    make_platform_tree(unknown_cpu);
+    unknown_cpu.manifest_raw("platforms/board",
+                             "mm: 1.2\nkind: board\nname: mps2-an385\n"
+                             "sdk: arm-none-eabi-newlib\ncpu: unknown\ninstruction-set: thumb\n"
+                             "float-abi: soft\nlinker-script: link.ld\nfile: vectors.cpp\n");
+    expect(!mm::build::load_project(unknown_cpu.root()).ok,
+           "an unknown processor combination is rejected by the processor registry");
+}
+
+void accepts_registered_processor_combinations() {
+    const mm::test::scoped_tree m0plus{"platform_cortex_m0plus"};
+    make_platform_tree(m0plus);
+    m0plus.manifest_raw("platforms/board",
+                        "mm: 1.2\nkind: board\nname: rp2040-ram\n"
+                        "sdk: arm-none-eabi-newlib\ncpu: cortex-m0plus\n"
+                        "instruction-set: thumb\nfloat-abi: soft\n"
+                        "machine: rp2040\nlinker-script: link.ld\n"
+                        "file: vectors.cpp\nprovides: reset-vector\n"
+                        "provides: initial-stack\nprovides: memory-layout\n");
+    expect(mm::build::load_project(m0plus.root()).ok,
+           "cortex-m0plus with thumb and soft is accepted");
+
+    const mm::test::scoped_tree m33{"platform_cortex_m33"};
+    make_platform_tree(m33);
+    m33.manifest_raw("platforms/board",
+                     "mm: 1.2\nkind: board\nname: rp2350-ram\n"
+                     "sdk: arm-none-eabi-newlib\ncpu: cortex-m33\n"
+                     "instruction-set: thumb\nfloat-abi: softfp\n"
+                     "machine: rp2350\nlinker-script: link.ld\n"
+                     "file: vectors.cpp\nprovides: reset-vector\n"
+                     "provides: initial-stack\nprovides: memory-layout\n");
+    expect(mm::build::load_project(m33.root()).ok,
+           "cortex-m33 with thumb and softfp is accepted");
 }
 
 void external_directories_are_only_spelling_checked_by_the_walk() {
@@ -110,6 +145,7 @@ const mm::test::case_ cases[] = {
     {"loads SDK and board definitions", &loads_sdk_and_board_definitions},
     {"validates platform keys by version and kind", &validates_platform_keys_by_version_and_kind},
     {"rejects bad references and registry values", &rejects_bad_references_and_registry_values},
+    {"accepts registered processor combinations", &accepts_registered_processor_combinations},
     {"external directories are selection-scoped", &external_directories_are_only_spelling_checked_by_the_walk},
 };
 

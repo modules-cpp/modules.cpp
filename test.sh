@@ -178,6 +178,7 @@ run_test_target tests/mm/shell/ || exit $?
 run_test_target tests/mm/model/ || exit $?
 run_test_target tests/mm/run/ || exit $?
 run_test_target tests/target/board/ || exit $?
+run_test_target tests/target/rp2040/ || exit $?
 
 if [ "$skipped_suites" -gt 0 ]; then
     echo

@@ -7,4 +7,5 @@ folder: mps2-an385
 folder: m68k-linux-gnu
 folder: aarch64-linux-gnu
 folder: arm-linux-gnueabihf
+folder: pico
 ---

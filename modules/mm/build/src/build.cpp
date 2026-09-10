@@ -108,6 +108,53 @@ const ManifestKeyRule* manifest_key_rule(std::string_view key) {
     return nullptr;
 }
 
+struct ProcessorEntry {
+    CompilerFamily family;
+    std::string_view target;
+    std::string_view cpu;
+    std::string_view instruction_set;
+    std::string_view float_abi;
+    std::vector<std::string> arguments;
+};
+
+const ProcessorEntry processor_table[] = {
+    {CompilerFamily::Gcc, "arm-none-eabi", "cortex-m3", "thumb", "soft",
+     {"-mcpu=cortex-m3", "-mthumb", "-mfloat-abi=soft"}},
+    {CompilerFamily::Gcc, "arm-none-eabi", "cortex-m0plus", "thumb", "soft",
+     {"-mcpu=cortex-m0plus", "-mthumb", "-mfloat-abi=soft"}},
+    {CompilerFamily::Gcc, "arm-none-eabi", "cortex-m33", "thumb", "softfp",
+     {"-mcpu=cortex-m33", "-mthumb", "-mfloat-abi=softfp"}},
+};
+
+const ProcessorEntry* find_processor_entry(
+    CompilerFamily family,
+    std::string_view target,
+    std::string_view cpu,
+    std::string_view instruction_set,
+    std::string_view float_abi) {
+    for (const auto& entry : processor_table) {
+        if (entry.family == family && entry.target == target &&
+            entry.cpu == cpu && entry.instruction_set == instruction_set &&
+            entry.float_abi == float_abi) {
+            return &entry;
+        }
+    }
+    return nullptr;
+}
+
+const ProcessorEntry* find_processor_entry_by_arguments(
+    CompilerFamily family,
+    std::string_view target,
+    const std::vector<std::string>& arguments) {
+    for (const auto& entry : processor_table) {
+        if (entry.family == family && entry.target == target &&
+            entry.arguments == arguments) {
+            return &entry;
+        }
+    }
+    return nullptr;
+}
+
 std::vector<std::string> capability_declarations(const std::vector<std::string>& declarations) {
     std::vector<std::string> result;
     for (const auto& declaration : declarations)
@@ -606,18 +653,23 @@ bool load_platform(const mm::mdy::MDYDocument& document,
         return false;
     }
     if (platform.board) {
-        const std::vector<std::string> expected = {
-            "-mcpu=cortex-m3", "-mthumb", "-mfloat-abi=soft"};
+        const auto* entry = find_processor_entry_by_arguments(
+            platform.sdk_family, platform.target, platform.compiler_arguments);
         if (*parsed_system != mm::configure::PlatformSystem::BareMetal ||
             platform.linker_script.empty() || platform.board_sources.empty() ||
-            platform.compiler_arguments != expected) {
+            entry == nullptr) {
             std::cerr << "build: invalid board platform in " << path.string() << "\n";
             return false;
         }
-        if (cross.runner && cross.runner->image == RunnerImage::Option &&
-            platform.machine != "mps2-an385") {
-            std::cerr << "build: target system runner requires board machine mps2-an385\n";
-            return false;
+        if (cross.runner && cross.runner->image == RunnerImage::Option) {
+            if (platform.machine.empty()) {
+                std::cerr << "build: target system runner requires board machine\n";
+                return false;
+            }
+            if (cross.runner->invocation == "qemu-system-arm" && platform.machine != "mps2-an385") {
+                std::cerr << "build: target system runner requires board machine mps2-an385\n";
+                return false;
+            }
         }
     }
 
@@ -1177,9 +1229,8 @@ bool parse_definitions(Project& project, const std::filesystem::path& root,
                       << ": board references unknown SDK: " << board.sdk << "\n";
             return false;
         }
-        if (!(sdk->family == CompilerFamily::Gcc && sdk->target == "arm-none-eabi" &&
-              board.cpu == "cortex-m3" && board.instruction_set == "thumb" &&
-              board.float_abi == "soft")) {
+        if (find_processor_entry(sdk->family, sdk->target, board.cpu,
+                                 board.instruction_set, board.float_abi) == nullptr) {
             std::cerr << policy.tool << ": " << board.manifest.string()
                       << ": unknown processor combination for SDK " << sdk->name << "\n";
             return false;
