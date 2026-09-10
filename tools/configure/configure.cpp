@@ -87,9 +87,15 @@ std::optional<mm::configure::RunnerSettings> runner_settings(
     const mm::build::Toolchain& toolchain) {
     if (!toolchain.runner) return std::nullopt;
     const auto& source = *toolchain.runner;
-    return mm::configure::RunnerSettings{source.invocation, source.prefix_arguments,
-                                         source.image, source.image_option,
-                                         source.suffix_arguments, source.forwards_arguments};
+    return mm::configure::RunnerSettings{
+        .invocation = source.invocation,
+        .prefix_arguments = source.prefix_arguments,
+        .image = source.image,
+        .image_option = source.image_option,
+        .image_arguments = source.image_arguments,
+        .suffix_arguments = source.suffix_arguments,
+        .forwards_arguments = source.forwards_arguments,
+    };
 }
 
 std::optional<mm::configure::DebuggerSettings> debugger_settings(

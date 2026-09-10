@@ -822,8 +822,8 @@ private:
               image_(source.image == mm::build::RunnerImage::Positional
                          ? models::RunnerImage::Positional
                          : models::RunnerImage::Option),
-              image_option_(source.image_option), suffix_(source.suffix_arguments),
-              forwards_(source.forwards_arguments) {}
+              image_option_(source.image_option), image_arguments_(source.image_arguments),
+              suffix_(source.suffix_arguments), forwards_(source.forwards_arguments) {}
 
         [[nodiscard]] const models::Tool& program() const override { return program_; }
         [[nodiscard]] std::vector<std::string_view> prefix_arguments() const override {
@@ -831,6 +831,9 @@ private:
         }
         [[nodiscard]] models::RunnerImage image() const override { return image_; }
         [[nodiscard]] std::string_view image_option() const override { return image_option_; }
+        [[nodiscard]] std::vector<std::string_view> image_arguments() const override {
+            return views(image_arguments_);
+        }
         [[nodiscard]] std::vector<std::string_view> suffix_arguments() const override {
             return views(suffix_);
         }
@@ -847,6 +850,7 @@ private:
         std::vector<std::string> prefix_;
         models::RunnerImage image_ = models::RunnerImage::Positional;
         std::string image_option_;
+        std::vector<std::string> image_arguments_;
         std::vector<std::string> suffix_;
         bool forwards_ = true;
     };

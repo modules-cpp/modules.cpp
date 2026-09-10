@@ -37,6 +37,7 @@ public:
     [[nodiscard]] virtual std::vector<std::string_view> prefix_arguments() const = 0;
     [[nodiscard]] virtual RunnerImage image() const = 0;
     [[nodiscard]] virtual std::string_view image_option() const = 0;
+    [[nodiscard]] virtual std::vector<std::string_view> image_arguments() const = 0;
     [[nodiscard]] virtual std::vector<std::string_view> suffix_arguments() const = 0;
     [[nodiscard]] virtual bool forwards_arguments() const = 0;
 };

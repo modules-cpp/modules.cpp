@@ -37,6 +37,7 @@ struct ToolchainRunner {
     std::vector<std::string> prefix_arguments;
     RunnerImage image = RunnerImage::Positional;
     std::string image_option;
+    std::vector<std::string> image_arguments;
     std::vector<std::string> suffix_arguments;
     bool forwards_arguments = true;
 };

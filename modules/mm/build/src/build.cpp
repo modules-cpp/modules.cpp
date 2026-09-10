@@ -490,7 +490,8 @@ bool configuration_2_key(std::string_view key) {
         "cross-link-flags", "cross-debugger", "cross-debugger-prefix-argument",
         "cross-debugger-connection", "cross-debugger-remote-endpoint",
         "cross-debugger-runner-argument", "cross-runner", "cross-runner-prefix-argument",
-        "cross-runner-image", "cross-runner-image-option", "cross-runner-suffix-argument",
+        "cross-runner-image", "cross-runner-image-option", "cross-runner-image-argument",
+        "cross-runner-suffix-argument",
         "cross-runner-forwards-arguments", "host-build-directory", "target-build-directory",
         "cross-system", "cross-runtime", "cross-sdk", "cross-sdk-manifest",
         "cross-sdk-compiler-family", "cross-sdk-sysroot", "cross-sdk-runtime-prefix",
@@ -669,13 +670,12 @@ bool load_platform(const mm::mdy::MDYDocument& document,
                 std::cerr << "build: target system runner requires board machine\n";
                 return false;
             }
-            if (cross.runner->invocation == "qemu-system-arm" && platform.machine != "mps2-an385") {
-                std::cerr << "build: target system runner requires board machine mps2-an385\n";
-                return false;
-            }
-            if (cross.runner->invocation == "openocd" &&
-                platform.machine != "rp2040" && platform.machine != "rp2350") {
-                std::cerr << "build: openocd runner requires board machine rp2040 or rp2350\n";
+            const auto* machine_entry = mm::configure::find_runner_machine_by_invocation(
+                cross.runner->invocation, platform.target, platform.machine);
+            if (machine_entry == nullptr) {
+                std::cerr << "build: " << cross.runner->invocation
+                          << " runner requires matching board machine for target "
+                          << platform.target << "\n";
                 return false;
             }
         }
@@ -750,6 +750,7 @@ bool configuration_runner(const mm::mdy::MDYDocument& document,
         lookup(document, "cross-runner-prefix-argument") != nullptr ||
         lookup(document, "cross-runner-image") != nullptr ||
         lookup(document, "cross-runner-image-option") != nullptr ||
+        lookup(document, "cross-runner-image-argument") != nullptr ||
         lookup(document, "cross-runner-suffix-argument") != nullptr ||
         lookup(document, "cross-runner-forwards-arguments") != nullptr;
     if (!has_any) {
@@ -773,16 +774,28 @@ bool configuration_runner(const mm::mdy::MDYDocument& document,
     if (!configuration_scalar(document, "cross-runner-image", path, image)) return false;
     if (image == "positional") {
         runner.image = RunnerImage::Positional;
-        if (lookup(document, "cross-runner-image-option") != nullptr) {
-            std::cerr << "build: positional runner cannot have cross-runner-image-option: "
+        if (lookup(document, "cross-runner-image-option") != nullptr ||
+            lookup(document, "cross-runner-image-argument") != nullptr) {
+            std::cerr << "build: positional runner cannot have cross-runner-image-option or cross-runner-image-argument: "
                       << path.string() << "\n";
             return false;
         }
     } else if (image == "option") {
         runner.image = RunnerImage::Option;
-        if (!configuration_scalar(document, "cross-runner-image-option", path,
-                                  runner.image_option))
+        if (const auto* values = lookup(document, "cross-runner-image-argument"))
+            runner.image_arguments = *values;
+        if (lookup(document, "cross-runner-image-option") != nullptr) {
+            if (!configuration_scalar(document, "cross-runner-image-option", path,
+                                      runner.image_option))
+                return false;
+        }
+        if (runner.image_arguments.empty() && !runner.image_option.empty())
+            runner.image_arguments = {runner.image_option, "{}"};
+        if (runner.image_arguments.empty() && runner.image_option.empty()) {
+            std::cerr << "build: option runner requires cross-runner-image-option or cross-runner-image-argument: "
+                      << path.string() << "\n";
             return false;
+        }
     } else {
         std::cerr << "build: configuration cross-runner-image must be positional or option: "
                   << path.string() << "\n";
@@ -1347,7 +1360,8 @@ bool load_configuration(const std::filesystem::path& path, bool verbose,
                                   key == "cross-unresolved" ||
                                   key.ends_with("-prefix-argument") ||
                                   key.ends_with("-suffix-argument") ||
-                                  key.ends_with("-runner-argument");
+                                  key.ends_with("-runner-argument") ||
+                                  key.ends_with("-image-argument");
             if (!repeated && values.size() != 1) {
                 std::cerr << "build: duplicated configuration-2 key: " << key << "\n";
                 return false;

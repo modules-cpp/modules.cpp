@@ -38,19 +38,16 @@ std::optional<std::string> command(
     for (const auto& argument : runner.prefix_arguments) append(result, argument);
     for (const auto& argument : extra_runner_arguments) append(result, argument);
     if (runner.image == mm::build::RunnerImage::Option) {
-        const auto pos = runner.image_option.find("...");
-        if (pos != std::string::npos) {
-            std::string option = runner.image_option;
-            option.replace(pos, 3, executable.string());
-            if (option.rfind("-c ", 0) == 0) {
-                append(result, "-c");
-                auto cmd = option.substr(3);
-                if (cmd.size() >= 2 && cmd.front() == '"' && cmd.back() == '"') {
-                    cmd = cmd.substr(1, cmd.size() - 2);
+        if (!runner.image_arguments.empty()) {
+            for (const auto& argument : runner.image_arguments) {
+                const auto pos = argument.find("{}");
+                if (pos != std::string::npos) {
+                    std::string expanded = argument;
+                    expanded.replace(pos, 2, executable.string());
+                    append(result, expanded);
+                } else {
+                    append(result, argument);
                 }
-                append(result, cmd);
-            } else {
-                append(result, option);
             }
         } else {
             append(result, runner.image_option);

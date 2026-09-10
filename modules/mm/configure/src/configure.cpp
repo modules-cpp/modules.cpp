@@ -156,9 +156,11 @@ bool valid_runner(const RunnerSettings& runner) {
         if (!valid_scalar(argument, true)) return false;
     for (const auto& argument : runner.suffix_arguments)
         if (!valid_scalar(argument, true)) return false;
+    for (const auto& argument : runner.image_arguments)
+        if (!valid_scalar(argument, true)) return false;
     return runner.image == RunnerImage::Positional
-               ? runner.image_option.empty()
-               : valid_scalar(runner.image_option);
+               ? runner.image_option.empty() && runner.image_arguments.empty()
+               : (!runner.image_option.empty() || !runner.image_arguments.empty());
 }
 
 bool valid_debugger(const DebuggerSettings& debugger) {
@@ -260,8 +262,12 @@ void write_runner(std::ostream& out, const RunnerSettings& runner) {
         out << "cross-runner-prefix-argument: " << argument << '\n';
     out << "cross-runner-image: "
         << (runner.image == RunnerImage::Positional ? "positional" : "option") << '\n';
-    if (runner.image == RunnerImage::Option)
-        out << "cross-runner-image-option: " << runner.image_option << '\n';
+    if (runner.image == RunnerImage::Option) {
+        if (!runner.image_option.empty())
+            out << "cross-runner-image-option: " << runner.image_option << '\n';
+        for (const auto& argument : runner.image_arguments)
+            out << "cross-runner-image-argument: " << argument << '\n';
+    }
     for (const auto& argument : runner.suffix_arguments)
         out << "cross-runner-suffix-argument: " << argument << '\n';
     out << "cross-runner-forwards-arguments: "
@@ -367,30 +373,34 @@ std::optional<RunnerSettings> runner_profile(std::string_view profile,
             runner.prefix_arguments = {"-L", platform->runtime_prefix->string()};
         return runner;
     }
-    if (profile == "qemu-system" && target == "arm-none-eabi" && platform != nullptr &&
-        platform->machine == "mps2-an385") {
+    if (platform == nullptr) return std::nullopt;
+    const auto* machine_entry = find_runner_machine(profile, target, platform->machine);
+    if (machine_entry == nullptr) return std::nullopt;
+
+    if (profile == "qemu-system" && target == "arm-none-eabi") {
         RunnerSettings runner;
-        runner.invocation = "qemu-system-arm";
-        runner.prefix_arguments = {"-M", "mps2-an385", "-cpu", "cortex-m3",
+        runner.invocation = machine_entry->invocation;
+        runner.prefix_arguments = {"-M", std::string(machine_entry->machine), "-cpu", "cortex-m3",
                                    "-nographic", "-semihosting"};
         runner.image = RunnerImage::Option;
         runner.image_option = "-kernel";
+        runner.image_arguments = {"-kernel", "{}"};
         runner.forwards_arguments = false;
         return runner;
     }
-    if (profile == "openocd" && target == "arm-none-eabi" && platform != nullptr &&
-        (platform->machine == "rp2040" || platform->machine == "rp2350")) {
+    if (profile == "openocd" && target == "arm-none-eabi") {
         RunnerSettings runner;
-        runner.invocation = "openocd";
+        runner.invocation = machine_entry->invocation;
         runner.prefix_arguments = {
             "-f", "interface/cmsis-dap.cfg",
-            "-f", "target/" + platform->machine + ".cfg",
+            "-f", "target/" + std::string(machine_entry->machine) + ".cfg",
             "-c", "adapter speed 5000",
             "-c", "init",
             "-c", "arm semihosting enable",
         };
         runner.image = RunnerImage::Option;
         runner.image_option = "-c \"program ... verify reset\"";
+        runner.image_arguments = {"-c", "program {} verify reset"};
         runner.forwards_arguments = false;
         return runner;
     }

@@ -147,9 +147,41 @@ struct RunnerSettings {
     std::vector<std::string> prefix_arguments;
     RunnerImage image = RunnerImage::Positional;
     std::string image_option;
+    std::vector<std::string> image_arguments;
     std::vector<std::string> suffix_arguments;
     bool forwards_arguments = true;
 };
+
+struct RunnerMachineProfile {
+    std::string_view profile;
+    std::string_view target;
+    std::string_view machine;
+    std::string_view invocation;
+};
+
+inline constexpr RunnerMachineProfile runner_machine_table[] = {
+    {"qemu-system", "arm-none-eabi", "mps2-an385", "qemu-system-arm"},
+    {"openocd", "arm-none-eabi", "rp2040", "openocd"},
+    {"openocd", "arm-none-eabi", "rp2350", "openocd"},
+};
+
+[[nodiscard]] inline const RunnerMachineProfile* find_runner_machine(
+    std::string_view profile, std::string_view target, std::string_view machine) {
+    for (const auto& entry : runner_machine_table) {
+        if (entry.profile == profile && entry.target == target && entry.machine == machine)
+            return &entry;
+    }
+    return nullptr;
+}
+
+[[nodiscard]] inline const RunnerMachineProfile* find_runner_machine_by_invocation(
+    std::string_view invocation, std::string_view target, std::string_view machine) {
+    for (const auto& entry : runner_machine_table) {
+        if (entry.invocation == invocation && entry.target == target && entry.machine == machine)
+            return &entry;
+    }
+    return nullptr;
+}
 
 enum class DebuggerConnection { Direct, RunnerRemote };
 

@@ -6,6 +6,7 @@
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <vector>
 
 import mm.configure;
 import mm.mdy;
@@ -17,6 +18,11 @@ std::string first(const mm::mdy::MDYDocument& document, std::string_view key) {
     const auto found = document.metadata.find(key);
     return found == document.metadata.end() || found->second.empty() ? std::string{}
                                                                     : found->second.front();
+}
+
+std::vector<std::string> all(const mm::mdy::MDYDocument& document, std::string_view key) {
+    const auto found = document.metadata.find(key);
+    return found == document.metadata.end() ? std::vector<std::string>{} : found->second;
 }
 
 mm::configure::Settings native_settings() {
@@ -259,6 +265,8 @@ void openocd_runner_profile_and_configuration() {
     mm::test::expect(openocd->invocation == "openocd", "expected openocd invocation");
     mm::test::expect(openocd->image == mm::configure::RunnerImage::Option, "expected option image");
     mm::test::expect(openocd->image_option == "-c \"program ... verify reset\"", "expected image option template");
+    mm::test::expect(openocd->image_arguments == std::vector<std::string>{"-c", "program {} verify reset"},
+                     "expected openocd image_arguments");
     mm::test::expect(!openocd->forwards_arguments, "expected forwards_arguments to be false");
 
     platform.machine = "rp2350";
@@ -298,6 +306,9 @@ void openocd_runner_profile_and_configuration() {
     mm::test::expect(first(document, "cross-runner-image") == "option", "expected cross-runner-image option");
     mm::test::expect(first(document, "cross-runner-image-option") == "-c \"program ... verify reset\"",
                      "expected cross-runner-image-option template");
+    const std::vector<std::string> expected_image_args = {"-c", "program {} verify reset"};
+    mm::test::expect(all(document, "cross-runner-image-argument") == expected_image_args,
+                     "expected cross-runner-image-argument entries");
     mm::test::expect(first(document, "cross-runner-forwards-arguments") == "no",
                      "expected cross-runner-forwards-arguments no");
 }

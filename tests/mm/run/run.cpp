@@ -55,6 +55,7 @@ void constructs_an_option_image_command_with_template() {
                              "-c", "adapter speed 5000", "-c", "init", "-c", "arm semihosting enable"},
         .image = mm::build::RunnerImage::Option,
         .image_option = "-c \"program ... verify reset\"",
+        .image_arguments = {"-c", "program {} verify reset"},
         .forwards_arguments = false,
     };
     const auto result = mm::run::command(toolchain, true, "out/bin/smoke", {"not-forwarded"});

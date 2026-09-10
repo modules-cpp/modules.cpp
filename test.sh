@@ -5,6 +5,7 @@ set -eu
 verbose=false
 lane=""
 compile_only=false
+targets=""
 for arg in "$@"; do
     case "$arg" in
         -v|--verbose) verbose=true ;;
@@ -22,12 +23,34 @@ for arg in "$@"; do
             fi
             compile_only=true
             ;;
-        *)
-            echo "usage: test.sh [-v|--verbose] [--host|--target] [--compile-only]" >&2
+        -*)
+            echo "usage: test.sh [-v|--verbose] [--host|--target] [--compile-only] [manifest...]" >&2
             exit 64
+            ;;
+        *)
+            targets="${targets:+$targets }$arg"
             ;;
     esac
 done
+
+if [ -n "$targets" ]; then
+    for target in $targets; do
+        status=0
+        if [ "$verbose" = true ] && [ "$compile_only" = true ]; then
+            out/bin/test -v ${lane:+"$lane"} --compile-only "$target" || status=$?
+        elif [ "$verbose" = true ]; then
+            out/bin/test -v ${lane:+"$lane"} "$target" || status=$?
+        elif [ "$compile_only" = true ]; then
+            out/bin/test ${lane:+"$lane"} --compile-only "$target" || status=$?
+        else
+            out/bin/test ${lane:+"$lane"} "$target" || status=$?
+        fi
+        if [ "$status" -ne 0 ]; then
+            exit $status
+        fi
+    done
+    exit 0
+fi
 
 # A suite the selected lane cannot build is skipped here rather than failing the
 # run. The test tool is right to reject a manifest the user named explicitly
