@@ -114,10 +114,10 @@ struct ProcessorEntry {
     std::string_view cpu;
     std::string_view instruction_set;
     std::string_view float_abi;
-    std::vector<std::string> arguments;
+    std::string_view arguments[3];
 };
 
-const ProcessorEntry processor_table[] = {
+constexpr ProcessorEntry processor_table[] = {
     {CompilerFamily::Gcc, "arm-none-eabi", "cortex-m3", "thumb", "soft",
      {"-mcpu=cortex-m3", "-mthumb", "-mfloat-abi=soft"}},
     {CompilerFamily::Gcc, "arm-none-eabi", "cortex-m0plus", "thumb", "soft",
@@ -146,9 +146,12 @@ const ProcessorEntry* find_processor_entry_by_arguments(
     CompilerFamily family,
     std::string_view target,
     const std::vector<std::string>& arguments) {
+    if (arguments.size() != 3) return nullptr;
     for (const auto& entry : processor_table) {
         if (entry.family == family && entry.target == target &&
-            entry.arguments == arguments) {
+            arguments[0] == entry.arguments[0] &&
+            arguments[1] == entry.arguments[1] &&
+            arguments[2] == entry.arguments[2]) {
             return &entry;
         }
     }
@@ -668,6 +671,11 @@ bool load_platform(const mm::mdy::MDYDocument& document,
             }
             if (cross.runner->invocation == "qemu-system-arm" && platform.machine != "mps2-an385") {
                 std::cerr << "build: target system runner requires board machine mps2-an385\n";
+                return false;
+            }
+            if (cross.runner->invocation == "openocd" &&
+                platform.machine != "rp2040" && platform.machine != "rp2350") {
+                std::cerr << "build: openocd runner requires board machine rp2040 or rp2350\n";
                 return false;
             }
         }

@@ -249,9 +249,63 @@ void logs_default_and_verbose_configurations() {
                      "expected verbose logging to print shared configuration details");
 }
 
+void openocd_runner_profile_and_configuration() {
+    mm::configure::PlatformSettings platform;
+    platform.target = "arm-none-eabi";
+    platform.machine = "rp2040";
+
+    const auto openocd = mm::configure::runner_profile("openocd", "arm-none-eabi", &platform);
+    mm::test::expect(openocd.has_value(), "expected openocd profile to resolve for rp2040");
+    mm::test::expect(openocd->invocation == "openocd", "expected openocd invocation");
+    mm::test::expect(openocd->image == mm::configure::RunnerImage::Option, "expected option image");
+    mm::test::expect(openocd->image_option == "-c \"program ... verify reset\"", "expected image option template");
+    mm::test::expect(!openocd->forwards_arguments, "expected forwards_arguments to be false");
+
+    platform.machine = "rp2350";
+    mm::test::expect(mm::configure::runner_profile("openocd", "arm-none-eabi", &platform).has_value(),
+                     "expected openocd profile to resolve for rp2350");
+
+    platform.machine = "mps2-an385";
+    mm::test::expect(!mm::configure::runner_profile("openocd", "arm-none-eabi", &platform).has_value(),
+                     "expected openocd profile to reject mps2-an385");
+
+    platform.machine = "rp2040";
+    mm::test::expect(!mm::configure::runner_profile("qemu-system", "arm-none-eabi", &platform).has_value(),
+                     "expected qemu-system profile to reject rp2040");
+
+    const mm::test::scoped_tree tree{"configure_openocd"};
+    auto settings = native_settings();
+    settings.name = "arm-none-eabi";
+    settings.target_compiler = mm::configure::CompilerSelection::Cross;
+    platform.machine = "rp2040";
+    settings.cross_platform = platform;
+    settings.cross_runner = openocd;
+    settings.cross = mm::configure::CompilerSettings{
+        mm::configure::CompilerFamily::Gcc,
+        "arm-none-eabi-g++",
+        "arm-none-eabi",
+        "bare-metal",
+        "-std=c++20",
+        "-std=c++20",
+    };
+    settings.target_build_directory = "out-target-arm-none-eabi";
+
+    mm::test::expect(mm::configure::write_configuration(tree.root(), settings),
+                     "expected openocd cross config.mdy write to succeed");
+
+    const auto document = mm::mdy::Parser::parse_file(tree.root() / "out" / "config.mdy");
+    mm::test::expect(first(document, "cross-runner") == "openocd", "expected cross-runner openocd");
+    mm::test::expect(first(document, "cross-runner-image") == "option", "expected cross-runner-image option");
+    mm::test::expect(first(document, "cross-runner-image-option") == "-c \"program ... verify reset\"",
+                     "expected cross-runner-image-option template");
+    mm::test::expect(first(document, "cross-runner-forwards-arguments") == "no",
+                     "expected cross-runner-forwards-arguments no");
+}
+
 const mm::test::case_ cases[] = {
     {"writes a native configuration", &writes_a_native_configuration},
     {"writes a cross configuration", &writes_a_cross_configuration},
+    {"openocd runner profile and configuration", &openocd_runner_profile_and_configuration},
     {"invalid settings preserve existing config", &invalid_settings_leave_the_existing_file_unchanged},
     {"parses supported compiler selectors", &parses_supported_compiler_selectors},
     {"rejects invalid compiler selectors", &rejects_invalid_compiler_selectors},

@@ -37,8 +37,28 @@ std::optional<std::string> command(
     std::string result = mm::build::shell_quote(std::filesystem::path(runner.invocation));
     for (const auto& argument : runner.prefix_arguments) append(result, argument);
     for (const auto& argument : extra_runner_arguments) append(result, argument);
-    if (runner.image == mm::build::RunnerImage::Option) append(result, runner.image_option);
-    append(result, executable);
+    if (runner.image == mm::build::RunnerImage::Option) {
+        const auto pos = runner.image_option.find("...");
+        if (pos != std::string::npos) {
+            std::string option = runner.image_option;
+            option.replace(pos, 3, executable.string());
+            if (option.rfind("-c ", 0) == 0) {
+                append(result, "-c");
+                auto cmd = option.substr(3);
+                if (cmd.size() >= 2 && cmd.front() == '"' && cmd.back() == '"') {
+                    cmd = cmd.substr(1, cmd.size() - 2);
+                }
+                append(result, cmd);
+            } else {
+                append(result, option);
+            }
+        } else {
+            append(result, runner.image_option);
+            append(result, executable);
+        }
+    } else {
+        append(result, executable);
+    }
     for (const auto& argument : runner.suffix_arguments) append(result, argument);
     if (runner.forwards_arguments)
         for (const auto& argument : arguments) append(result, argument);

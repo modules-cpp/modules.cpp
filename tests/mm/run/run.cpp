@@ -47,6 +47,24 @@ void constructs_an_option_image_command_without_forwarding() {
                      "expected option image placement and forwarding policy");
 }
 
+void constructs_an_option_image_command_with_template() {
+    auto toolchain = mm::build::default_toolchain();
+    toolchain.runner = mm::build::ToolchainRunner{
+        .invocation = "openocd",
+        .prefix_arguments = {"-f", "interface/cmsis-dap.cfg", "-f", "target/rp2040.cfg",
+                             "-c", "adapter speed 5000", "-c", "init", "-c", "arm semihosting enable"},
+        .image = mm::build::RunnerImage::Option,
+        .image_option = "-c \"program ... verify reset\"",
+        .forwards_arguments = false,
+    };
+    const auto result = mm::run::command(toolchain, true, "out/bin/smoke", {"not-forwarded"});
+    mm::test::expect(result &&
+                         *result == "'openocd' '-f' 'interface/cmsis-dap.cfg' '-f' 'target/rp2040.cfg' "
+                                    "'-c' 'adapter speed 5000' '-c' 'init' '-c' 'arm semihosting enable' "
+                                    "'-c' 'program out/bin/smoke verify reset'",
+                     "expected openocd template image expansion");
+}
+
 void executes_directly_or_through_a_runner() {
     auto toolchain = mm::build::default_toolchain();
     mm::test::expect(mm::run::execute(toolchain, false, "/bin/true") == 0,
@@ -62,6 +80,7 @@ const mm::test::case_ cases[] = {
     {"constructs host command", &constructs_a_host_command},
     {"constructs target runner command", &constructs_a_target_runner_command},
     {"constructs option image command", &constructs_an_option_image_command_without_forwarding},
+    {"constructs option image template command", &constructs_an_option_image_command_with_template},
     {"executes directly or through runner", &executes_directly_or_through_a_runner},
 };
 

@@ -378,6 +378,22 @@ std::optional<RunnerSettings> runner_profile(std::string_view profile,
         runner.forwards_arguments = false;
         return runner;
     }
+    if (profile == "openocd" && target == "arm-none-eabi" && platform != nullptr &&
+        (platform->machine == "rp2040" || platform->machine == "rp2350")) {
+        RunnerSettings runner;
+        runner.invocation = "openocd";
+        runner.prefix_arguments = {
+            "-f", "interface/cmsis-dap.cfg",
+            "-f", "target/" + platform->machine + ".cfg",
+            "-c", "adapter speed 5000",
+            "-c", "init",
+            "-c", "arm semihosting enable",
+        };
+        runner.image = RunnerImage::Option;
+        runner.image_option = "-c \"program ... verify reset\"";
+        runner.forwards_arguments = false;
+        return runner;
+    }
     return std::nullopt;
 }
 

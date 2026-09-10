@@ -98,7 +98,7 @@ Closing fence
 
 - sdk names the SDK this board belongs to. Exactly one. Required.
 - cpu, instruction-set, and float-abi are the processor properties. Their spellings are registry values, not compiler arguments.
-- machine names an emulated machine. Optional, and required only when a system-emulation runner is selected.
+- machine names the target machine or chip family (e.g. mps2-an385 for QEMU, rp2040 or rp2350 for OpenOCD). Optional, and required only when a runner profile that resolves a machine is selected.
 - linker-script is a path relative to the manifest.
 - file entries are the board's own sources: vector table, reset handler, and any syscall implementation the runtime leaves to the machine. Paths are relative to the manifest, as on a module manifest.
 - provides names a responsibility this board supplies. Repeatable.

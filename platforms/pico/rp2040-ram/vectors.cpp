@@ -37,6 +37,7 @@ extern Handler const vectors[];
         "str r0, [r1]\n"
         "bl _start\n"
         "1: b 1b\n"
+        ".ltorg\n"
     );
 }
 

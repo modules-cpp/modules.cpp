@@ -6,3 +6,7 @@ option: buildable-host no
 requires-board: rp2040-ram
 unit: tests/target/rp2040/main.cpp
 ---
+
+# target-rp2040
+
+Target test requiring the rp2040-ram board. It exercises board-scoped test selection and compile-only target verification without importing mm.test or depending on a test runner.

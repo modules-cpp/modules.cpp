@@ -6,3 +6,7 @@ option: buildable-host no
 requires-board: rp2040-ram
 file: main.cpp
 ---
+
+# target-smoke-rp2040
+
+Smoke application requiring the rp2040-ram board. It verifies that an executable declaring board requirements compiles and links successfully when the rp2040-ram platform provides reset-vector, initial-stack, and memory-layout responsibilities.
