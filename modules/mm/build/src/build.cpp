@@ -989,7 +989,6 @@ void walk_project(const std::filesystem::path& dir, std::size_t parent, Project&
     target.dir = dir.lexically_normal();
     target.uses = all(doc, "use");
     target.requires_board = first(doc, "requires-board");
-    target.library = first(doc, "library");
 
     const auto push_source = [&](std::string_view value, bool join_with_dir) {
         auto unit = parse_unit(value);
@@ -2115,21 +2114,32 @@ bool library_include_directories(
         return false;
     }
 
-    if (!validate_library_checkout(project_root, *definition, tool)) {
+    std::error_code ec;
+    const auto root = std::filesystem::absolute(project_root, ec).lexically_normal();
+    if (ec) {
+        std::cerr << tool << ": cannot resolve project root " << project_root.string()
+                  << ": " << ec.message() << "\n";
+        return false;
+    }
+
+    if (!validate_library_checkout(root, *definition, tool)) {
+        // The checkout validator reports the resource failure and recovery
+        // command; this second diagnostic deliberately names its consumer.
         std::cerr << tool << ": " << (target.dir / "mm.mdy").string()
                   << ": module " << target.name << " cannot use library "
                   << definition->name << "\n";
         return false;
     }
 
-    std::error_code ec;
     for (const auto& include : definition->include_directories) {
+        // Stage 2 constructs Source entries only. This guard becomes reachable
+        // when the external-build stage introduces BuildPrefix interfaces.
         if (include.base != LibraryPathBase::Source) {
             std::cerr << tool << ": " << definition->manifest.string()
                       << ": build-prefix include directory has no producer\n";
             return false;
         }
-        const auto path = absolute_from_root(project_root, include.path);
+        const auto path = absolute_from_root(root, include.path);
         const bool exists = std::filesystem::exists(path, ec);
         if (ec) {
             std::cerr << tool << ": " << definition->manifest.string()
@@ -2156,7 +2166,7 @@ bool library_include_directories(
                       << include.path.generic_string() << "\n";
             return false;
         }
-        directories.push_back(include.path);
+        directories.push_back(path);
     }
     return true;
 }

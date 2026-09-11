@@ -45,7 +45,7 @@ non-conformance section below records an explicit, bounded exception.
   colocated linkage shim when the header requires C language linkage; the shim
   has no broader permission to introduce another dependency. Such a shim is
   included into the wrapper's global module fragment and is the sole
-  project-authored source in scope that does not declare or implement a module.
+  project-authored header in scope that does not declare or implement a module.
 - Ordinary classes and structs, with constructors, destructors, and ordinary non-template member functions, MAY be used freely.
 - A single level of virtual dispatch (a base class with a virtual destructor and virtual member functions, and concrete classes that override them) MAY be used where the architecture already relies on it, as with App. New polymorphic hierarchies beyond this pattern SHOULD be justified in review rather than introduced by default.
 - enum class MUST be used in place of unscoped enum for all new enumerated types.

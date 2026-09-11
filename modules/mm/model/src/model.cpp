@@ -348,7 +348,8 @@ class RealModuleNode : public models::ModuleNode {
 public:
     RealModuleNode(NodeData data, const mm::build::BuildableNode& target, bool buildable_host,
         bool buildable_target)
-        : data_(std::move(data)), buildable_(target, buildable_host, buildable_target), exported_module_name_(target.module_name) {}
+        : data_(std::move(data)), buildable_(target, buildable_host, buildable_target),
+          exported_module_name_(target.module_name), library_(target.library) {}
 
     [[nodiscard]] std::string_view name() const override { return data_.name(); }
     [[nodiscard]] std::filesystem::path manifest_path() const override { return data_.manifest_path(); }
@@ -361,11 +362,13 @@ public:
     [[nodiscard]] bool buildable_host() const override { return buildable_.buildable_host(); }
     [[nodiscard]] bool buildable_target() const override { return buildable_.buildable_target(); }
     [[nodiscard]] std::string_view exported_module_name() const override { return exported_module_name_; }
+    [[nodiscard]] std::string_view library() const override { return library_; }
 
 private:
     NodeData data_;
     BuildableData buildable_;
     std::string exported_module_name_;
+    std::string library_;
 };
 
 // The resolved counterpart to a ModuleNode's declaration: imports() holds

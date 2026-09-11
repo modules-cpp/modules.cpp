@@ -368,7 +368,8 @@ std::vector<mm::configure::OptionNode> configuration_nodes(const Project& projec
 // Resolves the include interface of a module's library at the point where the
 // module is actually compiled. This is deliberately demand-driven: an absent
 // checkout remains valid until a selected build or test closure reaches its
-// wrapper module.
+// wrapper module. Returned paths are absolute, resolved from project_root, so
+// compile does not depend on the caller's current working directory.
 [[nodiscard]] bool library_include_directories(
     const std::filesystem::path& project_root,
     const std::vector<LibraryDefinition>& libraries,

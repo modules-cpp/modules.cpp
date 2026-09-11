@@ -56,8 +56,9 @@ void library_definition() {
            "a selected contained checkout is valid");
     expect(mm::build::library_include_directories(
                tree.root(), project.libraries, project.targets.front(), includes) &&
-               includes.size() == 2 && includes.front() == "libraries/third_party/include" &&
-               includes.back() == "libraries/third_party/second",
+               includes.size() == 2 &&
+               includes.front() == tree.root() / "libraries/third_party/include" &&
+               includes.back() == tree.root() / "libraries/third_party/second",
            "a reached wrapper receives its library include interface in declaration order");
     auto unrelated = project.targets.front();
     unrelated.library.clear();

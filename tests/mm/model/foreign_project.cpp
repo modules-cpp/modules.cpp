@@ -76,13 +76,17 @@ void a_foreign_project_has_no_operations() {
 
 void a_foreign_project_exposes_a_library() {
     const mm::test::scoped_tree tree{"foreign_library"};
-    tree.manifest("", "kind: project\nname: unrelated-project\nfolder: library\nfolder: sdk\n");
+    tree.manifest("", "kind: project\nname: unrelated-project\nfolder: library\n"
+                      "folder: wrapper\nfolder: sdk\n");
     tree.manifest_raw("library",
                       "mm: 1.3\nkind: library\nname: demo\nsource: third_party\n"
                       "licence: LICENSE\ninclude-directory: include\nlink-input: m\n");
     tree.manifest_raw("sdk",
                       "mm: 1.3\nkind: sdk\nname: target-sdk\ntarget: m68k-linux-gnu\n"
                       "compiler-family: gcc\nruntime: glibc\nlibrary: demo\n");
+    tree.manifest_raw("wrapper",
+                      "mm: 1.3\nkind: module\nname: wrapper\nmodule: ext.demo\n"
+                      "file: wrapper.cppm\nlibrary: demo\n");
     std::ofstream(tree.root() / "library/LICENSE") << "fixture licence\n";
     std::filesystem::create_directories(tree.root() / "library/third_party/include");
     std::ofstream(tree.root() / "library/third_party/.checkout") << "present\n";
@@ -109,6 +113,9 @@ void a_foreign_project_exposes_a_library() {
     const auto sdks = loaded.repository().sdks();
     mm::test::expect(sdks.size() == 1 && sdks.front()->library() == "demo",
                      "expected the SDK model to expose its library reference name");
+    const auto modules = loaded.repository().modules();
+    mm::test::expect(modules.size() == 1 && modules.front()->library() == "demo",
+                     "expected the module model to expose its library reference name");
 }
 
 const mm::test::case_ cases[] = {

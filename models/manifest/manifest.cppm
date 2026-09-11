@@ -139,6 +139,10 @@ public:
     // "mm.build". Distinct from a TranslationUnit's own module_name(), which is
     // per interface unit rather than per target.
     [[nodiscard]] virtual std::string_view exported_module_name() const = 0;
+
+    // The library: field: the library definition this wrapper consumes, or
+    // empty when this is an ordinary project module.
+    [[nodiscard]] virtual std::string_view library() const = 0;
 };
 
 // An application target, such as apps/main/mm.mdy. Compiled, linked, and
