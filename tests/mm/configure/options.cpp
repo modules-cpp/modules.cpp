@@ -43,7 +43,8 @@ void shared_defaults() {
         expect(resolve(tree, build, result), "defaults resolve");
         const auto defaults = mm::configure::build_defaults(build);
         const auto& values = result.values[0];
-        expect(values.size() == 8, "every registry name is represented");
+        expect(values.size() == 9, "every registry name is represented");
+        expect(values.at("core").boolean, "nodes are core by default in both builds");
         expect(values.at("buildable-host").boolean && values.at("buildable-target").boolean,
                "both lanes default to buildable in both builds");
         expect(values.at("optimize").number == defaults.optimize, "optimization shares build policy");

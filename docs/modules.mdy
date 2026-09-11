@@ -191,9 +191,11 @@ For this guide, the important manifest fields are:
 - module assigns an importable name to a module target.
 - use declares a dependency on an importable module.
 
-The supported target kinds are project, dir, module, app, test, and doc.
-Project and dir targets organize the tree. The build tool compiles module and
-app targets. The test tool builds test targets. The mdy app renders docs.
+The supported target kinds are project, dir, module, app, test, doc, sdk, and
+board. Project and dir targets organize the tree. The build tool compiles module
+and app targets. The test tool builds test targets. The mdy app renders docs.
+Sdk and board targets describe a target platform and require mm: 1.2; configure
+reads them to resolve a lane, and no tool compiles or links them as targets.
 
 Repeated manifest values retain declaration order. Source order is explicit;
 target order is calculated from use dependencies.
