@@ -1,6 +1,7 @@
 module;
 
 #include <cstddef>
+#include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -718,23 +719,47 @@ bool load_platform(const mm::mdy::MDYDocument& document,
     }
     if (platform.link_ownership == mm::configure::LinkOwnership::External &&
         !platform.linker_script.empty()) {
-        std::cerr << "build: invalid board platform in " << path.string() << "\n";
+        std::cerr << "build: external-link platform cannot declare linker script: "
+                  << platform.linker_script.string() << " in " << path.string() << "\n";
         return false;
     }
     if (platform.board) {
         const auto* entry = find_processor_entry_by_arguments(
             platform.sdk_family, platform.target, platform.compiler_arguments);
         if (platform.link_ownership == mm::configure::LinkOwnership::External) {
-            if (*parsed_system != mm::configure::PlatformSystem::BareMetal ||
-                platform.machine.empty() || entry == nullptr) {
-                std::cerr << "build: invalid board platform in " << path.string() << "\n";
+            if (*parsed_system != mm::configure::PlatformSystem::BareMetal) {
+                std::cerr << "build: board platform requires bare-metal system in "
+                          << path.string() << "\n";
+                return false;
+            }
+            if (platform.machine.empty()) {
+                std::cerr << "build: board platform requires machine in " << path.string() << "\n";
+                return false;
+            }
+            if (entry == nullptr) {
+                std::cerr << "build: unknown processor combination for board " << *platform.board
+                          << " in " << path.string() << "\n";
                 return false;
             }
         } else {
-            if (*parsed_system != mm::configure::PlatformSystem::BareMetal ||
-                platform.linker_script.empty() || platform.board_sources.empty() ||
-                entry == nullptr) {
-                std::cerr << "build: invalid board platform in " << path.string() << "\n";
+            if (*parsed_system != mm::configure::PlatformSystem::BareMetal) {
+                std::cerr << "build: board platform requires bare-metal system in "
+                          << path.string() << "\n";
+                return false;
+            }
+            if (platform.linker_script.empty()) {
+                std::cerr << "build: board platform requires linker script in "
+                          << path.string() << "\n";
+                return false;
+            }
+            if (platform.board_sources.empty()) {
+                std::cerr << "build: board platform requires at least one source in "
+                          << path.string() << "\n";
+                return false;
+            }
+            if (entry == nullptr) {
+                std::cerr << "build: unknown processor combination for board " << *platform.board
+                          << " in " << path.string() << "\n";
                 return false;
             }
         }
@@ -1996,6 +2021,12 @@ bool validate_structural_properties(
 
     bool ok = true;
     for (std::size_t i = 0; i < nodes.size(); ++i) {
+        if (nodes[i].kind != "sdk" && properties.nodes[i].core.value && !nodes[i].library.empty()) {
+            std::cerr << tool << ": " << nodes[i].manifest.generic_string() << ": "
+                      << nodes[i].name << " is core, but declares library "
+                      << nodes[i].library << "\n";
+            ok = false;
+        }
         for (const auto& used : nodes[i].uses) {
             const auto found = modules.find(used);
             if (found == modules.end()) continue;  // order() reports unknown modules
@@ -2132,7 +2163,8 @@ std::vector<mm::configure::OptionNode> configuration_nodes(const Project& projec
         const auto& doc = project.documents[i];
         nodes.push_back({node.manifest, node.dir, node.name, node.kind,
                          first(doc, "module"), all(doc, "use"), node.parent,
-                         all(doc, "option"), all(doc, "reset"), all(doc, "read-only")});
+                         all(doc, "option"), all(doc, "reset"), all(doc, "read-only"),
+                         first(doc, "library")});
     }
     return nodes;
 }
@@ -2405,31 +2437,40 @@ bool check_configuration_staleness(const BuildConfiguration& configuration,
             break;
         }
     }
-    if (sdk == nullptr) return true;
+    if (sdk == nullptr) {
+        std::cerr << tool << ": stale configuration record: selected SDK \"" << *platform->sdk
+                  << "\" is not in the project; rerun configure\n";
+        return false;
+    }
 
-    auto expected = mm::configure::LinkOwnership::Project;
-    std::string library_name;
+    const LibraryDefinition* library = nullptr;
     if (!sdk->library.empty()) {
         for (const auto& lib : project.libraries) {
             if (lib.name == sdk->library) {
-                library_name = lib.name;
-                if (!lib.external_build.empty()) {
-                    expected = mm::configure::LinkOwnership::External;
-                }
+                library = &lib;
                 break;
             }
         }
+        if (library == nullptr) {
+            std::cerr << tool << ": stale configuration record: library \"" << sdk->library
+                      << "\" is not in the project; rerun configure\n";
+            return false;
+        }
     }
 
+    const auto expected = (library != nullptr && !library->external_build.empty())
+                              ? mm::configure::LinkOwnership::External
+                              : mm::configure::LinkOwnership::Project;
+
     if (platform->link_ownership != expected) {
-        if (!library_name.empty()) {
+        if (library != nullptr) {
             std::cerr << tool << ": stale configuration record: library \""
-                      << library_name
+                      << library->name
                       << "\" external-build declaration does not match cross-link; rerun configure\n";
         } else {
             std::cerr << tool << ": stale configuration record: SDK \""
                       << sdk->name
-                      << "\" external-build declaration does not match cross-link; rerun configure\n";
+                      << "\" names no external library; rerun configure\n";
         }
         return false;
     }
@@ -2855,5 +2896,799 @@ bool write_toolchain_cmake(const std::filesystem::path& destination,
     return file.good();
 }
 
+bool write_inputs_cmake(const std::filesystem::path& destination,
+                        const std::vector<std::filesystem::path>& objects,
+                        const std::string& output_name,
+                        const std::filesystem::path& library_source,
+                        const std::string& board_name) {
+    std::string objects_text;
+    for (const auto& obj : objects) {
+        const auto bracket = cmake_bracket_argument(obj.generic_string());
+        if (!bracket) {
+            std::cerr << "build: invalid object path for external build: "
+                      << obj.generic_string() << "\n";
+            return false;
+        }
+        objects_text += "  " + *bracket + "\n";
+    }
+
+    const auto name_bracket = cmake_bracket_argument(output_name);
+    if (!name_bracket) {
+        std::cerr << "build: invalid output name for external build: "
+                  << output_name << "\n";
+        return false;
+    }
+
+    const auto source_bracket = cmake_bracket_argument(library_source.generic_string());
+    if (!source_bracket) {
+        std::cerr << "build: invalid library source path for external build: "
+                  << library_source.generic_string() << "\n";
+        return false;
+    }
+
+    const auto board_bracket = cmake_bracket_argument(board_name);
+    if (!board_bracket) {
+        std::cerr << "build: invalid board name for external build: "
+                  << board_name << "\n";
+        return false;
+    }
+
+    std::ostringstream out;
+    out << "set(MM_OBJECTS\n" << objects_text << ")\n";
+    out << "set(MM_OUTPUT_NAME " << *name_bracket << ")\n";
+    out << "set(MM_LIBRARY_SOURCE " << *source_bracket << ")\n";
+    out << "set(MM_BOARD " << *board_bracket << ")\n";
+
+    std::error_code ec;
+    std::filesystem::create_directories(destination.parent_path(), ec);
+    if (ec) {
+        std::cerr << "build: cannot create directory for " << destination.string() << ": "
+                  << ec.message() << "\n";
+        return false;
+    }
+
+    std::ofstream file(destination);
+    if (!file.is_open()) {
+        std::cerr << "build: cannot open " << destination.string() << " for writing\n";
+        return false;
+    }
+    file << out.str();
+    return file.good();
 }
+
+const std::vector<ProjectionSchema>& projection_schemas() {
+    static const std::vector<ProjectionSchema> schemas = {
+        {"arm-none-eabi", {"-march=", "-mthumb", "-mfloat-abi=", "-mfpu=", "-mcmse"}},
+        {"m68k-linux-gnu", {"-march=", "-mcpu=", "-m68881", "-mhard-float", "-msoft-float"}},
+    };
+    return schemas;
+}
+
+const ProjectionSchema* find_projection_schema(std::string_view target_triple) {
+    for (const auto& s : projection_schemas()) {
+        if (s.target_triple == target_triple) return &s;
+    }
+    return nullptr;
+}
+
+namespace {
+
+std::filesystem::path resolve_executable_path(std::string_view name) {
+    if (name.find('/') != std::string_view::npos) {
+        std::error_code ec;
+        auto p = std::filesystem::canonical(name, ec);
+        return ec ? std::filesystem::path(name) : p;
+    }
+    const char* path_env = std::getenv("PATH");
+    if (path_env == nullptr) return name;
+    std::string_view path_view(path_env);
+    while (!path_view.empty()) {
+        const auto colon = path_view.find(':');
+        const auto dir = colon == std::string_view::npos ? path_view : path_view.substr(0, colon);
+        if (!dir.empty()) {
+            auto candidate = std::filesystem::path(dir) / name;
+            std::error_code ec;
+            if (std::filesystem::is_regular_file(candidate, ec)) {
+                auto p = std::filesystem::canonical(candidate, ec);
+                return ec ? candidate : p;
+            }
+        }
+        if (colon == std::string_view::npos) break;
+        path_view = path_view.substr(colon + 1);
+    }
+    return name;
+}
+
+std::string read_json_string(std::string_view s, std::size_t& pos) {
+    std::string result;
+    if (pos >= s.size() || s[pos] != '"') return result;
+    ++pos;
+    while (pos < s.size()) {
+        if (s[pos] == '"') {
+            ++pos;
+            return result;
+        }
+        if (s[pos] == '\\' && pos + 1 < s.size()) {
+            ++pos;
+            char c = s[pos];
+            if (c == '"' || c == '\\' || c == '/') result += c;
+            else if (c == 'b') result += '\b';
+            else if (c == 'f') result += '\f';
+            else if (c == 'n') result += '\n';
+            else if (c == 'r') result += '\r';
+            else if (c == 't') result += '\t';
+            else result += c;
+            ++pos;
+        } else {
+            result += s[pos];
+            ++pos;
+        }
+    }
+    return result;
+}
+
+void skip_json_whitespace(std::string_view s, std::size_t& pos) {
+    while (pos < s.size() && (s[pos] == ' ' || s[pos] == '\t' || s[pos] == '\n' || s[pos] == '\r'))
+        ++pos;
+}
+
+void skip_json_value(std::string_view s, std::size_t& pos) {
+    skip_json_whitespace(s, pos);
+    if (pos >= s.size()) return;
+    if (s[pos] == '"') {
+        read_json_string(s, pos);
+    } else if (s[pos] == '[') {
+        ++pos;
+        while (pos < s.size() && s[pos] != ']') {
+            skip_json_value(s, pos);
+            skip_json_whitespace(s, pos);
+            if (pos < s.size() && s[pos] == ',') ++pos;
+        }
+        if (pos < s.size() && s[pos] == ']') ++pos;
+    } else if (s[pos] == '{') {
+        ++pos;
+        while (pos < s.size() && s[pos] != '}') {
+            skip_json_value(s, pos);
+            skip_json_whitespace(s, pos);
+            if (pos < s.size() && s[pos] == ':') {
+                ++pos;
+                skip_json_value(s, pos);
+            }
+            skip_json_whitespace(s, pos);
+            if (pos < s.size() && s[pos] == ',') ++pos;
+        }
+        if (pos < s.size() && s[pos] == '}') ++pos;
+    } else {
+        while (pos < s.size() && s[pos] != ',' && s[pos] != '}' && s[pos] != ']' &&
+               s[pos] != ' ' && s[pos] != '\t' && s[pos] != '\n' && s[pos] != '\r')
+            ++pos;
+    }
+}
+
+bool split_command_string(std::string_view command,
+                          std::vector<std::string>& tokens,
+                          std::string_view tool) {
+    tokens.clear();
+    std::size_t i = 0;
+    while (i < command.size()) {
+        while (i < command.size() && (command[i] == ' ' || command[i] == '\t' ||
+                                      command[i] == '\n' || command[i] == '\r'))
+            ++i;
+        if (i >= command.size()) break;
+
+        std::string token;
+        bool in_quotes = false;
+        while (i < command.size()) {
+            if (command[i] == '\\' && i + 1 < command.size()) {
+                token += command[i + 1];
+                i += 2;
+            } else if (command[i] == '"') {
+                in_quotes = !in_quotes;
+                ++i;
+            } else if (!in_quotes && (command[i] == ' ' || command[i] == '\t' ||
+                                      command[i] == '\n' || command[i] == '\r')) {
+                break;
+            } else {
+                token += command[i];
+                ++i;
+            }
+        }
+        if (token.starts_with('@')) {
+            std::cerr << tool << ": response file argument in compile command is rejected: "
+                      << token << "\n";
+            return false;
+        }
+        tokens.push_back(std::move(token));
+    }
+    return true;
+}
+
+bool read_abi_probe_path(const std::filesystem::path& file,
+                         std::filesystem::path& probe_path,
+                         std::string_view tool) {
+    std::ifstream in(file);
+    if (!in.is_open()) {
+        std::cerr << tool << ": cannot read ABI probe file: " << file.string() << "\n";
+        return false;
+    }
+    std::string line;
+    if (!std::getline(in, line)) {
+        std::cerr << tool << ": ABI probe file is empty: " << file.string() << "\n";
+        return false;
+    }
+    while (!line.empty() && (line.back() == '\n' || line.back() == '\r' ||
+                             line.back() == ' ' || line.back() == '\t'))
+        line.pop_back();
+    std::size_t start = 0;
+    while (start < line.size() && (line[start] == ' ' || line[start] == '\t')) ++start;
+    line = line.substr(start);
+    if (line.empty()) {
+        std::cerr << tool << ": ABI probe path is empty in " << file.string() << "\n";
+        return false;
+    }
+    std::error_code ec;
+    probe_path = std::filesystem::canonical(line, ec);
+    if (ec) {
+        std::cerr << tool << ": cannot resolve ABI probe path: " << line << "\n";
+        return false;
+    }
+    return true;
+}
+
+bool extract_probe_options(
+    const std::filesystem::path& compile_commands_file,
+    const std::filesystem::path& canonical_probe,
+    std::string_view recorded_c_driver,
+    std::vector<std::string>& sanitised_options,
+    std::string_view tool) {
+    std::ifstream in(compile_commands_file);
+    if (!in.is_open()) {
+        std::cerr << tool << ": cannot open " << compile_commands_file.string() << "\n";
+        return false;
+    }
+    std::string json((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    std::size_t pos = 0;
+    skip_json_whitespace(json, pos);
+    if (pos >= json.size() || json[pos] != '[') {
+        std::cerr << tool << ": invalid compile database in " << compile_commands_file.string() << "\n";
+        return false;
+    }
+    ++pos;
+
+    std::size_t matches = 0;
+    std::string matching_command;
+
+    while (pos < json.size()) {
+        skip_json_whitespace(json, pos);
+        if (pos < json.size() && json[pos] == ']') {
+            ++pos;
+            break;
+        }
+        if (pos < json.size() && json[pos] == ',') {
+            ++pos;
+            skip_json_whitespace(json, pos);
+        }
+        if (pos >= json.size() || json[pos] != '{') {
+            std::cerr << tool << ": malformed compile database entry in "
+                      << compile_commands_file.string() << "\n";
+            return false;
+        }
+        ++pos;
+
+        std::string directory;
+        std::string command;
+        std::string file;
+        bool has_arguments = false;
+
+        while (pos < json.size()) {
+            skip_json_whitespace(json, pos);
+            if (pos < json.size() && json[pos] == '}') {
+                ++pos;
+                break;
+            }
+            if (pos < json.size() && json[pos] == ',') {
+                ++pos;
+                skip_json_whitespace(json, pos);
+            }
+            if (pos >= json.size() || json[pos] != '"') {
+                std::cerr << tool << ": malformed compile database key in "
+                          << compile_commands_file.string() << "\n";
+                return false;
+            }
+            std::string key = read_json_string(json, pos);
+            skip_json_whitespace(json, pos);
+            if (pos >= json.size() || json[pos] != ':') {
+                std::cerr << tool << ": missing ':' in compile database in "
+                          << compile_commands_file.string() << "\n";
+                return false;
+            }
+            ++pos;
+            skip_json_whitespace(json, pos);
+
+            if (key == "arguments") {
+                has_arguments = true;
+                skip_json_value(json, pos);
+            } else if (key == "command") {
+                if (pos < json.size() && json[pos] == '"') {
+                    command = read_json_string(json, pos);
+                } else {
+                    has_arguments = true;
+                    skip_json_value(json, pos);
+                }
+            } else if (key == "file") {
+                if (pos < json.size() && json[pos] == '"') {
+                    file = read_json_string(json, pos);
+                } else {
+                    skip_json_value(json, pos);
+                }
+            } else if (key == "directory") {
+                if (pos < json.size() && json[pos] == '"') {
+                    directory = read_json_string(json, pos);
+                } else {
+                    skip_json_value(json, pos);
+                }
+            } else {
+                skip_json_value(json, pos);
+            }
+        }
+
+        if (has_arguments) {
+            std::cerr << tool << ": compile_commands.json entry uses arguments array; only command string is supported\n";
+            return false;
+        }
+
+        if (!file.empty()) {
+            std::filesystem::path fp(file);
+            if (fp.is_relative() && !directory.empty()) {
+                fp = std::filesystem::path(directory) / fp;
+            }
+            std::error_code ec;
+            auto can_fp = std::filesystem::canonical(fp, ec);
+            if (!ec && can_fp == canonical_probe) {
+                matches++;
+                matching_command = command;
+            }
+        }
+    }
+
+    if (matches == 0) {
+        std::cerr << tool << ": ABI probe " << canonical_probe.string()
+                  << " matches no entry in compile database\n";
+        return false;
+    }
+    if (matches > 1) {
+        std::cerr << tool << ": ABI probe " << canonical_probe.string()
+                  << " matches " << matches << " entries in compile database; expected exactly one\n";
+        return false;
+    }
+
+    std::vector<std::string> tokens;
+    if (!split_command_string(matching_command, tokens, tool)) return false;
+    if (tokens.empty()) {
+        std::cerr << tool << ": compile command for ABI probe is empty\n";
+        return false;
+    }
+
+    const auto cmd_driver_canonical = resolve_executable_path(tokens[0]);
+    const auto recorded_driver_canonical = resolve_executable_path(recorded_c_driver);
+    if (cmd_driver_canonical != recorded_driver_canonical) {
+        std::cerr << tool << ": external build C driver mismatch: command uses " << tokens[0]
+                  << " (" << cmd_driver_canonical.string() << ") but configuration recorded "
+                  << recorded_c_driver << " (" << recorded_driver_canonical.string() << ")\n";
+        return false;
+    }
+
+    sanitised_options.clear();
+    for (std::size_t i = 1; i < tokens.size(); ++i) {
+        if (tokens[i].starts_with("-m")) {
+            sanitised_options.push_back(tokens[i]);
+        }
+    }
+    return true;
+}
+
+}  // namespace
+
+bool query_driver_projection(
+    const std::string& c_driver,
+    const std::vector<std::string>& sanitised_options,
+    const ProjectionSchema& schema,
+    std::map<std::string, std::string>& projection,
+    std::string_view tool) {
+    std::string command = "LC_ALL=C " + shell_quote(c_driver);
+    for (const auto& opt : sanitised_options) {
+        command += " " + shell_quote(opt);
+    }
+    command += " -Q --help=target -c";
+
+    FILE* pipe = ::popen(command.c_str(), "r");
+    if (pipe == nullptr) {
+        std::cerr << tool << ": failed to execute driver query: " << command << "\n";
+        return false;
+    }
+    std::string output;
+    char buffer[512];
+    while (std::fgets(buffer, sizeof(buffer), pipe) != nullptr) output += buffer;
+    const int status = ::pclose(pipe);
+    if (status != 0) {
+        std::cerr << tool << ": driver query failed with status " << status << "\n";
+        return false;
+    }
+
+    projection.clear();
+    std::set<std::string> seen;
+    std::set<std::string> schema_fields;
+    for (const auto f : schema.fields) schema_fields.emplace(f);
+
+    std::istringstream stream(output);
+    std::string line;
+    while (std::getline(stream, line)) {
+        while (!line.empty() && (line.back() == '\r' || line.back() == ' ' || line.back() == '\t'))
+            line.pop_back();
+        std::size_t start = 0;
+        while (start < line.size() && (line[start] == ' ' || line[start] == '\t')) ++start;
+        if (start >= line.size()) continue;
+        std::string_view trimmed(&line[start], line.size() - start);
+
+        if (!trimmed.starts_with("-m")) continue;
+
+        const auto space_pos = trimmed.find_first_of(" \t");
+        if (space_pos == std::string_view::npos) continue;
+
+        const auto opt_name = std::string(trimmed.substr(0, space_pos));
+        if (!schema_fields.contains(opt_name)) continue;
+
+        if (seen.contains(opt_name)) {
+            std::cerr << tool << ": repeated ABI projection field in driver output: "
+                      << opt_name << "\n";
+            return false;
+        }
+
+        const auto val_start = trimmed.find_first_not_of(" \t", space_pos);
+        const auto val = val_start == std::string_view::npos
+                             ? std::string{}
+                             : std::string(trimmed.substr(val_start));
+
+        if (opt_name.ends_with('=')) {
+            if (val.empty()) {
+                std::cerr << tool << ": malformed or empty value for projection field: "
+                          << opt_name << "\n";
+                return false;
+            }
+        } else {
+            if (val != "[enabled]" && val != "[disabled]") {
+                std::cerr << tool << ": unrecognised value for boolean projection field "
+                          << opt_name << ": \"" << val << "\"\n";
+                return false;
+            }
+        }
+
+        projection[opt_name] = val;
+        seen.insert(opt_name);
+    }
+
+    for (const auto f : schema.fields) {
+        if (!seen.contains(std::string(f))) {
+            std::cerr << tool << ": driver query output missing required ABI projection field: "
+                      << f << "\n";
+            return false;
+        }
+    }
+    return true;
+}
+
+bool publish_external_results(
+    const std::filesystem::path& results_file,
+    const std::filesystem::path& external_dir,
+    const std::string& output_name,
+    const std::filesystem::path& target_output,
+    std::string_view tool) {
+    std::ifstream in(results_file);
+    if (!in.is_open()) {
+        std::cerr << tool << ": cannot open " << results_file.string() << "\n";
+        return false;
+    }
+    std::vector<std::string> lines;
+    std::string line;
+    while (std::getline(in, line)) {
+        while (!line.empty() && line.back() == '\r') line.pop_back();
+        lines.push_back(line);
+    }
+    while (!lines.empty()) {
+        const auto& last = lines.back();
+        if (last.find_first_not_of(" \t") == std::string::npos) {
+            lines.pop_back();
+        } else {
+            break;
+        }
+    }
+    if (lines.empty()) {
+        std::cerr << tool << ": " << results_file.string() << " is empty\n";
+        return false;
+    }
+    if (lines[0].empty() || lines[0].find_first_not_of(" \t") == std::string::npos) {
+        std::cerr << tool << ": first line of " << results_file.string() << " is empty\n";
+        return false;
+    }
+
+    for (std::size_t i = 0; i < lines.size(); ++i) {
+        if (lines[i].empty() || lines[i].find_first_not_of(" \t") == std::string::npos) {
+            std::cerr << tool << ": blank line in " << results_file.string() << " at line "
+                      << (i + 1) << "\n";
+            return false;
+        }
+    }
+
+    std::error_code ec;
+    const auto can_ext_dir = std::filesystem::canonical(external_dir, ec);
+    if (ec) {
+        std::cerr << tool << ": cannot resolve external build directory: "
+                  << external_dir.string() << "\n";
+        return false;
+    }
+
+    std::set<std::filesystem::path> seen_sources;
+    std::map<std::filesystem::path, std::filesystem::path> publications;
+
+    for (std::size_t i = 0; i < lines.size(); ++i) {
+        std::filesystem::path raw_path(lines[i]);
+        if (!raw_path.is_absolute()) {
+            std::cerr << tool << ": artifact path is not absolute: " << lines[i] << "\n";
+            return false;
+        }
+        if (!std::filesystem::is_regular_file(raw_path, ec) || ec) {
+            std::cerr << tool << ": artifact is not an existing regular file: " << lines[i] << "\n";
+            return false;
+        }
+        auto can_src = std::filesystem::canonical(raw_path, ec);
+        if (ec) {
+            std::cerr << tool << ": cannot resolve artifact path: " << lines[i] << "\n";
+            return false;
+        }
+        auto rel = std::filesystem::relative(can_src, can_ext_dir, ec);
+        if (ec || rel.empty() || rel.string().starts_with("..")) {
+            std::cerr << tool << ": artifact resolves outside external build directory: "
+                      << lines[i] << "\n";
+            return false;
+        }
+
+        if (seen_sources.contains(can_src)) {
+            std::cerr << tool << ": duplicate artifact source: " << lines[i] << "\n";
+            return false;
+        }
+        seen_sources.insert(can_src);
+
+        std::filesystem::path dest;
+        if (i == 0) {
+            dest = target_output;
+        } else {
+            const std::string filename = raw_path.filename().string();
+            if (!filename.starts_with(output_name)) {
+                std::cerr << tool << ": supplemental artifact does not begin with output name \""
+                          << output_name << "\": " << lines[i] << "\n";
+                return false;
+            }
+            const std::string suffix = filename.substr(output_name.length());
+            if (suffix.empty() || suffix[0] != '.') {
+                std::cerr << tool << ": supplemental artifact suffix must start with a dot: "
+                          << lines[i] << "\n";
+                return false;
+            }
+            dest = target_output.parent_path() / (target_output.filename().string() + suffix);
+        }
+
+        if (publications.contains(dest)) {
+            std::cerr << tool << ": colliding artifact destination: " << dest.string() << "\n";
+            return false;
+        }
+        publications[dest] = raw_path;
+    }
+
+    for (const auto& [dest, src] : publications) {
+        if (!std::filesystem::is_regular_file(src, ec) || ec) {
+            std::cerr << tool << ": declared artifact missing after build: " << src.string() << "\n";
+            return false;
+        }
+        std::filesystem::create_directories(dest.parent_path(), ec);
+        if (ec) {
+            std::cerr << tool << ": cannot create destination directory " << dest.parent_path().string()
+                      << ": " << ec.message() << "\n";
+            return false;
+        }
+        const auto temp = dest.string() + ".publish-tmp";
+        std::filesystem::remove(temp, ec);
+        std::filesystem::copy_file(src, temp, std::filesystem::copy_options::overwrite_existing, ec);
+        if (ec) {
+            std::cerr << tool << ": failed to copy artifact " << src.string() << " to " << temp
+                      << ": " << ec.message() << "\n";
+            return false;
+        }
+        std::filesystem::rename(temp, dest, ec);
+        if (ec) {
+            std::cerr << tool << ": failed to publish artifact " << dest.string()
+                      << ": " << ec.message() << "\n";
+            std::filesystem::remove(temp, ec);
+            return false;
+        }
+    }
+    return true;
+}
+
+int external_link(
+    const Project& project,
+    const Platform& platform,
+    const Toolchain& toolchain,
+    const std::string& app_name,
+    const std::vector<std::filesystem::path>& objects,
+    const std::filesystem::path& build_dir,
+    const std::filesystem::path& target_output,
+    bool verbose) {
+    if (!platform.sdk) {
+        std::cerr << "build: external link requires a selected SDK\n";
+        return exit_manifest;
+    }
+    const SdkDefinition* sdk = nullptr;
+    for (const auto& entry : project.sdks) {
+        if (entry.name == *platform.sdk) {
+            sdk = &entry;
+            break;
+        }
+    }
+    if (sdk == nullptr || sdk->library.empty()) {
+        std::cerr << "build: selected SDK \"" << *platform.sdk << "\" names no library\n";
+        return exit_manifest;
+    }
+    const LibraryDefinition* library = nullptr;
+    for (const auto& lib : project.libraries) {
+        if (lib.name == sdk->library) {
+            library = &lib;
+            break;
+        }
+    }
+    if (library == nullptr) {
+        std::cerr << "build: SDK library \"" << sdk->library << "\" not found\n";
+        return exit_manifest;
+    }
+    if (library->external_build != "cmake") {
+        std::cerr << "build: unsupported external-build: " << library->external_build << "\n";
+        return exit_manifest;
+    }
+    if (toolchain.c_compiler.invocation.empty()) {
+        std::cerr << "build: external build requires a configured C compiler; rerun configure\n";
+        return exit_compile;
+    }
+
+    const std::string board_name = (platform.board && !platform.board->empty()) ? *platform.board : "none";
+    const auto external_dir = std::filesystem::absolute(build_dir / "external" / library->name / board_name / app_name);
+
+    std::error_code ec;
+    std::filesystem::create_directories(external_dir, ec);
+    if (ec) {
+        std::cerr << "build: cannot create external build directory " << external_dir.string()
+                  << ": " << ec.message() << "\n";
+        return exit_link;
+    }
+
+    const auto toolchain_file = external_dir / "mm-toolchain.cmake";
+    if (!write_toolchain_cmake(toolchain_file, toolchain, platform)) {
+        return exit_compile;
+    }
+
+    std::vector<std::filesystem::path> abs_objects;
+    for (const auto& obj : objects) {
+        abs_objects.push_back(std::filesystem::absolute(obj));
+    }
+    const auto abs_lib_source = std::filesystem::absolute(library->source);
+    const auto inputs_file = external_dir / "mm-inputs.cmake";
+    const std::string bridge_board = (platform.board && !platform.board->empty()) ? *platform.board : "";
+    if (!write_inputs_cmake(inputs_file, abs_objects, app_name, abs_lib_source, bridge_board)) {
+        return exit_manifest;
+    }
+
+    const auto bridge_dir = std::filesystem::absolute(library->manifest.parent_path() / "cmake");
+    std::string configure_cmd = "cmake -G \"Unix Makefiles\" -DCMAKE_TOOLCHAIN_FILE=" +
+                                shell_quote(toolchain_file) +
+                                " -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DFETCHCONTENT_FULLY_DISCONNECTED=ON -S " +
+                                shell_quote(bridge_dir) + " -B " + shell_quote(external_dir);
+    if (!verbose) configure_cmd += " >/dev/null 2>&1";
+
+    if (run(toolchain, configure_cmd) != 0) {
+        std::cerr << "build: external build configuration failed for " << app_name << "\n";
+        return exit_link;
+    }
+
+    // Step 5: ABI probe and projection comparison
+    const auto probe_txt = external_dir / "mm-abi-probe.txt";
+    std::filesystem::path canonical_probe;
+    if (!read_abi_probe_path(probe_txt, canonical_probe, "build")) {
+        return exit_link;
+    }
+
+    const auto compile_commands_file = external_dir / "compile_commands.json";
+    std::vector<std::string> bridge_sanitised_options;
+    if (!extract_probe_options(compile_commands_file, canonical_probe,
+                               toolchain.c_compiler.invocation, bridge_sanitised_options,
+                               "build")) {
+        return exit_link;
+    }
+
+    std::vector<std::string> project_options;
+    std::vector<std::string> project_tokens;
+    if (!split_command_string(toolchain.compiler.arguments, project_tokens, "build")) {
+        return exit_link;
+    }
+    for (const auto& tok : project_tokens) {
+        if (tok.starts_with("-m")) project_options.push_back(tok);
+    }
+
+    const auto* schema = find_projection_schema(platform.target);
+    if (schema == nullptr) {
+        std::cerr << "build: target \"" << platform.target << "\" has no ABI projection schema\n";
+        return exit_manifest;
+    }
+
+    std::map<std::string, std::string> project_proj;
+    if (!query_driver_projection(toolchain.c_compiler.invocation, project_options, *schema,
+                                 project_proj, "build")) {
+        return exit_link;
+    }
+
+    std::map<std::string, std::string> bridge_proj;
+    if (!query_driver_projection(toolchain.c_compiler.invocation, bridge_sanitised_options,
+                                 *schema, bridge_proj, "build")) {
+        return exit_link;
+    }
+
+    bool projections_match = true;
+    for (const auto f : schema->fields) {
+        if (project_proj[std::string(f)] != bridge_proj[std::string(f)]) {
+            projections_match = false;
+            break;
+        }
+    }
+
+    if (!projections_match) {
+        std::cerr << "build: ABI projection mismatch between project and external build\n";
+        std::cerr << "  project options: ";
+        for (std::size_t i = 0; i < project_options.size(); ++i) {
+            if (i > 0) std::cerr << " ";
+            std::cerr << project_options[i];
+        }
+        std::cerr << "\n  bridge options:  ";
+        for (std::size_t i = 0; i < bridge_sanitised_options.size(); ++i) {
+            if (i > 0) std::cerr << " ";
+            std::cerr << bridge_sanitised_options[i];
+        }
+        std::cerr << "\n  project projection:\n";
+        for (const auto f : schema->fields) {
+            std::cerr << "    " << f << " " << project_proj[std::string(f)] << "\n";
+        }
+        std::cerr << "  bridge projection:\n";
+        for (const auto f : schema->fields) {
+            std::cerr << "    " << f << " " << bridge_proj[std::string(f)] << "\n";
+        }
+        return exit_link;
+    }
+
+    // Step 6: Build target mm_external
+    std::string build_cmd = "cmake --build " + shell_quote(external_dir) +
+                            " --target mm_external";
+    if (!verbose) build_cmd += " >/dev/null 2>&1";
+
+    if (run(toolchain, build_cmd) != 0) {
+        std::cerr << "build: external build failed for " << app_name << "\n";
+        return exit_link;
+    }
+
+    // Step 7: Publish results
+    const auto result_txt = external_dir / "mm-result.txt";
+    if (!publish_external_results(result_txt, external_dir, app_name, target_output, "build")) {
+        return exit_link;
+    }
+
+    return exit_ok;
+}
+
+}
+
 

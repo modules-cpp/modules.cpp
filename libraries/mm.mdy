@@ -5,6 +5,7 @@ name: libraries
 option: core no
 read-only: core
 folder: demo
+folder: cmake-demo
 ---
 
 # Libraries

@@ -380,7 +380,7 @@ When building through a CMake bridge for an external library, build generates mm
 - CMAKE_TRY_COMPILE_TARGET_TYPE is set to STATIC_LIBRARY so CMake does not attempt to link and execute test binaries during compiler identification.
 - CMAKE_C_COMPILER and CMAKE_CXX_COMPILER are emitted as bracket arguments ([==[...] ==]), quoting their paths safely without variable or escape expansion.
 - CMAKE_SYSROOT is emitted as a bracket argument when the platform defines an explicit sysroot.
-- mm-toolchain.cmake carries no processor flags (-mcpu, -march, -mthumb, -mfloat-abi). Processor flags are supplied by the bridge, ensuring ABI agreement without contradictory toolchain overrides.
+- mm-toolchain.cmake carries no processor flags (-mcpu, -march, -mthumb, -mfloat-abi). Putting the lane's processor arguments there would feed the project's own flags into foreign compile commands and let the ABI comparison pass by construction; omitting them keeps the driver-level ABI projection comparison honest.
 
 # Analysis and reporting
 

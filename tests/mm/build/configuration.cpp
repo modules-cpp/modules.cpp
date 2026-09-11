@@ -683,8 +683,9 @@ void loads_cross_link_external_configuration() {
     // 5. Rejects invalid cross-link value
     const auto bad_link_val_path = tree.root() / "out/config-bad-link.mdy";
     auto bad_link_val = bm_config;
-    const auto ext_val_pos = bad_link_val.find("external");
-    bad_link_val.replace(ext_val_pos, 8, "internal");
+    const auto ext_val_pos = bad_link_val.find("cross-link: external");
+    bad_link_val.replace(ext_val_pos, std::string_view("cross-link: external").size(),
+                         "cross-link: internal");
     write(bad_link_val_path, bad_link_val);
     mm::test::expect(!mm::build::load_configuration(bad_link_val_path, false, bad_config),
                      "expected invalid cross-link value to be rejected");
@@ -781,6 +782,24 @@ void detects_stale_configuration_record() {
                      "config without cross-link loads");
     mm::test::expect(!mm::build::check_configuration_staleness(config_proj, project, true, "build"),
                      "library declaring external-build against project record is stale");
+
+    // Vanished SDK -> stale!
+    auto vanished_sdk_project = project;
+    vanished_sdk_project.sdks.clear();
+    mm::test::expect(!mm::build::check_configuration_staleness(config, vanished_sdk_project, true, "build"),
+                     "vanished SDK makes record stale");
+
+    // SDK names no external library, but record is external -> stale!
+    auto no_lib_sdk_project = project;
+    no_lib_sdk_project.sdks.front().library.clear();
+    mm::test::expect(!mm::build::check_configuration_staleness(config, no_lib_sdk_project, true, "build"),
+                     "SDK naming no external library against external record is stale");
+
+    // SDK library vanished -> stale!
+    auto vanished_lib_project = project;
+    vanished_lib_project.libraries.clear();
+    mm::test::expect(!mm::build::check_configuration_staleness(config, vanished_lib_project, true, "build"),
+                     "vanished SDK library makes record stale");
 }
 
 const mm::test::case_ cases[] = {

@@ -58,8 +58,8 @@ void repository_exposes_platform_definitions() {
     auto loaded = mm::model::Loaded::load(".", ok);
     const auto sdks = loaded.repository().sdks();
     const auto boards = loaded.repository().boards();
-    mm::test::expect(ok && sdks.size() == 4,
-                     "expected all four SDK definitions from the manifest walk");
+    mm::test::expect(ok && sdks.size() == 5,
+                     "expected all five SDK definitions from the manifest walk");
     mm::test::expect(boards.size() == 3,
                      "expected all three board definitions from the manifest walk");
     const models::BoardNode* mps2 = nullptr;

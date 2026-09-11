@@ -1,0 +1,8 @@
+---
+mm: 1.4
+kind: app
+name: cmake-demo-smoke
+option: buildable-host no
+file: main.cpp
+file: registrar.cpp
+---

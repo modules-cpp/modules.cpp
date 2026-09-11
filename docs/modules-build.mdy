@@ -77,10 +77,25 @@ For the selected lane build performs these phases:
 - Clear module state for the selected build.
 - Compile translation units in declared order.
 - Compile the selected board unit once in this build output tree.
-- Link retained applications from their transitive object closure and the board objects.
+- Link retained applications from their transitive object closure and the board objects (or delegate linking to the external build bridge when link ownership is external).
 - Install eligible host applications.
 
 Unknown modules and dependency cycles are manifest errors. Compile and link failures stop the pipeline immediately.
+
+# External build and link ownership
+
+When a target lane platform declares `link: external` (recorded as `cross-link: external` in `out/config.mdy`), link ownership is delegated to the platform's selected SDK library external build bridge:
+
+- Application linking does not invoke the project linker directly. Instead, build creates an isolated external build directory under the target output tree (`external/<app-name>`).
+- Build writes `mm-inputs.cmake` beside `mm-toolchain.cmake`, containing CMake variables for `MM_OBJECTS`, `MM_OUTPUT_NAME`, `MM_LIBRARY_SOURCE`, and `MM_BOARD`. All values follow an escaping contract using CMake bracket arguments `[=[...]=]`, and semicolons or newlines are rejected.
+- Initial CMake configuration is executed with compile commands export enabled (`-DCMAKE_EXPORT_COMPILE_COMMANDS=ON`).
+- Build validates and extracts the ABI probe declared by the bridge in `mm-abi-probe.txt`. The probe path must resolve to exactly one entry in `compile_commands.json` by canonical path. Arguments-form entries and `@` response files are rejected.
+- The C driver identity in the compile database command must match the configured C compiler. Arguments are sanitised to retain only `-m*` options.
+- The C driver target projection is queried under `LC_ALL=C <driver> <options> -Q --help=target -c` and parsed strictly against the target triple's projection schema (closed registry: `arm-none-eabi`, `m68k-linux-gnu`). Missing, duplicate, or unrecognized fields are rejected.
+- The bridge probe projection must match the project target projection exactly. Any mismatch aborts linking with a diagnostic naming the differing fields and leaves the external build directory intact for inspection.
+- When the projection matches, `cmake --build` builds the `mm_external` target (with `LINKER_LANGUAGE CXX`).
+- Build validates and publishes artifacts listed in `mm-result.txt`. Trailing blank lines are stripped. Line 1 specifies the primary artifact path. Interior blank lines, non-existent files, non-regular files, relative paths, paths resolving outside the external build directory, duplicate sources, and colliding destinations are rejected.
+- The primary artifact publishes extensionless to the normal application binary path. Supplemental artifacts prefixed with `MM_OUTPUT_NAME.` are published beside the primary with their suffixes.
 
 # Manifest subtree
 
@@ -143,6 +158,7 @@ Build target applications without changing the configured default:
 - A configuration-2 bare-metal executable with an unresolved responsibility exits 65 before linking; modules remain compilable.
 - A descendant invocation cannot bypass capability inherited from an ancestor.
 - A target build never installs an executable over a host command in out/bin.
+- In externally linked lanes, linking is delegated to the SDK library CMake bridge with ABI probe projection validation and artifact publication from mm-result.txt.
 - No build option can override compiler, target triple, build type, flags, or output directory.
 
 # Current boundary

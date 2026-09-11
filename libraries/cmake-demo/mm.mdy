@@ -1,0 +1,13 @@
+---
+mm: 1.4
+kind: library
+name: cmake-demo
+source: upstream
+licence: LICENSE
+external-build: cmake
+folder: ext
+---
+
+# CMake demo library fixture
+
+A repository-local fixture proving external CMake builds and linking.

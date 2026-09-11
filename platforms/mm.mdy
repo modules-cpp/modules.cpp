@@ -8,4 +8,5 @@ folder: m68k-linux-gnu
 folder: aarch64-linux-gnu
 folder: arm-linux-gnueabihf
 folder: pico
+folder: m68k-linux-external
 ---

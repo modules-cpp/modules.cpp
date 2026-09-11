@@ -8,4 +8,5 @@ folder: target-smoke
 folder: target-smoke-any
 folder: target-smoke-rp2040
 folder: target-smoke-rp2350
+folder: cmake-demo-smoke
 ---

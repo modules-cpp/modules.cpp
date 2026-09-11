@@ -299,6 +299,39 @@ void structural_properties() {
                structural.nodes[library_node].core.value_source == tree.root() / "modules/lib/mm.mdy",
            "core value retains its assigning manifest");
 
+    // Restore modules/lib to core so apps/app and tools/t do not violate the core rule.
+    tree.manifest("", "kind: project\nname: p\nfolder: modules\nfolder: apps\nfolder: tools\nfolder: libdef\n");
+    tree.manifest_raw("libdef", "mm: 1.3\nkind: library\nname: demo\nsource: src\nlicence: LICENSE\n");
+    std::ofstream(tree.root() / "libdef/LICENSE") << "mit\n";
+    std::filesystem::create_directories(tree.root() / "libdef/src");
+    tree.manifest("modules/lib", "kind: module\nname: lib\nmodule: p.lib\nfile: lib.cppm\n");
+
+    // A core module declaring library: is rejected by structural property validation.
+    tree.manifest_raw("modules/lib",
+                      "mm: 1.3\nkind: module\nname: lib\nmodule: p.lib\nfile: lib.cppm\nlibrary: demo\n");
+    Resolution core_with_library;
+    expect(resolve(tree, Build::Debug, core_with_library), "module with library resolves options");
+    expect(!mm::build::validate_structural_properties(
+               core_with_library.nodes, mm::build::structural_properties(core_with_library.values), "configure"),
+           "a core module declaring library: is rejected");
+
+    // A non-core module declaring library: is permitted.
+    tree.manifest_raw("modules/lib",
+                      "mm: 1.3\nkind: module\nname: lib\nmodule: p.lib\nfile: lib.cppm\nlibrary: demo\noption: core no\n");
+    tree.manifest_raw("apps/app",
+                      "mm: 1.1\nkind: app\nname: app\nuse: p.lib\nfile: a.cpp\noption: core no\n");
+    tree.manifest_raw("tools/t",
+                      "mm: 1.1\nkind: app\nname: t\nuse: p.lib\nfile: t.cpp\noption: core no\n");
+    Resolution non_core_with_library;
+    expect(resolve(tree, Build::Debug, non_core_with_library), "non-core module with library resolves");
+    expect(mm::build::validate_structural_properties(
+               non_core_with_library.nodes, mm::build::structural_properties(non_core_with_library.values), "configure"),
+           "a non-core module declaring library: is permitted");
+
+    tree.manifest("tools/t", "kind: app\nname: t\nuse: p.lib\nfile: t.cpp\n");
+    tree.manifest("modules/lib", "kind: module\nname: lib\nmodule: p.lib\nfile: lib.cppm\n");
+    tree.manifest("", "kind: project\nname: p\nfolder: modules\nfolder: apps\nfolder: tools\n");
+
     // A node buildable for nothing is rejected by the resolver itself.
     tree.manifest_raw("apps/app",
                       "mm: 1.1\nkind: app\nname: app\nuse: p.lib\nfile: a.cpp\noption: buildable-host no\noption: buildable-target no\n");

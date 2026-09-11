@@ -285,8 +285,18 @@ int main(int argc, char** argv) {
             return mm::build::exit_manifest;
         auto objects = mm::build::closure(tree, index);
         if (board) objects.insert(objects.end(), board->objects.begin(), board->objects.end());
-        if (const int status = mm::build::link(toolchain, objects, output); status != 0)
-            return status;
+
+        if (platform != nullptr &&
+            platform->link_ownership == mm::configure::LinkOwnership::External) {
+            if (const int status = mm::build::external_link(
+                    project, *platform, toolchain, target.name, objects, build_dir, output,
+                    verbose);
+                status != 0)
+                return status;
+        } else {
+            if (const int status = mm::build::link(toolchain, objects, output); status != 0)
+                return status;
+        }
 
         if (!target_lane) {
             if (const int status = mm::build::install(output, bin_dir, target.name); status != 0)

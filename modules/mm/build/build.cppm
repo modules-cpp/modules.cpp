@@ -2,6 +2,7 @@ module;
 
 #include <cstddef>
 #include <filesystem>
+#include <map>
 #include <optional>
 #include <string>
 #include <vector>
@@ -451,6 +452,45 @@ int install(const std::filesystem::path& from, const std::filesystem::path& bin_
                                          const Toolchain& toolchain,
                                          const Platform& platform);
 
+// Generates mm-inputs.cmake for external CMake builds.
+[[nodiscard]] bool write_inputs_cmake(
+    const std::filesystem::path& destination,
+    const std::vector<std::filesystem::path>& objects,
+    const std::string& output_name,
+    const std::filesystem::path& library_source,
+    const std::string& board_name);
+
+struct ProjectionSchema {
+    std::string_view target_triple;
+    std::vector<std::string_view> fields;
+};
+
+[[nodiscard]] const ProjectionSchema* find_projection_schema(std::string_view target_triple);
+
+[[nodiscard]] bool query_driver_projection(
+    const std::string& c_driver,
+    const std::vector<std::string>& sanitised_options,
+    const ProjectionSchema& schema,
+    std::map<std::string, std::string>& projection,
+    std::string_view tool);
+
+[[nodiscard]] bool publish_external_results(
+    const std::filesystem::path& results_file,
+    const std::filesystem::path& external_dir,
+    const std::string& output_name,
+    const std::filesystem::path& target_output,
+    std::string_view tool);
+
+[[nodiscard]] int external_link(
+    const Project& project,
+    const Platform& platform,
+    const Toolchain& toolchain,
+    const std::string& app_name,
+    const std::vector<std::filesystem::path>& objects,
+    const std::filesystem::path& build_dir,
+    const std::filesystem::path& target_output,
+    bool verbose = false);
+
 // A stale module interface silently contradicts the sources being compiled.
 // Clears both compiler families' module artifacts for this output lane and
 // returns false if either cannot be removed. Object paths intentionally do not
@@ -458,3 +498,4 @@ int install(const std::filesystem::path& from, const std::filesystem::path& bin_
 [[nodiscard]] bool clear_module_cache(const std::filesystem::path& build_dir = "out");
 
 }
+
