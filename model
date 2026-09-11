@@ -7,6 +7,12 @@ MM_BUILD="out"
 echo "Run model"
 echo
 
+# mm.shell is installed by the configured full build. Without it, use the
+# plain launcher, which reports the missing tool precisely.
+if [ ! -x "${MM_BUILD}/bin/shell" ]; then
+    exec sh model.sh "$@"
+fi
+
 cmd="sh model.sh"
 # Each argument is single-quoted so it survives the second /bin/sh the
 # shell tool runs the command through: without that, spaces and shell

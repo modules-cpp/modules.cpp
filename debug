@@ -5,6 +5,12 @@ MM_BUILD="out"
 echo "Debug application"
 echo
 
+# mm.shell is installed by the configured full build. Without it, use the
+# plain launcher, which reports the missing tool precisely.
+if [ ! -x "${MM_BUILD}/bin/shell" ]; then
+    exec sh debug.sh "$@"
+fi
+
 cmd="sh debug.sh"
 for arg in "$@"; do
     cmd="$cmd '$(printf '%s' "$arg" | sed "s/'/'\\\\''/g")'"

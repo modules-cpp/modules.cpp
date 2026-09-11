@@ -33,6 +33,13 @@ for arg in "$@"; do
     esac
 done
 
+# Installed by build.sh. Deliberately not built here: a missing tool is a real
+# error rather than a silent rebuild.
+if [ ! -x "out/bin/test" ]; then
+    echo "test: out/bin/test not found; run ./bootstrap.sh && ./build.sh first" >&2
+    exit 65
+fi
+
 if [ -n "$targets" ]; then
     for target in $targets; do
         status=0

@@ -304,6 +304,11 @@ bool is_safe_relative_path(const std::filesystem::path& raw, const std::filesyst
     return true;
 }
 
+bool path_within(const std::filesystem::path& base, const std::filesystem::path& path) {
+    const auto relative = path.lexically_normal().lexically_relative(base.lexically_normal());
+    return !relative.empty() && !relative.is_absolute() && *relative.begin() != "..";
+}
+
 // weakly_canonical resolves symlinks in whatever prefix of path already
 // exists (a real fix for a symlink planted under out/ that would otherwise
 // redirect a write outside the project), but when nothing on path exists
@@ -921,6 +926,35 @@ bool valid_manifest(const mm::mdy::MDYDocument& doc, std::string_view kind, std:
     return true;
 }
 
+// A library's folder: entries reach the project-authored wrappers beside its
+// vendored tree, never into it. file: being invalid on a library manifest keeps
+// the manifest itself from naming foreign source, but it does not stop a folder:
+// entry pointing at the checkout, and a manifest found there would produce
+// ordinary targets that compile and are handed to check. The canonical
+// comparison is what closes the door: a lexically unrelated folder: can still be
+// a symlink into the tree.
+bool folder_within_library_source(const std::filesystem::path& source,
+                                  const std::filesystem::path& folder) {
+    if (path_within(source, folder)) return true;
+
+    // weakly_canonical leaves a path that does not exist yet relative, the same
+    // case within_root documents; fall back to lexical resolution so the two
+    // sides are always compared in the same form.
+    const auto resolve = [](const std::filesystem::path& path) {
+        std::error_code ec;
+        auto resolved = std::filesystem::weakly_canonical(path, ec);
+        if (ec) return std::filesystem::path{};
+        if (!resolved.is_absolute())
+            resolved = std::filesystem::absolute(path, ec).lexically_normal();
+        return ec ? std::filesystem::path{} : resolved;
+    };
+
+    const auto canonical_source = resolve(source);
+    const auto canonical_folder = resolve(folder);
+    if (canonical_source.empty() || canonical_folder.empty()) return false;
+    return path_within(canonical_source, canonical_folder);
+}
+
 // The one traversal: the structural node, the parsed document, and the
 // target a manifest declares, all recorded from a single read of that
 // manifest. walk and walk_nodes were separate recursive walkers doing the
@@ -966,9 +1000,24 @@ void walk_project(const std::filesystem::path& dir, std::size_t parent, Project&
     if (parent != no_parent) project.nodes[parent].children.push_back(index);
 
     if (kind == "project" || kind == "dir" || kind == "library") {
+        std::filesystem::path library_source;
+        if (kind == "library") {
+            const auto declared = first(doc, "source");
+            if (!declared.empty()) library_source = (dir / declared).lexically_normal();
+        }
+
         state.visiting.push_back(canonical);
-        for (const auto& folder : all(doc, "folder"))
+        for (const auto& folder : all(doc, "folder")) {
+            if (!library_source.empty() &&
+                folder_within_library_source(library_source,
+                                             (dir / folder).lexically_normal())) {
+                std::cerr << state.policy.tool << ": " << manifest.string()
+                          << ": folder is inside library source: " << folder << "\n";
+                project.ok = false;
+                continue;
+            }
             walk_project(dir / folder, index, project, state);
+        }
         state.visiting.pop_back();
         state.visited.push_back(canonical);
         return;
@@ -1127,11 +1176,6 @@ bool definition_path(const std::filesystem::path& root, const ManifestNode& node
         return false;
     }
     return true;
-}
-
-bool path_within(const std::filesystem::path& base, const std::filesystem::path& path) {
-    const auto relative = path.lexically_normal().lexically_relative(base.lexically_normal());
-    return !relative.empty() && !relative.is_absolute() && *relative.begin() != "..";
 }
 
 std::filesystem::path absolute_from_root(const std::filesystem::path& root,

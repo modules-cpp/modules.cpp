@@ -99,6 +99,68 @@ void library_definition() {
            "a licence cannot resolve inside canonical source");
 }
 
+// A library's folder: entries reach the wrappers beside its vendored tree. The
+// tree itself must stay out of the walk however a folder: entry spells it,
+// because a manifest found inside it would otherwise become an ordinary target
+// built from foreign source and handed to check.
+void source_boundary() {
+    const mm::test::scoped_tree tree{"library_source_boundary"};
+    tree.manifest("", "kind: project\nname: p\nfolder: libraries\n");
+
+    const std::string library =
+        "mm: 1.3\nkind: library\nname: demo\nsource: third_party\nlicence: LICENSE\n"
+        "include-directory: include\n";
+
+    tree.manifest_raw("libraries", library + "folder: wrapper\n");
+    std::ofstream(tree.root() / "libraries/LICENSE") << "fixture licence\n";
+    tree.manifest_raw("libraries/wrapper",
+                      "mm: 1.3\nkind: module\nname: wrapper\nmodule: p.wrapper\n"
+                      "file: wrapper.cppm\nlibrary: demo\n");
+
+    // Foreign manifests inside the checkout: exactly what must never be reached.
+    std::filesystem::create_directories(tree.root() / "libraries/third_party/include");
+    tree.manifest_raw("libraries/third_party",
+                      "mm: 1.0\nkind: module\nname: foreign\nmodule: foreign\n"
+                      "file: foreign.cppm\n");
+    tree.manifest_raw("libraries/third_party/inner",
+                      "mm: 1.0\nkind: module\nname: inner\nmodule: foreign.inner\n"
+                      "file: inner.cppm\n");
+
+    auto project = mm::build::load_project(
+        tree.root(), {.tool = "configure", .strict_tree = true});
+    expect(project.ok && project.targets.size() == 1 &&
+               project.targets.front().name == "wrapper",
+           "a wrapper beside the vendored tree is reached and the tree is not");
+
+    tree.manifest_raw("libraries", library + "folder: wrapper\nfolder: third_party\n");
+    expect(!mm::build::load_project(
+                tree.root(), {.tool = "configure", .strict_tree = true}).ok,
+           "a library folder entry cannot name its own source");
+
+    std::error_code ec;
+    std::filesystem::create_directory_symlink(tree.root() / "libraries/third_party/inner",
+                                              tree.root() / "libraries/alias", ec);
+    expect(!ec, "folder alias symlink created");
+    tree.manifest_raw("libraries", library + "folder: wrapper\nfolder: alias\n");
+    expect(!mm::build::load_project(
+                tree.root(), {.tool = "configure", .strict_tree = true}).ok,
+           "a library folder entry cannot reach source through a symlink");
+
+    // The alias is rejected for where it resolves, not for being a symlink.
+    std::filesystem::create_directories(tree.root() / "libraries/beside");
+    tree.manifest_raw("libraries/beside",
+                      "mm: 1.3\nkind: module\nname: beside\nmodule: p.beside\n"
+                      "file: beside.cppm\n");
+    std::filesystem::remove(tree.root() / "libraries/alias", ec);
+    std::filesystem::create_directory_symlink(tree.root() / "libraries/beside",
+                                              tree.root() / "libraries/alias", ec);
+    expect(!ec, "sibling alias symlink created");
+    project = mm::build::load_project(
+        tree.root(), {.tool = "configure", .strict_tree = true});
+    expect(project.ok && project.targets.size() == 2,
+           "a folder symlink resolving outside source is followed normally");
+}
+
 void module_reference_validation() {
     const mm::test::scoped_tree tree{"library_module_reference"};
     tree.manifest("", "kind: project\nname: p\nfolder: library\nfolder: wrapper\n");
@@ -176,6 +238,7 @@ void sdk_reference_and_validation() {
 
 const mm::test::case_ cases[] = {
     {"library definition", &library_definition},
+    {"library source boundary", &source_boundary},
     {"module library reference", &module_reference_validation},
     {"SDK library reference", &sdk_reference_and_validation},
 };
