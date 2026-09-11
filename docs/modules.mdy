@@ -556,7 +556,7 @@ defects and become ordinary regression tests when fixed.
 # Current boundaries
 These are the gaps between the Design goals and today's implementation.
 
-docs/modules-configure.mdy is the official configure and manifest-option specification for release v1.3.0. configure implements typed options, branch-local resets and read-only settings, lanes, platforms, runners, debuggers, library definitions, and records beneath out. All eight manifest-reading tools accept 1.0, 1.1, 1.2, and 1.3 through the shared gate. Build, test, run, and debug resolve buildable-host, buildable-target, and core, enforce the selected lane and core dependency boundary, and apply requires-board availability; other tuning declarations remain warning-only and are not yet applied to compilation.
+docs/modules-configure.mdy is the official configure and manifest-option specification for release v1.3.0. configure implements typed options, branch-local resets and read-only settings, lanes, platforms, runners, debuggers, library definitions, and records beneath out. All eight manifest-reading tools accept 1.0, 1.1, 1.2, 1.3, and 1.4 through the shared gate. Build, test, run, and debug resolve buildable-host, buildable-target, and core, enforce the selected lane and core dependency boundary, and apply requires-board availability; other tuning declarations remain warning-only and are not yet applied to compilation.
 
 docs/modules-build.mdy, docs/modules-test.mdy, docs/modules-run.mdy, docs/modules-debug.mdy, docs/modules-platforms.mdy, and docs/modules-libraries.mdy specify the implemented lane, compile-only, platform, runner-backed execution, debugging, and third-party library interfaces.
 

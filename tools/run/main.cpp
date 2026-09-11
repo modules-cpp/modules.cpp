@@ -74,6 +74,8 @@ int main(int argc, char** argv) {
 
     auto project = mm::build::load_project(".", {.tool = "run", .warn_options = true});
     if (!project.ok) return mm::build::exit_manifest;
+    if (!mm::build::check_configuration_staleness(configuration, project, target_lane, "run"))
+        return mm::build::exit_manifest;
     std::size_t node = mm::build::no_target;
     for (std::size_t i = 0; i < project.nodes.size(); ++i) {
         const auto candidate = std::filesystem::weakly_canonical(project.nodes[i].manifest, ec);

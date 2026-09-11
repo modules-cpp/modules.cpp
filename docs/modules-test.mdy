@@ -54,7 +54,7 @@ test: tests/device/mm.mdy: device is not buildable-target
 
 A test declaring requires-board is available only when the selected target platform names that board. A mismatch also exits 77 and names both boards; it is not described as buildable-target no.
 
-Every module reached through use must be available in the same lane. Capability incompatibility is rejected before compilation and identifies the consumer, dependency, lane, and restricting origin.
+A module naming a library that declares external-build is available only in a target lane whose selected SDK names that same library. Every module reached through use must be available in the same lane. Capability and availability incompatibility is rejected before compilation and identifies the consumer, dependency, lane, and restricting origin.
 
 Capability declarations produce no ignored-option warnings. Other manifest options retain their warning-only behavior until compilation consumes them.
 

@@ -61,6 +61,7 @@ struct Toolchain {
     ToolchainProgram linker = {
         "g++", std::string(mm::configure::build_link_flags(mm::configure::Build::Debug))};
     ToolchainProgram librarian;
+    ToolchainProgram c_compiler;
     std::optional<ToolchainDebugger> debugger;
     std::optional<ToolchainRunner> runner;
     bool verbose = false;
@@ -210,6 +211,7 @@ struct LibraryDefinition {
     std::vector<LibraryPath> library_directories;
     std::vector<LibraryPath> link_archives;
     std::vector<std::string> link_inputs;
+    std::string external_build;
     bool checkout_present = false;
 };
 
@@ -302,6 +304,11 @@ struct Availability {
 
 [[nodiscard]] bool can_link_executable(const Platform* platform, std::string_view tool,
                                        std::string_view name);
+
+[[nodiscard]] bool check_configuration_staleness(const BuildConfiguration& configuration,
+                                                 const Project& project,
+                                                 bool target_lane,
+                                                 std::string_view tool = "build");
 
 [[nodiscard]] std::optional<BuildableNode> platform_unit(const Platform* platform);
 
@@ -430,6 +437,19 @@ int link(const Toolchain& toolchain,
 // binary it is running from.
 int install(const std::filesystem::path& from, const std::filesystem::path& bin_dir,
             const std::string& name);
+
+// Formats a value as a CMake bracket argument, selecting an equals count up to
+// max_equals that does not appear in the payload. Returns nullopt if value
+// contains a newline, carriage return, or semicolon, or exceeds the bounded length.
+[[nodiscard]] std::optional<std::string> cmake_bracket_argument(std::string_view value,
+                                                                std::size_t max_equals = 10);
+
+// Generates mm-toolchain.cmake for external CMake builds. Carries compiler identity,
+// sysroot, try-compile static library, and CMAKE_SYSTEM_NAME (Linux for hosted lanes,
+// Generic for bare-metal), and carries no processor flags.
+[[nodiscard]] bool write_toolchain_cmake(const std::filesystem::path& destination,
+                                         const Toolchain& toolchain,
+                                         const Platform& platform);
 
 // A stale module interface silently contradicts the sources being compiled.
 // Clears both compiler families' module artifacts for this output lane and

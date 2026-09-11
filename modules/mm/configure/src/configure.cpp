@@ -6,6 +6,7 @@ module;
 #include <charconv>
 #include <cctype>
 #include <chrono>
+#include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -132,7 +133,9 @@ bool write_atomic(const std::filesystem::path& root, const std::filesystem::path
 }
 
 bool valid_compiler(const CompilerSettings& compiler, bool require_platform = true) {
-    return valid_scalar(compiler.invocation) && valid_scalar(compiler.target) &&
+    return valid_scalar(compiler.invocation) &&
+           (compiler.c_compiler.empty() || valid_scalar(compiler.c_compiler)) &&
+           valid_scalar(compiler.target) &&
            (!require_platform || valid_scalar(compiler.platform)) &&
            valid_scalar(compiler.compile_flags) &&
            valid_scalar(compiler.link_flags);
@@ -219,6 +222,8 @@ void write_compiler(std::ostream& out, std::string_view prefix,
                     const CompilerSettings& compiler, bool write_platform = true) {
     out << prefix << "-compiler-family: " << compiler_family_name(compiler.family) << '\n';
     out << prefix << "-compiler: " << compiler.invocation << '\n';
+    if (!compiler.c_compiler.empty())
+        out << prefix << "-c-compiler: " << compiler.c_compiler << '\n';
     out << prefix << "-target: " << compiler.target << '\n';
     if (write_platform) out << prefix << "-platform: " << compiler.platform << '\n';
     out << prefix << "-compile-flags: " << compiler.compile_flags << '\n';
@@ -239,13 +244,18 @@ void write_platform(std::ostream& out, const PlatformSettings& platform) {
     for (const auto& [responsibility, owner] : platform.responsibility_owners)
         if (owner == *platform.sdk)
             out << "cross-sdk-provides: " << responsibility_name(responsibility) << '\n';
+    if (platform.link_ownership == LinkOwnership::External) {
+        out << "cross-link: external\n";
+    }
     if (platform.board) {
         out << "cross-board: " << *platform.board << '\n';
         out << "cross-board-manifest: " << platform.board_manifest->generic_string() << '\n';
         if (!platform.machine.empty()) out << "cross-board-machine: " << platform.machine << '\n';
-        out << "cross-board-linker-script: " << platform.linker_script.generic_string() << '\n';
-        for (const auto& source : platform.board_sources)
-            out << "cross-board-source: " << source.generic_string() << '\n';
+        if (platform.link_ownership != LinkOwnership::External) {
+            out << "cross-board-linker-script: " << platform.linker_script.generic_string() << '\n';
+            for (const auto& source : platform.board_sources)
+                out << "cross-board-source: " << source.generic_string() << '\n';
+        }
         for (const auto& [responsibility, owner] : platform.responsibility_owners)
             if (owner == *platform.board)
                 out << "cross-board-provides: " << responsibility_name(responsibility) << '\n';
@@ -351,6 +361,111 @@ std::optional<CompilerRequest> parse_compiler(std::string_view value) {
     result.invocation += std::string(suffix);
     result.requested_major = major;
     return result;
+}
+
+namespace {
+
+std::string shell_quote_command_arg(std::string_view arg) {
+    std::string result = "'";
+    for (const char c : arg) {
+        if (c == '\'') result += "'\\''";
+        else result += c;
+    }
+    result += "'";
+    return result;
+}
+
+bool run_driver_command(const std::string& command, std::string& output) {
+    FILE* pipe = ::popen(command.c_str(), "r");
+    if (pipe == nullptr) return false;
+    output.clear();
+    char buffer[512];
+    while (std::fgets(buffer, sizeof(buffer), pipe) != nullptr) output += buffer;
+    const int status = ::pclose(pipe);
+    while (!output.empty() && (output.back() == '\n' || output.back() == '\r' ||
+                              output.back() == ' ' || output.back() == '\t'))
+        output.pop_back();
+    return status == 0 && !output.empty();
+}
+
+}  // namespace
+
+std::string candidate_c_compiler(std::string_view cpp_compiler) {
+    if (cpp_compiler.starts_with("clang++")) {
+        return "clang" + std::string(cpp_compiler.substr(7));
+    }
+    if (cpp_compiler.starts_with("g++")) {
+        return "gcc" + std::string(cpp_compiler.substr(3));
+    }
+    const auto clang_pos = cpp_compiler.rfind("-clang++");
+    if (clang_pos != std::string_view::npos) {
+        return std::string(cpp_compiler.substr(0, clang_pos)) + "-clang" +
+               std::string(cpp_compiler.substr(clang_pos + 8));
+    }
+    const auto gcc_pos = cpp_compiler.rfind("-g++");
+    if (gcc_pos != std::string_view::npos) {
+        return std::string(cpp_compiler.substr(0, gcc_pos)) + "-gcc" +
+               std::string(cpp_compiler.substr(gcc_pos + 4));
+    }
+    return {};
+}
+
+std::optional<CompilerProbe> probe_compiler(std::string_view invocation) {
+    if (invocation.empty()) return std::nullopt;
+    const auto quoted = shell_quote_command_arg(invocation);
+    std::string machine;
+    if (!run_driver_command(quoted + " -dumpmachine", machine))
+        return std::nullopt;
+    std::string ver;
+    if (!run_driver_command(quoted + " -dumpversion", ver))
+        return std::nullopt;
+    std::string banner;
+    if (!run_driver_command(quoted + " --version", banner))
+        return std::nullopt;
+    CompilerProbe probe;
+    if (banner.find("clang") != std::string::npos || banner.find("Clang") != std::string::npos)
+        probe.family = CompilerFamily::Clang;
+    else
+        probe.family = CompilerFamily::Gcc;
+    probe.target_triple = machine;
+    probe.version = ver;
+    return probe;
+}
+
+bool probe_c_compiler(std::string_view c_driver,
+                      std::string_view cpp_driver,
+                      CompilerFamily expected_family,
+                      std::string& error_message) {
+    const auto cpp_probe = probe_compiler(cpp_driver);
+    if (!cpp_probe) {
+        error_message = "cannot probe C++ compiler: " + std::string(cpp_driver);
+        return false;
+    }
+    const auto c_probe = probe_compiler(c_driver);
+    if (!c_probe) {
+        error_message = "cannot probe C compiler: " + std::string(c_driver);
+        return false;
+    }
+    if (c_probe->family != expected_family) {
+        error_message = "C compiler " + std::string(c_driver) + " family (" +
+                        std::string(compiler_family_name(c_probe->family)) +
+                        ") does not match expected family (" +
+                        std::string(compiler_family_name(expected_family)) + ")";
+        return false;
+    }
+    if (c_probe->target_triple != cpp_probe->target_triple) {
+        error_message = "C compiler " + std::string(c_driver) + " target triple (" +
+                        c_probe->target_triple + ") does not match C++ target triple (" +
+                        cpp_probe->target_triple + ")";
+        return false;
+    }
+    if (c_probe->version != cpp_probe->version) {
+        error_message = "C compiler " + std::string(c_driver) + " version (" +
+                        c_probe->version + ") does not match C++ version (" +
+                        cpp_probe->version + ")";
+        return false;
+    }
+    return true;
 }
 
 bool valid_target_triple(std::string_view value) {

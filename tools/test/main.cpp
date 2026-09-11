@@ -109,6 +109,8 @@ int main(int argc, char** argv) {
 
     auto project = mm::build::load_project(".", {.tool = "test", .warn_options = true});
     if (!project.ok) return mm::build::exit_manifest;
+    if (!mm::build::check_configuration_staleness(configuration, project, target_lane, "test"))
+        return mm::build::exit_manifest;
 
     mm::build::StructuralProperties properties;
     if (!mm::build::resolve_structural_properties(".", configuration.build, project, properties,

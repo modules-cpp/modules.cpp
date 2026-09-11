@@ -236,11 +236,199 @@ void sdk_reference_and_validation() {
            "link-input rejects argument syntax");
 }
 
+void external_build_validation() {
+    const mm::test::scoped_tree tree{"external_build_val"};
+    tree.manifest("", "kind: project\nname: p\nfolder: library\n");
+    std::filesystem::create_directories(tree.root() / "library");
+    std::ofstream(tree.root() / "library/LICENSE") << "licence\n";
+
+    // 1. external-build requires mm: 1.4
+    tree.manifest_raw("library",
+                      "mm: 1.3\nkind: library\nname: extlib\nsource: third_party\n"
+                      "licence: LICENSE\nexternal-build: cmake\n");
+    expect(!mm::build::load_project(
+                tree.root(), {.tool = "configure", .strict_tree = true}).ok,
+           "external-build requires manifest version 1.4");
+
+    // 2. rejects unknown external-build system
+    tree.manifest_raw("library",
+                      "mm: 1.4\nkind: library\nname: extlib\nsource: third_party\n"
+                      "licence: LICENSE\nexternal-build: ninja\n");
+    expect(!mm::build::load_project(
+                tree.root(), {.tool = "configure", .strict_tree = true}).ok,
+           "external-build rejects unknown build system");
+
+    // 3. rejects external-build without cmake directory
+    tree.manifest_raw("library",
+                      "mm: 1.4\nkind: library\nname: extlib\nsource: third_party\n"
+                      "licence: LICENSE\nexternal-build: cmake\n");
+    expect(!mm::build::load_project(
+                tree.root(), {.tool = "configure", .strict_tree = true}).ok,
+           "external-build requires cmake directory beside manifest");
+
+    // 4. rejects external-build without CMakeLists.txt in cmake directory
+    std::filesystem::create_directories(tree.root() / "library/cmake");
+    expect(!mm::build::load_project(
+                tree.root(), {.tool = "configure", .strict_tree = true}).ok,
+           "external-build requires cmake/CMakeLists.txt");
+
+    // 5. rejects cmake directory inside source
+    std::ofstream(tree.root() / "library/cmake/CMakeLists.txt") << "# bridge\n";
+    tree.manifest_raw("library",
+                      "mm: 1.4\nkind: library\nname: extlib\nsource: .\n"
+                      "licence: LICENSE\nexternal-build: cmake\n");
+    expect(!mm::build::load_project(
+                tree.root(), {.tool = "configure", .strict_tree = true}).ok,
+           "cmake directory must resolve outside library source");
+
+    // 6. accepts valid external-build library
+    tree.manifest_raw("library",
+                      "mm: 1.4\nkind: library\nname: extlib\nsource: third_party\n"
+                      "licence: LICENSE\nexternal-build: cmake\n");
+    auto project = mm::build::load_project(
+        tree.root(), {.tool = "configure", .strict_tree = true});
+    expect(project.ok && project.libraries.front().external_build == "cmake",
+           "valid external-build library loads with external_build == cmake");
+}
+
+void external_build_sdk_and_board_rules() {
+    const mm::test::scoped_tree tree{"external_sdk_board"};
+    tree.manifest("", "kind: project\nname: p\nfolder: library\nfolder: sdk\nfolder: board\n");
+    tree.manifest_raw("library",
+                      "mm: 1.4\nkind: library\nname: extlib\nsource: third_party\n"
+                      "licence: LICENSE\nexternal-build: cmake\n");
+    std::ofstream(tree.root() / "library/LICENSE") << "licence\n";
+    std::filesystem::create_directories(tree.root() / "library/cmake");
+    std::ofstream(tree.root() / "library/cmake/CMakeLists.txt") << "# bridge\n";
+
+    // SDK referencing external-build library rejecting specs-profile
+    tree.manifest_raw("sdk",
+                      "mm: 1.4\nkind: sdk\nname: my-sdk\ntarget: arm-none-eabi\n"
+                      "compiler-family: gcc\nruntime: none\nlibrary: extlib\n"
+                      "specs-profile: rdimon\n");
+    tree.manifest_raw("board",
+                      "mm: 1.4\nkind: board\nname: my-board\nsdk: my-sdk\n"
+                      "cpu: cortex-m0plus\ninstruction-set: thumb\nfloat-abi: soft\n");
+    expect(!mm::build::load_project(
+                tree.root(), {.tool = "configure", .strict_tree = true}).ok,
+           "SDK referencing external-build library rejects specs-profile");
+
+    // SDK referencing external-build library rejecting specs-file
+    std::ofstream(tree.root() / "sdk/test.specs") << "specs\n";
+    tree.manifest_raw("sdk",
+                      "mm: 1.4\nkind: sdk\nname: my-sdk\ntarget: arm-none-eabi\n"
+                      "compiler-family: gcc\nruntime: none\nlibrary: extlib\n"
+                      "specs-file: test.specs\n"
+                      "provides: runtime-init\nprovides: syscalls\n");
+    expect(!mm::build::load_project(
+                tree.root(), {.tool = "configure", .strict_tree = true}).ok,
+           "SDK referencing external-build library rejects specs-file");
+
+    // Valid external SDK and board without linker-script, file, or provides
+    tree.manifest_raw("sdk",
+                      "mm: 1.4\nkind: sdk\nname: my-sdk\ntarget: arm-none-eabi\n"
+                      "compiler-family: gcc\nruntime: none\nlibrary: extlib\n"
+                      "provides: reset-vector\nprovides: initial-stack\n"
+                      "provides: memory-layout\nprovides: runtime-init\nprovides: syscalls\n");
+    auto project = mm::build::load_project(
+        tree.root(), {.tool = "configure", .strict_tree = true});
+    expect(project.ok && project.boards.size() == 1 &&
+               project.boards.front().linker_script.empty() &&
+               project.boards.front().sources.empty() &&
+               project.boards.front().provides.empty(),
+           "board beneath external-build SDK permits omitting linker-script, file, and provides");
+
+    // Ordinary SDK (no external-build library) requires board to have linker-script and file
+    tree.manifest_raw("sdk",
+                      "mm: 1.4\nkind: sdk\nname: ordinary-sdk\ntarget: arm-none-eabi\n"
+                      "compiler-family: gcc\nruntime: newlib\n"
+                      "specs-profile: rdimon\n");
+    tree.manifest_raw("board",
+                      "mm: 1.4\nkind: board\nname: ord-board\nsdk: ordinary-sdk\n"
+                      "cpu: cortex-m0plus\ninstruction-set: thumb\nfloat-abi: soft\n");
+    expect(!mm::build::load_project(
+                tree.root(), {.tool = "configure", .strict_tree = true}).ok,
+           "board beneath ordinary SDK requires linker-script");
+
+    std::ofstream(tree.root() / "board/link.ld") << "SECTIONS {}\n";
+    tree.manifest_raw("board",
+                      "mm: 1.4\nkind: board\nname: ord-board\nsdk: ordinary-sdk\n"
+                      "cpu: cortex-m0plus\ninstruction-set: thumb\nfloat-abi: soft\n"
+                      "linker-script: link.ld\n");
+    expect(!mm::build::load_project(
+                tree.root(), {.tool = "configure", .strict_tree = true}).ok,
+           "board beneath ordinary SDK requires at least one file");
+}
+
+void external_wrapper_availability() {
+    const mm::test::scoped_tree tree{"external_wrapper_avail"};
+    tree.manifest("", "kind: project\nname: p\nfolder: library\nfolder: sdk\nfolder: wrapper\nfolder: other_sdk\n");
+    std::filesystem::create_directories(tree.root() / "library");
+    std::ofstream(tree.root() / "library/LICENSE") << "licence\n";
+    std::filesystem::create_directories(tree.root() / "library/cmake");
+    std::ofstream(tree.root() / "library/cmake/CMakeLists.txt") << "# bridge\n";
+    tree.manifest_raw("library",
+                      "mm: 1.4\nkind: library\nname: extlib\nsource: third_party\n"
+                      "licence: LICENSE\nexternal-build: cmake\n");
+    tree.manifest_raw("wrapper",
+                      "mm: 1.4\nkind: module\nname: ext-wrapper\nmodule: ext.wrapper\n"
+                      "file: wrapper.cppm\nlibrary: extlib\n");
+    std::ofstream(tree.root() / "wrapper/wrapper.cppm") << "export module ext.wrapper;\n";
+
+    tree.manifest_raw("sdk",
+                      "mm: 1.4\nkind: sdk\nname: match-sdk\ntarget: arm-none-eabi\n"
+                      "compiler-family: gcc\nruntime: none\nlibrary: extlib\n"
+                      "provides: reset-vector\nprovides: initial-stack\n"
+                      "provides: memory-layout\nprovides: runtime-init\nprovides: syscalls\n");
+    tree.manifest_raw("other_sdk",
+                      "mm: 1.4\nkind: sdk\nname: other-sdk\ntarget: arm-none-eabi\n"
+                      "compiler-family: gcc\nruntime: newlib\nspecs-profile: rdimon\n");
+
+    const auto project = mm::build::load_project(
+        tree.root(), {.tool = "configure", .strict_tree = true});
+    expect(project.ok, "project loads successfully");
+
+    std::size_t wrapper_node = mm::build::no_target;
+    for (std::size_t i = 0; i < project.nodes.size(); ++i) {
+        if (project.nodes[i].name == "ext-wrapper") wrapper_node = i;
+    }
+    expect(wrapper_node != mm::build::no_target, "wrapper node found");
+
+    // 1. In host lane: unavailable, reason names the library
+    auto avail_host = mm::build::availability(project, wrapper_node, true, false, nullptr);
+    expect(!avail_host.available, "external wrapper is unavailable in host lane");
+    expect(avail_host.reason.find("extlib") != std::string::npos,
+           "host lane availability reason names the library");
+
+    // 2. In target lane without SDK / platform: unavailable
+    auto avail_target_no_platform = mm::build::availability(project, wrapper_node, true, true, nullptr);
+    expect(!avail_target_no_platform.available, "external wrapper unavailable with null platform");
+    expect(avail_target_no_platform.reason.find("extlib") != std::string::npos,
+           "null platform availability reason names the library");
+
+    // 3. In target lane with different SDK: unavailable
+    mm::build::Platform other_platform;
+    other_platform.sdk = "other-sdk";
+    auto avail_other = mm::build::availability(project, wrapper_node, true, true, &other_platform);
+    expect(!avail_other.available, "external wrapper unavailable with SDK that does not name the library");
+    expect(avail_other.reason.find("extlib") != std::string::npos,
+           "different SDK availability reason names the library");
+
+    // 4. In target lane with matching SDK: available
+    mm::build::Platform match_platform;
+    match_platform.sdk = "match-sdk";
+    auto avail_match = mm::build::availability(project, wrapper_node, true, true, &match_platform);
+    expect(avail_match.available, "external wrapper available in target lane with matching SDK");
+}
+
 const mm::test::case_ cases[] = {
     {"library definition", &library_definition},
     {"library source boundary", &source_boundary},
     {"module library reference", &module_reference_validation},
     {"SDK library reference", &sdk_reference_and_validation},
+    {"external-build validation", &external_build_validation},
+    {"external-build SDK and board rules", &external_build_sdk_and_board_rules},
+    {"external-wrapper availability", &external_wrapper_availability},
 };
 
 const mm::test::registrar reg{"mm.build library", cases};

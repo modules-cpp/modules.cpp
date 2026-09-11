@@ -27,7 +27,7 @@ Each metadata entry is written as a key, a colon, and a value.
 Although the fences resemble YAML front matter, MDY does not implement YAML.
 
 ## Manifest metadata
-The mm key identifies the format version. mm::build's shared manifest gate supports 1.0, 1.1, 1.2, and 1.3 and rejects missing, unsupported, or duplicated mm values. A source manifest declaring option, reset, or read-only requires 1.1. The sdk and board kinds, their platform keys, and requires-board require 1.2. The library kind, its interface keys, and an SDK or module library reference require 1.3. A 1.0 manifest without newer declarations remains valid. See docs/modules-configure.mdy and docs/modules-platforms.mdy for the compatibility and platform rules used by configure, build, test, check, model, document, run, and debug.
+The mm key identifies the format version. mm::build's shared manifest gate supports 1.0, 1.1, 1.2, 1.3, and 1.4 and rejects missing, unsupported, or duplicated mm values. A source manifest declaring option, reset, or read-only requires 1.1. The sdk and board kinds, their platform keys, and requires-board require 1.2. The library kind, its interface keys, and an SDK or module library reference require 1.3. 1.4 is accepted and declares no keys of its own yet; a 1.4 manifest is a 1.3 manifest for every rule the gate enforces. A 1.0 manifest without newer declarations remains valid. See docs/modules-configure.mdy and docs/modules-platforms.mdy for the compatibility and platform rules used by configure, build, test, check, model, document, run, and debug.
 
 The kind key identifies the manifest role. Values currently used in the repository are project, dir, module, app, test, doc, sdk, board, and library.
 

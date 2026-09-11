@@ -460,6 +460,329 @@ void legacy_platforms_are_total_and_permissive() {
                      "expected a total POSIX host platform");
 }
 
+void loads_c_compiler_from_configuration() {
+    const mm::test::scoped_tree tree{"build_c_compiler_configuration"};
+    const auto path = tree.root() / "out" / "config.mdy";
+    const std::string text =
+        "mm: 1.0\n"
+        "kind: configuration\n"
+        "name: arm\n"
+        "build: release\n"
+        "target-compiler: cross\n"
+        "host-compiler-family: gcc\n"
+        "host-compiler: g++\n"
+        "host-c-compiler: gcc\n"
+        "host-target: host\n"
+        "host-platform: POSIX\n"
+        "host-compile-flags: host compile flags\n"
+        "host-link-flags: host link flags\n"
+        "cross-compiler-family: gcc\n"
+        "cross-compiler: arm-none-eabi-g++\n"
+        "cross-c-compiler: arm-none-eabi-gcc\n"
+        "cross-target: arm-none-eabi\n"
+        "cross-platform: POSIX\n"
+        "cross-compile-flags: cross compile flags\n"
+        "cross-link-flags: cross link flags\n"
+        "host-build-directory: out-host\n"
+        "target-build-directory: out-target-arm-none-eabi\n";
+    write(path, text);
+
+    mm::build::BuildConfiguration configuration;
+    mm::test::expect(mm::build::load_configuration(path, false, configuration),
+                     "expected configuration with C compilers to load");
+    mm::test::expect(configuration.host_toolchain().c_compiler.invocation == "gcc",
+                     "expected host C compiler gcc");
+    mm::test::expect(configuration.cross_toolchain() != nullptr &&
+                     configuration.cross_toolchain()->c_compiler.invocation == "arm-none-eabi-gcc",
+                     "expected cross C compiler arm-none-eabi-gcc");
+    mm::test::expect(configuration.selected_toolchain().c_compiler.invocation == "arm-none-eabi-gcc",
+                     "expected selected toolchain C compiler arm-none-eabi-gcc");
+}
+
+void writes_toolchain_cmake_bare_metal_and_linux() {
+    const mm::test::scoped_tree tree{"build_toolchain_cmake"};
+
+    mm::build::Toolchain toolchain;
+    toolchain.compiler.invocation = "arm-none-eabi-g++";
+    toolchain.c_compiler.invocation = "arm-none-eabi-gcc";
+
+    mm::build::Platform bare_metal;
+    bare_metal.system = mm::configure::PlatformSystem::BareMetal;
+
+    const auto bm_path = tree.root() / "bm" / "mm-toolchain.cmake";
+    mm::test::expect(mm::build::write_toolchain_cmake(bm_path, toolchain, bare_metal),
+                     "expected bare metal toolchain cmake write to succeed");
+
+    std::ifstream bm_file(bm_path);
+    std::string bm_content((std::istreambuf_iterator<char>(bm_file)),
+                            std::istreambuf_iterator<char>());
+    mm::test::expect(bm_content.find("set(CMAKE_SYSTEM_NAME Generic)") != std::string::npos,
+                     "expected CMAKE_SYSTEM_NAME Generic for bare metal");
+    mm::test::expect(bm_content.find("set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)") != std::string::npos,
+                     "expected CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY");
+    mm::test::expect(bm_content.find("set(CMAKE_C_COMPILER [==[arm-none-eabi-gcc]==])") != std::string::npos,
+                     "expected CMAKE_C_COMPILER");
+    mm::test::expect(bm_content.find("set(CMAKE_CXX_COMPILER [==[arm-none-eabi-g++]==])") != std::string::npos,
+                     "expected CMAKE_CXX_COMPILER");
+    mm::test::expect(bm_content.find("CMAKE_SYSROOT") == std::string::npos,
+                     "expected no sysroot when none declared");
+    mm::test::expect(bm_content.find("-mcpu") == std::string::npos &&
+                     bm_content.find("-mthumb") == std::string::npos,
+                     "expected no processor flags in toolchain.cmake");
+
+    mm::build::Platform linux_platform;
+    linux_platform.system = mm::configure::PlatformSystem::Linux;
+    linux_platform.sysroot = "/opt/sysroot";
+
+    const auto linux_path = tree.root() / "linux" / "mm-toolchain.cmake";
+    mm::test::expect(mm::build::write_toolchain_cmake(linux_path, toolchain, linux_platform),
+                     "expected linux toolchain cmake write to succeed");
+
+    std::ifstream linux_file(linux_path);
+    std::string linux_content((std::istreambuf_iterator<char>(linux_file)),
+                               std::istreambuf_iterator<char>());
+    mm::test::expect(linux_content.find("set(CMAKE_SYSTEM_NAME Linux)") != std::string::npos,
+                     "expected CMAKE_SYSTEM_NAME Linux for hosted lane");
+    mm::test::expect(linux_content.find("set(CMAKE_SYSROOT [==[/opt/sysroot]==])") != std::string::npos,
+                     "expected bracketed CMAKE_SYSROOT");
+
+    toolchain.c_compiler.invocation.clear();
+    const auto fail_path = tree.root() / "fail" / "mm-toolchain.cmake";
+    mm::test::expect(!mm::build::write_toolchain_cmake(fail_path, toolchain, linux_platform),
+                     "expected failure when C compiler is missing");
+}
+
+void loads_cross_link_external_configuration() {
+    const mm::test::scoped_tree tree{"build_cross_link_external"};
+    const auto sdk_path = tree.root() / "platforms/sdk/mm.mdy";
+    write(sdk_path, "mm: 1.2\nkind: sdk\nname: cmake-demo\n");
+
+    // 1. Hosted boardless lane with cross-link: external
+    const auto m68k_path = tree.root() / "out/config-m68k.mdy";
+    const std::string m68k_config =
+        "mm: 2.0\n"
+        "schema: configuration-2\n"
+        "kind: configuration\n"
+        "name: m68k-linux-external\n"
+        "build: release\n"
+        "target-compiler: cross\n"
+        "target-host-capability: no\n"
+        "host-compiler-family: gcc\n"
+        "host-compiler: g++\n"
+        "host-target: host\n"
+        "host-platform: POSIX\n"
+        "host-compile-flags: host compile flags\n"
+        "host-link-flags: host link flags\n"
+        "cross-compiler-family: gcc\n"
+        "cross-compiler: m68k-linux-gnu-g++\n"
+        "cross-c-compiler: m68k-linux-gnu-gcc\n"
+        "cross-target: m68k-linux-gnu\n"
+        "cross-compile-flags: cross compile flags\n"
+        "cross-link-flags: cross link flags\n"
+        "cross-system: linux\n"
+        "cross-runtime: none\n"
+        "cross-sdk: cmake-demo\n"
+        "cross-sdk-manifest: platforms/sdk/mm.mdy\n"
+        "cross-sdk-compiler-family: gcc\n"
+        "cross-link: external\n"
+        "host-build-directory: out-host\n"
+        "target-build-directory: out-target-m68k-linux-gnu\n";
+    write(m68k_path, m68k_config);
+
+    mm::build::BuildConfiguration configuration;
+    mm::test::expect(mm::build::load_configuration(m68k_path, false, configuration),
+                     "expected hosted boardless external configuration to load");
+    const auto* platform = configuration.configured_target_platform();
+    mm::test::expect(platform != nullptr, "platform resolved");
+    if (platform != nullptr) {
+        mm::test::expect(platform->link_ownership == mm::configure::LinkOwnership::External,
+                         "expected LinkOwnership::External");
+        mm::test::expect(!platform->board.has_value(), "expected boardless lane");
+    }
+
+    // 2. Bare-metal board with cross-link: external (omits linker script and board sources)
+    const auto board_manifest = tree.root() / "platforms/board/mm.mdy";
+    write(board_manifest, "mm: 1.2\nkind: board\nname: pico\n");
+    const auto arm_sdk_manifest = tree.root() / "platforms/pico-sdk/mm.mdy";
+    write(arm_sdk_manifest, "mm: 1.2\nkind: sdk\nname: pico-sdk-arm\n");
+
+    const auto bm_path = tree.root() / "out/config-bm.mdy";
+    const std::string bm_config =
+        "mm: 2.0\n"
+        "schema: configuration-2\n"
+        "kind: configuration\n"
+        "name: pico-arm\n"
+        "build: release\n"
+        "target-compiler: cross\n"
+        "target-host-capability: no\n"
+        "host-compiler-family: gcc\n"
+        "host-compiler: g++\n"
+        "host-target: host\n"
+        "host-platform: POSIX\n"
+        "host-compile-flags: host compile flags\n"
+        "host-link-flags: host link flags\n"
+        "cross-compiler-family: gcc\n"
+        "cross-compiler: arm-none-eabi-g++\n"
+        "cross-c-compiler: arm-none-eabi-gcc\n"
+        "cross-target: arm-none-eabi\n"
+        "cross-compile-flags: cross compile flags\n"
+        "cross-link-flags: cross link flags\n"
+        "cross-system: bare-metal\n"
+        "cross-runtime: none\n"
+        "cross-sdk: pico-sdk-arm\n"
+        "cross-sdk-manifest: platforms/pico-sdk/mm.mdy\n"
+        "cross-sdk-compiler-family: gcc\n"
+        "cross-sdk-provides: reset-vector\n"
+        "cross-sdk-provides: initial-stack\n"
+        "cross-sdk-provides: memory-layout\n"
+        "cross-sdk-provides: runtime-init\n"
+        "cross-sdk-provides: syscalls\n"
+        "cross-link: external\n"
+        "cross-board: pico\n"
+        "cross-board-manifest: platforms/board/mm.mdy\n"
+        "cross-board-machine: rp2040\n"
+        "cross-board-argument: -mcpu=cortex-m0plus\n"
+        "cross-board-argument: -mthumb\n"
+        "cross-board-argument: -mfloat-abi=soft\n"
+        "host-build-directory: out-host\n"
+        "target-build-directory: out-target-arm-none-eabi\n";
+    write(bm_path, bm_config);
+
+    mm::build::BuildConfiguration bm_configuration;
+    mm::test::expect(mm::build::load_configuration(bm_path, false, bm_configuration),
+                     "expected bare-metal external configuration with board to load");
+    const auto* bm_platform = bm_configuration.configured_target_platform();
+    mm::test::expect(bm_platform != nullptr, "bm_platform resolved");
+    if (bm_platform != nullptr) {
+        mm::test::expect(bm_platform->link_ownership == mm::configure::LinkOwnership::External,
+                         "expected LinkOwnership::External for bare metal");
+        mm::test::expect(bm_platform->board && *bm_platform->board == "pico", "expected board pico");
+        mm::test::expect(bm_platform->linker_script.empty(), "expected empty linker script");
+        mm::test::expect(bm_platform->board_sources.empty(), "expected empty board sources");
+    }
+
+    // 3. Rejects cross-link: external carrying a linker script
+    const auto with_ld_path = tree.root() / "out/config-with-ld.mdy";
+    std::ofstream(tree.root() / "platforms/board/link.ld") << "SECTIONS {}\n";
+    auto with_ld = bm_config;
+    with_ld += "cross-board-linker-script: platforms/board/link.ld\n";
+    write(with_ld_path, with_ld);
+    mm::build::BuildConfiguration bad_config;
+    mm::test::expect(!mm::build::load_configuration(with_ld_path, false, bad_config),
+                     "expected cross-link: external with linker script to be rejected");
+
+    // 4. Rejects omitting linker script without cross-link: external
+    const auto without_ext_path = tree.root() / "out/config-no-ext.mdy";
+    auto without_ext = bm_config;
+    const auto cross_link_pos = without_ext.find("cross-link: external\n");
+    without_ext.erase(cross_link_pos, std::string_view("cross-link: external\n").size());
+    write(without_ext_path, without_ext);
+    mm::test::expect(!mm::build::load_configuration(without_ext_path, false, bad_config),
+                     "expected board omitting linker script without cross-link to be rejected");
+
+    // 5. Rejects invalid cross-link value
+    const auto bad_link_val_path = tree.root() / "out/config-bad-link.mdy";
+    auto bad_link_val = bm_config;
+    const auto ext_val_pos = bad_link_val.find("external");
+    bad_link_val.replace(ext_val_pos, 8, "internal");
+    write(bad_link_val_path, bad_link_val);
+    mm::test::expect(!mm::build::load_configuration(bad_link_val_path, false, bad_config),
+                     "expected invalid cross-link value to be rejected");
+}
+
+void detects_stale_configuration_record() {
+    const mm::test::scoped_tree tree{"build_stale_config"};
+    const auto sdk_manifest = tree.root() / "platforms/pico-sdk/mm.mdy";
+    write(sdk_manifest, "mm: 1.2\nkind: sdk\nname: pico-sdk-arm\n");
+    const auto board_manifest = tree.root() / "platforms/board/mm.mdy";
+    write(board_manifest, "mm: 1.2\nkind: board\nname: pico\n");
+    const auto bm_path = tree.root() / "out/config.mdy";
+    const std::string bm_config =
+        "mm: 2.0\n"
+        "schema: configuration-2\n"
+        "kind: configuration\n"
+        "name: pico-arm\n"
+        "build: release\n"
+        "target-compiler: cross\n"
+        "target-host-capability: no\n"
+        "host-compiler-family: gcc\n"
+        "host-compiler: g++\n"
+        "host-target: host\n"
+        "host-platform: POSIX\n"
+        "host-compile-flags: flags\n"
+        "host-link-flags: flags\n"
+        "cross-compiler-family: gcc\n"
+        "cross-compiler: arm-none-eabi-g++\n"
+        "cross-target: arm-none-eabi\n"
+        "cross-compile-flags: flags\n"
+        "cross-link-flags: flags\n"
+        "cross-system: bare-metal\n"
+        "cross-runtime: none\n"
+        "cross-sdk: pico-sdk-arm\n"
+        "cross-sdk-manifest: platforms/pico-sdk/mm.mdy\n"
+        "cross-sdk-compiler-family: gcc\n"
+        "cross-sdk-provides: reset-vector\n"
+        "cross-sdk-provides: initial-stack\n"
+        "cross-sdk-provides: memory-layout\n"
+        "cross-sdk-provides: runtime-init\n"
+        "cross-sdk-provides: syscalls\n"
+        "cross-link: external\n"
+        "cross-board: pico\n"
+        "cross-board-manifest: platforms/board/mm.mdy\n"
+        "cross-board-machine: rp2040\n"
+        "cross-board-argument: -mcpu=cortex-m0plus\n"
+        "cross-board-argument: -mthumb\n"
+        "cross-board-argument: -mfloat-abi=soft\n"
+        "host-build-directory: out-host\n"
+        "target-build-directory: out-target-arm-none-eabi\n";
+    write(bm_path, bm_config);
+
+    mm::build::BuildConfiguration config;
+    mm::test::expect(mm::build::load_configuration(bm_path, false, config),
+                     "config loads");
+
+    mm::build::Project project;
+    mm::build::SdkDefinition sdk;
+    sdk.name = "pico-sdk-arm";
+    sdk.library = "pico-sdk";
+    project.sdks.push_back(sdk);
+
+    mm::build::LibraryDefinition lib;
+    lib.name = "pico-sdk";
+    lib.external_build = "cmake";
+    project.libraries.push_back(lib);
+
+    // Both external -> OK
+    mm::test::expect(mm::build::check_configuration_staleness(config, project, true, "build"),
+                     "matching external-build and cross-link: external is not stale");
+
+    // Host lane -> always OK
+    mm::test::expect(mm::build::check_configuration_staleness(config, project, false, "build"),
+                     "host lane ignores target link ownership");
+
+    // Library changed: removed external-build -> stale!
+    project.libraries.front().external_build.clear();
+    mm::test::expect(!mm::build::check_configuration_staleness(config, project, true, "build"),
+                     "removing external-build makes record stale");
+
+    // Library has external-build, but record does not have cross-link: external -> stale!
+    project.libraries.front().external_build = "cmake";
+    const auto proj_link_path = tree.root() / "out/config-proj.mdy";
+    std::ofstream(tree.root() / "platforms/board/link.ld") << "SECTIONS {}\n";
+    std::ofstream(tree.root() / "platforms/board/vectors.cpp") << "int v;\n";
+    auto proj_config = bm_config;
+    const auto link_pos = proj_config.find("cross-link: external\n");
+    proj_config.erase(link_pos, std::string_view("cross-link: external\n").size());
+    proj_config += "cross-board-linker-script: platforms/board/link.ld\n";
+    proj_config += "cross-board-source: platforms/board/vectors.cpp\n";
+    write(proj_link_path, proj_config);
+    mm::build::BuildConfiguration config_proj;
+    mm::test::expect(mm::build::load_configuration(proj_link_path, false, config_proj),
+                     "config without cross-link loads");
+    mm::test::expect(!mm::build::check_configuration_staleness(config_proj, project, true, "build"),
+                     "library declaring external-build against project record is stale");
+}
+
 const mm::test::case_ cases[] = {
     {"loads the host selection", &loads_the_host_selection},
     {"loads the cross selection", &loads_the_cross_selection},
@@ -476,6 +799,10 @@ const mm::test::case_ cases[] = {
     {"loads strict platform configuration", &loads_a_strict_platform_configuration},
     {"rejects malformed strict platform records", &rejects_malformed_strict_platform_records},
     {"legacy platforms are total and permissive", &legacy_platforms_are_total_and_permissive},
+    {"loads C compiler from configuration", &loads_c_compiler_from_configuration},
+    {"writes toolchain cmake for bare metal and linux", &writes_toolchain_cmake_bare_metal_and_linux},
+    {"loads cross-link external configuration", &loads_cross_link_external_configuration},
+    {"detects stale configuration record", &detects_stale_configuration_record},
 };
 
 const mm::test::registrar reg{"mm.build configuration", cases};

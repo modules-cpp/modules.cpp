@@ -113,7 +113,32 @@ struct CompilerSettings {
     std::string platform;
     std::string compile_flags;
     std::string link_flags;
+    std::string c_compiler;
 };
+
+// Derives the candidate C driver spelling by inverting normalisation on the
+// recorded C++ driver (e.g. g++ -> gcc, arm-none-eabi-g++ -> arm-none-eabi-gcc,
+// clang++ -> clang).
+[[nodiscard]] std::string candidate_c_compiler(std::string_view cpp_compiler);
+
+struct CompilerProbe {
+    CompilerFamily family = CompilerFamily::Gcc;
+    std::string target_triple;
+    std::string version;
+};
+
+// Probes a compiler driver for its family, target triple, and version.
+[[nodiscard]] std::optional<CompilerProbe> probe_compiler(std::string_view invocation);
+
+// Three-way probe for a candidate or overriding C driver against the C++ driver:
+// checks compiler family == expected_family, target triple == C++ driver's, and
+// version == C++ driver's.
+[[nodiscard]] bool probe_c_compiler(std::string_view c_driver,
+                                    std::string_view cpp_driver,
+                                    CompilerFamily expected_family,
+                                    std::string& error_message);
+
+enum class LinkOwnership { Project, External };
 
 // A resolved lane platform. Optional values are genuinely absent for the host
 // and for legacy configuration records; an empty string is never used as an
@@ -123,6 +148,7 @@ struct PlatformSettings {
     std::string target = "host";
     PlatformSystem system = PlatformSystem::Posix;
     PlatformRuntime runtime = PlatformRuntime::Unknown;
+    LinkOwnership link_ownership = LinkOwnership::Project;
     std::optional<std::string> sdk;
     std::optional<std::filesystem::path> sdk_manifest;
     CompilerFamily sdk_family = CompilerFamily::Gcc;

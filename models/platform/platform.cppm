@@ -14,6 +14,7 @@ export namespace models {
 
 enum class PlatformSystem { Posix, Linux, BareMetal, Unknown };
 enum class PlatformRuntime { Unknown, Glibc, Newlib, Picolibc, None };
+enum class LinkOwnership { Project, External };
 enum class PlatformResponsibility {
     ResetVector,
     InitialStack,
@@ -34,6 +35,7 @@ public:
     [[nodiscard]] virtual std::string_view target() const = 0;
     [[nodiscard]] virtual PlatformSystem system() const = 0;
     [[nodiscard]] virtual PlatformRuntime runtime() const = 0;
+    [[nodiscard]] virtual LinkOwnership link_ownership() const = 0;
     [[nodiscard]] virtual std::optional<std::string_view> sdk() const = 0;
     [[nodiscard]] virtual std::optional<std::filesystem::path> sdk_manifest() const = 0;
     [[nodiscard]] virtual std::optional<std::string_view> board() const = 0;

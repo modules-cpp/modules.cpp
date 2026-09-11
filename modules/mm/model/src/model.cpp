@@ -299,6 +299,7 @@ class RealLibraryNode : public models::LibraryNode {
 public:
     RealLibraryNode(NodeData data, const mm::build::LibraryDefinition& library)
         : data_(std::move(data)), source_(library.source), licence_(library.licence),
+          external_build_(library.external_build),
           checkout_present_(library.checkout_present) {
         for (const auto& path : library.include_directories)
             include_directories_.push_back(path.path);
@@ -332,6 +333,7 @@ public:
         return result;
     }
     [[nodiscard]] bool checkout_present() const override { return checkout_present_; }
+    [[nodiscard]] std::string_view external_build() const override { return external_build_; }
 
 private:
     NodeData data_;
@@ -341,6 +343,7 @@ private:
     std::vector<std::filesystem::path> library_directories_;
     std::vector<std::filesystem::path> link_archives_;
     std::vector<std::string> link_inputs_;
+    std::string external_build_;
     bool checkout_present_ = false;
 };
 
@@ -800,6 +803,7 @@ public:
         bind(models::ToolRole::Assembler, source.assembler);
         bind(models::ToolRole::Linker, source.linker);
         bind(models::ToolRole::Librarian, source.librarian);
+        bind(models::ToolRole::CCompiler, source.c_compiler);
         if (source.debugger) {
             const auto& value = *source.debugger;
             const auto* debugger_program = program(value.invocation);
@@ -936,8 +940,8 @@ private:
     std::vector<std::unique_ptr<models::Tool>> programs_;
     std::unique_ptr<RealDebugger> debugger_;
     std::unique_ptr<RealRunner> runner_;
-    std::array<const models::Tool*, 5> bindings_{};
-    std::array<std::string, 5> arguments_{};
+    std::array<const models::Tool*, 6> bindings_{};
+    std::array<std::string, 6> arguments_{};
 };
 
 models::PlatformSystem model_system(mm::configure::PlatformSystem value) {
@@ -978,11 +982,18 @@ models::PlatformResponsibility model_responsibility(mm::configure::Responsibilit
     return Target::Syscalls;
 }
 
+models::LinkOwnership model_link_ownership(mm::configure::LinkOwnership ownership) {
+    return ownership == mm::configure::LinkOwnership::External ? models::LinkOwnership::External
+                                                               : models::LinkOwnership::Project;
+}
+
 class RealPlatform final : public models::Platform {
 public:
     explicit RealPlatform(const mm::build::Platform& source)
         : target_(source.target), system_(model_system(source.system)),
-          runtime_(model_runtime(source.runtime)), sdk_(source.sdk),
+          runtime_(model_runtime(source.runtime)),
+          link_ownership_(model_link_ownership(source.link_ownership)),
+          sdk_(source.sdk),
           sdk_manifest_(source.sdk_manifest), board_(source.board),
           board_manifest_(source.board_manifest), models_responsibilities_(source.models_responsibilities) {
         for (const auto& [responsibility, owner] : source.responsibility_owners)
@@ -994,6 +1005,7 @@ public:
     [[nodiscard]] std::string_view target() const override { return target_; }
     [[nodiscard]] models::PlatformSystem system() const override { return system_; }
     [[nodiscard]] models::PlatformRuntime runtime() const override { return runtime_; }
+    [[nodiscard]] models::LinkOwnership link_ownership() const override { return link_ownership_; }
     [[nodiscard]] std::optional<std::string_view> sdk() const override {
         return sdk_ ? std::optional<std::string_view>(*sdk_) : std::nullopt;
     }
@@ -1020,6 +1032,7 @@ private:
     std::string target_;
     models::PlatformSystem system_ = models::PlatformSystem::Unknown;
     models::PlatformRuntime runtime_ = models::PlatformRuntime::Unknown;
+    models::LinkOwnership link_ownership_ = models::LinkOwnership::Project;
     std::optional<std::string> sdk_;
     std::optional<std::filesystem::path> sdk_manifest_;
     std::optional<std::string> board_;

@@ -16,7 +16,7 @@ import models.tool;
 export namespace models {
 
 enum class CompilerFamily { Gcc, Clang };
-enum class ToolRole { Compiler, Assembler, Linker, Librarian, Debugger };
+enum class ToolRole { Compiler, Assembler, Linker, Librarian, Debugger, CCompiler };
 enum class RunnerImage { Positional, Option };
 enum class DebuggerConnection { Direct, RunnerRemote };
 
@@ -54,6 +54,7 @@ public:
     // Describes the build implementation, not configuration data. compile
     // invokes Compiler and link invokes Linker; no other role is run directly.
     [[nodiscard]] virtual bool invoked(ToolRole role) const = 0;
+    [[nodiscard]] virtual const Tool* c_compiler() const { return program(ToolRole::CCompiler); }
     [[nodiscard]] virtual const Debugger* debugger() const = 0;
     [[nodiscard]] virtual const Runner* runner() const = 0;
 };

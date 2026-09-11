@@ -332,6 +332,25 @@ The board records no target of its own; cross-target and the SDK carry it. Absen
 
 The manifest is authoritative and the record is a snapshot, exactly as resolved-options.mdy is a snapshot of manifest options. Editing a platform manifest takes effect on the next configure.
 
+# Link ownership and external linking
+
+When an SDK's library declares external-build, configure records the lane's link ownership as external:
+
+Opening fence
+cross-link: external
+Closing fence
+
+The key is additive to configuration-2. Older binaries reject records carrying cross-link because the key is not in their configuration-2 key registry.
+
+Conditional record validation governs an externally linked lane:
+- If a board is selected: configure omits cross-board-linker-script and cross-board-source, and the record loader requires neither, still requiring the board, the machine, and a matching processor entry. A record carrying cross-link: external with a linker script is rejected.
+- If no board is selected (such as a hosted lane): the record carries no board fields at all.
+- In a project-linked lane (cross-link absent or not external): a board record that omits the linker script is rejected.
+
+After build, test, run, or debug loads the project manifest, it compares the record's link ownership against the selected library's external-build declaration. A mismatch fails immediately with a diagnostic instructing the user to rerun configure, preventing builds against stale configuration records.
+
+models::Platform exposes link_ownership() returning LinkOwnership::Project or LinkOwnership::External. The host platform always returns LinkOwnership::Project.
+
 # Legacy records
 
 A legacy record is one carrying mm 1.0 and no schema key. It derives its system from the table, carries runtime unknown, and keeps its recorded compiler and runner arguments untouched.
@@ -352,6 +371,16 @@ Each key names its introducing version and the kinds it is valid on. A processor
 valid_manifest accepts sdk and board as kinds. Without that, adding platforms to the root manifest breaks every manifest-reading tool at once.
 
 A tool built before this change rejects a 1.2 manifest by version, rather than ignoring keys that decide what gets linked. The manifest gate and the first 1.2 manifests therefore land together. The manifest gate and the record gate are independent changes.
+
+# External CMake toolchain
+
+When building through a CMake bridge for an external library, build generates mm-toolchain.cmake in the external build directory. The toolchain file communicates the configured compiler drivers and platform identity without interfering with CMake or bridge flag policies:
+
+- CMAKE_SYSTEM_NAME is set to Generic when the configured platform system is BareMetal, and Linux when it is Linux/hosted.
+- CMAKE_TRY_COMPILE_TARGET_TYPE is set to STATIC_LIBRARY so CMake does not attempt to link and execute test binaries during compiler identification.
+- CMAKE_C_COMPILER and CMAKE_CXX_COMPILER are emitted as bracket arguments ([==[...] ==]), quoting their paths safely without variable or escape expansion.
+- CMAKE_SYSROOT is emitted as a bracket argument when the platform defines an explicit sysroot.
+- mm-toolchain.cmake carries no processor flags (-mcpu, -march, -mthumb, -mfloat-abi). Processor flags are supplied by the bridge, ensuring ABI agreement without contradictory toolchain overrides.
 
 # Analysis and reporting
 
@@ -422,6 +451,10 @@ Every platform diagnostic names the manifest it came from. A mismatch names both
 - A native configuration's compile and link commands are byte-identical to the preceding release.
 - A clean bootstrap succeeds with platforms registered in the root manifest.
 - One board runs under an emulator, reaching main, writing observable output, and terminating under control, with no application argument reaching the emulator.
+- An SDK whose library declares external-build configures with cross-link: external; with a board, it omits cross-board-linker-script and cross-board-source; without a board, it carries no board fields.
+- A record carrying cross-link: external with a linker script, or omitting the linker script without cross-link: external, is rejected.
+- Build, test, run, and debug detect a mismatch between the record's link ownership and the library's external-build declaration as a stale configuration record.
+- models::Platform exposes link_ownership() reflecting the lane's link ownership.
 
 # Current boundaries
 

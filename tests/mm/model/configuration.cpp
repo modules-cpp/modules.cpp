@@ -245,6 +245,71 @@ void configured_platform_follows_lane_selection() {
            "configured platform exposes its SDK and responsibility state");
 }
 
+void toolchain_exposes_c_compiler() {
+    const mm::test::scoped_tree tree{"model_c_compiler"};
+    auto settings = host_settings();
+    settings.host.c_compiler = "gcc-15";
+    expect(mm::configure::write_configuration(tree.root(), settings), "configuration written");
+
+    const auto configuration = mm::model::configuration(tree.root(), false);
+    expect(configuration != nullptr, "configuration resolves");
+    if (configuration == nullptr) return;
+
+    const auto* c_comp = configuration->host_toolchain().c_compiler();
+    expect(c_comp != nullptr, "host c_compiler is exposed");
+    if (c_comp != nullptr) {
+        expect(c_comp->invocation() == "gcc-15", "c_compiler invocation matches");
+        expect(configuration->host_toolchain().program(models::ToolRole::CCompiler) == c_comp,
+               "program(ToolRole::CCompiler) matches c_compiler()");
+        expect(c_comp->provenance() == models::Provenance::ThirdParty,
+               "c_compiler provenance is ThirdParty");
+    }
+
+    const mm::test::scoped_tree default_tree{"model_c_compiler_default"};
+    const auto unconfig = mm::model::configuration(default_tree.root(), false);
+    expect(unconfig != nullptr, "unconfigured resolves");
+    if (unconfig != nullptr) {
+        expect(unconfig->host_toolchain().c_compiler() == nullptr,
+               "unconfigured host has null c_compiler");
+        expect(unconfig->host_toolchain().program(models::ToolRole::CCompiler) == nullptr,
+               "unconfigured host ToolRole::CCompiler is null");
+    }
+}
+
+void platform_exposes_link_ownership() {
+    const mm::test::scoped_tree tree{"model_link_ownership"};
+    tree.manifest_raw("platforms/sdk",
+                      "mm: 1.2\nkind: sdk\nname: cmake-demo\n"
+                      "target: m68k-linux-gnu\ncompiler-family: gcc\nruntime: none\n");
+
+    auto settings = settings_with_cross(true, "m68k-linux-gnu", "m68k-linux-gnu-g++");
+    settings.configuration_2 = true;
+    mm::configure::PlatformSettings platform;
+    platform.target = "m68k-linux-gnu";
+    platform.system = mm::configure::PlatformSystem::Linux;
+    platform.runtime = mm::configure::PlatformRuntime::None;
+    platform.link_ownership = mm::configure::LinkOwnership::External;
+    platform.sdk = "cmake-demo";
+    platform.sdk_manifest = "platforms/sdk/mm.mdy";
+    platform.sdk_family = mm::configure::CompilerFamily::Gcc;
+    settings.cross_platform = platform;
+    expect(mm::configure::write_configuration(tree.root(), settings),
+           "platform configuration written");
+
+    const auto configuration = mm::model::configuration(tree.root(), false);
+    expect(configuration != nullptr, "configuration resolves");
+    if (configuration == nullptr) return;
+
+    expect(configuration->host_platform().link_ownership() == models::LinkOwnership::Project,
+           "host platform link ownership is always Project");
+    const auto* target_plat = configuration->target_platform();
+    expect(target_plat != nullptr, "target platform is present");
+    if (target_plat != nullptr) {
+        expect(target_plat->link_ownership() == models::LinkOwnership::External,
+               "target platform exposes LinkOwnership::External");
+    }
+}
+
 const mm::test::case_ cases[] = {
     { "unconfigured reports the shared default", &unconfigured_reports_the_shared_default },
     { "persisted reports the written lane",      &persisted_reports_the_written_lane },
@@ -253,6 +318,8 @@ const mm::test::case_ cases[] = {
     { "equal invocations remain separate",       &equal_invocations_do_not_unify_toolchains },
     { "host platform, locale and shell are fixed", &host_platform_locale_and_shell_are_fixed },
     { "configured platform follows selection",  &configured_platform_follows_lane_selection },
+    { "toolchain exposes C compiler",           &toolchain_exposes_c_compiler },
+    { "platform exposes link ownership",        &platform_exposes_link_ownership },
 };
 
 const mm::test::registrar reg{"mm.model configuration", cases};

@@ -169,6 +169,31 @@ void rejects_unsupported_mm_version() {
     mm::test::expect(!loaded.ok, "expected an unsupported mm: version to be rejected");
 }
 
+// 1.4 exists so a key introduced after release v1.3.0 has a version to be
+// introduced at: 1.3 is released and its key set is closed, so declaring a new
+// key inside it would make an existing binary reject the manifest for the wrong
+// reason. Until such a key lands, a 1.4 manifest is a 1.3 manifest.
+void accepts_current_mm_version() {
+    const mm::test::scoped_tree tree{"mm14version"};
+    tree.manifest_raw("", "mm: 1.4\nkind: project\nname: p\nfolder: m\n");
+    tree.manifest_raw("m", "mm: 1.4\nkind: module\nname: m\nmodule: p.m\nfile: m.cppm\n");
+
+    const auto loaded = mm::build::load_tree(tree.root());
+
+    mm::test::expect(loaded.ok && loaded.targets.size() == 1,
+                     "expected mm: 1.4 to be accepted");
+}
+
+void rejects_unknown_key_in_current_mm_version() {
+    const mm::test::scoped_tree tree{"mm14unknown"};
+    tree.manifest_raw("", "mm: 1.4\nkind: project\nname: p\nnot-a-key: x\n");
+
+    bool ok = false;
+    mm::build::load_nodes(tree.root(), ok, {.tool = "configure", .strict_tree = true});
+
+    mm::test::expect(!ok, "expected an unknown key in a 1.4 manifest to be rejected");
+}
+
 void rejects_duplicate_mm_version() {
     const mm::test::scoped_tree tree{"dupmmversion"};
     tree.manifest_raw("", "mm: 1.0\nmm: 1.0\nkind: project\nname: p\n");
@@ -265,6 +290,8 @@ const mm::test::case_ cases[] = {
     { "rejects unknown kind",                 &rejects_unknown_kind },
     { "rejects missing mm: version",          &rejects_missing_mm_version },
     { "rejects unsupported mm: version",      &rejects_unsupported_mm_version },
+    { "accepts current mm: version",          &accepts_current_mm_version },
+    { "rejects unknown key in current mm",    &rejects_unknown_key_in_current_mm_version },
     { "rejects duplicate mm: version",        &rejects_duplicate_mm_version },
     { "rejects module without module name",   &rejects_module_without_module_name },
     { "rejects target without sources",       &rejects_target_without_sources },

@@ -80,6 +80,7 @@ mm::configure::CompilerSettings compiler_settings(const mm::build::Toolchain& to
         "POSIX",
         compile_flags(build, toolchain.family, toolchain.target),
         link_flags(build, toolchain.family, toolchain.target),
+        toolchain.c_compiler.invocation,
     };
 }
 
@@ -182,8 +183,9 @@ int resolve_platform(const mm::build::Project& project,
                   << " and " << mm::configure::compiler_family_name(family) << "\n";
         return mm::build::exit_usage;
     }
+    const mm::build::LibraryDefinition* library = nullptr;
     if (!sdk->library.empty()) {
-        const auto* library = find_library(project, sdk->library);
+        library = find_library(project, sdk->library);
         if (library == nullptr || !mm::build::validate_library_checkout(".", *library))
             return mm::build::exit_manifest;
     }
@@ -202,6 +204,9 @@ int resolve_platform(const mm::build::Project& project,
     platform.target = std::string(target);
     platform.system = *mm::configure::target_system(target);
     platform.runtime = sdk->runtime;
+    if (library != nullptr && !library->external_build.empty()) {
+        platform.link_ownership = mm::configure::LinkOwnership::External;
+    }
     platform.sdk = sdk->name;
     platform.sdk_manifest = sdk->manifest;
     platform.sdk_family = sdk->family;
@@ -223,8 +228,10 @@ int resolve_platform(const mm::build::Project& project,
         platform.board = board->name;
         platform.board_manifest = board->manifest;
         platform.machine = board->machine;
-        platform.linker_script = board->linker_script;
-        platform.board_sources = board->sources;
+        if (platform.link_ownership != mm::configure::LinkOwnership::External) {
+            platform.linker_script = board->linker_script;
+            platform.board_sources = board->sources;
+        }
         platform.compiler_arguments = {"-mcpu=" + board->cpu};
         if (board->instruction_set == "thumb") platform.compiler_arguments.push_back("-mthumb");
         platform.compiler_arguments.push_back("-mfloat-abi=" + board->float_abi);
@@ -276,6 +283,7 @@ int main(int argc, char** argv) {
     options.flag("--target-host");
     options.option("--target", "a target triple");
     options.option("--compiler", "a native or target-prefixed GCC or Clang C++ driver");
+    options.option("--c-compiler", "a native or target-prefixed GCC or Clang C driver");
     options.option("--runner", "none or a supported runner profile");
     options.option("--sdk", "a supported SDK manifest name");
     options.option("--board", "a supported board manifest name");
@@ -283,7 +291,7 @@ int main(int argc, char** argv) {
     options.option("--build", "debug or release");
     options.help("configure [-v|--verbose] [-h|--help] [--host | --target TRIPLE] "
                  "[--target-host] "
-                 "[--compiler COMPILER] [--sdk SDK] [--board BOARD] "
+                 "[--compiler COMPILER] [--c-compiler C_COMPILER] [--sdk SDK] [--board BOARD] "
                  "[--runner none|PROFILE] [--debugger none|gdb|openocd] "
                  "[--build debug|release] [manifest]");
     const auto cli = options.parse(argc, argv);
@@ -332,6 +340,12 @@ int main(int argc, char** argv) {
     const auto compilers = options.values("--compiler");
     if (compilers.size() > 1) {
         std::cerr << "configure: --compiler may be given only once\n";
+        return mm::build::exit_usage;
+    }
+
+    const auto c_compilers = options.values("--c-compiler");
+    if (c_compilers.size() > 1) {
+        std::cerr << "configure: --c-compiler may be given only once\n";
         return mm::build::exit_usage;
     }
 
@@ -487,6 +501,40 @@ int main(int argc, char** argv) {
         };
     }
 
+    bool external_lane = false;
+    if (target_lane && selected_platform && selected_platform->sdk) {
+        if (const auto* sdk = find_sdk(project, *selected_platform->sdk)) {
+            if (!sdk->library.empty()) {
+                if (const auto* lib = find_library(project, sdk->library)) {
+                    external_lane = !lib->external_build.empty();
+                }
+            }
+        }
+    }
+
+    std::string c_driver;
+    const auto expected_family = target_lane ? (selected_platform ? selected_platform->sdk_family : compiler->family)
+                                             : compiler->family;
+    if (!c_compilers.empty()) {
+        c_driver = c_compilers.front();
+        std::string err;
+        if (!mm::configure::probe_c_compiler(c_driver, compiler->invocation, expected_family, err)) {
+            std::cerr << "configure: " << err << "\n";
+            return mm::build::exit_usage;
+        }
+    } else {
+        const auto candidate = mm::configure::candidate_c_compiler(compiler->invocation);
+        std::string err;
+        if (!candidate.empty() && mm::configure::probe_c_compiler(candidate, compiler->invocation, expected_family, err)) {
+            c_driver = candidate;
+        } else if (external_lane) {
+            std::cerr << "configure: external build requires a compatible C driver: "
+                      << (candidate.empty() ? "cannot derive candidate C driver for " + compiler->invocation : err)
+                      << "\n";
+            return mm::build::exit_manifest;
+        }
+    }
+
     settings.name = (target_lane ? target : compiler->invocation) + "-" + requested_build;
     settings.build = *build;
     settings.host_build_directory = mm::configure::host_output_directory();
@@ -502,6 +550,7 @@ int main(int argc, char** argv) {
             "POSIX",
             compile_flags(*build, compiler->family, target),
             link_flags(*build, compiler->family, target),
+            c_driver,
         };
         settings.cross_runner.reset();
         if (!runners.empty() && runners.front() != "none") {
@@ -551,6 +600,7 @@ int main(int argc, char** argv) {
             "POSIX",
             std::string(mm::configure::build_compile_flags(*build)),
             std::string(mm::configure::build_link_flags(*build)),
+            c_driver,
         };
         settings.host_debugger.reset();
         if (!debuggers.empty() && debuggers.front() != "none") {

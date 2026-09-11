@@ -74,6 +74,7 @@ std::string_view role_name(models::ToolRole role) {
         case models::ToolRole::Linker: return "linker";
         case models::ToolRole::Librarian: return "librarian";
         case models::ToolRole::Debugger: return "debugger";
+        case models::ToolRole::CCompiler: return "c-compiler";
     }
     return {};
 }
@@ -81,7 +82,7 @@ std::string_view role_name(models::ToolRole role) {
 void report_toolchain(std::string_view label, const models::Toolchain& toolchain) {
     constexpr models::ToolRole roles[] = {
         models::ToolRole::Compiler, models::ToolRole::Assembler, models::ToolRole::Linker,
-        models::ToolRole::Librarian, models::ToolRole::Debugger,
+        models::ToolRole::Librarian, models::ToolRole::Debugger, models::ToolRole::CCompiler,
     };
 
     std::cout << "  " << label << " toolchain\n";
@@ -174,6 +175,9 @@ int main(int argc, char** argv) {
             case models::PlatformSystem::Unknown: break;
         }
         std::cout << "  platform       " << platform_name << "\n";
+        std::cout << "  link ownership "
+                  << (platform.link_ownership() == models::LinkOwnership::External ? "external" : "project")
+                  << "\n";
         std::cout << "  locale         " << configuration->locale()
                   << "  [declared, not enforced: no setlocale/LC_ALL/LANG]\n";
         std::cout << "  shell          " << configuration->shell() << "\n\n";

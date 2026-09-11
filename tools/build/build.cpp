@@ -134,6 +134,8 @@ int main(int argc, char** argv) {
 
     auto project = mm::build::load_project(".", {.tool = "build", .warn_options = true});
     if (!project.ok) return mm::build::exit_manifest;
+    if (!mm::build::check_configuration_staleness(configuration, project, target_lane, "build"))
+        return mm::build::exit_manifest;
 
     std::size_t scope = mm::build::no_parent;
     for (std::size_t i = 0; i < project.nodes.size(); ++i) {
@@ -172,7 +174,8 @@ int main(int argc, char** argv) {
     for (std::size_t i = 0; i < project.nodes.size(); ++i)
         available.push_back(mm::build::availability(project, i, buildable[i], target_lane,
                                                     platform));
-    if ((project.nodes[scope].kind == "app" || project.nodes[scope].kind == "test") &&
+    if ((project.nodes[scope].kind == "app" || project.nodes[scope].kind == "module" ||
+         project.nodes[scope].kind == "test") &&
         !available[scope].available) {
         std::cerr << "build: " << project.nodes[scope].manifest.string() << ": "
                   << available[scope].reason << "\n";

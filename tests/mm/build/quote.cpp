@@ -10,6 +10,7 @@
 // single quote itself.
 
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <string_view>
 
@@ -99,6 +100,43 @@ void escapes_repeated_single_quotes() {
                      "expected each embedded single quote to be escaped");
 }
 
+void cmake_bracket_brackets_plain_text() {
+    using mm::build::cmake_bracket_argument;
+    const auto plain = cmake_bracket_argument("foo/bar");
+    mm::test::expect(plain.has_value() && *plain == "[==[foo/bar]==]",
+                     "plain value gets 2 equals bracket argument");
+    const auto empty = cmake_bracket_argument("");
+    mm::test::expect(empty.has_value() && *empty == "[==[]==]",
+                     "empty string gets 2 equals bracket argument");
+}
+
+void cmake_bracket_avoids_embedded_closing() {
+    using mm::build::cmake_bracket_argument;
+    const auto arg = cmake_bracket_argument("abc]==]def");
+    mm::test::expect(arg.has_value(), "successfully brackets payload containing ]==]");
+    if (arg.has_value()) {
+        mm::test::expect(arg->find("abc]==]def") != std::string::npos, "payload preserved");
+        mm::test::expect(*arg != "[==[abc]==]def]==]", "does not use conflicting delimiter");
+    }
+}
+
+void cmake_bracket_rejects_disallowed_characters() {
+    using mm::build::cmake_bracket_argument;
+    mm::test::expect(!cmake_bracket_argument("has;semicolon").has_value(),
+                     "rejects semicolon");
+    mm::test::expect(!cmake_bracket_argument("has\nnewline").has_value(),
+                     "rejects newline");
+    mm::test::expect(!cmake_bracket_argument("has\rcarriage_return").has_value(),
+                     "rejects carriage return");
+}
+
+void cmake_bracket_exhausts_max_equals() {
+    using mm::build::cmake_bracket_argument;
+    const std::string payload = "]] ]=] ]==] ]===]";
+    mm::test::expect(!cmake_bracket_argument(payload, 3).has_value(),
+                     "fails when all delimiters up to max_equals are exhausted");
+}
+
 const mm::test::case_ cases[] = {
     { "wraps a plain path in single quotes",  &wraps_a_plain_path_in_single_quotes },
     { "quotes an empty path",                 &quotes_an_empty_path },
@@ -112,6 +150,10 @@ const mm::test::case_ cases[] = {
     { "escapes an embedded single quote",     &escapes_an_embedded_single_quote },
     { "escapes a leading single quote",       &escapes_a_leading_single_quote },
     { "escapes repeated single quotes",       &escapes_repeated_single_quotes },
+    { "brackets plain cmake argument",        &cmake_bracket_brackets_plain_text },
+    { "avoids embedded closing in cmake arg", &cmake_bracket_avoids_embedded_closing },
+    { "rejects disallowed chars in cmake arg",&cmake_bracket_rejects_disallowed_characters },
+    { "exhausts max equals in cmake arg",     &cmake_bracket_exhausts_max_equals },
 };
 
 const mm::test::registrar reg{"mm.build quoting", cases};

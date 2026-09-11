@@ -3,10 +3,12 @@ module;
 #include <cstddef>
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <map>
 #include <optional>
 #include <set>
+#include <sstream>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -58,6 +60,7 @@ constexpr ManifestVersionRule manifest_versions[] = {
     {"1.1", 11, true},
     {"1.2", 12, true},
     {"1.3", 13, true},
+    {"1.4", 14, true},
 };
 
 const ManifestVersionRule* manifest_version(std::string_view version) {
@@ -134,6 +137,7 @@ const std::vector<ManifestKeyRule> manifest_key_rules = {
     {"link-archive", 13, "library"},
     {"link-input", 13, "library"},
     {"library", 13, "sdk module"},
+    {"external-build", 14, "library"},
 };
 
 const ManifestKeyRule* manifest_key_rule(std::string_view key) {
@@ -454,6 +458,24 @@ bool configuration_directory(const mm::mdy::MDYDocument& doc, std::string_view k
     return true;
 }
 
+bool configuration_optional_scalar(const mm::mdy::MDYDocument& document,
+                                   std::string_view key,
+                                   const std::filesystem::path& path,
+                                   std::string& value) {
+    const auto* values = lookup(document, key);
+    if (values == nullptr) {
+        value.clear();
+        return true;
+    }
+    if (values->size() != 1 || values->front().empty()) {
+        std::cerr << "build: configuration requires at most one non-empty " << key << ": "
+                  << path.string() << "\n";
+        return false;
+    }
+    value = values->front();
+    return true;
+}
+
 bool configuration_compiler(const mm::mdy::MDYDocument& document, std::string_view prefix,
                             const std::filesystem::path& path, Toolchain& toolchain,
                             bool read_platform = true) {
@@ -499,35 +521,22 @@ bool configuration_compiler(const mm::mdy::MDYDocument& document, std::string_vi
     toolchain.linker.invocation = toolchain.compiler.invocation;
     toolchain.librarian = {};
     toolchain.debugger.reset();
-    return true;
-}
-
-bool configuration_optional_scalar(const mm::mdy::MDYDocument& document,
-                                   std::string_view key,
-                                   const std::filesystem::path& path,
-                                   std::string& value) {
-    const auto* values = lookup(document, key);
-    if (values == nullptr) {
-        value.clear();
-        return true;
-    }
-    if (values->size() != 1 || values->front().empty()) {
-        std::cerr << "build: configuration requires at most one non-empty " << key << ": "
-                  << path.string() << "\n";
+    std::string c_compiler;
+    if (!configuration_optional_scalar(document, std::string(prefix) + "-c-compiler", path,
+                                       c_compiler))
         return false;
-    }
-    value = values->front();
+    toolchain.c_compiler.invocation = c_compiler;
     return true;
 }
 
 bool configuration_2_key(std::string_view key) {
     static const std::set<std::string, std::less<>> keys = {
         "mm", "schema", "kind", "name", "build", "target-compiler",
-        "target-host-capability", "host-compiler-family", "host-compiler", "host-target",
+        "target-host-capability", "host-compiler-family", "host-compiler", "host-c-compiler", "host-target",
         "host-platform", "host-compile-flags", "host-link-flags", "host-debugger",
         "host-debugger-prefix-argument", "host-debugger-connection",
         "host-debugger-remote-endpoint", "host-debugger-runner-argument",
-        "cross-compiler-family", "cross-compiler", "cross-target", "cross-compile-flags",
+        "cross-compiler-family", "cross-compiler", "cross-c-compiler", "cross-target", "cross-compile-flags",
         "cross-link-flags", "cross-debugger", "cross-debugger-prefix-argument",
         "cross-debugger-connection", "cross-debugger-remote-endpoint",
         "cross-debugger-runner-argument", "cross-runner", "cross-runner-prefix-argument",
@@ -536,7 +545,7 @@ bool configuration_2_key(std::string_view key) {
         "cross-runner-forwards-arguments", "host-build-directory", "target-build-directory",
         "cross-system", "cross-runtime", "cross-sdk", "cross-sdk-manifest",
         "cross-sdk-compiler-family", "cross-sdk-sysroot", "cross-sdk-runtime-prefix",
-        "cross-sdk-specs-argument", "cross-sdk-provides", "cross-board",
+        "cross-sdk-specs-argument", "cross-sdk-provides", "cross-link", "cross-board",
         "cross-board-manifest", "cross-board-machine", "cross-board-linker-script",
         "cross-board-source", "cross-board-provides", "cross-board-argument",
         "cross-unresolved"};
@@ -662,6 +671,16 @@ bool load_platform(const mm::mdy::MDYDocument& document,
         return false;
     if (!configuration_optional_scalar(document, "cross-sdk-specs-argument", path, platform.specs_argument))
         return false;
+    std::string cross_link;
+    if (!configuration_optional_scalar(document, "cross-link", path, cross_link))
+        return false;
+    if (!cross_link.empty()) {
+        if (cross_link != "external") {
+            std::cerr << "build: invalid cross-link in " << path.string() << "\n";
+            return false;
+        }
+        platform.link_ownership = mm::configure::LinkOwnership::External;
+    }
     if (!configuration_optional_scalar(document, "cross-board", path, value)) return false;
     if (!value.empty()) platform.board = value;
     if (!configuration_optional_scalar(document, "cross-board-manifest", path, value)) return false;
@@ -697,14 +716,27 @@ bool load_platform(const mm::mdy::MDYDocument& document,
         std::cerr << "build: board details require cross-board in " << path.string() << "\n";
         return false;
     }
+    if (platform.link_ownership == mm::configure::LinkOwnership::External &&
+        !platform.linker_script.empty()) {
+        std::cerr << "build: invalid board platform in " << path.string() << "\n";
+        return false;
+    }
     if (platform.board) {
         const auto* entry = find_processor_entry_by_arguments(
             platform.sdk_family, platform.target, platform.compiler_arguments);
-        if (*parsed_system != mm::configure::PlatformSystem::BareMetal ||
-            platform.linker_script.empty() || platform.board_sources.empty() ||
-            entry == nullptr) {
-            std::cerr << "build: invalid board platform in " << path.string() << "\n";
-            return false;
+        if (platform.link_ownership == mm::configure::LinkOwnership::External) {
+            if (*parsed_system != mm::configure::PlatformSystem::BareMetal ||
+                platform.machine.empty() || entry == nullptr) {
+                std::cerr << "build: invalid board platform in " << path.string() << "\n";
+                return false;
+            }
+        } else {
+            if (*parsed_system != mm::configure::PlatformSystem::BareMetal ||
+                platform.linker_script.empty() || platform.board_sources.empty() ||
+                entry == nullptr) {
+                std::cerr << "build: invalid board platform in " << path.string() << "\n";
+                return false;
+            }
         }
         if (cross.runner && cross.runner->image == RunnerImage::Option) {
             if (platform.machine.empty()) {
@@ -777,6 +809,7 @@ bool has_configuration_compiler(const mm::mdy::MDYDocument& document,
                                 std::string_view prefix) {
     return lookup(document, std::string(prefix) + "-compiler-family") != nullptr ||
            lookup(document, std::string(prefix) + "-compiler") != nullptr ||
+           lookup(document, std::string(prefix) + "-c-compiler") != nullptr ||
            lookup(document, std::string(prefix) + "-target") != nullptr ||
            lookup(document, std::string(prefix) + "-platform") != nullptr ||
            lookup(document, std::string(prefix) + "-compile-flags") != nullptr ||
@@ -1438,7 +1471,10 @@ bool parse_definitions(Project& project, const std::filesystem::path& root,
                                    policy.tool) ||
                 !definition_scalar(doc, "machine", node.manifest, board.machine,
                                    policy.tool, false) ||
-                !definition_scalar(doc, "linker-script", node.manifest, linker, policy.tool) ||
+                !definition_scalar(doc, "linker-script", node.manifest, linker,
+                                   policy.tool, false))
+                return false;
+            if (!linker.empty() &&
                 !definition_path(root, node, linker, board.linker_script,
                                  "linker-script", policy.tool))
                 return false;
@@ -1446,11 +1482,6 @@ bool parse_definitions(Project& project, const std::filesystem::path& root,
                 std::filesystem::path path;
                 if (!definition_path(root, node, source, path, "file", policy.tool)) return false;
                 board.sources.push_back(std::move(path));
-            }
-            if (board.sources.empty()) {
-                std::cerr << policy.tool << ": " << node.manifest.string()
-                          << ": board requires at least one file\n";
-                return false;
             }
             if (!definition_responsibilities(doc, node.manifest, board.provides, policy.tool))
                 return false;
@@ -1494,6 +1525,50 @@ bool parse_definitions(Project& project, const std::filesystem::path& root,
                 return false;
             }
 
+            if (!definition_scalar(doc, "external-build", node.manifest,
+                                   library.external_build, policy.tool, false))
+                return false;
+            if (!library.external_build.empty()) {
+                if (library.external_build != "cmake") {
+                    std::cerr << policy.tool << ": " << node.manifest.string()
+                              << ": unknown external-build: " << library.external_build << "\n";
+                    return false;
+                }
+                const auto cmake_dir = (node.dir / "cmake").lexically_normal();
+                const auto absolute_cmake = absolute_from_root(root, cmake_dir);
+                std::error_code ec;
+                const auto canonical_root = std::filesystem::weakly_canonical(root, ec);
+                if (ec) return false;
+                const auto canonical_cmake = std::filesystem::weakly_canonical(absolute_cmake, ec);
+                if (ec || !path_within(canonical_root, canonical_cmake)) {
+                    std::cerr << policy.tool << ": " << node.manifest.string()
+                              << ": cmake directory is outside the project: "
+                              << cmake_dir.generic_string() << "\n";
+                    return false;
+                }
+                const bool cmake_is_dir = std::filesystem::is_directory(canonical_cmake, ec);
+                if (ec || !cmake_is_dir) {
+                    std::cerr << policy.tool << ": " << node.manifest.string()
+                              << ": external-build library requires a cmake directory beside its manifest\n";
+                    return false;
+                }
+                const auto cmakelists = absolute_cmake / "CMakeLists.txt";
+                const auto canonical_cmakelists = std::filesystem::weakly_canonical(cmakelists, ec);
+                const bool cmakelists_is_file = std::filesystem::is_regular_file(canonical_cmakelists, ec);
+                if (ec || !path_within(canonical_root, canonical_cmakelists) || !cmakelists_is_file) {
+                    std::cerr << policy.tool << ": " << node.manifest.string()
+                              << ": external-build library requires cmake/CMakeLists.txt\n";
+                    return false;
+                }
+                const auto canonical_source = std::filesystem::weakly_canonical(absolute_source, ec);
+                if (ec || path_within(canonical_source, canonical_cmake) ||
+                    path_within(canonical_source, canonical_cmakelists)) {
+                    std::cerr << policy.tool << ": " << node.manifest.string()
+                              << ": cmake directory must resolve outside library source\n";
+                    return false;
+                }
+            }
+
             if (!observe_checkout(absolute_source, library.checkout_present,
                                   node.manifest, policy.tool) ||
                 !library_interface_paths(root, node, doc, library, policy.tool))
@@ -1513,19 +1588,32 @@ bool parse_definitions(Project& project, const std::filesystem::path& root,
 
     for (const auto& sdk : project.sdks) {
         if (sdk.library.empty()) continue;
-        bool found = false;
-        for (const auto& library : project.libraries)
-            if (library.name == sdk.library) found = true;
-        if (found) continue;
-        std::cerr << policy.tool << ": " << sdk.manifest.string()
-                  << ": SDK references unknown library: " << sdk.library;
-        if (!project.libraries.empty()) {
-            std::cerr << " (available:";
-            for (const auto& library : project.libraries) std::cerr << " " << library.name;
-            std::cerr << ")";
+        const LibraryDefinition* library = nullptr;
+        for (const auto& candidate : project.libraries)
+            if (candidate.name == sdk.library) library = &candidate;
+        if (library == nullptr) {
+            std::cerr << policy.tool << ": " << sdk.manifest.string()
+                      << ": SDK references unknown library: " << sdk.library;
+            if (!project.libraries.empty()) {
+                std::cerr << " (available:";
+                for (const auto& candidate_lib : project.libraries) std::cerr << " " << candidate_lib.name;
+                std::cerr << ")";
+            }
+            std::cerr << "\n";
+            return false;
         }
-        std::cerr << "\n";
-        return false;
+        if (!library->external_build.empty()) {
+            if (!sdk.specs_profile.empty()) {
+                std::cerr << policy.tool << ": " << sdk.manifest.string()
+                          << ": SDK whose library declares external-build cannot declare specs-profile\n";
+                return false;
+            }
+            if (!sdk.specs_file.empty()) {
+                std::cerr << policy.tool << ": " << sdk.manifest.string()
+                          << ": SDK whose library declares external-build cannot declare specs-file\n";
+                return false;
+            }
+        }
     }
 
     for (std::size_t i = 0; i < project.nodes.size(); ++i) {
@@ -1568,6 +1656,24 @@ bool parse_definitions(Project& project, const std::filesystem::path& root,
             std::cerr << policy.tool << ": " << board.manifest.string()
                       << ": unknown processor combination for SDK " << sdk->name << "\n";
             return false;
+        }
+        const LibraryDefinition* library = nullptr;
+        if (!sdk->library.empty()) {
+            for (const auto& candidate : project.libraries)
+                if (candidate.name == sdk->library) library = &candidate;
+        }
+        const bool external = library != nullptr && !library->external_build.empty();
+        if (!external) {
+            if (board.linker_script.empty()) {
+                std::cerr << policy.tool << ": " << board.manifest.string()
+                          << ": board requires linker-script\n";
+                return false;
+            }
+            if (board.sources.empty()) {
+                std::cerr << policy.tool << ": " << board.manifest.string()
+                          << ": board requires at least one file\n";
+                return false;
+            }
         }
     }
     return true;
@@ -2137,6 +2243,15 @@ bool validate_library_checkout(const std::filesystem::path& project_root,
                   << ": licence must resolve outside library source\n";
         return false;
     }
+    if (!library.external_build.empty()) {
+        const auto cmake_dir = std::filesystem::weakly_canonical(
+            absolute_from_root(project_root, library.manifest.parent_path() / "cmake"), ec);
+        if (ec || path_within(canonical_source, cmake_dir)) {
+            std::cerr << tool << ": " << library.manifest.string()
+                      << ": cmake directory must resolve outside library source\n";
+            return false;
+        }
+    }
     return true;
 }
 
@@ -2222,6 +2337,33 @@ Availability availability(const Project& project, std::size_t node, bool capabil
         return {false, project.nodes[node].name + " is not buildable-" +
                            (target_lane ? "target" : "host")};
     }
+    if (project.nodes[node].kind == "module" && project.target[node] != no_target) {
+        const auto& target = project.targets[project.target[node]];
+        if (!target.library.empty()) {
+            const LibraryDefinition* library = nullptr;
+            for (const auto& candidate : project.libraries) {
+                if (candidate.name == target.library) {
+                    library = &candidate;
+                    break;
+                }
+            }
+            if (library != nullptr && !library->external_build.empty()) {
+                const SdkDefinition* selected_sdk = nullptr;
+                if (target_lane && platform != nullptr && platform->sdk) {
+                    for (const auto& candidate : project.sdks) {
+                        if (candidate.name == *platform->sdk) {
+                            selected_sdk = &candidate;
+                            break;
+                        }
+                    }
+                }
+                if (selected_sdk == nullptr || selected_sdk->library != library->name) {
+                    return {false, project.nodes[node].name + " requires an SDK naming library " +
+                                       library->name};
+                }
+            }
+        }
+    }
     if (!target_lane || project.target[node] == no_target) return {true, {}};
 
     const BuildableNode* buildable = nullptr;
@@ -2246,6 +2388,52 @@ bool can_link_executable(const Platform* platform, std::string_view tool,
     std::cerr << tool << ": " << name << ": unresolved platform responsibility: "
               << mm::configure::responsibility_name(platform->unresolved.front()) << "\n";
     return false;
+}
+
+bool check_configuration_staleness(const BuildConfiguration& configuration,
+                                   const Project& project,
+                                   bool target_lane,
+                                   std::string_view tool) {
+    if (!target_lane) return true;
+    const auto* platform = configuration.configured_target_platform();
+    if (platform == nullptr || !platform->sdk) return true;
+
+    const SdkDefinition* sdk = nullptr;
+    for (const auto& entry : project.sdks) {
+        if (entry.name == *platform->sdk) {
+            sdk = &entry;
+            break;
+        }
+    }
+    if (sdk == nullptr) return true;
+
+    auto expected = mm::configure::LinkOwnership::Project;
+    std::string library_name;
+    if (!sdk->library.empty()) {
+        for (const auto& lib : project.libraries) {
+            if (lib.name == sdk->library) {
+                library_name = lib.name;
+                if (!lib.external_build.empty()) {
+                    expected = mm::configure::LinkOwnership::External;
+                }
+                break;
+            }
+        }
+    }
+
+    if (platform->link_ownership != expected) {
+        if (!library_name.empty()) {
+            std::cerr << tool << ": stale configuration record: library \""
+                      << library_name
+                      << "\" external-build declaration does not match cross-link; rerun configure\n";
+        } else {
+            std::cerr << tool << ": stale configuration record: SDK \""
+                      << sdk->name
+                      << "\" external-build declaration does not match cross-link; rerun configure\n";
+        }
+        return false;
+    }
+    return true;
 }
 
 std::optional<BuildableNode> platform_unit(const Platform* platform) {
@@ -2581,4 +2769,91 @@ bool clear_module_cache(const std::filesystem::path& build_dir) {
     return true;
 }
 
+std::optional<std::string> cmake_bracket_argument(std::string_view value,
+                                                  std::size_t max_equals) {
+    if (value.find('\n') != std::string_view::npos || value.find('\r') != std::string_view::npos ||
+        value.find(';') != std::string_view::npos)
+        return std::nullopt;
+
+    std::vector<std::size_t> order;
+    order.push_back(2);
+    for (std::size_t n = 0; n <= max_equals; ++n) {
+        if (n != 2) order.push_back(n);
+    }
+    for (const auto n : order) {
+        const std::string closing = "]" + std::string(n, '=') + "]";
+        if (value.find(closing) == std::string_view::npos) {
+            const std::string equals(n, '=');
+            return "[" + equals + "[" + std::string(value) + "]" + equals + "]";
+        }
+    }
+    return std::nullopt;
 }
+
+bool write_toolchain_cmake(const std::filesystem::path& destination,
+                           const Toolchain& toolchain,
+                           const Platform& platform) {
+    if (toolchain.c_compiler.invocation.empty()) {
+        std::cerr << "build: external build requires a configured C compiler; rerun configure\n";
+        return false;
+    }
+    if (toolchain.compiler.invocation.empty()) {
+        std::cerr << "build: external build requires a configured C++ compiler; rerun configure\n";
+        return false;
+    }
+
+    const auto c_bracket = cmake_bracket_argument(toolchain.c_compiler.invocation);
+    if (!c_bracket) {
+        std::cerr << "build: invalid C compiler path for toolchain: "
+                  << toolchain.c_compiler.invocation << "\n";
+        return false;
+    }
+    const auto cxx_bracket = cmake_bracket_argument(toolchain.compiler.invocation);
+    if (!cxx_bracket) {
+        std::cerr << "build: invalid C++ compiler path for toolchain: "
+                  << toolchain.compiler.invocation << "\n";
+        return false;
+    }
+
+    std::string sysroot_bracket;
+    if (platform.sysroot) {
+        const auto bracket = cmake_bracket_argument(platform.sysroot->generic_string());
+        if (!bracket) {
+            std::cerr << "build: invalid sysroot path for toolchain: "
+                      << platform.sysroot->generic_string() << "\n";
+            return false;
+        }
+        sysroot_bracket = *bracket;
+    }
+
+    const std::string_view system_name =
+        platform.system == mm::configure::PlatformSystem::BareMetal ? "Generic" : "Linux";
+
+    std::ostringstream out;
+    out << "set(CMAKE_SYSTEM_NAME " << system_name << ")\n";
+    out << "set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)\n";
+    out << "set(CMAKE_C_COMPILER " << *c_bracket << ")\n";
+    out << "set(CMAKE_CXX_COMPILER " << *cxx_bracket << ")\n";
+    if (!sysroot_bracket.empty()) {
+        out << "set(CMAKE_SYSROOT " << sysroot_bracket << ")\n";
+    }
+
+    std::error_code ec;
+    std::filesystem::create_directories(destination.parent_path(), ec);
+    if (ec) {
+        std::cerr << "build: cannot create directory for " << destination.string() << ": "
+                  << ec.message() << "\n";
+        return false;
+    }
+
+    std::ofstream file(destination);
+    if (!file.is_open()) {
+        std::cerr << "build: cannot open " << destination.string() << " for writing\n";
+        return false;
+    }
+    file << out.str();
+    return file.good();
+}
+
+}
+

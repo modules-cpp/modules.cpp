@@ -211,6 +211,7 @@ public:
     [[nodiscard]] virtual std::vector<std::filesystem::path> link_archives() const = 0;
     [[nodiscard]] virtual std::vector<std::string_view> link_inputs() const = 0;
     [[nodiscard]] virtual bool checkout_present() const = 0;
+    [[nodiscard]] virtual std::string_view external_build() const = 0;
 };
 
 }  // namespace models

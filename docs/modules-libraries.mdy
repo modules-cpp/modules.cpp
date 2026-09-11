@@ -65,6 +65,7 @@ Closing fence
 - licence names the licence file, relative to the manifest. Exactly one, non-empty, an existing regular project file, and outside source.
 - include-directory, library-directory, and link-archive are repeated and ordered. All three are relative to source and may not escape it: a value that begins with a parent component after normalisation against source is rejected, as is an absolute one.
 - link-input is repeated and ordered. A value starts with an ASCII letter, digit, or underscore and continues with ASCII letters, digits, underscore, dot, plus, or hyphen. Whitespace, path separators, option prefixes, and shell metacharacters are rejected at manifest-load time.
+- external-build names the external build system used to build the foreign tree, introduced at mm: 1.4. The one supported value is cmake. A library declaring external-build carries its CMake project in a cmake directory beside its own manifest. The directory is validated when the library manifest is: it exists, it contains CMakeLists.txt, it is inside the project, and it resolves outside library source.
 - folder entries are walked in declaration order, as on a project or dir manifest.
 
 Neither link-archive nor link-input requires a library-directory. An archive is a path and locates itself; a name may deliberately rely on the toolchain's own search paths, which is what link-input: m does.
@@ -109,6 +110,8 @@ Names are unique within the library kind: two libraries sharing a name is an err
 
 An SDK names the library its toolchain was vendored from. The reference is validated for every SDK in the tree, and so is the integrity of any present checkout, because that happens during the load. What selection adds is the requirement: only for the SDK configure selects must the checkout be present and canonical source resolve inside the project, and configure checks both before writing any record. This is the platform-side use of a library, and docs/modules-platforms.mdy owns SDK selection itself.
 
+When an SDK names a library that declares external-build, specs-profile and specs-file are rejected on that SDK. linker-script, file, and provides become optional on a board beneath such an SDK, checked after every SDK and library reference resolves so declaration order does not matter.
+
 # A module naming a library
 
 A module naming a library is its project-authored wrapper, and this is the consuming side of the mechanism.
@@ -122,6 +125,12 @@ More than one module may name the same library. Each is a wrapper, each is valid
 The validated directories are appended to that module's compile command in declaration order, and to no other node's. They are resolved to absolute paths, so the emitted command does not depend on the directory the tool was invoked from, and each is shell-quoted as one argument. They are appended to the compile command only: the linker's argument string is unchanged in this release.
 
 A library-directory, link-archive, or link-input declaration is validated and carried but reaches no command. An include directory rooted at a lane build prefix rather than at source is rejected as having no producer; that form is reserved for the external-build stage, and nothing constructs it today.
+
+# Availability of an external wrapper
+
+A kind: module target naming a library that declares external-build is available only in a target lane whose selected SDK names that same library. In every other lane it is unavailable, with a reason naming the library, and build counts it among the skipped targets exactly as it counts one made unavailable by requires-board. The rule is evaluated before the host-lane short circuit, because the host lane is one of the lanes it excludes.
+
+In a lane where the wrapper is unavailable, every consumer of it must also be unavailable, or ordering will fail to resolve a module that is not in the tree.
 
 # The wrapper and its linkage shim
 
@@ -153,8 +162,8 @@ The shim is not a declared source. It is included, never compiled on its own, an
 
 Three levels, and which one reports a fault determines when it is reported.
 
-- Walk time, for every library in the tree, configured or not: one source and one licence, lexical project containment of source, licence outside source and an existing regular file, source-relative interface paths that do not escape source lexically, link-input grammar, no file, option, reset, or read-only key, no folder entry landing inside source, and unique names within the kind. Where the checkout is present this level also performs the first two canonical rules, on paths that exist.
-- Reference resolution, after the complete tree is collected: every library named by an SDK or a module exists.
+- Walk time, for every library in the tree, configured or not: one source and one licence, lexical project containment of source, licence outside source and an existing regular file, source-relative interface paths that do not escape source lexically, link-input grammar, optional external-build (cmake only, with a cmake directory beside the manifest containing CMakeLists.txt and resolving outside source), no file, option, reset, or read-only key, no folder entry landing inside source, and unique names within the kind. Where the checkout is present this level also performs the first two canonical rules, on paths that exist, and checks that cmake resolves outside canonical source.
+- Reference resolution, after the complete tree is collected: every library named by an SDK or a module exists; an SDK referencing an external-build library declares no specs-profile or specs-file; and a board beneath a non-external SDK requires linker-script and at least one file.
 - Use time, for the selection only: checkout presence, canonical source inside the project, a recheck of the first two canonical rules, and, for a wrapper, existence of each declared include directory.
 
 The first level is integrity and the third is requirement. A present checkout is validated wherever it is read, so a symlink escape is reported by check, model, and document as readily as by a build; what selection adds is the demand that the tree be there at all, and the recheck that catches a tree edited after configure.
@@ -163,7 +172,7 @@ Reference resolution precedes every use-time check. A manifest naming a missing 
 
 # The abstract model
 
-models.manifest exposes a library as LibraryNode: source, licence, the four ordered interface accessors, and checkout_present. Paths are root relative and retain manifest order, and they return the same values whether or not the checkout is present. Repository::libraries() returns them beside sdks() and boards().
+models.manifest exposes a library as LibraryNode: source, licence, the four ordered interface accessors, checkout_present, and external_build. Paths are root relative and retain manifest order, and they return the same values whether or not the checkout is present. external_build() returns the declared external-build system name or an empty value. Repository::libraries() returns them beside sdks() and boards().
 
 Both sides of the library key are preserved in the same view. SdkNode::library() returns the SDK's declared library name or an empty value, and ModuleNode::library() returns the wrapper's. Neither returns a node, matching BoardNode::sdk().
 
@@ -171,7 +180,7 @@ checkout_present() is the one working-tree observation in the manifest interface
 
 # Manifest version
 
-The library kind, its source, licence, include-directory, library-directory, link-archive, and link-input keys, and library on an SDK or a module all require mm: 1.3. The rules are enforced once in the shared loader and never separately in a front end. A tool built before this release rejects a 1.3 manifest by version; after it, an unknown key in a 1.3 manifest is rejected as in a 1.1 one, and no tool reports library as an ignored unknown key in any strictness mode.
+The library kind, its source, licence, include-directory, library-directory, link-archive, and link-input keys, and library on an SDK or a module all require mm: 1.3. external-build requires mm: 1.4. The rules are enforced once in the shared loader and never separately in a front end. A tool built before this release rejects a 1.3 manifest by version; after it, an unknown key in a 1.3 or 1.4 manifest is rejected as in a 1.1 one, and no tool reports library or external-build as an ignored unknown key in any strictness mode.
 
 # Diagnostics and exit status
 
@@ -209,18 +218,22 @@ These are the conformance requirements for this release, not a description of ex
 - The linker's argument string is unchanged: no archive, search directory, or link input reaches a link command.
 - A library folder entry naming its own source is rejected at walk time, and so is one that reaches inside source through a symlink. A folder symlink resolving outside source is followed normally, and a wrapper beside the vendored tree is reached while the tree is not.
 - cppcheck is never handed a file beneath a library's source tree, on a whole-tree check and on a check rooted at libraries.
-- models::Kind carries Library; LibraryNode exposes source, licence, the four ordered accessors, and checkout_present; SdkNode and ModuleNode each expose library as a name; Repository exposes libraries.
+- models::Kind carries Library; LibraryNode exposes source, licence, the four ordered accessors, checkout_present, and external_build; SdkNode and ModuleNode each expose library as a name; Repository exposes libraries.
 - model reports checkout presence; document renders the declaration and calls no accessor reporting working-tree state.
 - libraries/mm.mdy declaring core no with a lock makes every node beneath it non-core, and a core node using a non-core module is rejected naming consumer, dependency, and the assigning ancestor.
 - The header-only fixture builds and runs: the wrapper includes a foreign header through its shim, the test imports the wrapper, and the value crosses the boundary.
 - The native command set is unchanged by adding libraries with no wrapper reached, and a clean bootstrap succeeds with libraries registered in the root manifest.
+- external-build requires mm: 1.4, accepts cmake, and rejects any unknown build system. A library declaring external-build with no cmake directory beside it, with no CMakeLists.txt in it, or with one resolving inside source, is rejected at load.
+- An SDK referencing an external-build library rejects specs-profile and specs-file. Boards beneath such an SDK permit omitting linker-script, file, and provides, while ordinary boards require linker-script and at least one file.
+- models::LibraryNode::external_build() returns the declared external-build system name or an empty string.
+- A kind: module target naming an external-build library is available only in a target lane whose selected SDK names that same library, and is an unavailable skipped target with a reason naming the library in every other lane.
 
 # Current boundaries
 
 Not implemented, by design, in this release:
 
 - Archive and link-input propagation. library-directory, link-archive, and link-input are declared, validated, ordered, and carried, and no link command consumes them. Adding them means a typed link segment after the objects, library order from a reversed order_from, and duplicate removal across a closure.
-- Externally built libraries. The external-build and links keys, the recorded recipe, the build performed beneath the lane's output directory, and the driver probes all belong to a later stage, and none of those keys is valid today.
+- Externally built libraries. The external-build: cmake manifest key and bridge convention are implemented at mm: 1.4. The links key, the recorded recipe, the build performed beneath the lane's output directory, and the driver probes belong to later stages.
 - Build-prefix interface paths. The base exists in the definition and nothing constructs one, so an include directory that is not rooted at source is rejected as having no producer.
 - Compiling a vendored tree. There is no librarian, no manifest-declared source language for foreign code, and no rule for where a produced archive lands.
 - Machine-checked header ownership. Associating an include directive with a manifest-declared interface needs include analysis the check addon does not do, so the wrapper and linkage-shim rules stay normative and unenforced.

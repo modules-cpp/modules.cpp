@@ -344,6 +344,173 @@ void openocd_runner_profile_and_configuration() {
                      "expected cross-debugger-prefix-argument -q");
 }
 
+void derives_candidate_c_compiler() {
+    using mm::configure::candidate_c_compiler;
+
+    mm::test::expect(candidate_c_compiler("g++") == "gcc",
+                     "g++ derives gcc");
+    mm::test::expect(candidate_c_compiler("g++-15") == "gcc-15",
+                     "g++-15 derives gcc-15");
+    mm::test::expect(candidate_c_compiler("clang++") == "clang",
+                     "clang++ derives clang");
+    mm::test::expect(candidate_c_compiler("clang++-18") == "clang-18",
+                     "clang++-18 derives clang-18");
+    mm::test::expect(candidate_c_compiler("arm-none-eabi-g++") == "arm-none-eabi-gcc",
+                     "arm-none-eabi-g++ derives arm-none-eabi-gcc");
+    mm::test::expect(candidate_c_compiler("arm-none-eabi-g++-14") == "arm-none-eabi-gcc-14",
+                     "arm-none-eabi-g++-14 derives arm-none-eabi-gcc-14");
+    mm::test::expect(candidate_c_compiler("arm-none-eabi-clang++") == "arm-none-eabi-clang",
+                     "arm-none-eabi-clang++ derives arm-none-eabi-clang");
+    mm::test::expect(candidate_c_compiler("arm-none-eabi-clang++-18") == "arm-none-eabi-clang-18",
+                     "arm-none-eabi-clang++-18 derives arm-none-eabi-clang-18");
+    mm::test::expect(candidate_c_compiler("x86_64-w64-mingw32-g++-posix") == "x86_64-w64-mingw32-gcc-posix",
+                     "mingw g++-posix derives gcc-posix");
+    mm::test::expect(candidate_c_compiler("custom-cxx").empty(),
+                     "unknown driver returns empty string");
+}
+
+void probes_c_compiler() {
+    using mm::configure::CompilerFamily;
+    using mm::configure::probe_compiler;
+    using mm::configure::probe_c_compiler;
+
+    std::string err;
+    const auto probe = probe_compiler("gcc");
+    if (probe.has_value()) {
+        mm::test::expect(probe_c_compiler("gcc", "g++", CompilerFamily::Gcc, err),
+                         "matching C compiler probe succeeds");
+
+        mm::test::expect(!probe_c_compiler("gcc", "g++", CompilerFamily::Clang, err),
+                         "family mismatch fails");
+        mm::test::expect(err.find("family") != std::string::npos,
+                         "diagnostic mentions family");
+    }
+
+    mm::test::expect(!probe_c_compiler("nonexistent-compiler-xyz-123", "g++", CompilerFamily::Gcc, err),
+                     "missing compiler fails to probe");
+    mm::test::expect(err.find("cannot probe") != std::string::npos,
+                     "diagnostic mentions probe failure");
+}
+
+void writes_and_preserves_c_compiler_configuration() {
+    const mm::test::scoped_tree tree{"configure_c_compiler"};
+    auto settings = native_settings();
+    settings.host.c_compiler = "gcc";
+    mm::test::expect(mm::configure::write_configuration(tree.root(), settings),
+                     "expected native config with c_compiler write to succeed");
+
+    auto document = mm::mdy::Parser::parse_file(tree.root() / "out" / "config.mdy");
+    mm::test::expect(first(document, "host-c-compiler") == "gcc",
+                     "expected host-c-compiler gcc");
+
+    settings.name = "m68k-linux-gnu";
+    settings.target_compiler = mm::configure::CompilerSelection::Cross;
+    settings.target_build_directory = "out-target-m68k-linux-gnu";
+    settings.cross = mm::configure::CompilerSettings{
+        mm::configure::CompilerFamily::Gcc,
+        "m68k-linux-gnu-g++",
+        "m68k-linux-gnu",
+        "POSIX",
+        "-std=c++20",
+        "-std=c++20",
+        "m68k-linux-gnu-gcc",
+    };
+    mm::test::expect(mm::configure::write_configuration(tree.root(), settings),
+                     "expected cross config with c_compiler write to succeed");
+
+    document = mm::mdy::Parser::parse_file(tree.root() / "out" / "config.mdy");
+    mm::test::expect(first(document, "host-c-compiler") == "gcc",
+                     "expected host-c-compiler preserved");
+    mm::test::expect(first(document, "cross-c-compiler") == "m68k-linux-gnu-gcc",
+                     "expected cross-c-compiler m68k-linux-gnu-gcc");
+}
+
+void writes_cross_link_external_configuration() {
+    const mm::test::scoped_tree tree{"configure_cross_link_external"};
+    auto settings = native_settings();
+    settings.name = "pico-arm";
+    settings.configuration_2 = true;
+    settings.target_compiler = mm::configure::CompilerSelection::Cross;
+    settings.target_build_directory = "out-target-arm-none-eabi";
+    settings.cross = mm::configure::CompilerSettings{
+        mm::configure::CompilerFamily::Gcc,
+        "arm-none-eabi-g++",
+        "arm-none-eabi",
+        "POSIX",
+        "-std=c++20",
+        "-std=c++20",
+        "arm-none-eabi-gcc",
+    };
+
+    mm::configure::PlatformSettings platform;
+    platform.target = "arm-none-eabi";
+    platform.system = mm::configure::PlatformSystem::BareMetal;
+    platform.runtime = mm::configure::PlatformRuntime::None;
+    platform.link_ownership = mm::configure::LinkOwnership::External;
+    platform.sdk = "pico-sdk-arm";
+    platform.sdk_manifest = "platforms/pico/pico-sdk-arm/mm.mdy";
+    platform.sdk_family = mm::configure::CompilerFamily::Gcc;
+    platform.board = "pico";
+    platform.board_manifest = "platforms/pico/pico/mm.mdy";
+    platform.machine = "rp2040";
+    platform.linker_script = "should-be-omitted.ld";
+    platform.board_sources = {"should-be-omitted.cpp"};
+    platform.compiler_arguments = {"-mcpu=cortex-m0plus"};
+    settings.cross_platform = platform;
+
+    mm::test::expect(mm::configure::write_configuration(tree.root(), settings),
+                     "expected external-link board configuration to write");
+
+    auto document = mm::mdy::Parser::parse_file(tree.root() / "out" / "config.mdy");
+    mm::test::expect(first(document, "cross-link") == "external",
+                     "expected cross-link: external");
+    mm::test::expect(first(document, "cross-board") == "pico",
+                     "expected cross-board: pico");
+    mm::test::expect(first(document, "cross-board-machine") == "rp2040",
+                     "expected cross-board-machine: rp2040");
+    mm::test::expect(first(document, "cross-board-linker-script").empty(),
+                     "expected cross-board-linker-script omitted for external link");
+    mm::test::expect(all(document, "cross-board-source").empty(),
+                     "expected cross-board-source omitted for external link");
+
+    // Boardless hosted external lane
+    settings.name = "m68k-linux-external";
+    settings.target_build_directory = "out-target-m68k-linux-gnu";
+    settings.cross->invocation = "m68k-linux-gnu-g++";
+    settings.cross->target = "m68k-linux-gnu";
+    settings.cross->c_compiler = "m68k-linux-gnu-gcc";
+    platform.target = "m68k-linux-gnu";
+    platform.system = mm::configure::PlatformSystem::Linux;
+    platform.runtime = mm::configure::PlatformRuntime::None;
+    platform.link_ownership = mm::configure::LinkOwnership::External;
+    platform.sdk = "cmake-demo";
+    platform.sdk_manifest = "platforms/m68k-linux-external/mm.mdy";
+    platform.board.reset();
+    platform.board_manifest.reset();
+    platform.machine.clear();
+    platform.linker_script.clear();
+    platform.board_sources.clear();
+    platform.compiler_arguments.clear();
+    settings.cross_platform = platform;
+
+    mm::test::expect(mm::configure::write_configuration(tree.root(), settings),
+                     "expected boardless external lane configuration to write");
+
+    document = mm::mdy::Parser::parse_file(tree.root() / "out" / "config.mdy");
+    mm::test::expect(first(document, "cross-link") == "external",
+                     "expected cross-link: external in boardless lane");
+    mm::test::expect(first(document, "cross-board").empty(),
+                     "expected no cross-board in boardless lane");
+    mm::test::expect(first(document, "cross-board-manifest").empty(),
+                     "expected no cross-board-manifest in boardless lane");
+    mm::test::expect(first(document, "cross-board-machine").empty(),
+                     "expected no cross-board-machine in boardless lane");
+    mm::test::expect(first(document, "cross-board-linker-script").empty(),
+                     "expected no cross-board-linker-script in boardless lane");
+    mm::test::expect(all(document, "cross-board-source").empty(),
+                     "expected no cross-board-source in boardless lane");
+}
+
 const mm::test::case_ cases[] = {
     {"writes a native configuration", &writes_a_native_configuration},
     {"writes a cross configuration", &writes_a_cross_configuration},
@@ -353,6 +520,10 @@ const mm::test::case_ cases[] = {
     {"rejects invalid compiler selectors", &rejects_invalid_compiler_selectors},
     {"parses supported builds", &parses_supported_builds},
     {"logs default and verbose configurations", &logs_default_and_verbose_configurations},
+    {"derives candidate C compiler", &derives_candidate_c_compiler},
+    {"probes C compiler", &probes_c_compiler},
+    {"writes and preserves C compiler configuration", &writes_and_preserves_c_compiler_configuration},
+    {"writes cross-link external configuration", &writes_cross_link_external_configuration},
 };
 
 const mm::test::registrar reg{"mm.configure write_configuration", cases};

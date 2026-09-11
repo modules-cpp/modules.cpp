@@ -116,13 +116,38 @@ void a_foreign_project_exposes_a_library() {
     const auto modules = loaded.repository().modules();
     mm::test::expect(modules.size() == 1 && modules.front()->library() == "demo",
                      "expected the module model to expose its library reference name");
+    mm::test::expect(library->external_build().empty(),
+                     "expected empty external_build for ordinary library");
+}
+
+void a_foreign_project_exposes_an_external_build_library() {
+    const mm::test::scoped_tree tree{"foreign_external_build_library"};
+    tree.manifest("", "kind: project\nname: p\nfolder: library\n");
+    tree.manifest_raw("library",
+                      "mm: 1.4\nkind: library\nname: demo\nsource: third_party\n"
+                      "licence: LICENSE\nexternal-build: cmake\n");
+    std::ofstream(tree.root() / "library/LICENSE") << "fixture licence\n";
+    std::filesystem::create_directories(tree.root() / "library/cmake");
+    std::ofstream(tree.root() / "library/cmake/CMakeLists.txt") << "cmake_minimum_required(VERSION 3.20)\n";
+
+    bool ok = false;
+    auto loaded = mm::model::Loaded::load(tree.root(), ok);
+    mm::test::expect(ok, "expected an external-build library to load in model");
+    if (!ok) return;
+    const auto libraries = loaded.repository().libraries();
+    mm::test::expect(libraries.size() == 1,
+                     "expected one library in repository");
+    if (libraries.empty()) return;
+    mm::test::expect(libraries.front()->external_build() == "cmake",
+                     "expected external_build to return cmake");
 }
 
 const mm::test::case_ cases[] = {
-    { "load of a foreign project still succeeds",  &load_of_a_foreign_project_still_succeeds },
-    { "a foreign project has no bootstrap tools",  &a_foreign_project_has_no_bootstrap_tools },
-    { "a foreign project has no operations",       &a_foreign_project_has_no_operations },
-    { "a foreign project exposes a library",       &a_foreign_project_exposes_a_library },
+    { "load of a foreign project still succeeds",       &load_of_a_foreign_project_still_succeeds },
+    { "a foreign project has no bootstrap tools",       &a_foreign_project_has_no_bootstrap_tools },
+    { "a foreign project has no operations",            &a_foreign_project_has_no_operations },
+    { "a foreign project exposes a library",            &a_foreign_project_exposes_a_library },
+    { "a foreign project exposes an external build library", &a_foreign_project_exposes_an_external_build_library },
 };
 
 const mm::test::registrar reg{"mm.model foreign project", cases};
