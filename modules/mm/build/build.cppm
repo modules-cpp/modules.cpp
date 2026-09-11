@@ -171,6 +171,7 @@ struct BuildableNode {
     std::vector<TranslationUnit> sources;        // root relative
     std::vector<std::string> uses;               // module names
     std::string requires_board;                  // kind:app or kind:test only
+    std::string library;                         // kind:module only
     std::vector<std::filesystem::path> objects;  // filled in by compile
 };
 
@@ -364,6 +365,17 @@ std::vector<mm::configure::OptionNode> configuration_nodes(const Project& projec
                                              const LibraryDefinition& library,
                                              std::string_view tool = "configure");
 
+// Resolves the include interface of a module's library at the point where the
+// module is actually compiled. This is deliberately demand-driven: an absent
+// checkout remains valid until a selected build or test closure reaches its
+// wrapper module.
+[[nodiscard]] bool library_include_directories(
+    const std::filesystem::path& project_root,
+    const std::vector<LibraryDefinition>& libraries,
+    const BuildableNode& target,
+    std::vector<std::filesystem::path>& directories,
+    std::string_view tool = "build");
+
 // Accepts either a manifest path or the directory holding one.
 std::filesystem::path resolve_manifest(std::filesystem::path path);
 
@@ -400,8 +412,12 @@ std::string shell_quote(const std::filesystem::path& path);
 // status. Every path interpolated into the command must go through shell_quote.
 int run(const Toolchain& toolchain, const std::string& command);
 
-// Compiles every source of a target, appending to target.objects.
-int compile(const Toolchain& toolchain, BuildableNode& target, const std::filesystem::path& build_dir);
+// Compiles every source of a target, appending to target.objects. Library
+// include directories are separate from the configured compiler argument
+// string so each path remains one shell-quoted argument.
+int compile(const Toolchain& toolchain, BuildableNode& target,
+            const std::filesystem::path& build_dir,
+            const std::vector<std::filesystem::path>& include_directories = {});
 
 // Links objects directly and in order: self registering test suites live in
 // static initialisers and an archive would discard them.

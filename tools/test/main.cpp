@@ -197,7 +197,12 @@ int main(int argc, char** argv) {
         if (built.kind != "test")
             std::cout << "  " << built.kind << " " << built.name << "\n";
 
-        if (const int status = mm::build::compile(toolchain, built, build_dir); status != 0)
+        std::vector<std::filesystem::path> include_directories;
+        if (!mm::build::library_include_directories(
+                ".", project.libraries, built, include_directories, "test"))
+            return mm::build::exit_manifest;
+        if (const int status = mm::build::compile(
+                toolchain, built, build_dir, include_directories); status != 0)
             return status;
     }
 

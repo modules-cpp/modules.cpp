@@ -247,7 +247,12 @@ int main(int argc, char** argv) {
         auto& target = tree.targets[index];
         std::cout << "  " << target.kind << " " << target.name << "\n";
 
-        if (const int status = mm::build::compile(toolchain, target, build_dir); status != 0)
+        std::vector<std::filesystem::path> include_directories;
+        if (!mm::build::library_include_directories(
+                ".", project.libraries, target, include_directories, "build"))
+            return mm::build::exit_manifest;
+        if (const int status = mm::build::compile(
+                toolchain, target, build_dir, include_directories); status != 0)
             return status;
     }
 

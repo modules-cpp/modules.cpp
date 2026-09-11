@@ -20,10 +20,12 @@ following fixed meanings.
 - MAY — fully optional; the choice is left to the author.
 
 # Scope
-This specification applies to all C++ source under modules/, tools/, and
-apps/. Code under tests/ and modules/*/tests/ is held to the same rules
-except where the Known non-conformance section below records an explicit,
-bounded exception.
+This specification applies to all project-authored C++ source under modules/,
+tools/, apps/, and libraries/. A vendored source tree named by source on a
+kind: library manifest is foreign code and is outside this scope; the manifest
+walker does not collect it for build or check. Code under tests/ and
+modules/*/tests/ is held to the same rules except where the Known
+non-conformance section below records an explicit, bounded exception.
 
 # Baseline compiler and standard
 - Code MUST compile as ISO C++20, using only language and library features a conforming C++20 compiler and standard library provide.
@@ -32,12 +34,18 @@ bounded exception.
   and Clang's BMI output and lookup flags.
 - Core code MUST NOT depend on any third-party library, header-only or otherwise. This restates docs/modules.mdy's Self-contained design goal as a hard rule for the part of the project that goal governs.
 - Every module, application, and test is core by default, which covers all three directories Scope names. A node is non-core only where its own manifest, or an ancestor manifest in the folder tree, declares option: core no. Non-core code MAY depend on a third-party library; every other rule in this specification applies to it unchanged.
-- A core node MUST NOT depend on a non-core module, directly or anywhere in its use: closure. A use: edge always resolves to a module, so the consumer may be a module, application, or test while the dependency is always a module. Without this rule the first one would be satisfiable by moving the dependency one edge away. This is the same subset relation configure already validates for buildable-host and buildable-target, and it is not yet machine-checked; see Enforcement.
+- A core node MUST NOT depend on a non-core module, directly or anywhere in its use: closure. A use: edge always resolves to a module, so the consumer may be a module, application, or test while the dependency is always a module. Without this rule the first one would be satisfiable by moving the dependency one edge away. The shared structural-property resolver machine-checks this rule on every direct edge, which proves it over the transitive closure too.
 
 # Permitted language features
 - export module, module, and import MUST be used for all project code;
-  #include MUST be confined to the global module fragment (module;) and used
-  only for standard library headers.
+  #include MUST be confined to the global module fragment (module;). Core code
+  may include only standard library headers. A non-core wrapper module naming
+  one library MAY include headers exported through that library's declared
+  include directories. It MAY put the foreign include in a project-authored,
+  colocated linkage shim when the header requires C language linkage; the shim
+  has no broader permission to introduce another dependency. Such a shim is
+  included into the wrapper's global module fragment and is the sole
+  project-authored source in scope that does not declare or implement a module.
 - Ordinary classes and structs, with constructors, destructors, and ordinary non-template member functions, MAY be used freely.
 - A single level of virtual dispatch (a base class with a virtual destructor and virtual member functions, and concrete classes that override them) MAY be used where the architecture already relies on it, as with App. New polymorphic hierarchies beyond this pattern SHOULD be justified in review rather than introduced by default.
 - enum class MUST be used in place of unscoped enum for all new enumerated types.
@@ -69,7 +77,7 @@ bounded exception.
   compiler, or configuration.
 - Project code MUST NOT use the stringizing (#) or token-pasting (##) preprocessor operators, and MUST NOT generate code through repeated macro expansion (an "X-macro" list or similar).
 - Project code MUST NOT invoke a macro the standard library defines, such as assert() from <cassert>, and MUST NOT rely on predefined macros such as __FILE__, __LINE__, or __func__. std::source_location::current() is the normative replacement for call-site information (see "Permitted language features"), and failure MUST be reported through a function's return type (see "Disallowed: exceptions"), not asserted away.
-- #include MUST remain the only preprocessor directive appearing in project code, confined to the global module fragment as already required by "Permitted language features", and used only to pull in standard library headers. A standard library header MAY itself define macros internally; this rule governs what project code writes and invokes, not the standard library's own implementation.
+- #include MUST remain the only preprocessor directive appearing in project code and is confined to the global module fragment as already required by "Permitted language features". It may pull in a standard library header or the narrow non-core wrapper and linkage-shim headers permitted there. A standard or foreign header MAY itself define macros internally; this rule governs what project code writes and invokes, not the included library's implementation.
 
 # Standard library usage
 - std::filesystem MUST be used for path and filesystem operations, using the std::error_code overloads wherever an operation can fail. mm.build and the test scaffolding already use this pattern correctly, and it is normative going forward.
@@ -89,5 +97,5 @@ and only for the entries listed here.
 - Code review MUST check new and changed code against this specification before merge. A MUST violation outside the Known non-conformance list MUST block merge.
 - ./check.sh runs tools/check, which wraps cppcheck with the addon at tools/check/cppcheck/cpp20_rules.py, over every source file the manifest tree declares plus tools/build/main.cpp (deliberately unmanifested; see docs/modules.mdy). This is selected syntactic enforcement, not full coverage of this document: the addon currently checks throw/try/catch, new template declarations, manual new/delete, std::function, enum (must be enum class), any preprocessor directive other than #include, and assert()/__FILE__/__LINE__/__func__, against the files above. It does not check, for example, [[nodiscard]], explicit special members, string_view preferences, filesystem error_code-overload usage, include or global-module-fragment placement, the stringizing/token-pasting operators or macro-generated code (harder to isolate on rawTokens than a directive line; see cpp20_rules.py), manual array delete (delete[] arr; is not matched by check_delete; see its comment in cpp20_rules.py), or whether a source file exists outside the manifest tree entirely. Extending coverage means adding a check function to cpp20_rules.py; there is no tracking issue for the gap beyond this paragraph.
 - Known limitation of the tooling, not of this specification: a subtree containing a kind:test manifest cannot be checked on its own, because unit: entries are project relative while a subtree walk is rooted at the subtree. In this tree ./check.sh tests/mm.mdy fails for that reason while ./check.sh modules/mm.mdy succeeds. A whole-tree ./check.sh does cover the test sources, so this narrows how the tool can be invoked rather than what it enforces; see tools/check/check.cpp.
-- The core rules in Baseline compiler and standard are not yet machine-checked. configure resolves and records the core option, and no tool rejects a core node whose use: closure reaches a non-core module. Closing this means validating core across use: edges the way mm.build already validates capability.
+- The shared structural-property validation machine-checks the core dependency boundary. Header ownership and the wrapper/linkage-shim allowance remain normative review rules because the checker does not yet associate include directives with manifest-declared library interfaces.
 - Adding an entry to Known non-conformance requires the same justification this document gives for its existing entries: what the exception buys, and what would need to happen to remove it.

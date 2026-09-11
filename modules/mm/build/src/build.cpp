@@ -133,7 +133,7 @@ const std::vector<ManifestKeyRule> manifest_key_rules = {
     {"library-directory", 13, "library"},
     {"link-archive", 13, "library"},
     {"link-input", 13, "library"},
-    {"library", 13, "sdk"},
+    {"library", 13, "sdk module"},
 };
 
 const ManifestKeyRule* manifest_key_rule(std::string_view key) {
@@ -989,6 +989,7 @@ void walk_project(const std::filesystem::path& dir, std::size_t parent, Project&
     target.dir = dir.lexically_normal();
     target.uses = all(doc, "use");
     target.requires_board = first(doc, "requires-board");
+    target.library = first(doc, "library");
 
     const auto push_source = [&](std::string_view value, bool join_with_dir) {
         auto unit = parse_unit(value);
@@ -1475,6 +1476,32 @@ bool parse_definitions(Project& project, const std::filesystem::path& root,
         if (found) continue;
         std::cerr << policy.tool << ": " << sdk.manifest.string()
                   << ": SDK references unknown library: " << sdk.library;
+        if (!project.libraries.empty()) {
+            std::cerr << " (available:";
+            for (const auto& library : project.libraries) std::cerr << " " << library.name;
+            std::cerr << ")";
+        }
+        std::cerr << "\n";
+        return false;
+    }
+
+    for (std::size_t i = 0; i < project.nodes.size(); ++i) {
+        const auto& node = project.nodes[i];
+        if (node.kind != "module") continue;
+
+        auto& target = project.targets[project.target[i]];
+        if (!definition_scalar(project.documents[i], "library", node.manifest,
+                               target.library, policy.tool, false))
+            return false;
+        if (target.library.empty()) continue;
+
+        bool found = false;
+        for (const auto& library : project.libraries)
+            if (library.name == target.library) found = true;
+        if (found) continue;
+
+        std::cerr << policy.tool << ": " << node.manifest.string()
+                  << ": module references unknown library: " << target.library;
         if (!project.libraries.empty()) {
             std::cerr << " (available:";
             for (const auto& library : project.libraries) std::cerr << " " << library.name;
@@ -2070,6 +2097,70 @@ bool validate_library_checkout(const std::filesystem::path& project_root,
     return true;
 }
 
+bool library_include_directories(
+    const std::filesystem::path& project_root,
+    const std::vector<LibraryDefinition>& libraries,
+    const BuildableNode& target,
+    std::vector<std::filesystem::path>& directories,
+    std::string_view tool) {
+    directories.clear();
+    if (target.library.empty()) return true;
+
+    const LibraryDefinition* definition = nullptr;
+    for (const auto& library : libraries)
+        if (library.name == target.library) definition = &library;
+    if (definition == nullptr) {
+        std::cerr << tool << ": " << (target.dir / "mm.mdy").string()
+                  << ": module references unknown library: " << target.library << "\n";
+        return false;
+    }
+
+    if (!validate_library_checkout(project_root, *definition, tool)) {
+        std::cerr << tool << ": " << (target.dir / "mm.mdy").string()
+                  << ": module " << target.name << " cannot use library "
+                  << definition->name << "\n";
+        return false;
+    }
+
+    std::error_code ec;
+    for (const auto& include : definition->include_directories) {
+        if (include.base != LibraryPathBase::Source) {
+            std::cerr << tool << ": " << definition->manifest.string()
+                      << ": build-prefix include directory has no producer\n";
+            return false;
+        }
+        const auto path = absolute_from_root(project_root, include.path);
+        const bool exists = std::filesystem::exists(path, ec);
+        if (ec) {
+            std::cerr << tool << ": " << definition->manifest.string()
+                      << ": cannot inspect library include directory " << path.string()
+                      << ": " << ec.message() << "\n";
+            return false;
+        }
+        if (!exists) {
+            std::cerr << tool << ": " << definition->manifest.string()
+                      << ": library include directory does not exist: "
+                      << include.path.generic_string() << "\n";
+            return false;
+        }
+        const bool directory = std::filesystem::is_directory(path, ec);
+        if (ec) {
+            std::cerr << tool << ": " << definition->manifest.string()
+                      << ": cannot inspect library include directory " << path.string()
+                      << ": " << ec.message() << "\n";
+            return false;
+        }
+        if (!directory) {
+            std::cerr << tool << ": " << definition->manifest.string()
+                      << ": library include path is not a directory: "
+                      << include.path.generic_string() << "\n";
+            return false;
+        }
+        directories.push_back(include.path);
+    }
+    return true;
+}
+
 Availability availability(const Project& project, std::size_t node, bool capability,
                           bool target_lane, const Platform* platform) {
     if (node >= project.nodes.size()) return {false, "manifest node is not registered"};
@@ -2255,7 +2346,9 @@ std::string shell_quote(const std::filesystem::path& path) {
     return quoted;
 }
 
-int compile(const Toolchain& toolchain, BuildableNode& target, const std::filesystem::path& build_dir) {
+int compile(const Toolchain& toolchain, BuildableNode& target,
+            const std::filesystem::path& build_dir,
+            const std::vector<std::filesystem::path>& include_directories) {
     std::error_code ec;
 
     const auto bmi_dir = build_dir / "bmi";
@@ -2294,6 +2387,8 @@ int compile(const Toolchain& toolchain, BuildableNode& target, const std::filesy
         std::cout << "    " << source.path << "\n";
 
         std::string command = toolchain.compiler.invocation + " " + toolchain.compiler.arguments;
+        for (const auto& include : include_directories)
+            command += " -I " + shell_quote(include);
         if (toolchain.family == CompilerFamily::Gcc) {
             command += " -fmodules-ts -x c++";
         } else {

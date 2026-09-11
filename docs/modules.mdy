@@ -191,6 +191,7 @@ For this guide, the important manifest fields are:
 - unit lists a test-owned translation unit in compiler order.
 - module assigns an importable name to a module target.
 - use declares a dependency on an importable module.
+- library binds one SDK or wrapper module to a named kind: library definition.
 
 The supported target kinds are project, dir, module, app, test, doc, sdk, board,
 and library. Project and dir targets organize the tree. The build tool compiles module
@@ -200,6 +201,8 @@ reads them to resolve a lane, and no tool compiles or links them as targets.
 Library targets require mm: 1.3 and describe a vendored tree and its public
 interface. They recurse through folder entries to project-authored wrappers but
 never become build targets, and foreign source beneath source is not collected.
+A wrapper module names its library and receives that library's include
+directories only when build or test reaches the wrapper.
 
 Repeated manifest values retain declaration order. Source order is explicit;
 target order is calculated from use dependencies.
