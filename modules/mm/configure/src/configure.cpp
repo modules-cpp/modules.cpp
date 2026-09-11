@@ -563,7 +563,7 @@ struct OptionSpec {
 // A fixed table, so std::array rather than a std::vector built at static
 // initialization: the vector allocates before main, and passing its
 // initializer_list by value draws a psabi note from the 32-bit ARM backend.
-constexpr std::array<OptionSpec, 8> registry = {{
+constexpr std::array<OptionSpec, 9> registry = {{
     {"warnings", OptionType::Boolean, DefaultSource::Off},
     {"warnings-error", OptionType::Boolean, DefaultSource::Off},
     {"optimize", OptionType::Number, DefaultSource::Optimization},
@@ -574,6 +574,9 @@ constexpr std::array<OptionSpec, 8> registry = {{
     // default yes, so restriction is opt-in and today's tree is unchanged.
     {"buildable-host", OptionType::Boolean, DefaultSource::On},
     {"buildable-target", OptionType::Boolean, DefaultSource::On},
+    // Classification, not tuning: whether docs/modules-c++20.mdy's third-party
+    // prohibition governs this node. Core by default, so non-core is declared.
+    {"core", OptionType::Boolean, DefaultSource::On},
 }};
 
 const OptionSpec* option_spec(std::string_view name) {

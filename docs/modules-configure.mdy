@@ -185,8 +185,9 @@ The registered names are:
 - include-dir: optional directory; default unset in both builds.
 - buildable-host: boolean; default yes in both builds.
 - buildable-target: boolean; default yes in both builds.
+- core: boolean; default yes in both builds.
 
-All eight may be assigned, reset, or marked read-only on project, dir, module, app, and test manifests, subject to inherited locks. A doc manifest accepts none of the three declaration keys option, reset, and read-only; a doc node still receives a record showing its inherited values and locks, which does not mean it compiles anything.
+All nine may be assigned, reset, or marked read-only on project, dir, module, app, and test manifests, subject to inherited locks. A doc manifest accepts none of the three declaration keys option, reset, and read-only; a doc node still receives a record showing its inherited values and locks, which does not mean it compiles anything.
 
 The registry admits no target, compiler, linker, sysroot, language-standard, module-policy, output-path, or ABI-selection option. Named settings alone do not prove compatibility between separately compiled sources, and this release makes no such claim.
 
@@ -435,7 +436,7 @@ The requirements above are covered by tests/mm/configure/options.cpp, which exer
 - A read-only marker on a module, app, or test manifest is accepted, appears in the record with its lock origin, and is not diagnosed as useless.
 - Repeating an inherited read-only marker is idempotent and preserves the original lock source; duplicate local markers and unknown lock names fail.
 - A lock conflict names the operation, the option, the offending manifest, and the original locking manifest, and publishes nothing.
-- Debug and release produce their respective optimize, debug-info, and assertions defaults, with all eight names present at every node.
+- Debug and release produce their respective optimize, debug-info, and assertions defaults, with all nine names present at every node.
 - buildable-host and buildable-target default to yes in both builds, a directory declaration makes every node beneath it host only, and a lock on one branch leaves a sibling branch at the default.
 - A host-only consumer of a portable module satisfies the use: rule; a portable consumer of a host-only module is rejected, naming both manifests and the restricting origin; declaring the same restriction on the consumer satisfies it again.
 - A node declaring both lanes no is rejected by the resolver.

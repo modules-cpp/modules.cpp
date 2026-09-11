@@ -8,11 +8,19 @@ name: modules.cpp developer guide
 modules.cpp is modern and minimal, self-contained codebase built with C++20 modules.
 It describes, builds, tests, and documents itself from source.
 
-The project has no third-party build system, runtime library, test framework,
-package manager, or documentation generator. It requires a host C++20
-compiler, the C++ standard library, and basic platform services. Self-hosted
-builds support GCC and Clang with C++ module support and a POSIX shell; the
-bootstrap recovery path remains GCC-oriented.
+The core project has no third-party build system, runtime library, test
+framework, package manager, or documentation generator. It requires a host
+C++20 compiler, the C++ standard library, and basic platform services.
+Self-hosted builds support GCC and Clang with C++ module support and a POSIX
+shell; the bootstrap recovery path remains GCC-oriented.
+
+Every module, application, and test is core by default. A node is non-core only
+where its own manifest, or an ancestor manifest, declares option: core no, and
+only non-core code may depend on a third-party library. A core node may not
+depend on a non-core module, directly or anywhere in its use: closure, so the
+core build, test, and documentation tooling remains within the guarantee above.
+docs/modules-c++20.mdy states the rules, and its Enforcement section records
+what is not yet machine-checked.
 
 Every participating directory contains an mm.mdy manifest. These manifests
 define the project tree, targets, source order, and module dependencies. The
@@ -43,7 +51,7 @@ which of them are already enforced in the current implementation.
 - Extensible — add components through the shared manifest and artifact model.
 - Deterministic — derive build order from dependencies and source order.
 - Inspectable — expose commands, relationships, decisions, and artifacts.
-- Self-contained — require no third-party project-specific dependencies.
+- Self-contained — require no third-party project-specific dependencies in core code, and isolate each third-party dependency behind a declared non-core module interface.
 - Recoverable — bootstrap from source without existing generated artifacts.
 - Self-hosting — use reusable C++ modules to rebuild project tools.
 - Self-verifying — support TDD, regression tests, and expected failures.
