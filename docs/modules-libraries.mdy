@@ -1,0 +1,229 @@
+---
+mm: 1.0
+kind: doc
+name: modules.cpp libraries specification
+status: official
+release: v1.3.0
+---
+
+# modules.cpp libraries specification
+
+# Status and authority
+
+This document specifies the implemented libraries directory, the library manifest kind, the library key on SDK and module manifests, checkout observation, and the include interface a wrapper module receives at compile time, for release v1.3.0. Its drafting history is in drafts/plan-third-party-libraries and 2, and drafts/plan-libraries through 8, which it supersedes.
+
+status: official gives this document the same authority as the other implemented specifications in docs.
+
+docs/modules-configure.mdy remains authoritative for lanes, option inheritance, read-only settings, structural properties, and the configuration record; its Library definitions section states the same rules this document states, from the configure front end's point of view. docs/modules-platforms.mdy remains authoritative for what an SDK is and how one is selected. docs/modules-c++20.mdy remains authoritative for what a wrapper and a linkage shim may contain. docs/modules-model.mdy remains authoritative for the abstract model. This document owns what a library is, how it is declared, when its checkout is required, and what reaching it contributes to a command.
+
+Examples use Opening fence and Closing fence instead of literal front matter delimiters, following docs/mdy.mdy.
+
+# Model
+
+A library is a vendored source tree plus a declaration of its public interface. It is structural: it never becomes a build target, and the walk never enters source, so foreign code does not enter the project's compiler or check source collection. Project-authored code reaches a library only through a wrapper module, which is an ordinary kind: module target that names the library.
+
+The separation is the point. A manifest says what was vendored and what of it is public; a wrapper says what the project exposes of that to its own modules. Nothing else in the repository is reachable through a library's interface, and nothing of the library is reachable except through a wrapper.
+
+Two representations exist and are stale at different times.
+
+- LibraryDefinition comes from the manifest walk. It carries what a library manifest says, with every path stored relative to the project root. Configure, build, test, check, model, and document all see every definition in the tree, reached or not.
+- The include interface comes from library_include_directories at the moment a wrapper is compiled. It is computed from the definition against the working tree, used once, and persisted nowhere.
+
+Checkout presence is a fact about the working tree rather than about the commit, so it is recomputed on every invocation and never written into a configuration record. Adding or removing a checkout changes what the next invocation observes, with no reconfiguration.
+
+# Repository layout
+
+Opening fence
+libraries/mm.mdy                 kind: dir, option: core no, read-only: core
+libraries/demo/mm.mdy            kind: library, name: demo
+libraries/demo/LICENSE           repository-owned, outside the checkout
+libraries/demo/ext/mm.mdy        kind: module, module: ext.demo, library: demo
+libraries/demo/ext/demo.cppm     the wrapper interface
+libraries/demo/ext/demo-c.h      the linkage shim, when the header needs one
+libraries/demo/test/mm.mdy       kind: test over the wrapper
+libraries/demo/third_party/      the vendored tree, may be absent
+Closing fence
+
+The project root manifest declares folder: libraries. libraries/mm.mdy declares option: core no with read-only: core once, and inheritance marks the whole branch non-core, so a wrapper cannot be mistaken for core code and no descendant can declare itself core again.
+
+# Library manifests
+
+Opening fence
+mm: 1.3
+kind: library
+name: demo
+source: third_party
+licence: LICENSE
+include-directory: include
+library-directory: lib
+link-archive: lib/libdemo.a
+link-input: m
+folder: ext
+Closing fence
+
+- source names the vendored directory, relative to the manifest. Exactly one, non-empty, and lexically contained by the project. It is the one declared path permitted to be absent as a whole: an absent source is an absent checkout, which is a valid state rather than an error. licence must exist at load; an individual interface path has its own existence rule, given under A module naming a library.
+- licence names the licence file, relative to the manifest. Exactly one, non-empty, an existing regular project file, and outside source.
+- include-directory, library-directory, and link-archive are repeated and ordered. All three are relative to source and may not escape it: a value that begins with a parent component after normalisation against source is rejected, as is an absolute one.
+- link-input is repeated and ordered. A value starts with an ASCII letter, digit, or underscore and continues with ASCII letters, digits, underscore, dot, plus, or hyphen. Whitespace, path separators, option prefixes, and shell metacharacters are rejected at manifest-load time.
+- folder entries are walked in declaration order, as on a project or dir manifest.
+
+Neither link-archive nor link-input requires a library-directory. An archive is a path and locates itself; a name may deliberately rely on the toolchain's own search paths, which is what link-input: m does.
+
+Two rules together keep foreign code out of the build and out of check's collection. file is not valid on a library manifest, so a library cannot itself declare foreign source. And a folder entry may not name a path inside source: the walk rejects one that lands there lexically, and one that resolves there through a symlink, so the only way into the vendored tree remains the interface a wrapper consumes. A folder symlink that resolves outside source is followed normally; it is where the entry lands that matters, not how it is spelled. option, reset, and read-only are not valid on a library manifest either: a library declares no code, so a local option value would have nothing to describe. Option inheritance passes through a library node to its children unchanged.
+
+# Checkout
+
+A checkout is present only when source is an existing readable directory with at least one entry. Hidden entries count. An empty directory reads as absent.
+
+An absent checkout is valid. It is diagnosed only where something selected actually needs the tree, which is one of exactly two places: configure selecting an SDK that names the library, and build or test compiling a wrapper that names it. Loading, checking, modelling, or documenting a tree never requires a checkout, and neither does configuring or building a tree whose selection does not reach one.
+
+A filesystem error while observing a checkout is reported as an error naming the path and the condition. It is never reported as absence.
+
+Three canonical rules guard the boundary, and a symlink is why lexical rules are not enough: a link that stays inside the project defeats project containment while crossing the boundary that matters.
+
+- Every declared interface path that exists must canonically resolve inside canonical source, so a link planted under the checkout cannot reach project-authored files.
+- The licence must resolve outside canonical source.
+- Canonical source must resolve inside the project, so a source symlink leaving the tree is rejected.
+
+The first two are enforced by the load itself, for every library in the tree whose checkout is present, in every tool and whether or not anything selects the library. The third is enforced where the tree is used. All three are rechecked at use time, because the working tree can change between one invocation and the next and nothing about a checkout is persisted.
+
+An absent checkout is reported with the command that initialises it:
+
+Opening fence
+build: library demo checkout is absent: libraries/demo/third_party; run git submodule update --init --recursive -- 'libraries/demo/third_party'
+Closing fence
+
+# The library key
+
+library is a single optional mm: 1.3 key, valid on kind: sdk and kind: module and on no other kind. More than one declaration is rejected as requiring one non-empty value.
+
+A reference is resolved after the complete tree has been collected, never during the walk, so declaration order between a library and the manifest naming it does not matter. An unknown name is diagnosed with the names that do exist:
+
+Opening fence
+build: libraries/demo/ext/mm.mdy: module references unknown library: dmeo (available: demo)
+Closing fence
+
+Names are unique within the library kind: two libraries sharing a name is an error naming both manifests. A library and a module may share a name, as demo and the wrapper module demo do in the fixture, because the two are selected by different keys.
+
+# An SDK naming a library
+
+An SDK names the library its toolchain was vendored from. The reference is validated for every SDK in the tree, and so is the integrity of any present checkout, because that happens during the load. What selection adds is the requirement: only for the SDK configure selects must the checkout be present and canonical source resolve inside the project, and configure checks both before writing any record. This is the platform-side use of a library, and docs/modules-platforms.mdy owns SDK selection itself.
+
+# A module naming a library
+
+A module naming a library is its project-authored wrapper, and this is the consuming side of the mechanism.
+
+The declaration alone requires nothing of the working tree. Loading a tree, checking it, modelling it, documenting it, or configuring it leaves an absent checkout valid, and so does a build or test whose selected dependency closure never reaches the wrapper. The requirement is demand-driven: it arrives exactly when the wrapper is about to be compiled.
+
+When build or test reaches the wrapper, it rechecks checkout presence and the three canonical rules, then requires every declared include-directory to exist and to be a directory. A missing one is a failure of that build rather than of the manifest, because a path that was valid when the tree was written may be absent in the tree that is checked out now.
+
+More than one module may name the same library. Each is a wrapper, each is validated when it is reached, and each receives the interface independently; the library is not owned by the first module to name it.
+
+The validated directories are appended to that module's compile command in declaration order, and to no other node's. They are resolved to absolute paths, so the emitted command does not depend on the directory the tool was invoked from, and each is shell-quoted as one argument. They are appended to the compile command only: the linker's argument string is unchanged in this release.
+
+A library-directory, link-archive, or link-input declaration is validated and carried but reaches no command. An include directory rooted at a lane build prefix rather than at source is rejected as having no producer; that form is reserved for the external-build stage, and nothing constructs it today.
+
+# The wrapper and its linkage shim
+
+A wrapper is an ordinary module target: it declares module and file, and may declare use, like any other module target, and it is compiled, ordered, and analysed like any other. Two things distinguish it, and both are rules in docs/modules-c++20.mdy rather than mechanisms here.
+
+A wrapper in this repository is non-core, by inheritance from libraries/mm.mdy, and a core node may not use a non-core module. That second rule is machine-checked across direct use: edges by the shared structural-property validation, which proves it over the transitive closure. The first is repository layout rather than a property of naming a library: nothing requires a wrapper to live under libraries, and a module declared elsewhere may name a library and remain core by default. docs/modules-c++20.mdy forbids that combination, and no tool rejects it.
+
+It may include a foreign header in its global module fragment, and it may route that include through a colocated linkage shim when the header requires C language linkage. The shim is the only project-authored header in scope. Header ownership and the shim allowance are normative and unenforced: the check addon does not associate an include directive with a manifest-declared interface, so a wrapper reaching a header the library does not export is a review failure rather than a tool failure.
+
+Opening fence
+module;
+
+#include "demo-c.h"
+
+export module ext.demo;
+
+export namespace ext::demo {
+
+int answer() {
+    return demo_answer();
+}
+
+}
+Closing fence
+
+The shim is not a declared source. It is included, never compiled on its own, and it carries no permission to introduce a further dependency.
+
+# Validation levels
+
+Three levels, and which one reports a fault determines when it is reported.
+
+- Walk time, for every library in the tree, configured or not: one source and one licence, lexical project containment of source, licence outside source and an existing regular file, source-relative interface paths that do not escape source lexically, link-input grammar, no file, option, reset, or read-only key, no folder entry landing inside source, and unique names within the kind. Where the checkout is present this level also performs the first two canonical rules, on paths that exist.
+- Reference resolution, after the complete tree is collected: every library named by an SDK or a module exists.
+- Use time, for the selection only: checkout presence, canonical source inside the project, a recheck of the first two canonical rules, and, for a wrapper, existence of each declared include directory.
+
+The first level is integrity and the third is requirement. A present checkout is validated wherever it is read, so a symlink escape is reported by check, model, and document as readily as by a build; what selection adds is the demand that the tree be there at all, and the recheck that catches a tree edited after configure.
+
+Reference resolution precedes every use-time check. A manifest naming a missing library reports that rather than a consequence of it.
+
+# The abstract model
+
+models.manifest exposes a library as LibraryNode: source, licence, the four ordered interface accessors, and checkout_present. Paths are root relative and retain manifest order, and they return the same values whether or not the checkout is present. Repository::libraries() returns them beside sdks() and boards().
+
+Both sides of the library key are preserved in the same view. SdkNode::library() returns the SDK's declared library name or an empty value, and ModuleNode::library() returns the wrapper's. Neither returns a node, matching BoardNode::sdk().
+
+checkout_present() is the one working-tree observation in the manifest interface. model may report it; document must render declarations only, so the same commit documents identically with and without a checkout.
+
+# Manifest version
+
+The library kind, its source, licence, include-directory, library-directory, link-archive, and link-input keys, and library on an SDK or a module all require mm: 1.3. The rules are enforced once in the shared loader and never separately in a front end. A tool built before this release rejects a 1.3 manifest by version; after it, an unknown key in a 1.3 manifest is rejected as in a 1.1 one, and no tool reports library as an ignored unknown key in any strictness mode.
+
+# Diagnostics and exit status
+
+Every fault in this document is a manifest fault and exits 65. A library manifest error, an unresolved reference, an absent or escaping checkout, and a missing include directory are all reported with the tool's own name, the manifest or wrapper that is at fault, and the offending value.
+
+Two diagnostics are emitted for one wrapper fault, deliberately. The checkout validator reports the resource failure and the recovery command, and the caller then names the consumer:
+
+Opening fence
+build: library demo checkout is absent: libraries/demo/third_party; run git submodule update --init --recursive -- 'libraries/demo/third_party'
+build: libraries/demo/ext/mm.mdy: module demo cannot use library demo
+Closing fence
+
+# Conformance
+
+These are the conformance requirements for this release, not a description of existing coverage. tests/mm/build/library.cpp exercises definitions, the SDK reference, the module reference, and the resolved include interface in process; tests/mm/model/foreign_project.cpp exercises the model accessors on a foreign tree; tests/mm/configure/options.cpp and options_cli.cpp drive the core boundary and the installed tools; libraries/demo proves the mechanism end to end. A requirement no named test reaches is enforced by review until one does.
+
+- A library recurses through folder without becoming a build target, produces no BuildableNode, and passes option inheritance to its children unchanged.
+- A library manifest with no licence, a licence inside its source subtree, a source outside the project, a file entry, an option, reset, or read-only declaration, or a link-input outside the grammar is rejected at walk time, with no checkout present.
+- An interface path that escapes source after normalisation is rejected, including one that lands on project-authored files elsewhere in the tree.
+- With the checkout present, an interface path that is a symlink resolving outside canonical source is rejected, and so is a licence that resolves inside it. Both are rejected even though each stays inside the project.
+- A library declaring link-archive with no library-directory is accepted; so is one declaring link-input with none.
+- Two libraries sharing a name are rejected naming both manifests; a library and a module may share a name.
+- An SDK or a module declaring more than one library is rejected; one naming an unknown library is rejected listing the libraries that exist; one declaring none is accepted.
+- A module declaring library in a 1.2 manifest is rejected by version.
+- A reference is resolved after every definition is known, and a reference to a missing library reports that rather than a consequence of it.
+- Selecting an SDK whose library has an absent checkout fails at configure, naming the library and the command that initialises it.
+- A checkout is an existing source directory with at least one entry; an empty directory reads as absent; a filesystem error is an error naming the path and never absence.
+- Checkout presence is persisted nowhere. Adding or removing a checkout after configure changes what the next invocation observes.
+- A module declaring a library loads, checks, models, documents, and configures with no checkout present, and no tool requires a declared include directory to exist before a wrapper is compiled.
+- A build or test whose closure reaches a wrapper with an absent checkout fails, naming the library, the wrapper, and the command that initialises it.
+- A build that reaches a wrapper rechecks canonical containment, so a symlink introduced after configure is rejected there.
+- A declared include directory that does not exist, or that exists and is not a directory, fails at the wrapper rather than at manifest load.
+- A library's include directories appear in its wrapper's compile command in declaration order, as absolute paths, one shell-quoted argument each, and in no other node's. A module declaring no library receives none.
+- The emitted compile command does not depend on the directory the tool was invoked from.
+- The linker's argument string is unchanged: no archive, search directory, or link input reaches a link command.
+- A library folder entry naming its own source is rejected at walk time, and so is one that reaches inside source through a symlink. A folder symlink resolving outside source is followed normally, and a wrapper beside the vendored tree is reached while the tree is not.
+- cppcheck is never handed a file beneath a library's source tree, on a whole-tree check and on a check rooted at libraries.
+- models::Kind carries Library; LibraryNode exposes source, licence, the four ordered accessors, and checkout_present; SdkNode and ModuleNode each expose library as a name; Repository exposes libraries.
+- model reports checkout presence; document renders the declaration and calls no accessor reporting working-tree state.
+- libraries/mm.mdy declaring core no with a lock makes every node beneath it non-core, and a core node using a non-core module is rejected naming consumer, dependency, and the assigning ancestor.
+- The header-only fixture builds and runs: the wrapper includes a foreign header through its shim, the test imports the wrapper, and the value crosses the boundary.
+- The native command set is unchanged by adding libraries with no wrapper reached, and a clean bootstrap succeeds with libraries registered in the root manifest.
+
+# Current boundaries
+
+Not implemented, by design, in this release:
+
+- Archive and link-input propagation. library-directory, link-archive, and link-input are declared, validated, ordered, and carried, and no link command consumes them. Adding them means a typed link segment after the objects, library order from a reversed order_from, and duplicate removal across a closure.
+- Externally built libraries. The external-build and links keys, the recorded recipe, the build performed beneath the lane's output directory, and the driver probes all belong to a later stage, and none of those keys is valid today.
+- Build-prefix interface paths. The base exists in the definition and nothing constructs one, so an include directory that is not rooted at source is rejected as having no producer.
+- Compiling a vendored tree. There is no librarian, no manifest-declared source language for foreign code, and no rule for where a produced archive lands.
+- Machine-checked header ownership. Associating an include directive with a manifest-declared interface needs include analysis the check addon does not do, so the wrapper and linkage-shim rules stay normative and unenforced.
+- Declared ordering between libraries whose wrappers have no dependency. If the order matters, the dependency exists.
+- Contribution accounting across wrappers. Two wrappers over one library each receive its include interface today, which is correct because an include directory contributes the same thing however many times it appears. An archive does not, so the archive stage has to reduce a closure's libraries to one contribution each.
+- Versioning, updating, and vetting vendored source, which is process rather than mechanism.
