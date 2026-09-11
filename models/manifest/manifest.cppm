@@ -7,8 +7,8 @@
 // module covers, the dependency order between them, and how mm.model and
 // tools/model consume this one.
 //
-// ManifestNode models the eight kinds docs/modules.mdy defines: project, dir,
-// module, app, test, doc, sdk, and board. It mirrors mm::build::ManifestNode
+// ManifestNode models the nine kinds docs/modules.mdy defines: project, dir,
+// module, app, test, doc, sdk, board, and library. It mirrors mm::build::ManifestNode
 // (modules/mm/build/build.cppm) conceptually, as an abstract interface
 // instead of that module's flat struct. See models.repository for the
 // aggregate view over a whole tree of these nodes.
@@ -32,7 +32,7 @@ import models.document;
 
 export namespace models {
 
-enum class Kind { Project, Directory, Module, App, Test, Doc, Sdk, Board };
+enum class Kind { Project, Directory, Module, App, Test, Doc, Sdk, Board, Library };
 
 // A single file: or unit: entry. Source order is declaration order, per
 // docs/modules.mdy's "Repeated manifest values retain declaration order."
@@ -76,9 +76,9 @@ public:
     // nullptr at the root.
     [[nodiscard]] virtual const ManifestNode* parent() const = 0;
 
-    // folder: entries for project/dir; empty for every other kind.
+    // folder: entries for project, dir, and library; empty for every other kind.
     // mm::build::load_nodes (modules/mm/build/build.cppm) only recurses
-    // through folder: on a project or dir manifest, so a doc manifest's
+    // through folder: on a project, dir, or library manifest, so a doc manifest's
     // file: entries are never walked into ManifestNodes of their own: see
     // DocNode::files() for those.
     [[nodiscard]] virtual std::vector<const ManifestNode*> children() const = 0;
@@ -180,6 +180,7 @@ public:
     [[nodiscard]] virtual std::string_view target() const = 0;
     [[nodiscard]] virtual std::string_view compiler_family() const = 0;
     [[nodiscard]] virtual std::string_view runtime() const = 0;
+    [[nodiscard]] virtual std::string_view library() const = 0;
 };
 
 class BoardNode : public ManifestNode {
@@ -190,6 +191,22 @@ public:
     [[nodiscard]] virtual std::string_view machine() const = 0;
     [[nodiscard]] virtual std::filesystem::path linker_script() const = 0;
     [[nodiscard]] virtual std::vector<std::filesystem::path> sources() const = 0;
+};
+
+// A vendored source tree and its declared public interface. Paths are root
+// relative and retain manifest order. checkout_present() observes the current
+// working tree, so unlike every other accessor here its answer may differ
+// between machines for the same commit; model may report it, document must not.
+class LibraryNode : public ManifestNode {
+public:
+    [[nodiscard]] Kind kind() const override { return Kind::Library; }
+    [[nodiscard]] virtual std::filesystem::path source() const = 0;
+    [[nodiscard]] virtual std::filesystem::path licence() const = 0;
+    [[nodiscard]] virtual std::vector<std::filesystem::path> include_directories() const = 0;
+    [[nodiscard]] virtual std::vector<std::filesystem::path> library_directories() const = 0;
+    [[nodiscard]] virtual std::vector<std::filesystem::path> link_archives() const = 0;
+    [[nodiscard]] virtual std::vector<std::string_view> link_inputs() const = 0;
+    [[nodiscard]] virtual bool checkout_present() const = 0;
 };
 
 }  // namespace models

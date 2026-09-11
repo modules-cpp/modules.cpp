@@ -1,0 +1,11 @@
+---
+mm: 1.3
+kind: dir
+name: libraries
+option: core no
+read-only: core
+---
+
+# Libraries
+
+Third-party library definitions and their project-authored wrappers live below this directory. The inherited read-only core setting prevents a wrapper from being mistaken for a core module.

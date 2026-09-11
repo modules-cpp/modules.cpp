@@ -106,6 +106,7 @@ The source tree is organized by responsibility.
 |   +-- mdy/                  MDY and documentation application
 |   +-- target-smoke/         board-specific bare-metal acceptance application
 |   +-- target-smoke-any/     boardless target acceptance application
++-- libraries/                non-core third-party definitions and wrappers
 +-- models/                   the abstract data model; see docs/modules-model.mdy
 |   +-- document/             models.document
 |   +-- configuration/        models.configuration
@@ -155,7 +156,7 @@ The source tree is organized by responsibility.
 |   +-- modules.mdy           this guide
 |   +-- modules-build.mdy     build tool and lane-selection specification
 |   +-- modules-c++20.mdy     C++20 language subset specification
-|   +-- modules-configure.mdy official configure specification for release v1.2.0
+|   +-- modules-configure.mdy official configure specification for release v1.3.0
 |   +-- modules-debug.mdy     debug tool and debugger specification
 |   +-- modules-model.mdy     the abstract data model
 |   +-- modules-platforms.mdy SDK, board, and platform specification
@@ -185,17 +186,20 @@ and parser limitations.
 
 For this guide, the important manifest fields are:
 
-- folder connects a project or directory to a child directory.
+- folder connects a project, directory, or library to a child directory.
 - file lists a module or application source in compiler order.
 - unit lists a test-owned translation unit in compiler order.
 - module assigns an importable name to a module target.
 - use declares a dependency on an importable module.
 
-The supported target kinds are project, dir, module, app, test, doc, sdk, and
-board. Project and dir targets organize the tree. The build tool compiles module
+The supported target kinds are project, dir, module, app, test, doc, sdk, board,
+and library. Project and dir targets organize the tree. The build tool compiles module
 and app targets. The test tool builds test targets. The mdy app renders docs.
 Sdk and board targets describe a target platform and require mm: 1.2; configure
 reads them to resolve a lane, and no tool compiles or links them as targets.
+Library targets require mm: 1.3 and describe a vendored tree and its public
+interface. They recurse through folder entries to project-authored wrappers but
+never become build targets, and foreign source beneath source is not collected.
 
 Repeated manifest values retain declaration order. Source order is explicit;
 target order is calculated from use dependencies.
@@ -549,7 +553,7 @@ defects and become ordinary regression tests when fixed.
 # Current boundaries
 These are the gaps between the Design goals and today's implementation.
 
-docs/modules-configure.mdy is the official configure and manifest-option specification for release v1.2.0. configure implements typed options, branch-local resets and read-only settings, lanes, platforms, runners, debuggers, and records beneath out. All eight manifest-reading tools accept 1.0, 1.1, and 1.2 through the shared gate. Build, test, run, and debug resolve buildable-host, buildable-target, and requires-board and enforce the selected lane; other option declarations remain warning-only and are not yet applied to compilation.
+docs/modules-configure.mdy is the official configure and manifest-option specification for release v1.3.0. configure implements typed options, branch-local resets and read-only settings, lanes, platforms, runners, debuggers, library definitions, and records beneath out. All eight manifest-reading tools accept 1.0, 1.1, 1.2, and 1.3 through the shared gate. Build, test, run, and debug resolve buildable-host, buildable-target, and core, enforce the selected lane and core dependency boundary, and apply requires-board availability; other tuning declarations remain warning-only and are not yet applied to compilation.
 
 docs/modules-build.mdy, docs/modules-test.mdy, docs/modules-run.mdy, docs/modules-debug.mdy, and docs/modules-platforms.mdy specify the implemented lane, compile-only, platform, runner-backed execution, and debugging interfaces.
 

@@ -812,7 +812,7 @@ bool write_option_records(const std::filesystem::path& project_root,
             << "\nmanifest: " << (directory / "mm.mdy").lexically_normal().generic_string()
             << "\nbuild: " << build_name(build)
             << "\noutput: " << output.generic_string()
-            << "\nresolved-by: configure\napplied-by-build: capabilities\npath-base: project-root\n";
+            << "\nresolved-by: configure\napplied-by-build: structural-properties\npath-base: project-root\n";
         for (const auto& [name, value] : resolved[i]) {
             if (value.unset) out << "unset-option: " << name << '\n';
             else out << "option: " << name << ' ' << option_text(value) << '\n';
@@ -830,7 +830,7 @@ bool write_option_records(const std::filesystem::path& project_root,
             write_origins(std::cout, build, resolved[i]);
         }
     }
-    std::cout << "Manifest options and locks recorded; build and test apply capabilities only\n";
+    std::cout << "Manifest options and locks recorded; lane tools apply structural properties only\n";
     return true;
 }
 

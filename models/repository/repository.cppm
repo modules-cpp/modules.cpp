@@ -33,6 +33,7 @@ public:
     [[nodiscard]] virtual std::vector<const DocNode*> docs() const = 0;
     [[nodiscard]] virtual std::vector<const SdkNode*> sdks() const = 0;
     [[nodiscard]] virtual std::vector<const BoardNode*> boards() const = 0;
+    [[nodiscard]] virtual std::vector<const LibraryNode*> libraries() const = 0;
 };
 
 }  // namespace models

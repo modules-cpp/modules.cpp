@@ -186,6 +186,30 @@ struct SdkDefinition {
     std::optional<std::filesystem::path> sysroot;
     std::optional<std::filesystem::path> runtime_prefix;
     std::vector<mm::configure::Responsibility> provides;
+    std::string library;
+};
+
+enum class LibraryPathBase { Source, BuildPrefix };
+
+struct LibraryPath {
+    LibraryPathBase base = LibraryPathBase::Source;
+    std::filesystem::path path;
+};
+
+// A library manifest describes a vendored tree and its public interface. It is
+// structural: it never becomes a BuildableNode and none of its foreign sources
+// enter the project's source collection.
+struct LibraryDefinition {
+    std::size_t node = static_cast<std::size_t>(-1);
+    std::string name;
+    std::filesystem::path manifest;
+    std::filesystem::path source;
+    std::filesystem::path licence;
+    std::vector<LibraryPath> include_directories;
+    std::vector<LibraryPath> library_directories;
+    std::vector<LibraryPath> link_archives;
+    std::vector<std::string> link_inputs;
+    bool checkout_present = false;
 };
 
 struct BoardDefinition {
@@ -251,8 +275,8 @@ inline constexpr std::size_t no_target = static_cast<std::size_t>(-1);
 // callers then had to re-pair the results by directory to recover what one
 // traversal never separates. documents is parallel to nodes, and target
 // gives each node its entry in targets, tests, or docs, chosen by that
-// node's kind, or no_target for a kind:project or kind:dir node that builds
-// nothing.
+// node's kind, or no_target for a kind:project, kind:dir, kind:sdk,
+// kind:board, or kind:library node that builds nothing.
 struct Project {
     std::vector<ManifestNode> nodes;
     std::vector<mm::mdy::MDYDocument> documents;  // parallel to nodes
@@ -262,6 +286,7 @@ struct Project {
     std::vector<BuildableNode> docs;
     std::vector<SdkDefinition> sdks;
     std::vector<BoardDefinition> boards;
+    std::vector<LibraryDefinition> libraries;
     bool ok = true;
 };
 
@@ -279,12 +304,28 @@ struct Availability {
 
 [[nodiscard]] std::optional<BuildableNode> platform_unit(const Platform* platform);
 
-// Resolved build capability for every Project::nodes entry. The selected lane
-// chooses one of these vectors; keeping both preserves the declaration for
-// diagnostics and model consumers without resolving the tree twice.
-struct BuildCapabilities {
-    std::vector<bool> host;
-    std::vector<bool> target;
+// One resolved structural property, including the manifest that assigned or
+// reset it and the origin of a read-only lock. These facts are retained for
+// diagnostics rather than flattened into booleans at the resolver boundary.
+struct StructuralProperty {
+    bool value = true;
+    mm::configure::OptionOrigin origin = mm::configure::OptionOrigin::Default;
+    std::filesystem::path value_source;
+    bool read_only = false;
+    std::filesystem::path lock_source;
+};
+
+struct NodeStructuralProperties {
+    StructuralProperty buildable_host;
+    StructuralProperty buildable_target;
+    StructuralProperty core;
+};
+
+// Resolved structural properties for every Project::nodes entry. Host and
+// target are lane capabilities; core is an edge constraint and is never a
+// third lane.
+struct StructuralProperties {
+    std::vector<NodeStructuralProperties> nodes;
 
     // A hosted target can produce nodes admitted by either capability. The
     // union changes only target artifact selection, never which tools the
@@ -293,27 +334,35 @@ struct BuildCapabilities {
                                          bool target_has_host_capability) const;
 };
 
+[[nodiscard]] StructuralProperties structural_properties(
+    const std::vector<mm::configure::OptionValues>& resolved);
+
 // The one traversal. load_tree and load_nodes are projections of this.
 Project load_project(const std::filesystem::path& dir, const LoadPolicy& policy = {});
 
 // Shared data adapter; no parsing, validation, or option resolution here.
 std::vector<mm::configure::OptionNode> configuration_nodes(const Project& project);
 
-// Capability is declared per node but constrains dependencies: building a node
-// for a lane means building every module it reaches through use: for that lane
-// too. Checks cap(consumer) is a subset of cap(dependency) for both lanes over
-// the resolved buildable-host and buildable-target values, which the folder-tree
-// resolver cannot see because it never follows a use: edge. Reports each
-// violation with both manifests and the offending value's origin.
-[[nodiscard]] bool validate_capabilities(const std::vector<mm::configure::OptionNode>& nodes,
-                                         const std::vector<mm::configure::OptionValues>& resolved,
-                                         std::string_view tool = "configure");
+// Structural properties constrain use: edges. A dependency must support every
+// lane its consumer supports, and a core consumer may not use a non-core
+// module. Direct-edge checks imply the same rules over the transitive closure.
+[[nodiscard]] bool validate_structural_properties(
+    const std::vector<mm::configure::OptionNode>& nodes,
+    const StructuralProperties& properties,
+    std::string_view tool = "configure");
 
-// Resolve only the two capability options consumed by build and test. Other
-// options retain their release-1.1 warning-only behavior in those tools.
-[[nodiscard]] bool resolve_capabilities(const std::filesystem::path& project_root, Build build,
-                                        const Project& project, BuildCapabilities& capabilities,
-                                        std::string_view tool);
+// Resolve only the structural properties consumed by lane tools. Other
+// options retain their warning-only behavior in those tools.
+[[nodiscard]] bool resolve_structural_properties(
+    const std::filesystem::path& project_root, Build build,
+    const Project& project, StructuralProperties& properties,
+    std::string_view tool);
+
+// Re-observes the working tree and validates the selected SDK's library
+// checkout. No presence result is persisted in a configuration record.
+[[nodiscard]] bool validate_library_checkout(const std::filesystem::path& project_root,
+                                             const LibraryDefinition& library,
+                                             std::string_view tool = "configure");
 
 // Accepts either a manifest path or the directory holding one.
 std::filesystem::path resolve_manifest(std::filesystem::path path);
@@ -321,7 +370,7 @@ std::filesystem::path resolve_manifest(std::filesystem::path path);
 // Walks up until it finds the mm.mdy declaring kind: project. Empty if none.
 std::filesystem::path find_project_root(std::filesystem::path dir);
 
-// Depth first over folder: entries, starting at a kind:project or kind:dir
+// Depth first over folder: entries, starting at a kind:project, kind:dir, or kind:library
 // manifest. Paths in the result are relative to dir.
 Tree load_tree(const std::filesystem::path& dir, const LoadPolicy& policy = {});
 

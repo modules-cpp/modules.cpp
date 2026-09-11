@@ -45,7 +45,10 @@ void root_children_include_a_real_directory_node() {
     const auto& root = loaded.repository().root();
 
     const auto* apps = find_child(root, "apps");
+    const auto* libraries = find_child(root, "libraries");
     mm::test::expect(apps != nullptr, "expected the root's children to include apps/");
+    mm::test::expect(libraries != nullptr,
+                     "expected the root's children to include libraries/");
     if (apps != nullptr)
         mm::test::expect(apps->kind() == models::Kind::Directory, "expected apps/ to be Kind::Directory");
 }

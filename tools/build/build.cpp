@@ -160,12 +160,12 @@ int main(int argc, char** argv) {
         }
     }
 
-    mm::build::BuildCapabilities capabilities;
-    if (!mm::build::resolve_capabilities(".", configuration.build, project, capabilities,
-                                         "build"))
+    mm::build::StructuralProperties properties;
+    if (!mm::build::resolve_structural_properties(".", configuration.build, project, properties,
+                                                  "build"))
         return mm::build::exit_manifest;
 
-    const auto buildable = capabilities.lane(
+    const auto buildable = properties.lane(
         target_lane, configuration.target_has_host_capability());
     std::vector<mm::build::Availability> available;
     available.reserve(project.nodes.size());

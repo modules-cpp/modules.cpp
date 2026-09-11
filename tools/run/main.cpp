@@ -89,10 +89,11 @@ int main(int argc, char** argv) {
         return mm::build::exit_manifest;
     }
 
-    mm::build::BuildCapabilities capabilities;
-    if (!mm::build::resolve_capabilities(".", configuration.build, project, capabilities, "run"))
+    mm::build::StructuralProperties properties;
+    if (!mm::build::resolve_structural_properties(".", configuration.build, project, properties,
+                                                  "run"))
         return mm::build::exit_manifest;
-    const auto buildable = capabilities.lane(
+    const auto buildable = properties.lane(
         target_lane, configuration.target_has_host_capability());
     const auto available = mm::build::availability(
         project, node, buildable[node], target_lane,

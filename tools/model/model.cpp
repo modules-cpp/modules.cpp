@@ -194,6 +194,15 @@ int main(int argc, char** argv) {
     const auto modules = repository.modules();
     const auto apps = repository.apps();
     const auto tests = repository.tests();
+    const auto libraries = repository.libraries();
+
+    if (!libraries.empty()) {
+        std::cout << "Libraries\n";
+        for (const auto* library : libraries)
+            std::cout << "  " << library->name() << " checkout "
+                      << (library->checkout_present() ? "present" : "absent") << "\n";
+        std::cout << "\n";
+    }
 
     if (report_tools) {
         const auto tools_list = loaded.tools();
@@ -214,7 +223,8 @@ int main(int argc, char** argv) {
     if (verbose) {
         std::cout << "  modules " << modules.size() << "\n";
         std::cout << "  apps    " << apps.size() << "\n";
-        std::cout << "  tests   " << tests.size() << "\n\n";
+        std::cout << "  tests     " << tests.size() << "\n";
+        std::cout << "  libraries " << libraries.size() << "\n\n";
     }
 
     std::set<std::string_view> known_modules;

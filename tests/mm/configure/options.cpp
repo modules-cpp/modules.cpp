@@ -84,7 +84,7 @@ void inheritance_reset_and_records() {
         const auto record = read(tree.root() / "out-host/a/leaf/resolved-options.mdy");
         expect(record.find("option: optimize " + std::to_string(mm::configure::build_defaults(build).optimize)) != std::string::npos, "same record replaced for selected build");
         expect(record.find("read-only: optimize") != std::string::npos && record.find("unset-option: include-dir") != std::string::npos, "record contains locks and unset values");
-        expect(record.find("applied-by-build: capabilities") != std::string::npos && record.find("compile-arg:") == std::string::npos, "record identifies capability-only consumption");
+        expect(record.find("applied-by-build: structural-properties") != std::string::npos && record.find("compile-arg:") == std::string::npos, "record identifies structural-only consumption");
         expect(record.find("output: out-host") != std::string::npos,
                "record names the lane that produced it");
     }
@@ -214,12 +214,18 @@ void output_safety() {
     expect(read(tree.root() / "out-host/resolved-options.mdy/keep") == "preserve", "failure preserves unrelated files");
 }
 
-// Capability is declared per node but constrained across use: edges, which the
+// Structural properties are declared per node but constrained across use: edges, which the
 // folder-tree resolver never follows. Both halves are checked here: what the
-// resolver produces, and what validate_capabilities rejects on top of it.
-void build_capabilities() {
-    const mm::build::BuildCapabilities projection{{true, false, true},
-                                                   {false, true, true}};
+// resolver produces, and what edge validation rejects on top of it.
+void structural_properties() {
+    mm::build::StructuralProperties projection;
+    projection.nodes.resize(3);
+    projection.nodes[0].buildable_host.value = true;
+    projection.nodes[0].buildable_target.value = false;
+    projection.nodes[1].buildable_host.value = false;
+    projection.nodes[1].buildable_target.value = true;
+    projection.nodes[2].buildable_host.value = true;
+    projection.nodes[2].buildable_target.value = true;
     expect(projection.lane(true, false) == std::vector<bool>({false, true, true}),
            "an ordinary target uses target capability only");
     expect(projection.lane(true, true) == std::vector<bool>({true, true, true}),
@@ -254,7 +260,8 @@ void build_capabilities() {
 
     // {host} is a subset of {host, target}: a host-only consumer of a portable
     // module is exactly the arrangement this project relies on.
-    expect(mm::build::validate_capabilities(result.nodes, result.values, "configure"),
+    expect(mm::build::validate_structural_properties(
+               result.nodes, mm::build::structural_properties(result.values), "configure"),
            "host-only tools may use portable modules");
 
     // The reverse fails: the app claims a lane its dependency cannot supply.
@@ -262,7 +269,8 @@ void build_capabilities() {
                       "mm: 1.1\nkind: module\nname: lib\nmodule: p.lib\nfile: lib.cppm\noption: buildable-target no\n");
     Resolution restricted;
     expect(resolve(tree, Build::Debug, restricted), "restricted module still resolves");
-    expect(!mm::build::validate_capabilities(restricted.nodes, restricted.values, "configure"),
+    expect(!mm::build::validate_structural_properties(
+               restricted.nodes, mm::build::structural_properties(restricted.values), "configure"),
            "a portable app cannot use a host-only module");
 
     // Declaring the same restriction on the consumer satisfies the rule.
@@ -270,8 +278,26 @@ void build_capabilities() {
                       "mm: 1.1\nkind: app\nname: app\nuse: p.lib\nfile: a.cpp\noption: buildable-target no\n");
     Resolution agreed;
     expect(resolve(tree, Build::Debug, agreed), "agreeing tree resolves");
-    expect(mm::build::validate_capabilities(agreed.nodes, agreed.values, "configure"),
+    expect(mm::build::validate_structural_properties(
+               agreed.nodes, mm::build::structural_properties(agreed.values), "configure"),
            "matching capabilities satisfy the use: rule");
+
+    // A core consumer cannot cross into a non-core dependency. The dependency's
+    // assignment origin is retained for the diagnostic.
+    tree.manifest_raw("modules/lib",
+                      "mm: 1.1\nkind: module\nname: lib\nmodule: p.lib\nfile: lib.cppm\noption: core no\n");
+    tree.manifest("apps/app", "kind: app\nname: app\nuse: p.lib\nfile: a.cpp\n");
+    Resolution non_core;
+    expect(resolve(tree, Build::Debug, non_core), "non-core dependency resolves as a tree property");
+    const auto structural = mm::build::structural_properties(non_core.values);
+    expect(!mm::build::validate_structural_properties(non_core.nodes, structural, "configure"),
+           "a core node cannot use a non-core module");
+    std::size_t library_node = 0;
+    for (std::size_t i = 0; i < non_core.nodes.size(); ++i)
+        if (non_core.nodes[i].name == "lib") library_node = i;
+    expect(!structural.nodes[library_node].core.value &&
+               structural.nodes[library_node].core.value_source == tree.root() / "modules/lib/mm.mdy",
+           "core value retains its assigning manifest");
 
     // A node buildable for nothing is rejected by the resolver itself.
     tree.manifest_raw("apps/app",
@@ -288,7 +314,7 @@ const mm::test::case_ cases[] = {
     {"directory domain", &directory_domain},
     {"shared schema and strict tree", &shared_schema_and_strict_tree},
     {"output safety", &output_safety},
-    {"build capabilities", &build_capabilities},
+    {"structural properties", &structural_properties},
 };
 const mm::test::registrar reg{"mm.configure options", cases};
 

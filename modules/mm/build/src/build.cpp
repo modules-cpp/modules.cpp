@@ -43,15 +43,42 @@ std::string_view option_name(std::string_view declaration) {
     return declaration.substr(0, declaration.find_first_of(" \t"));
 }
 
-bool capability_name(std::string_view name) {
-    return name == "buildable-host" || name == "buildable-target";
+bool structural_property_name(std::string_view name) {
+    return name == "buildable-host" || name == "buildable-target" || name == "core";
 }
 
-int manifest_version(std::string_view version) {
-    if (version == "1.0") return 10;
-    if (version == "1.1") return 11;
-    if (version == "1.2") return 12;
-    return -1;
+struct ManifestVersionRule {
+    std::string_view name;
+    int number;
+    bool rejects_unknown_keys;
+};
+
+constexpr ManifestVersionRule manifest_versions[] = {
+    {"1.0", 10, false},
+    {"1.1", 11, true},
+    {"1.2", 12, true},
+    {"1.3", 13, true},
+};
+
+const ManifestVersionRule* manifest_version(std::string_view version) {
+    for (const auto& candidate : manifest_versions)
+        if (candidate.name == version) return &candidate;
+    return nullptr;
+}
+
+std::string supported_manifest_versions() {
+    std::string result;
+    for (const auto& version : manifest_versions) {
+        if (!result.empty()) result += ", ";
+        result += version.name;
+    }
+    return result;
+}
+
+std::string_view manifest_version_name(int number) {
+    for (const auto& version : manifest_versions)
+        if (version.number == number) return version.name;
+    return "unknown";
 }
 
 bool kind_in(std::string_view kind, std::string_view kinds) {
@@ -74,10 +101,10 @@ struct ManifestKeyRule {
 };
 
 const std::vector<ManifestKeyRule> manifest_key_rules = {
-    {"mm", 10, "project dir module app test doc sdk board"},
-    {"kind", 10, "project dir module app test doc sdk board"},
-    {"name", 10, "project dir module app test doc sdk board"},
-    {"folder", 10, "project dir"},
+    {"mm", 10, "project dir module app test doc sdk board library"},
+    {"kind", 10, "project dir module app test doc sdk board library"},
+    {"name", 10, "project dir module app test doc sdk board library"},
+    {"folder", 10, "project dir library"},
     {"module", 10, "module"},
     {"file", 10, "module app doc board"},
     {"unit", 10, "test"},
@@ -100,6 +127,13 @@ const std::vector<ManifestKeyRule> manifest_key_rules = {
     {"machine", 12, "board"},
     {"linker-script", 12, "board"},
     {"requires-board", 12, "app test"},
+    {"source", 13, "library"},
+    {"licence", 13, "library"},
+    {"include-directory", 13, "library"},
+    {"library-directory", 13, "library"},
+    {"link-archive", 13, "library"},
+    {"link-input", 13, "library"},
+    {"library", 13, "sdk"},
 };
 
 const ManifestKeyRule* manifest_key_rule(std::string_view key) {
@@ -158,10 +192,11 @@ const ProcessorEntry* find_processor_entry_by_arguments(
     return nullptr;
 }
 
-std::vector<std::string> capability_declarations(const std::vector<std::string>& declarations) {
+std::vector<std::string> structural_property_declarations(
+    const std::vector<std::string>& declarations) {
     std::vector<std::string> result;
     for (const auto& declaration : declarations)
-        if (capability_name(option_name(declaration))) result.push_back(declaration);
+        if (structural_property_name(option_name(declaration))) result.push_back(declaration);
     return result;
 }
 
@@ -255,7 +290,7 @@ Enter enter_manifest(const std::filesystem::path& dir, WalkState& state,
 // independent of whether the walk that reached it builds a BuildableNode (walk) or
 // only records a ManifestNode (load_nodes' walk_nodes). Both walks share it: without
 // this, load_nodes recorded whatever a manifest's front matter said, kind
-// included, with no check that it named one of the eight kinds this project
+// included, with no check that it named one of the nine kinds this project
 // defines at all.
 bool is_safe_name(std::string_view name) {
     return !name.empty() && name != "." && name != ".." &&
@@ -298,25 +333,26 @@ bool valid_mm_version(const mm::mdy::MDYDocument& doc, const std::filesystem::pa
                       const LoadPolicy& policy) {
     const auto* versions = lookup(doc, "mm");
     if (doc.status != mm::mdy::ParseStatus::Ok || versions == nullptr ||
-        versions->size() != 1 || manifest_version(versions->front()) < 0) {
+        versions->size() != 1 || manifest_version(versions->front()) == nullptr) {
         std::cerr << policy.tool << ": invalid or unsupported mm: version in "
-                  << manifest.string() << " (supported: 1.0, 1.1, 1.2)\n";
+                  << manifest.string() << " (supported: " << supported_manifest_versions()
+                  << ")\n";
         return false;
     }
-    const auto version = manifest_version(versions->front());
+    const auto* version = manifest_version(versions->front());
     const auto kind = first(doc, "kind");
     for (const auto& [key, values] : doc.metadata) {
         const auto* rule = manifest_key_rule(key);
-        if (rule == nullptr && version >= 11) {
+        if (rule == nullptr && version->rejects_unknown_keys) {
             std::cerr << policy.tool << ": " << manifest.string()
                       << ": unknown manifest key: " << key
                       << (policy.strict_tree ? "\n" : " (ignored)\n");
             if (policy.strict_tree) return false;
         }
         if (rule == nullptr) continue;
-        if (version < rule->introduced) {
+        if (version->number < rule->introduced) {
             std::cerr << policy.tool << ": " << manifest.string() << ": " << key
-                      << " requires mm: " << (rule->introduced == 11 ? "1.1" : "1.2") << "\n";
+                      << " requires mm: " << manifest_version_name(rule->introduced) << "\n";
             return false;
         }
         if (!kind_in(kind, rule->kinds)) {
@@ -328,7 +364,7 @@ bool valid_mm_version(const mm::mdy::MDYDocument& doc, const std::filesystem::pa
         if (option && policy.warn_options) {
             for (const auto& value : values) {
                 const auto name = value.substr(0, value.find_first_of(" \t"));
-                if (capability_name(name)) continue;
+                if (structural_property_name(name)) continue;
                 std::cerr << policy.tool << ": " << manifest.string() << ": " << key
                           << " " << name << " is ignored; continuing with existing build configuration\n";
             }
@@ -863,9 +899,14 @@ bool configuration_debugger(const mm::mdy::MDYDocument& document,
 bool valid_manifest(const mm::mdy::MDYDocument& doc, std::string_view kind, std::string_view name,
                     const std::filesystem::path& manifest, const LoadPolicy& policy) {
     if (!valid_mm_version(doc, manifest, policy)) return false;
+    if (kind == "library" && manifest_version(first(doc, "mm"))->number < 13) {
+        std::cerr << policy.tool << ": " << manifest.string()
+                  << ": kind library requires mm: 1.3\n";
+        return false;
+    }
     if (kind != "project" && kind != "dir" && kind != "module" &&
         kind != "app" && kind != "test" && kind != "doc" &&
-        kind != "sdk" && kind != "board") {
+        kind != "sdk" && kind != "board" && kind != "library") {
         std::cerr << policy.tool << ": unknown kind \"" << kind << "\" in " << manifest.string() << "\n";
         return false;
     }
@@ -924,7 +965,7 @@ void walk_project(const std::filesystem::path& dir, std::size_t parent, Project&
 
     if (parent != no_parent) project.nodes[parent].children.push_back(index);
 
-    if (kind == "project" || kind == "dir") {
+    if (kind == "project" || kind == "dir" || kind == "library") {
         state.visiting.push_back(canonical);
         for (const auto& folder : all(doc, "folder"))
             walk_project(dir / folder, index, project, state);
@@ -1088,10 +1129,148 @@ bool definition_path(const std::filesystem::path& root, const ManifestNode& node
     return true;
 }
 
+bool path_within(const std::filesystem::path& base, const std::filesystem::path& path) {
+    const auto relative = path.lexically_normal().lexically_relative(base.lexically_normal());
+    return !relative.empty() && !relative.is_absolute() && *relative.begin() != "..";
+}
+
+std::filesystem::path absolute_from_root(const std::filesystem::path& root,
+                                        const std::filesystem::path& path) {
+    return (path.is_absolute() ? path : root / path).lexically_normal();
+}
+
+std::filesystem::path relative_to_root(const std::filesystem::path& root,
+                                      const std::filesystem::path& path) {
+    return absolute_from_root(root, path).lexically_relative(root.lexically_normal());
+}
+
+bool observe_checkout(const std::filesystem::path& path, bool& present,
+                      const std::filesystem::path& manifest, std::string_view tool) {
+    std::error_code ec;
+    const bool exists = std::filesystem::exists(path, ec);
+    if (ec) {
+        std::cerr << tool << ": " << manifest.string() << ": cannot inspect library source "
+                  << path.string() << ": " << ec.message() << "\n";
+        return false;
+    }
+    if (!exists) {
+        present = false;
+        return true;
+    }
+    const bool directory = std::filesystem::is_directory(path, ec);
+    if (ec) {
+        std::cerr << tool << ": " << manifest.string() << ": cannot inspect library source "
+                  << path.string() << ": " << ec.message() << "\n";
+        return false;
+    }
+    if (!directory) {
+        present = false;
+        return true;
+    }
+    const auto begin = std::filesystem::directory_iterator(path, ec);
+    if (ec) {
+        std::cerr << tool << ": " << manifest.string() << ": cannot read library source "
+                  << path.string() << ": " << ec.message() << "\n";
+        return false;
+    }
+    present = begin != std::filesystem::directory_iterator{};
+    return true;
+}
+
+bool link_input_name(std::string_view value) {
+    if (value.empty()) return false;
+    const auto first_valid = [](char c) {
+        return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+               (c >= '0' && c <= '9') || c == '_';
+    };
+    const auto rest_valid = [&](char c) {
+        return first_valid(c) || c == '.' || c == '+' || c == '-';
+    };
+    if (!first_valid(value.front())) return false;
+    for (const auto c : value.substr(1))
+        if (!rest_valid(c)) return false;
+    return true;
+}
+
+bool library_interface_paths(const std::filesystem::path& root, const ManifestNode& node,
+                             const mm::mdy::MDYDocument& doc, LibraryDefinition& library,
+                             std::string_view tool) {
+    const auto add_paths = [&](std::string_view key, std::vector<LibraryPath>& destination) {
+        for (const auto& value : all(doc, key)) {
+            const std::filesystem::path raw(value);
+            const auto normalized = raw.lexically_normal();
+            if (raw.empty() || raw.is_absolute() || normalized.empty() ||
+                *normalized.begin() == "..") {
+                std::cerr << tool << ": " << node.manifest.string() << ": unsafe " << key
+                          << ": " << value << "\n";
+                return false;
+            }
+            destination.push_back(
+                {LibraryPathBase::Source, (library.source / normalized).lexically_normal()});
+        }
+        return true;
+    };
+
+    if (!add_paths("include-directory", library.include_directories) ||
+        !add_paths("library-directory", library.library_directories) ||
+        !add_paths("link-archive", library.link_archives))
+        return false;
+
+    for (const auto& value : all(doc, "link-input")) {
+        if (!link_input_name(value)) {
+            std::cerr << tool << ": " << node.manifest.string() << ": invalid link-input: "
+                      << value << " (expected [A-Za-z0-9_][A-Za-z0-9_.+-]*)\n";
+            return false;
+        }
+        library.link_inputs.push_back(value);
+    }
+
+    if (!library.checkout_present) return true;
+
+    std::error_code ec;
+    const auto source = std::filesystem::weakly_canonical(
+        absolute_from_root(root, library.source), ec);
+    if (ec) {
+        std::cerr << tool << ": " << node.manifest.string()
+                  << ": cannot resolve library source: " << ec.message() << "\n";
+        return false;
+    }
+    for (const auto* paths : {&library.include_directories, &library.library_directories,
+                              &library.link_archives}) {
+        for (const auto& entry : *paths) {
+            const auto candidate = absolute_from_root(root, entry.path);
+            const bool exists = std::filesystem::exists(candidate, ec);
+            if (ec) {
+                std::cerr << tool << ": " << node.manifest.string()
+                          << ": cannot inspect library interface path " << candidate.string()
+                          << ": " << ec.message() << "\n";
+                return false;
+            }
+            if (!exists) continue;
+            const auto canonical = std::filesystem::weakly_canonical(candidate, ec);
+            if (ec || !path_within(source, canonical)) {
+                std::cerr << tool << ": " << node.manifest.string()
+                          << ": library interface path escapes source: "
+                          << entry.path.string() << "\n";
+                return false;
+            }
+        }
+    }
+    const auto licence = std::filesystem::weakly_canonical(
+        absolute_from_root(root, library.licence), ec);
+    if (ec || path_within(source, licence)) {
+        std::cerr << tool << ": " << node.manifest.string()
+                  << ": licence must resolve outside library source\n";
+        return false;
+    }
+    return true;
+}
+
 bool parse_definitions(Project& project, const std::filesystem::path& root,
                        const LoadPolicy& policy) {
     std::map<std::string, std::filesystem::path, std::less<>> sdk_names;
     std::map<std::string, std::filesystem::path, std::less<>> board_names;
+    std::map<std::string, std::filesystem::path, std::less<>> library_names;
 
     for (std::size_t i = 0; i < project.nodes.size(); ++i) {
         const auto& node = project.nodes[i];
@@ -1109,6 +1288,8 @@ bool parse_definitions(Project& project, const std::filesystem::path& root,
                 !definition_scalar(doc, "compiler-family", node.manifest, family, policy.tool) ||
                 !definition_scalar(doc, "runtime", node.manifest, runtime, policy.tool) ||
                 !definition_scalar(doc, "specs-profile", node.manifest, sdk.specs_profile,
+                                   policy.tool, false) ||
+                !definition_scalar(doc, "library", node.manifest, sdk.library,
                                    policy.tool, false) ||
                 !definition_scalar(doc, "sysroot", node.manifest, sysroot,
                                    policy.tool, false) ||
@@ -1238,7 +1419,69 @@ bool parse_definitions(Project& project, const std::filesystem::path& root,
             }
             board_names[board.name] = board.manifest;
             project.boards.push_back(std::move(board));
+        } else if (node.kind == "library") {
+            LibraryDefinition library;
+            library.node = i;
+            library.name = node.name;
+            library.manifest = node.manifest;
+            std::string source;
+            std::string licence;
+            if (!definition_scalar(doc, "source", node.manifest, source, policy.tool) ||
+                !definition_scalar(doc, "licence", node.manifest, licence, policy.tool))
+                return false;
+
+            const auto source_path = (node.dir / source).lexically_normal();
+            const auto absolute_source = absolute_from_root(root, source_path);
+            if (std::filesystem::path(source).is_absolute() ||
+                !path_within(root.lexically_normal(), absolute_source)) {
+                std::cerr << policy.tool << ": " << node.manifest.string()
+                          << ": source is outside the project: " << source << "\n";
+                return false;
+            }
+            library.source = relative_to_root(root, source_path);
+
+            std::filesystem::path licence_path;
+            if (!definition_path(root, node, licence, licence_path, "licence", policy.tool))
+                return false;
+            library.licence = relative_to_root(root, licence_path);
+            if (path_within(absolute_source, absolute_from_root(root, library.licence))) {
+                std::cerr << policy.tool << ": " << node.manifest.string()
+                          << ": licence must be outside library source\n";
+                return false;
+            }
+
+            if (!observe_checkout(absolute_source, library.checkout_present,
+                                  node.manifest, policy.tool) ||
+                !library_interface_paths(root, node, doc, library, policy.tool))
+                return false;
+
+            const auto duplicate = library_names.find(library.name);
+            if (duplicate != library_names.end()) {
+                std::cerr << policy.tool << ": library name \"" << library.name
+                          << "\" is declared by both " << duplicate->second.string() << " and "
+                          << library.manifest.string() << "\n";
+                return false;
+            }
+            library_names[library.name] = library.manifest;
+            project.libraries.push_back(std::move(library));
         }
+    }
+
+    for (const auto& sdk : project.sdks) {
+        if (sdk.library.empty()) continue;
+        bool found = false;
+        for (const auto& library : project.libraries)
+            if (library.name == sdk.library) found = true;
+        if (found) continue;
+        std::cerr << policy.tool << ": " << sdk.manifest.string()
+                  << ": SDK references unknown library: " << sdk.library;
+        if (!project.libraries.empty()) {
+            std::cerr << " (available:";
+            for (const auto& library : project.libraries) std::cerr << " " << library.name;
+            std::cerr << ")";
+        }
+        std::cerr << "\n";
+        return false;
     }
 
     for (const auto& board : project.boards) {
@@ -1546,10 +1789,26 @@ TranslationUnit parse_unit(std::string_view value) {
     return unit;
 }
 
-bool validate_capabilities(const std::vector<mm::configure::OptionNode>& nodes,
-                           const std::vector<mm::configure::OptionValues>& resolved,
-                           std::string_view tool) {
-    if (nodes.size() != resolved.size()) return false;
+StructuralProperties structural_properties(
+    const std::vector<mm::configure::OptionValues>& resolved) {
+    StructuralProperties properties;
+    properties.nodes.reserve(resolved.size());
+    const auto property = [](const mm::configure::OptionValue& value) {
+        return StructuralProperty{value.boolean, value.origin, value.value_source,
+                                  value.read_only, value.lock_source};
+    };
+    for (const auto& values : resolved) {
+        properties.nodes.push_back({property(values.find("buildable-host")->second),
+                                    property(values.find("buildable-target")->second),
+                                    property(values.find("core")->second)});
+    }
+    return properties;
+}
+
+bool validate_structural_properties(
+    const std::vector<mm::configure::OptionNode>& nodes,
+    const StructuralProperties& properties, std::string_view tool) {
+    if (nodes.size() != properties.nodes.size()) return false;
 
     // use: names a module, and the resolver is indexed by node, so the edge
     // needs a module name to node index map. index_of_module answers with a
@@ -1559,26 +1818,36 @@ bool validate_capabilities(const std::vector<mm::configure::OptionNode>& nodes,
         if (nodes[i].kind == "module" && !nodes[i].module_name.empty())
             modules.emplace(nodes[i].module_name, i);
 
-    const auto capability = [&](std::size_t node, std::string_view lane) {
-        return resolved[node].find(lane)->second;
-    };
-
     bool ok = true;
     for (std::size_t i = 0; i < nodes.size(); ++i) {
         for (const auto& used : nodes[i].uses) {
             const auto found = modules.find(used);
             if (found == modules.end()) continue;  // order() reports unknown modules
-            for (const auto& lane : {std::string_view("buildable-host"),
-                                     std::string_view("buildable-target")}) {
-                const auto consumer = capability(i, lane);
-                const auto dependency = capability(found->second, lane);
-                if (!consumer.boolean || dependency.boolean) continue;
+            for (const auto lane : {false, true}) {
+                const auto& consumer = lane ? properties.nodes[i].buildable_target
+                                            : properties.nodes[i].buildable_host;
+                const auto& dependency = lane ? properties.nodes[found->second].buildable_target
+                                              : properties.nodes[found->second].buildable_host;
+                if (!consumer.value || dependency.value) continue;
+                const auto name = lane ? "buildable-target" : "buildable-host";
                 std::cerr << tool << ": " << nodes[i].manifest.generic_string() << ": "
-                          << nodes[i].name << " is " << lane << ", but " << used
-                          << " is not (" << lane << " no, "
+                          << nodes[i].name << " is " << name << ", but " << used
+                          << " is not (" << name << " no, "
                           << (dependency.origin == mm::configure::OptionOrigin::Assignment
                                   ? "assigned by " : "reset by ")
                           << dependency.value_source.generic_string() << ")\n";
+                ok = false;
+            }
+
+            const auto& consumer_core = properties.nodes[i].core;
+            const auto& dependency_core = properties.nodes[found->second].core;
+            if (consumer_core.value && !dependency_core.value) {
+                std::cerr << tool << ": " << nodes[i].manifest.generic_string() << ": "
+                          << nodes[i].name << " is core, but " << used
+                          << " is not (core no, "
+                          << (dependency_core.origin == mm::configure::OptionOrigin::Assignment
+                                  ? "assigned by " : "reset by ")
+                          << dependency_core.value_source.generic_string() << ")\n";
                 ok = false;
             }
         }
@@ -1692,42 +1961,113 @@ std::vector<mm::configure::OptionNode> configuration_nodes(const Project& projec
     return nodes;
 }
 
-bool resolve_capabilities(const std::filesystem::path& project_root, Build build,
-                          const Project& project, BuildCapabilities& capabilities,
-                          std::string_view tool) {
+bool resolve_structural_properties(const std::filesystem::path& project_root, Build build,
+                                   const Project& project, StructuralProperties& properties,
+                                   std::string_view tool) {
     auto nodes = configuration_nodes(project);
     for (auto& node : nodes) {
-        node.options = capability_declarations(node.options);
-        node.resets = capability_declarations(node.resets);
-        node.read_only = capability_declarations(node.read_only);
+        node.options = structural_property_declarations(node.options);
+        node.resets = structural_property_declarations(node.resets);
+        node.read_only = structural_property_declarations(node.read_only);
     }
 
     std::vector<mm::configure::OptionValues> resolved;
-    if (!mm::configure::resolve_options(project_root, build, nodes, resolved, tool) ||
-        !validate_capabilities(nodes, resolved, tool))
+    if (!mm::configure::resolve_options(project_root, build, nodes, resolved, tool))
         return false;
-
-    capabilities.host.clear();
-    capabilities.target.clear();
-    capabilities.host.reserve(resolved.size());
-    capabilities.target.reserve(resolved.size());
-    for (const auto& values : resolved) {
-        capabilities.host.push_back(values.find("buildable-host")->second.boolean);
-        capabilities.target.push_back(values.find("buildable-target")->second.boolean);
-    }
-    return true;
+    properties = structural_properties(resolved);
+    return validate_structural_properties(nodes, properties, tool);
 }
 
-std::vector<bool> BuildCapabilities::lane(bool target_lane,
-                                          bool target_has_host_capability) const {
-    if (!target_lane) return host;
-    if (!target_has_host_capability) return target;
-
+std::vector<bool> StructuralProperties::lane(bool target_lane,
+                                             bool target_has_host_capability) const {
     std::vector<bool> result;
-    result.reserve(target.size());
-    for (std::size_t i = 0; i < target.size(); ++i)
-        result.push_back(target[i] || host[i]);
+    result.reserve(nodes.size());
+    if (!target_lane) {
+        for (const auto& node : nodes) result.push_back(node.buildable_host.value);
+        return result;
+    }
+    if (!target_has_host_capability) {
+        for (const auto& node : nodes) result.push_back(node.buildable_target.value);
+        return result;
+    }
+
+    for (const auto& node : nodes)
+        result.push_back(node.buildable_target.value || node.buildable_host.value);
     return result;
+}
+
+bool validate_library_checkout(const std::filesystem::path& project_root,
+                               const LibraryDefinition& library, std::string_view tool) {
+    const auto source = absolute_from_root(project_root, library.source);
+    bool present = false;
+    if (!observe_checkout(source, present, library.manifest, tool)) return false;
+    if (!present) {
+        std::error_code ec;
+        const bool exists = std::filesystem::exists(source, ec);
+        if (ec) {
+            std::cerr << tool << ": " << library.manifest.string()
+                      << ": cannot inspect library source " << source.string()
+                      << ": " << ec.message() << "\n";
+            return false;
+        }
+        const bool directory = exists && std::filesystem::is_directory(source, ec);
+        if (ec) {
+            std::cerr << tool << ": " << library.manifest.string()
+                      << ": cannot inspect library source " << source.string()
+                      << ": " << ec.message() << "\n";
+            return false;
+        }
+        if (exists && !directory) {
+            std::cerr << tool << ": " << library.manifest.string()
+                      << ": library source is not a directory: " << source.string() << "\n";
+            return false;
+        }
+        std::cerr << tool << ": library " << library.name << " checkout is absent: "
+                  << library.source.generic_string()
+                  << "; run git submodule update --init --recursive -- "
+                  << shell_quote(library.source) << "\n";
+        return false;
+    }
+
+    std::error_code ec;
+    const auto root = std::filesystem::weakly_canonical(project_root, ec);
+    if (ec) return false;
+    const auto canonical_source = std::filesystem::weakly_canonical(source, ec);
+    if (ec || !path_within(root, canonical_source)) {
+        std::cerr << tool << ": " << library.manifest.string()
+                  << ": library source resolves outside the project: "
+                  << library.source.generic_string() << "\n";
+        return false;
+    }
+    for (const auto* paths : {&library.include_directories, &library.library_directories,
+                              &library.link_archives}) {
+        for (const auto& entry : *paths) {
+            const auto candidate = absolute_from_root(project_root, entry.path);
+            const bool exists = std::filesystem::exists(candidate, ec);
+            if (ec) {
+                std::cerr << tool << ": " << library.manifest.string()
+                          << ": cannot inspect library interface path " << candidate.string()
+                          << ": " << ec.message() << "\n";
+                return false;
+            }
+            if (!exists) continue;
+            const auto canonical = std::filesystem::weakly_canonical(candidate, ec);
+            if (ec || !path_within(canonical_source, canonical)) {
+                std::cerr << tool << ": " << library.manifest.string()
+                          << ": library interface path escapes source: "
+                          << entry.path.generic_string() << "\n";
+                return false;
+            }
+        }
+    }
+    const auto licence = std::filesystem::weakly_canonical(
+        absolute_from_root(project_root, library.licence), ec);
+    if (ec || path_within(canonical_source, licence)) {
+        std::cerr << tool << ": " << library.manifest.string()
+                  << ": licence must resolve outside library source\n";
+        return false;
+    }
+    return true;
 }
 
 Availability availability(const Project& project, std::size_t node, bool capability,

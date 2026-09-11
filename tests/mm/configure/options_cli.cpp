@@ -70,7 +70,7 @@ void installed_tools_support_11() {
     expect(invoke(bin / "configure", "--build release " + child_arg, log) == 65, "descendant cannot bypass lock even with equal value");
     expect(read_text(config_path) == stable_config && read_text(record_path) == stable_record, "semantic error publishes nothing");
     expect(read_text(log).find("locked by mm.mdy") != std::string::npos, "lock conflict names original manifest");
-    tree.manifest_raw("app", "mm: 1.1\nkind: app\nname: example\nfile: main.cpp\noption: future-feature yes\noption: buildable-target no\nread-only: buildable-target\n");
+    tree.manifest_raw("app", "mm: 1.1\nkind: app\nname: example\nfile: main.cpp\noption: future-feature yes\noption: buildable-target no\nread-only: buildable-target\noption: core no\n");
     expect(invoke(bin / "configure", root_arg, log) == 65, "configure rejects unknown option");
     expect(read_text(config_path) == stable_config && read_text(record_path) == stable_record, "unknown option publishes nothing");
     tree.manifest("orphan", "kind: dir\nname: orphan\n");
@@ -85,11 +85,15 @@ void installed_tools_support_11() {
     expect(read_text(log).find("future-feature is ignored") != std::string::npos, "build warning identifies unknown name");
     expect(read_text(log).find("buildable-target is ignored") == std::string::npos,
            "build handles capability without an ignored warning");
-    tree.manifest_raw("test", "mm: 1.1\nkind: test\nname: example_test\nunit: app/main.cpp\noption: future-test no\noption: buildable-target no\nread-only: buildable-target\n");
+    expect(read_text(log).find("core is ignored") == std::string::npos,
+           "build handles core without an ignored warning");
+    tree.manifest_raw("test", "mm: 1.1\nkind: test\nname: example_test\nunit: app/main.cpp\noption: future-test no\noption: buildable-target no\nread-only: buildable-target\noption: core no\n");
     expect(invoke(bin / "test", mm::build::shell_quote(tree.root() / "test"), log) == 0, "test accepts 1.1 and retains execution");
     expect(read_text(log).find("future-test is ignored") != std::string::npos, "test warns on unsupported declaration");
     expect(read_text(log).find("buildable-target is ignored") == std::string::npos,
            "test handles capability without an ignored warning");
+    expect(read_text(log).find("core is ignored") == std::string::npos,
+           "test handles core without an ignored warning");
 
     tree.manifest_raw("app", "mm: 1.1\nkind: app\nname: example\nfile: main.cpp\noption: future-feature yes\noption: buildable-host no\n");
     expect(invoke(bin / "build", root_arg, log) == 0, "build skips a target unavailable in the host lane");
@@ -119,17 +123,22 @@ void installed_tools_select_configured_lanes() {
     expect(!ec, "repository directory available");
     const auto bin = repository / "out/bin";
     const mm::test::scoped_tree tree{"lane_cli"};
-    tree.manifest_raw("", "mm: 1.1\nkind: project\nname: lanes\nfolder: app\nfolder: test\nfolder: platforms\n");
+    tree.manifest_raw("", "mm: 1.1\nkind: project\nname: lanes\nfolder: app\nfolder: test\nfolder: platforms\nfolder: library\n");
     tree.manifest_raw("app", "mm: 1.1\nkind: app\nname: example\nfile: main.cpp\noption: buildable-target no\n");
     tree.manifest("test", "kind: test\nname: example_test\nunit: app/main.cpp\n");
     tree.manifest_raw("platforms", "mm: 1.1\nkind: dir\nname: platforms\nfolder: aarch64\nfolder: m68k\n");
     tree.manifest_raw("platforms/aarch64",
-                      "mm: 1.2\nkind: sdk\nname: aarch64-linux-glibc\n"
-                      "target: aarch64-linux-gnu\ncompiler-family: gcc\nruntime: glibc\n");
+                      "mm: 1.3\nkind: sdk\nname: aarch64-linux-glibc\n"
+                      "target: aarch64-linux-gnu\ncompiler-family: gcc\nruntime: glibc\n"
+                      "library: demo\n");
     tree.manifest_raw("platforms/m68k",
                       "mm: 1.2\nkind: sdk\nname: m68k-linux-glibc\n"
                       "target: m68k-linux-gnu\ncompiler-family: gcc\nruntime: glibc\n"
                       "runtime-prefix: " + tree.root().string() + "\n");
+    tree.manifest_raw("library",
+                      "mm: 1.3\nkind: library\nname: demo\nsource: third_party\n"
+                      "licence: LICENSE\ninclude-directory: include\n");
+    std::ofstream(tree.root() / "library/LICENSE") << "fixture licence\n";
     std::ofstream(tree.root() / "app/main.cpp")
         << "#include <iostream>\nint main(int argc, char** argv) { "
            "if (argc > 1) std::cout << argv[1] << '\\n'; return 0; }\n";
@@ -155,6 +164,16 @@ void installed_tools_select_configured_lanes() {
     expect(read_text(log).find("target lane is not configured") != std::string::npos,
            "missing target lane is diagnosed");
 
+    expect(invoke(bin / "configure",
+                  "--target aarch64-linux-gnu --sdk aarch64-linux-glibc "
+                  "--compiler aarch64-linux-gnu-g++-16 --build release " +
+                      root_arg,
+                  log) == 65,
+           "configure rejects an absent checkout selected by an SDK");
+    expect(read_text(log).find("git submodule update --init --recursive") != std::string::npos,
+           "absent selected checkout has an actionable diagnostic");
+    std::filesystem::create_directories(tree.root() / "library/third_party/include");
+    std::ofstream(tree.root() / "library/third_party/.checkout") << "present\n";
     expect(invoke(bin / "configure",
                   "--target aarch64-linux-gnu --sdk aarch64-linux-glibc "
                   "--compiler aarch64-linux-gnu-g++-16 --build release " +

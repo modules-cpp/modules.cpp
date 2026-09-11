@@ -110,8 +110,9 @@ int main(int argc, char** argv) {
     auto project = mm::build::load_project(".", {.tool = "test", .warn_options = true});
     if (!project.ok) return mm::build::exit_manifest;
 
-    mm::build::BuildCapabilities capabilities;
-    if (!mm::build::resolve_capabilities(".", configuration.build, project, capabilities, "test"))
+    mm::build::StructuralProperties properties;
+    if (!mm::build::resolve_structural_properties(".", configuration.build, project, properties,
+                                                  "test"))
         return mm::build::exit_manifest;
 
     std::size_t test_node = mm::build::no_target;
@@ -132,7 +133,7 @@ int main(int argc, char** argv) {
         return mm::build::exit_manifest;
     }
 
-    const auto buildable = capabilities.lane(
+    const auto buildable = properties.lane(
         target_lane, configuration.target_has_host_capability());
     const auto test_availability = mm::build::availability(
         project, test_node, buildable[test_node], target_lane, platform);

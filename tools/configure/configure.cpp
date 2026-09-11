@@ -146,6 +146,13 @@ const mm::build::BoardDefinition* find_board(const mm::build::Project& project,
     return nullptr;
 }
 
+const mm::build::LibraryDefinition* find_library(const mm::build::Project& project,
+                                                 std::string_view name) {
+    for (const auto& library : project.libraries)
+        if (library.name == name) return &library;
+    return nullptr;
+}
+
 int resolve_platform(const mm::build::Project& project,
                      std::string_view sdk_name, std::string_view board_name,
                      std::string_view target, mm::configure::CompilerFamily family,
@@ -174,6 +181,11 @@ int resolve_platform(const mm::build::Project& project,
         std::cerr << "configure: SDK " << sdk->name << " is not compatible with " << target
                   << " and " << mm::configure::compiler_family_name(family) << "\n";
         return mm::build::exit_usage;
+    }
+    if (!sdk->library.empty()) {
+        const auto* library = find_library(project, sdk->library);
+        if (library == nullptr || !mm::build::validate_library_checkout(".", *library))
+            return mm::build::exit_manifest;
     }
     if (!existing_directory(sdk->sysroot) || !existing_directory(sdk->runtime_prefix)) {
         std::cerr << "configure: SDK " << sdk->name
@@ -388,6 +400,11 @@ int main(int argc, char** argv) {
 
     const auto project = mm::build::load_project(".", {.tool = "configure", .strict_tree = true});
     if (!project.ok) return mm::build::exit_manifest;
+    if (verbose) {
+        for (const auto& library : project.libraries)
+            std::cout << "  library " << library.name << " checkout "
+                      << (library.checkout_present ? "present" : "absent") << "\n";
+    }
     const auto requested_root = std::filesystem::canonical(manifest_root, ec);
     if (ec) return mm::build::exit_manifest;
     bool found = false;
@@ -405,7 +422,8 @@ int main(int argc, char** argv) {
     std::vector<mm::configure::OptionValues> resolved;
     if (!mm::configure::resolve_options(project_root, *build, nodes, resolved))
         return mm::build::exit_manifest;
-    if (!mm::build::validate_capabilities(nodes, resolved, "configure"))
+    const auto structural = mm::build::structural_properties(resolved);
+    if (!mm::build::validate_structural_properties(nodes, structural, "configure"))
         return mm::build::exit_manifest;
 
     std::optional<mm::configure::PlatformSettings> selected_platform;

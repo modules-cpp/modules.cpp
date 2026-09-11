@@ -27,15 +27,15 @@ Each metadata entry is written as a key, a colon, and a value.
 Although the fences resemble YAML front matter, MDY does not implement YAML.
 
 ## Manifest metadata
-The mm key identifies the format version. mm::build's shared manifest gate supports 1.0, 1.1, and 1.2 and rejects missing, unsupported, or duplicated mm values. A source manifest declaring option, reset, or read-only requires 1.1. The sdk and board kinds, their platform keys, and requires-board require 1.2. A 1.0 manifest without newer declarations remains valid. See docs/modules-configure.mdy and docs/modules-platforms.mdy for the compatibility and platform rules used by configure, build, test, check, model, document, run, and debug.
+The mm key identifies the format version. mm::build's shared manifest gate supports 1.0, 1.1, 1.2, and 1.3 and rejects missing, unsupported, or duplicated mm values. A source manifest declaring option, reset, or read-only requires 1.1. The sdk and board kinds, their platform keys, and requires-board require 1.2. The library kind, its interface keys, and an SDK's library reference require 1.3. A 1.0 manifest without newer declarations remains valid. See docs/modules-configure.mdy and docs/modules-platforms.mdy for the compatibility and platform rules used by configure, build, test, check, model, document, run, and debug.
 
-The kind key identifies the manifest role. Values currently used in the repository are project, dir, module, app, test, doc, sdk, and board.
+The kind key identifies the manifest role. Values currently used in the repository are project, dir, module, app, test, doc, sdk, board, and library.
 
-The name key gives the logical name of the described project, directory, module, application, test, document, SDK, or board.
+The name key gives the logical name of the described project, directory, module, application, test, document, SDK, board, or library.
 
 The file key names a source or document file associated with module, app, and doc manifests.
 
-The folder key names a child directory to visit from a project or dir manifest. Existing manifests repeat folder to list several children. The parser preserves every repeated folder value in declaration order, allowing a manifest walker to visit all declared children.
+The folder key names a child directory to visit from a project, dir, or library manifest. Existing manifests repeat folder to list several children. The parser preserves every repeated folder value in declaration order, allowing a manifest walker to visit all declared children.
 
 ## Body blocks
 After the closing front matter fence, every nonempty line becomes one block. Leading and trailing whitespace is removed from the entire line before block recognition.

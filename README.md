@@ -127,6 +127,7 @@ also accepted by `build`, `configure`, `test`, `run`, `check`, `model`, and `she
 ## Layout
 
 - `apps/` — host examples and target acceptance applications.
+- `libraries/` — non-core third-party library definitions and project-authored wrappers.
 - `modules/mm/` — the reusable core modules (parsing, build graph, test
   framework, application base class).
 - `tools/` — command-line front ends (`build`, `configure`, `test`, `run`) that use those
@@ -149,11 +150,11 @@ manifest format, every core module and tool in detail, and the TDD workflow
 for making changes. This README only covers getting the project running for
 the first time.
 
-[Configure specification for release v1.2.0](docs/modules-configure.mdy) defines
+[Configure specification for release v1.3.0](docs/modules-configure.mdy) defines
 the official manifest-option, reset, and read-only requirements. Its Current
-boundaries section describes the implemented capability-only scope; build,
-test, run, and debug warn about tuning declarations but do not apply their
-values yet.
+boundaries section describes the implemented structural-property scope;
+build, test, run, and debug consume lane capability and core declarations,
+while warning about tuning declarations whose values they do not apply yet.
 
 [Platforms specification for release v1.2.0](docs/modules-platforms.mdy) defines
 SDK and board manifests, target platform selection, responsibility ownership,

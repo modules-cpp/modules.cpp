@@ -247,7 +247,7 @@ public:
     RealSdkNode(NodeData data, const mm::build::SdkDefinition& sdk)
         : data_(std::move(data)), target_(sdk.target),
           family_(sdk.family == mm::build::CompilerFamily::Gcc ? "gcc" : "clang"),
-          runtime_(mm::configure::platform_runtime_name(sdk.runtime)) {}
+          runtime_(mm::configure::platform_runtime_name(sdk.runtime)), library_(sdk.library) {}
 
     [[nodiscard]] std::string_view name() const override { return data_.name(); }
     [[nodiscard]] std::filesystem::path manifest_path() const override { return data_.manifest_path(); }
@@ -258,12 +258,14 @@ public:
     [[nodiscard]] std::string_view target() const override { return target_; }
     [[nodiscard]] std::string_view compiler_family() const override { return family_; }
     [[nodiscard]] std::string_view runtime() const override { return runtime_; }
+    [[nodiscard]] std::string_view library() const override { return library_; }
 
 private:
     NodeData data_;
     std::string target_;
     std::string family_;
     std::string runtime_;
+    std::string library_;
 };
 
 class RealBoardNode : public models::BoardNode {
@@ -291,6 +293,55 @@ private:
     std::string machine_;
     std::filesystem::path linker_script_;
     std::vector<std::filesystem::path> sources_;
+};
+
+class RealLibraryNode : public models::LibraryNode {
+public:
+    RealLibraryNode(NodeData data, const mm::build::LibraryDefinition& library)
+        : data_(std::move(data)), source_(library.source), licence_(library.licence),
+          checkout_present_(library.checkout_present) {
+        for (const auto& path : library.include_directories)
+            include_directories_.push_back(path.path);
+        for (const auto& path : library.library_directories)
+            library_directories_.push_back(path.path);
+        for (const auto& path : library.link_archives) link_archives_.push_back(path.path);
+        link_inputs_ = library.link_inputs;
+    }
+
+    [[nodiscard]] std::string_view name() const override { return data_.name(); }
+    [[nodiscard]] std::filesystem::path manifest_path() const override { return data_.manifest_path(); }
+    [[nodiscard]] std::filesystem::path directory() const override { return data_.directory(); }
+    [[nodiscard]] const models::ManifestNode* parent() const override { return data_.parent(); }
+    [[nodiscard]] std::vector<const models::ManifestNode*> children() const override { return data_.children(); }
+    [[nodiscard]] const models::Document& document() const override { return data_.document(); }
+    [[nodiscard]] std::filesystem::path source() const override { return source_; }
+    [[nodiscard]] std::filesystem::path licence() const override { return licence_; }
+    [[nodiscard]] std::vector<std::filesystem::path> include_directories() const override {
+        return include_directories_;
+    }
+    [[nodiscard]] std::vector<std::filesystem::path> library_directories() const override {
+        return library_directories_;
+    }
+    [[nodiscard]] std::vector<std::filesystem::path> link_archives() const override {
+        return link_archives_;
+    }
+    [[nodiscard]] std::vector<std::string_view> link_inputs() const override {
+        std::vector<std::string_view> result;
+        result.reserve(link_inputs_.size());
+        for (const auto& input : link_inputs_) result.push_back(input);
+        return result;
+    }
+    [[nodiscard]] bool checkout_present() const override { return checkout_present_; }
+
+private:
+    NodeData data_;
+    std::filesystem::path source_;
+    std::filesystem::path licence_;
+    std::vector<std::filesystem::path> include_directories_;
+    std::vector<std::filesystem::path> library_directories_;
+    std::vector<std::filesystem::path> link_archives_;
+    std::vector<std::string> link_inputs_;
+    bool checkout_present_ = false;
 };
 
 class RealModuleNode : public models::ModuleNode {
@@ -424,10 +475,11 @@ public:
                     std::vector<const models::TestNode*> tests,
                     std::vector<const models::DocNode*> docs,
                     std::vector<const models::SdkNode*> sdks,
-                    std::vector<const models::BoardNode*> boards)
+                    std::vector<const models::BoardNode*> boards,
+                    std::vector<const models::LibraryNode*> libraries)
         : root_(root), modules_(std::move(modules)), apps_(std::move(apps)),
           tests_(std::move(tests)), docs_(std::move(docs)), sdks_(std::move(sdks)),
-          boards_(std::move(boards)) {}
+          boards_(std::move(boards)), libraries_(std::move(libraries)) {}
 
     [[nodiscard]] const models::ProjectNode& root() const override { return *root_; }
     [[nodiscard]] std::vector<const models::ModuleNode*> modules() const override { return modules_; }
@@ -436,6 +488,9 @@ public:
     [[nodiscard]] std::vector<const models::DocNode*> docs() const override { return docs_; }
     [[nodiscard]] std::vector<const models::SdkNode*> sdks() const override { return sdks_; }
     [[nodiscard]] std::vector<const models::BoardNode*> boards() const override { return boards_; }
+    [[nodiscard]] std::vector<const models::LibraryNode*> libraries() const override {
+        return libraries_;
+    }
 
 private:
     const RealProjectNode* root_;
@@ -445,6 +500,7 @@ private:
     std::vector<const models::DocNode*> docs_;
     std::vector<const models::SdkNode*> sdks_;
     std::vector<const models::BoardNode*> boards_;
+    std::vector<const models::LibraryNode*> libraries_;
 };
 
 // Every models::Tool this adapter produces. One shape covers them all: a
@@ -1087,6 +1143,7 @@ struct Loaded::Impl {
     std::vector<std::unique_ptr<RealDocNode>> docs;
     std::vector<std::unique_ptr<RealSdkNode>> sdks;
     std::vector<std::unique_ptr<RealBoardNode>> boards;
+    std::vector<std::unique_ptr<RealLibraryNode>> libraries;
 
     std::unique_ptr<RealRepository> repository;
     std::vector<std::unique_ptr<models::Tool>> tools;
@@ -1132,7 +1189,8 @@ Loaded Loaded::load(const std::filesystem::path& root_dir, bool& ok) {
     std::vector<mm::configure::OptionValues> options;
     const bool options_resolved =
         mm::configure::resolve_options(".", configuration.build, option_nodes, options, "model") &&
-        mm::build::validate_capabilities(option_nodes, options, "model");
+        mm::build::validate_structural_properties(
+            option_nodes, mm::build::structural_properties(options), "model");
 
     const auto lane = [&](std::size_t node, std::string_view name) {
         return options_resolved ? options[node].find(name)->second.boolean : true;
@@ -1195,6 +1253,14 @@ Loaded Loaded::load(const std::filesystem::path& root_dir, bool& ok) {
             if (definition == nullptr) return loaded;
             impl->boards.push_back(std::make_unique<RealBoardNode>(std::move(data), *definition));
             impl->index[i] = impl->boards.back().get();
+        } else if (node.kind == "library") {
+            const mm::build::LibraryDefinition* definition = nullptr;
+            for (const auto& library : project.libraries)
+                if (library.node == i) definition = &library;
+            if (definition == nullptr) return loaded;
+            impl->libraries.push_back(
+                std::make_unique<RealLibraryNode>(std::move(data), *definition));
+            impl->index[i] = impl->libraries.back().get();
         }
     }
 
@@ -1210,10 +1276,12 @@ Loaded Loaded::load(const std::filesystem::path& root_dir, bool& ok) {
     for (const auto& s : impl->sdks) sdk_ptrs.push_back(s.get());
     std::vector<const models::BoardNode*> board_ptrs;
     for (const auto& b : impl->boards) board_ptrs.push_back(b.get());
+    std::vector<const models::LibraryNode*> library_ptrs;
+    for (const auto& l : impl->libraries) library_ptrs.push_back(l.get());
 
     impl->repository = std::make_unique<RealRepository>(
         impl->projects.front().get(), module_ptrs, app_ptrs, test_ptrs, doc_ptrs,
-        sdk_ptrs, board_ptrs);
+        sdk_ptrs, board_ptrs, library_ptrs);
     impl->tools = build_tools(app_ptrs);
     impl->operations = build_operations(impl->tools);
 

@@ -10,6 +10,7 @@ unit: tests/mm/build/walk.cpp
 unit: tests/mm/build/order.cpp
 unit: tests/mm/build/configuration.cpp
 unit: tests/mm/build/platform.cpp
+unit: tests/mm/build/library.cpp
 unit: tests/main.cpp
 ---
 

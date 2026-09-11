@@ -141,7 +141,7 @@ void rejects_missing_manifest() {
 void rejects_unknown_kind() {
     const mm::test::scoped_tree tree{"kind"};
     tree.manifest("", "kind: project\nname: p\nfolder: x\n");
-    tree.manifest("x", "kind: library\nname: x\nfile: x.cppm\n");
+    tree.manifest("x", "kind: widget\nname: x\nfile: x.cppm\n");
 
     const auto loaded = mm::build::load_tree(tree.root());
 

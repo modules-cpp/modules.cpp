@@ -19,6 +19,7 @@
 
 import mm.model;
 import mm.test;
+import models.manifest;
 import models.repository;
 import models.tool;
 import models.workflow;
@@ -73,10 +74,48 @@ void a_foreign_project_has_no_operations() {
                      "rather than Operations holding a null Tool*");
 }
 
+void a_foreign_project_exposes_a_library() {
+    const mm::test::scoped_tree tree{"foreign_library"};
+    tree.manifest("", "kind: project\nname: unrelated-project\nfolder: library\nfolder: sdk\n");
+    tree.manifest_raw("library",
+                      "mm: 1.3\nkind: library\nname: demo\nsource: third_party\n"
+                      "licence: LICENSE\ninclude-directory: include\nlink-input: m\n");
+    tree.manifest_raw("sdk",
+                      "mm: 1.3\nkind: sdk\nname: target-sdk\ntarget: m68k-linux-gnu\n"
+                      "compiler-family: gcc\nruntime: glibc\nlibrary: demo\n");
+    std::ofstream(tree.root() / "library/LICENSE") << "fixture licence\n";
+    std::filesystem::create_directories(tree.root() / "library/third_party/include");
+    std::ofstream(tree.root() / "library/third_party/.checkout") << "present\n";
+
+    bool ok = false;
+    auto loaded = mm::model::Loaded::load(tree.root(), ok);
+    mm::test::expect(ok, "expected a foreign project with a library to load");
+    if (!ok) return;
+    const auto libraries = loaded.repository().libraries();
+    mm::test::expect(libraries.size() == 1,
+                     "expected the library definition in the repository model");
+    if (libraries.empty()) return;
+    const auto* library = libraries.front();
+    mm::test::expect(library->kind() == models::Kind::Library &&
+                         library->source() == "library/third_party" &&
+                         library->licence() == "library/LICENSE",
+                     "expected root-relative library paths");
+    mm::test::expect(library->checkout_present(),
+                     "expected the model to observe the non-empty checkout");
+    mm::test::expect(library->include_directories().front() ==
+                         "library/third_party/include" &&
+                         library->link_inputs().front() == "m",
+                     "expected ordered public interface declarations");
+    const auto sdks = loaded.repository().sdks();
+    mm::test::expect(sdks.size() == 1 && sdks.front()->library() == "demo",
+                     "expected the SDK model to expose its library reference name");
+}
+
 const mm::test::case_ cases[] = {
     { "load of a foreign project still succeeds",  &load_of_a_foreign_project_still_succeeds },
     { "a foreign project has no bootstrap tools",  &a_foreign_project_has_no_bootstrap_tools },
     { "a foreign project has no operations",       &a_foreign_project_has_no_operations },
+    { "a foreign project exposes a library",       &a_foreign_project_exposes_a_library },
 };
 
 const mm::test::registrar reg{"mm.model foreign project", cases};
