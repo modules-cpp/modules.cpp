@@ -373,7 +373,7 @@ the colocated C++ linkage shim that wraps it in extern "C", which is how the
 wrapper obtains the linkage without an __cplusplus test: docs/modules-c++20.mdy
 permits no preprocessor directive other than #include.
 
-ext/pico.cppm exports module ext.pico with typed C++ functions over that ABI. Its
+ext/pico.cppm exports module lib.pico with typed C++ functions over that ABI. Its
 manifest name is pico-ext, so that pico names two nodes rather than three.
 
 The wrapper's library: pico-sdk declaration contributes nothing to any compile
@@ -382,7 +382,7 @@ availability rule, and it records the dependency in the manifest tree and the
 model, but its include interface is empty. The external build is what makes Pico
 SDK work, not include propagation.
 
-ext.pico is available only in a target lane whose selected SDK names pico-sdk, so
+lib.pico is available only in a target lane whose selected SDK names pico-sdk, so
 it compiles in the pico-arm and pico-riscv lanes and is reported as a skipped
 unavailable target everywhere else, including an arm-none-eabi lane with rp2040-ram
 selected.
@@ -402,12 +402,12 @@ name: pico2-arm-smoke
 option: core no
 option: buildable-host no
 requires-board: pico2-arm
-use: ext.pico
+use: lib.pico
 file: main.cpp
 Closing fence
 
 All three declarations are load-bearing. core no because the application uses
-ext.pico, which is non-core, and that is a declared dependency edge the core rule
+lib.pico, which is non-core, and that is a declared dependency edge the core rule
 governs. buildable-host no because requires-board is not consulted in the host
 lane. requires-board because it is what makes the application unavailable in every
 other target lane, which the wrapper's availability rule depends on: an application
@@ -470,10 +470,10 @@ Three behaviours surprise people and are recorded here rather than rediscovered.
 # Conformance
 
 - A clean bootstrap and an ordinary host build succeed with the checkout absent,
-  and neither reaches ext.pico.
+  and neither reaches lib.pico.
 - rp2040-ram and rp2350-ram build with the checkout absent, and their compile and
   link commands are unchanged by any of the Pico SDK work.
-- ext.pico is reported as a skipped unavailable target in every lane except one
+- lib.pico is reported as a skipped unavailable target in every lane except one
   whose selected SDK names pico-sdk.
 - Removing the lock from platforms/pico/sdk/mm.mdy fails the load, naming the
   wrapper and the library. rp2350-ram remains core and mutable.

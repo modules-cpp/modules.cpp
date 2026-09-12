@@ -5,7 +5,7 @@ name: pico2-riscv-smoke
 option: core no
 option: buildable-host no
 requires-board: pico2-riscv
-use: ext.pico
+use: lib.pico
 file: main.cpp
 ---
 

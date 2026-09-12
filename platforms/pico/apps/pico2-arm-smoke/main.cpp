@@ -1,10 +1,10 @@
-import ext.pico;
+import lib.pico;
 
 int main() {
-    ext::pico::initialize();
-    ext::pico::write("modules.cpp pico2 smoke");
-    ext::pico::gpio_write(25, true);
-    ext::pico::delay_ms(100);
-    ext::pico::gpio_write(25, false);
+    lib::pico::initialize();
+    lib::pico::write("modules.cpp pico2 smoke");
+    lib::pico::gpio_write(25, true);
+    lib::pico::delay_ms(100);
+    lib::pico::gpio_write(25, false);
     return 0;
 }

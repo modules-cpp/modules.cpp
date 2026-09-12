@@ -2,7 +2,7 @@
 mm: 1.2
 kind: module
 name: demo
-module: ext.demo
+module: lib.demo
 file: demo.cppm
 library: demo
 ---

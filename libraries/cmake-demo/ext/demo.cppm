@@ -1,5 +1,5 @@
-export module ext.cmake_demo;
+export module lib.cmake_demo;
 
-export namespace ext::cmake_demo {
+export namespace lib::cmake_demo {
 constexpr int answer = 42;
 }

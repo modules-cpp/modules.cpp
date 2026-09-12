@@ -1684,6 +1684,13 @@ bool parse_definitions(Project& project, const std::filesystem::path& root,
             return false;
         if (target.library.empty()) continue;
 
+        if (!target.module_name.starts_with("lib.")) {
+            std::cerr << policy.tool << ": " << node.manifest.string()
+                      << ": library wrapper module must use the lib. prefix: "
+                      << target.module_name << "\n";
+            return false;
+        }
+
         bool found = false;
         for (const auto& library : project.libraries)
             if (library.name == target.library) found = true;

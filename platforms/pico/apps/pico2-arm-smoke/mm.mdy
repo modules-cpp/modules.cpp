@@ -5,7 +5,7 @@ name: pico2-arm-smoke
 option: core no
 option: buildable-host no
 requires-board: pico2-arm
-use: ext.pico
+use: lib.pico
 file: main.cpp
 ---
 

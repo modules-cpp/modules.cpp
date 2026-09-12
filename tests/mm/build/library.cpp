@@ -20,7 +20,7 @@ void library_definition() {
         "link-archive: lib/libdemo.a\nlink-input: m\nfolder: wrapper\n");
     tree.manifest_raw(
         "libraries/wrapper",
-        "mm: 1.2\nkind: module\nname: wrapper\nmodule: p.wrapper\n"
+        "mm: 1.2\nkind: module\nname: wrapper\nmodule: lib.wrapper\n"
         "file: wrapper.cppm\nlibrary: demo\n");
     std::ofstream(tree.root() / "libraries/LICENSE") << "fixture licence\n";
 
@@ -114,7 +114,7 @@ void source_boundary() {
     tree.manifest_raw("libraries", library + "folder: wrapper\n");
     std::ofstream(tree.root() / "libraries/LICENSE") << "fixture licence\n";
     tree.manifest_raw("libraries/wrapper",
-                      "mm: 1.2\nkind: module\nname: wrapper\nmodule: p.wrapper\n"
+                      "mm: 1.2\nkind: module\nname: wrapper\nmodule: lib.wrapper\n"
                       "file: wrapper.cppm\nlibrary: demo\n");
 
     // Foreign manifests inside the checkout: exactly what must never be reached.
@@ -168,7 +168,7 @@ void module_reference_validation() {
                       "mm: 1.2\nkind: library\nname: demo\nsource: third_party\n"
                       "licence: LICENSE\ninclude-directory: include\n");
     tree.manifest_raw("wrapper",
-                      "mm: 1.2\nkind: module\nname: wrapper\nmodule: p.wrapper\n"
+                      "mm: 1.2\nkind: module\nname: wrapper\nmodule: lib.wrapper\n"
                       "file: wrapper.cppm\nlibrary: demo\n");
     std::ofstream(tree.root() / "library/LICENSE") << "fixture licence\n";
 
@@ -178,21 +178,28 @@ void module_reference_validation() {
            "a module may name one known library without requiring its checkout");
 
     tree.manifest_raw("wrapper",
-                      "mm: 1.1\nkind: module\nname: wrapper\nmodule: p.wrapper\n"
+                      "mm: 1.2\nkind: module\nname: wrapper\nmodule: p.wrapper\n"
+                      "file: wrapper.cppm\nlibrary: demo\n");
+    expect(!mm::build::load_project(
+                tree.root(), {.tool = "build", .strict_tree = true}).ok,
+           "a library wrapper module must use the lib. prefix");
+
+    tree.manifest_raw("wrapper",
+                      "mm: 1.1\nkind: module\nname: wrapper\nmodule: lib.wrapper\n"
                       "file: wrapper.cppm\nlibrary: demo\n");
     expect(!mm::build::load_project(
                 tree.root(), {.tool = "build", .strict_tree = true}).ok,
            "a module library reference requires manifest version 1.2");
 
     tree.manifest_raw("wrapper",
-                      "mm: 1.2\nkind: module\nname: wrapper\nmodule: p.wrapper\n"
+                      "mm: 1.2\nkind: module\nname: wrapper\nmodule: lib.wrapper\n"
                       "file: wrapper.cppm\nlibrary: missing\n");
     expect(!mm::build::load_project(
                 tree.root(), {.tool = "build", .strict_tree = true}).ok,
            "a module cannot reference an unknown library");
 
     tree.manifest_raw("wrapper",
-                      "mm: 1.2\nkind: module\nname: wrapper\nmodule: p.wrapper\n"
+                      "mm: 1.2\nkind: module\nname: wrapper\nmodule: lib.wrapper\n"
                       "file: wrapper.cppm\nlibrary: demo\nlibrary: demo\n");
     expect(!mm::build::load_project(
                 tree.root(), {.tool = "build", .strict_tree = true}).ok,
@@ -371,9 +378,9 @@ void external_wrapper_availability() {
                       "mm: 1.2\nkind: library\nname: extlib\nsource: third_party\n"
                       "licence: LICENSE\nexternal-build: cmake\n");
     tree.manifest_raw("wrapper",
-                      "mm: 1.2\nkind: module\nname: ext-wrapper\nmodule: ext.wrapper\n"
+                      "mm: 1.2\nkind: module\nname: ext-wrapper\nmodule: lib.wrapper\n"
                       "file: wrapper.cppm\nlibrary: extlib\n");
-    std::ofstream(tree.root() / "wrapper/wrapper.cppm") << "export module ext.wrapper;\n";
+    std::ofstream(tree.root() / "wrapper/wrapper.cppm") << "export module lib.wrapper;\n";
 
     tree.manifest_raw("sdk",
                       "mm: 1.2\nkind: sdk\nname: match-sdk\ntarget: arm-none-eabi\n"

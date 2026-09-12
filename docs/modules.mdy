@@ -201,7 +201,7 @@ reads them to resolve a lane, and no tool compiles or links them as targets.
 Library targets require mm: 1.2 and describe a vendored tree and its public
 interface. They recurse through folder entries to project-authored wrappers but
 never become build targets, and foreign source beneath source is not collected.
-A wrapper module names its library and receives that library's include
+A wrapper module uses the `lib.` module-name prefix, names its library, and receives that library's include
 directories only when build or test reaches the wrapper.
 
 Repeated manifest values retain declaration order. Source order is explicit;

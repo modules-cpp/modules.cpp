@@ -3,7 +3,7 @@ mm: 1.2
 kind: test
 name: library-demo
 use: mm.test
-use: ext.demo
+use: lib.demo
 unit: libraries/demo/test/demo.cpp
 unit: tests/main.cpp
 ---

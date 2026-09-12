@@ -2,9 +2,9 @@ module;
 
 #include "pico-cxx.h"
 
-export module ext.pico;
+export module lib.pico;
 
-export namespace ext::pico {
+export namespace lib::pico {
 
 void initialize() {
     mm_pico_initialize();

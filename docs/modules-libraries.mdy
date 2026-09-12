@@ -37,7 +37,7 @@ Opening fence
 libraries/mm.mdy                 kind: dir, option: core no, read-only: core
 libraries/demo/mm.mdy            kind: library, name: demo
 libraries/demo/LICENSE           repository-owned, outside the checkout
-libraries/demo/ext/mm.mdy        kind: module, module: ext.demo, library: demo
+libraries/demo/ext/mm.mdy        kind: module, module: lib.demo, library: demo
 libraries/demo/ext/demo.cppm     the wrapper interface
 libraries/demo/ext/demo-c.h      the linkage shim, when the header needs one
 libraries/demo/test/mm.mdy       kind: test over the wrapper
@@ -144,7 +144,7 @@ When an SDK names a library that declares external-build, specs-profile and spec
 
 # A module naming a library
 
-A module naming a library is its project-authored wrapper, and this is the consuming side of the mechanism.
+A module naming a library is its project-authored wrapper, and this is the consuming side of the mechanism. Its module name MUST begin with `lib.`. The shared definition-resolution pass rejects any module carrying `library:` whose module name does not use that prefix. The prefix identifies the dependency boundary in every `use:` and `import` edge; the wrapper's directory name is not significant.
 
 The declaration alone requires nothing of the working tree. Loading a tree, checking it, modelling it, documenting it, or configuring it leaves an absent checkout valid, and so does a build or test whose selected dependency closure never reaches the wrapper. The requirement is demand-driven: it arrives exactly when the wrapper is about to be compiled.
 
@@ -175,9 +175,9 @@ module;
 
 #include "demo-c.h"
 
-export module ext.demo;
+export module lib.demo;
 
-export namespace ext::demo {
+export namespace lib::demo {
 
 int answer() {
     return demo_answer();
@@ -240,6 +240,7 @@ These are the conformance requirements for this release, not a description of ex
 - A library declaring link-archive with no library-directory is accepted; so is one declaring link-input with none.
 - Two libraries sharing a name are rejected naming both manifests; a library and a module may share a name.
 - An SDK or a module declaring more than one library is rejected; one naming an unknown library is rejected listing the libraries that exist; one declaring none is accepted.
+- A module declaring `library:` must declare a module name beginning with `lib.`; a different prefix is rejected naming the offending module.
 - A module declaring library in a 1.1 manifest is rejected by version; the same
   declaration in a 1.2 manifest is accepted and resolved.
 - A reference is resolved after every definition is known, and a reference to a missing library reports that rather than a consequence of it.

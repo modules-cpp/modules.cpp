@@ -85,7 +85,7 @@ void a_foreign_project_exposes_a_library() {
                       "mm: 1.2\nkind: sdk\nname: target-sdk\ntarget: m68k-linux-gnu\n"
                       "compiler-family: gcc\nruntime: glibc\nlibrary: demo\n");
     tree.manifest_raw("wrapper",
-                      "mm: 1.2\nkind: module\nname: wrapper\nmodule: ext.demo\n"
+                      "mm: 1.2\nkind: module\nname: wrapper\nmodule: lib.demo\n"
                       "file: wrapper.cppm\nlibrary: demo\n");
     std::ofstream(tree.root() / "library/LICENSE") << "fixture licence\n";
     std::filesystem::create_directories(tree.root() / "library/third_party/include");

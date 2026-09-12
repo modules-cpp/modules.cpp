@@ -308,7 +308,7 @@ void structural_properties() {
 
     // A core module declaring library: is rejected by structural property validation.
     tree.manifest_raw("modules/lib",
-                      "mm: 1.2\nkind: module\nname: lib\nmodule: p.lib\nfile: lib.cppm\nlibrary: demo\n");
+                      "mm: 1.2\nkind: module\nname: lib\nmodule: lib.demo\nfile: lib.cppm\nlibrary: demo\n");
     Resolution core_with_library;
     expect(resolve(tree, Build::Debug, core_with_library), "module with library resolves options");
     expect(!mm::build::validate_structural_properties(
@@ -317,11 +317,11 @@ void structural_properties() {
 
     // A non-core module declaring library: is permitted.
     tree.manifest_raw("modules/lib",
-                      "mm: 1.2\nkind: module\nname: lib\nmodule: p.lib\nfile: lib.cppm\nlibrary: demo\noption: core no\n");
+                      "mm: 1.2\nkind: module\nname: lib\nmodule: lib.demo\nfile: lib.cppm\nlibrary: demo\noption: core no\n");
     tree.manifest_raw("apps/app",
-                      "mm: 1.1\nkind: app\nname: app\nuse: p.lib\nfile: a.cpp\noption: core no\n");
+                      "mm: 1.1\nkind: app\nname: app\nuse: lib.demo\nfile: a.cpp\noption: core no\n");
     tree.manifest_raw("tools/t",
-                      "mm: 1.1\nkind: app\nname: t\nuse: p.lib\nfile: t.cpp\noption: core no\n");
+                      "mm: 1.1\nkind: app\nname: t\nuse: lib.demo\nfile: t.cpp\noption: core no\n");
     Resolution non_core_with_library;
     expect(resolve(tree, Build::Debug, non_core_with_library), "non-core module with library resolves");
     expect(mm::build::validate_structural_properties(
