@@ -478,6 +478,7 @@ Every platform diagnostic names the manifest it came from. A mismatch names both
 - Changing a board manifest's source list without reconfiguring does not change what build links.
 - A native configuration's compile and link commands are byte-identical to the preceding release.
 - Pico SDK 2.3.1's generated commands for pico and pico2 project to the same ARM ABI fields as the project's processor arguments; pico2 has `-mcmse` enabled on both sides. rp2350-ram remains non-secure and carries no `-mcmse`, while both three- and four-argument Cortex-M33 configuration records remain readable.
+- A Pico external build accepts a UF2 only when every 512-byte block carries both required leading magic words and its trailing magic word. A fake package that copies the ELF under a `.uf2` name fails before publication; satisfying the UF2 artifact criterion requires a real compatible picotool.
 - A clean bootstrap succeeds with platforms registered in the root manifest.
 - One board runs under an emulator, reaching main, writing observable output, and terminating under control, with no application argument reaching the emulator.
 - An SDK whose library declares external-build configures with cross-link: external; with a board, it omits cross-board-linker-script and cross-board-source; without a board, it carries no board fields.

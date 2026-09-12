@@ -33,6 +33,12 @@ set_source_files_properties(${MM_ADAPTER} PROPERTIES
 target_link_libraries(mm_external pico_stdlib)
 pico_enable_stdio_semihosting(mm_external 1)
 pico_add_extra_outputs(mm_external)
+add_custom_command(TARGET mm_external POST_BUILD
+  COMMAND ${CMAKE_COMMAND}
+    "-DMM_UF2=$<TARGET_FILE_DIR:mm_external>/${MM_OUTPUT_NAME}.uf2"
+    -P ${CMAKE_CURRENT_LIST_DIR}/validate-uf2.cmake
+  COMMENT "Validate UF2 output"
+  VERBATIM)
 
 file(GENERATE OUTPUT ${CMAKE_BINARY_DIR}/mm-abi-probe.txt CONTENT "${MM_ADAPTER}\n")
 file(GENERATE OUTPUT ${CMAKE_BINARY_DIR}/mm-result.txt CONTENT
