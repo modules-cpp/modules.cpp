@@ -1,5 +1,5 @@
 ---
-mm: 1.4
+mm: 1.2
 kind: app
 name: cmake-demo-smoke
 option: buildable-host no

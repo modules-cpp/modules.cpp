@@ -1,5 +1,5 @@
 ---
-mm: 1.4
+mm: 1.2
 kind: sdk
 name: pico-riscv
 target: riscv32-pico-elf

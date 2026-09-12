@@ -69,8 +69,6 @@ constexpr ManifestVersionRule manifest_versions[] = {
     {"1.0", 10, false},
     {"1.1", 11, true},
     {"1.2", 12, true},
-    {"1.3", 13, true},
-    {"1.4", 14, true},
 };
 
 const ManifestVersionRule* manifest_version(std::string_view version) {
@@ -137,18 +135,18 @@ const std::vector<ManifestKeyRule> manifest_key_rules = {
     {"cpu", 12, "board"},
     {"instruction-set", 12, "board"},
     {"float-abi", 12, "board"},
-    {"security-domain", 14, "board"},
+    {"security-domain", 12, "board"},
     {"machine", 12, "board"},
     {"linker-script", 12, "board"},
     {"requires-board", 12, "app test"},
-    {"source", 13, "library"},
-    {"licence", 13, "library"},
-    {"include-directory", 13, "library"},
-    {"library-directory", 13, "library"},
-    {"link-archive", 13, "library"},
-    {"link-input", 13, "library"},
-    {"library", 13, "sdk module"},
-    {"external-build", 14, "library"},
+    {"source", 12, "library"},
+    {"licence", 12, "library"},
+    {"include-directory", 12, "library"},
+    {"library-directory", 12, "library"},
+    {"link-archive", 12, "library"},
+    {"link-input", 12, "library"},
+    {"library", 12, "sdk module"},
+    {"external-build", 12, "library"},
 };
 
 const ManifestKeyRule* manifest_key_rule(std::string_view key) {
@@ -989,9 +987,9 @@ bool configuration_debugger(const mm::mdy::MDYDocument& document,
 bool valid_manifest(const mm::mdy::MDYDocument& doc, std::string_view kind, std::string_view name,
                     const std::filesystem::path& manifest, const LoadPolicy& policy) {
     if (!valid_mm_version(doc, manifest, policy)) return false;
-    if (kind == "library" && manifest_version(first(doc, "mm"))->number < 13) {
+    if (kind == "library" && manifest_version(first(doc, "mm"))->number < 12) {
         std::cerr << policy.tool << ": " << manifest.string()
-                  << ": kind library requires mm: 1.3\n";
+                  << ": kind library requires mm: 1.2\n";
         return false;
     }
     if (kind != "project" && kind != "dir" && kind != "module" &&

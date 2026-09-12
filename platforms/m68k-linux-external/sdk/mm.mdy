@@ -1,5 +1,5 @@
 ---
-mm: 1.4
+mm: 1.2
 kind: sdk
 name: m68k-linux-external
 target: m68k-linux-gnu

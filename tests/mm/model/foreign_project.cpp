@@ -79,13 +79,13 @@ void a_foreign_project_exposes_a_library() {
     tree.manifest("", "kind: project\nname: unrelated-project\nfolder: library\n"
                       "folder: wrapper\nfolder: sdk\n");
     tree.manifest_raw("library",
-                      "mm: 1.3\nkind: library\nname: demo\nsource: third_party\n"
+                      "mm: 1.2\nkind: library\nname: demo\nsource: third_party\n"
                       "licence: LICENSE\ninclude-directory: include\nlink-input: m\n");
     tree.manifest_raw("sdk",
-                      "mm: 1.3\nkind: sdk\nname: target-sdk\ntarget: m68k-linux-gnu\n"
+                      "mm: 1.2\nkind: sdk\nname: target-sdk\ntarget: m68k-linux-gnu\n"
                       "compiler-family: gcc\nruntime: glibc\nlibrary: demo\n");
     tree.manifest_raw("wrapper",
-                      "mm: 1.3\nkind: module\nname: wrapper\nmodule: ext.demo\n"
+                      "mm: 1.2\nkind: module\nname: wrapper\nmodule: ext.demo\n"
                       "file: wrapper.cppm\nlibrary: demo\n");
     std::ofstream(tree.root() / "library/LICENSE") << "fixture licence\n";
     std::filesystem::create_directories(tree.root() / "library/third_party/include");
@@ -124,7 +124,7 @@ void a_foreign_project_exposes_an_external_build_library() {
     const mm::test::scoped_tree tree{"foreign_external_build_library"};
     tree.manifest("", "kind: project\nname: p\nfolder: library\n");
     tree.manifest_raw("library",
-                      "mm: 1.4\nkind: library\nname: demo\nsource: third_party\n"
+                      "mm: 1.2\nkind: library\nname: demo\nsource: third_party\n"
                       "licence: LICENSE\nexternal-build: cmake\n");
     std::ofstream(tree.root() / "library/LICENSE") << "fixture licence\n";
     std::filesystem::create_directories(tree.root() / "library/cmake");

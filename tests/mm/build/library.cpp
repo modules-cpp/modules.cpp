@@ -15,12 +15,12 @@ void library_definition() {
     tree.manifest("", "kind: project\nname: p\nfolder: libraries\n");
     tree.manifest_raw(
         "libraries",
-        "mm: 1.3\nkind: library\nname: demo\nsource: third_party\nlicence: LICENSE\n"
+        "mm: 1.2\nkind: library\nname: demo\nsource: third_party\nlicence: LICENSE\n"
         "include-directory: include\ninclude-directory: second\nlibrary-directory: lib\n"
         "link-archive: lib/libdemo.a\nlink-input: m\nfolder: wrapper\n");
     tree.manifest_raw(
         "libraries/wrapper",
-        "mm: 1.3\nkind: module\nname: wrapper\nmodule: p.wrapper\n"
+        "mm: 1.2\nkind: module\nname: wrapper\nmodule: p.wrapper\n"
         "file: wrapper.cppm\nlibrary: demo\n");
     std::ofstream(tree.root() / "libraries/LICENSE") << "fixture licence\n";
 
@@ -78,7 +78,7 @@ void library_definition() {
     expect(!ec, "interface escape symlink created");
     tree.manifest_raw(
         "libraries",
-        "mm: 1.3\nkind: library\nname: demo\nsource: third_party\nlicence: LICENSE\n"
+        "mm: 1.2\nkind: library\nname: demo\nsource: third_party\nlicence: LICENSE\n"
         "include-directory: escape\nfolder: wrapper\n");
     expect(!mm::build::load_project(
                 tree.root(), {.tool = "configure", .strict_tree = true}).ok,
@@ -92,7 +92,7 @@ void library_definition() {
     expect(!ec, "licence symlink created");
     tree.manifest_raw(
         "libraries",
-        "mm: 1.3\nkind: library\nname: demo\nsource: third_party\nlicence: LICENSE\n"
+        "mm: 1.2\nkind: library\nname: demo\nsource: third_party\nlicence: LICENSE\n"
         "include-directory: include\nfolder: wrapper\n");
     expect(!mm::build::load_project(
                 tree.root(), {.tool = "configure", .strict_tree = true}).ok,
@@ -108,13 +108,13 @@ void source_boundary() {
     tree.manifest("", "kind: project\nname: p\nfolder: libraries\n");
 
     const std::string library =
-        "mm: 1.3\nkind: library\nname: demo\nsource: third_party\nlicence: LICENSE\n"
+        "mm: 1.2\nkind: library\nname: demo\nsource: third_party\nlicence: LICENSE\n"
         "include-directory: include\n";
 
     tree.manifest_raw("libraries", library + "folder: wrapper\n");
     std::ofstream(tree.root() / "libraries/LICENSE") << "fixture licence\n";
     tree.manifest_raw("libraries/wrapper",
-                      "mm: 1.3\nkind: module\nname: wrapper\nmodule: p.wrapper\n"
+                      "mm: 1.2\nkind: module\nname: wrapper\nmodule: p.wrapper\n"
                       "file: wrapper.cppm\nlibrary: demo\n");
 
     // Foreign manifests inside the checkout: exactly what must never be reached.
@@ -149,7 +149,7 @@ void source_boundary() {
     // The alias is rejected for where it resolves, not for being a symlink.
     std::filesystem::create_directories(tree.root() / "libraries/beside");
     tree.manifest_raw("libraries/beside",
-                      "mm: 1.3\nkind: module\nname: beside\nmodule: p.beside\n"
+                      "mm: 1.2\nkind: module\nname: beside\nmodule: p.beside\n"
                       "file: beside.cppm\n");
     std::filesystem::remove(tree.root() / "libraries/alias", ec);
     std::filesystem::create_directory_symlink(tree.root() / "libraries/beside",
@@ -165,10 +165,10 @@ void module_reference_validation() {
     const mm::test::scoped_tree tree{"library_module_reference"};
     tree.manifest("", "kind: project\nname: p\nfolder: library\nfolder: wrapper\n");
     tree.manifest_raw("library",
-                      "mm: 1.3\nkind: library\nname: demo\nsource: third_party\n"
+                      "mm: 1.2\nkind: library\nname: demo\nsource: third_party\n"
                       "licence: LICENSE\ninclude-directory: include\n");
     tree.manifest_raw("wrapper",
-                      "mm: 1.3\nkind: module\nname: wrapper\nmodule: p.wrapper\n"
+                      "mm: 1.2\nkind: module\nname: wrapper\nmodule: p.wrapper\n"
                       "file: wrapper.cppm\nlibrary: demo\n");
     std::ofstream(tree.root() / "library/LICENSE") << "fixture licence\n";
 
@@ -178,21 +178,21 @@ void module_reference_validation() {
            "a module may name one known library without requiring its checkout");
 
     tree.manifest_raw("wrapper",
-                      "mm: 1.2\nkind: module\nname: wrapper\nmodule: p.wrapper\n"
+                      "mm: 1.1\nkind: module\nname: wrapper\nmodule: p.wrapper\n"
                       "file: wrapper.cppm\nlibrary: demo\n");
     expect(!mm::build::load_project(
                 tree.root(), {.tool = "build", .strict_tree = true}).ok,
-           "a module library reference requires manifest version 1.3");
+           "a module library reference requires manifest version 1.2");
 
     tree.manifest_raw("wrapper",
-                      "mm: 1.3\nkind: module\nname: wrapper\nmodule: p.wrapper\n"
+                      "mm: 1.2\nkind: module\nname: wrapper\nmodule: p.wrapper\n"
                       "file: wrapper.cppm\nlibrary: missing\n");
     expect(!mm::build::load_project(
                 tree.root(), {.tool = "build", .strict_tree = true}).ok,
            "a module cannot reference an unknown library");
 
     tree.manifest_raw("wrapper",
-                      "mm: 1.3\nkind: module\nname: wrapper\nmodule: p.wrapper\n"
+                      "mm: 1.2\nkind: module\nname: wrapper\nmodule: p.wrapper\n"
                       "file: wrapper.cppm\nlibrary: demo\nlibrary: demo\n");
     expect(!mm::build::load_project(
                 tree.root(), {.tool = "build", .strict_tree = true}).ok,
@@ -203,10 +203,10 @@ void sdk_reference_and_validation() {
     const mm::test::scoped_tree tree{"library_sdk_reference"};
     tree.manifest("", "kind: project\nname: p\nfolder: library\nfolder: sdk\n");
     tree.manifest_raw("library",
-                      "mm: 1.3\nkind: library\nname: demo\nsource: third_party\n"
+                      "mm: 1.2\nkind: library\nname: demo\nsource: third_party\n"
                       "licence: LICENSE\nlink-input: demo+abi-1.0\n");
     tree.manifest_raw("sdk",
-                      "mm: 1.3\nkind: sdk\nname: target-sdk\ntarget: m68k-linux-gnu\n"
+                      "mm: 1.2\nkind: sdk\nname: target-sdk\ntarget: m68k-linux-gnu\n"
                       "compiler-family: gcc\nruntime: glibc\nlibrary: demo\n");
     std::ofstream(tree.root() / "library/LICENSE") << "fixture licence\n";
     auto project = mm::build::load_project(
@@ -215,21 +215,21 @@ void sdk_reference_and_validation() {
            "an SDK resolves a declared library by name");
 
     tree.manifest_raw("sdk",
-                      "mm: 1.2\nkind: sdk\nname: target-sdk\ntarget: m68k-linux-gnu\n"
+                      "mm: 1.1\nkind: sdk\nname: target-sdk\ntarget: m68k-linux-gnu\n"
                       "compiler-family: gcc\nruntime: glibc\nlibrary: demo\n");
     expect(!mm::build::load_project(
                 tree.root(), {.tool = "configure", .strict_tree = true}).ok,
-           "an SDK library reference requires manifest version 1.3");
+           "an SDK library reference requires manifest version 1.2");
 
     tree.manifest_raw("sdk",
-                      "mm: 1.3\nkind: sdk\nname: target-sdk\ntarget: m68k-linux-gnu\n"
+                      "mm: 1.2\nkind: sdk\nname: target-sdk\ntarget: m68k-linux-gnu\n"
                       "compiler-family: gcc\nruntime: glibc\nlibrary: missing\n");
     project = mm::build::load_project(
         tree.root(), {.tool = "configure", .strict_tree = true});
     expect(!project.ok, "an SDK cannot reference an unknown library");
 
     tree.manifest_raw("library",
-                      "mm: 1.3\nkind: library\nname: demo\nsource: third_party\n"
+                      "mm: 1.2\nkind: library\nname: demo\nsource: third_party\n"
                       "licence: LICENSE\nlink-input: -Wl,unsafe\n");
     expect(!mm::build::load_project(
                 tree.root(), {.tool = "configure", .strict_tree = true}).ok,
@@ -242,17 +242,17 @@ void external_build_validation() {
     std::filesystem::create_directories(tree.root() / "library");
     std::ofstream(tree.root() / "library/LICENSE") << "licence\n";
 
-    // 1. external-build requires mm: 1.4
+    // 1. external-build requires mm: 1.2
     tree.manifest_raw("library",
-                      "mm: 1.3\nkind: library\nname: extlib\nsource: third_party\n"
+                      "mm: 1.1\nkind: library\nname: extlib\nsource: third_party\n"
                       "licence: LICENSE\nexternal-build: cmake\n");
     expect(!mm::build::load_project(
                 tree.root(), {.tool = "configure", .strict_tree = true}).ok,
-           "external-build requires manifest version 1.4");
+           "external-build requires manifest version 1.2");
 
     // 2. rejects unknown external-build system
     tree.manifest_raw("library",
-                      "mm: 1.4\nkind: library\nname: extlib\nsource: third_party\n"
+                      "mm: 1.2\nkind: library\nname: extlib\nsource: third_party\n"
                       "licence: LICENSE\nexternal-build: ninja\n");
     expect(!mm::build::load_project(
                 tree.root(), {.tool = "configure", .strict_tree = true}).ok,
@@ -260,7 +260,7 @@ void external_build_validation() {
 
     // 3. rejects external-build without cmake directory
     tree.manifest_raw("library",
-                      "mm: 1.4\nkind: library\nname: extlib\nsource: third_party\n"
+                      "mm: 1.2\nkind: library\nname: extlib\nsource: third_party\n"
                       "licence: LICENSE\nexternal-build: cmake\n");
     expect(!mm::build::load_project(
                 tree.root(), {.tool = "configure", .strict_tree = true}).ok,
@@ -275,7 +275,7 @@ void external_build_validation() {
     // 5. rejects cmake directory inside source
     std::ofstream(tree.root() / "library/cmake/CMakeLists.txt") << "# bridge\n";
     tree.manifest_raw("library",
-                      "mm: 1.4\nkind: library\nname: extlib\nsource: .\n"
+                      "mm: 1.2\nkind: library\nname: extlib\nsource: .\n"
                       "licence: LICENSE\nexternal-build: cmake\n");
     expect(!mm::build::load_project(
                 tree.root(), {.tool = "configure", .strict_tree = true}).ok,
@@ -283,7 +283,7 @@ void external_build_validation() {
 
     // 6. accepts valid external-build library
     tree.manifest_raw("library",
-                      "mm: 1.4\nkind: library\nname: extlib\nsource: third_party\n"
+                      "mm: 1.2\nkind: library\nname: extlib\nsource: third_party\n"
                       "licence: LICENSE\nexternal-build: cmake\n");
     auto project = mm::build::load_project(
         tree.root(), {.tool = "configure", .strict_tree = true});
@@ -295,7 +295,7 @@ void external_build_sdk_and_board_rules() {
     const mm::test::scoped_tree tree{"external_sdk_board"};
     tree.manifest("", "kind: project\nname: p\nfolder: library\nfolder: sdk\nfolder: board\n");
     tree.manifest_raw("library",
-                      "mm: 1.4\nkind: library\nname: extlib\nsource: third_party\n"
+                      "mm: 1.2\nkind: library\nname: extlib\nsource: third_party\n"
                       "licence: LICENSE\nexternal-build: cmake\n");
     std::ofstream(tree.root() / "library/LICENSE") << "licence\n";
     std::filesystem::create_directories(tree.root() / "library/cmake");
@@ -303,11 +303,11 @@ void external_build_sdk_and_board_rules() {
 
     // SDK referencing external-build library rejecting specs-profile
     tree.manifest_raw("sdk",
-                      "mm: 1.4\nkind: sdk\nname: my-sdk\ntarget: arm-none-eabi\n"
+                      "mm: 1.2\nkind: sdk\nname: my-sdk\ntarget: arm-none-eabi\n"
                       "compiler-family: gcc\nruntime: none\nlibrary: extlib\n"
                       "specs-profile: rdimon\n");
     tree.manifest_raw("board",
-                      "mm: 1.4\nkind: board\nname: my-board\nsdk: my-sdk\n"
+                      "mm: 1.2\nkind: board\nname: my-board\nsdk: my-sdk\n"
                       "cpu: cortex-m0plus\ninstruction-set: thumb\nfloat-abi: soft\n");
     expect(!mm::build::load_project(
                 tree.root(), {.tool = "configure", .strict_tree = true}).ok,
@@ -316,7 +316,7 @@ void external_build_sdk_and_board_rules() {
     // SDK referencing external-build library rejecting specs-file
     std::ofstream(tree.root() / "sdk/test.specs") << "specs\n";
     tree.manifest_raw("sdk",
-                      "mm: 1.4\nkind: sdk\nname: my-sdk\ntarget: arm-none-eabi\n"
+                      "mm: 1.2\nkind: sdk\nname: my-sdk\ntarget: arm-none-eabi\n"
                       "compiler-family: gcc\nruntime: none\nlibrary: extlib\n"
                       "specs-file: test.specs\n"
                       "provides: runtime-init\nprovides: syscalls\n");
@@ -326,7 +326,7 @@ void external_build_sdk_and_board_rules() {
 
     // Valid external SDK and board without linker-script, file, or provides
     tree.manifest_raw("sdk",
-                      "mm: 1.4\nkind: sdk\nname: my-sdk\ntarget: arm-none-eabi\n"
+                      "mm: 1.2\nkind: sdk\nname: my-sdk\ntarget: arm-none-eabi\n"
                       "compiler-family: gcc\nruntime: none\nlibrary: extlib\n"
                       "provides: reset-vector\nprovides: initial-stack\n"
                       "provides: memory-layout\nprovides: runtime-init\nprovides: syscalls\n");
@@ -340,11 +340,11 @@ void external_build_sdk_and_board_rules() {
 
     // Ordinary SDK (no external-build library) requires board to have linker-script and file
     tree.manifest_raw("sdk",
-                      "mm: 1.4\nkind: sdk\nname: ordinary-sdk\ntarget: arm-none-eabi\n"
+                      "mm: 1.2\nkind: sdk\nname: ordinary-sdk\ntarget: arm-none-eabi\n"
                       "compiler-family: gcc\nruntime: newlib\n"
                       "specs-profile: rdimon\n");
     tree.manifest_raw("board",
-                      "mm: 1.4\nkind: board\nname: ord-board\nsdk: ordinary-sdk\n"
+                      "mm: 1.2\nkind: board\nname: ord-board\nsdk: ordinary-sdk\n"
                       "cpu: cortex-m0plus\ninstruction-set: thumb\nfloat-abi: soft\n");
     expect(!mm::build::load_project(
                 tree.root(), {.tool = "configure", .strict_tree = true}).ok,
@@ -352,7 +352,7 @@ void external_build_sdk_and_board_rules() {
 
     std::ofstream(tree.root() / "board/link.ld") << "SECTIONS {}\n";
     tree.manifest_raw("board",
-                      "mm: 1.4\nkind: board\nname: ord-board\nsdk: ordinary-sdk\n"
+                      "mm: 1.2\nkind: board\nname: ord-board\nsdk: ordinary-sdk\n"
                       "cpu: cortex-m0plus\ninstruction-set: thumb\nfloat-abi: soft\n"
                       "linker-script: link.ld\n");
     expect(!mm::build::load_project(
@@ -368,20 +368,20 @@ void external_wrapper_availability() {
     std::filesystem::create_directories(tree.root() / "library/cmake");
     std::ofstream(tree.root() / "library/cmake/CMakeLists.txt") << "# bridge\n";
     tree.manifest_raw("library",
-                      "mm: 1.4\nkind: library\nname: extlib\nsource: third_party\n"
+                      "mm: 1.2\nkind: library\nname: extlib\nsource: third_party\n"
                       "licence: LICENSE\nexternal-build: cmake\n");
     tree.manifest_raw("wrapper",
-                      "mm: 1.4\nkind: module\nname: ext-wrapper\nmodule: ext.wrapper\n"
+                      "mm: 1.2\nkind: module\nname: ext-wrapper\nmodule: ext.wrapper\n"
                       "file: wrapper.cppm\nlibrary: extlib\n");
     std::ofstream(tree.root() / "wrapper/wrapper.cppm") << "export module ext.wrapper;\n";
 
     tree.manifest_raw("sdk",
-                      "mm: 1.4\nkind: sdk\nname: match-sdk\ntarget: arm-none-eabi\n"
+                      "mm: 1.2\nkind: sdk\nname: match-sdk\ntarget: arm-none-eabi\n"
                       "compiler-family: gcc\nruntime: none\nlibrary: extlib\n"
                       "provides: reset-vector\nprovides: initial-stack\n"
                       "provides: memory-layout\nprovides: runtime-init\nprovides: syscalls\n");
     tree.manifest_raw("other_sdk",
-                      "mm: 1.4\nkind: sdk\nname: other-sdk\ntarget: arm-none-eabi\n"
+                      "mm: 1.2\nkind: sdk\nname: other-sdk\ntarget: arm-none-eabi\n"
                       "compiler-family: gcc\nruntime: newlib\nspecs-profile: rdimon\n");
 
     const auto project = mm::build::load_project(

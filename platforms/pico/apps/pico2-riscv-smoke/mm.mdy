@@ -1,5 +1,5 @@
 ---
-mm: 1.4
+mm: 1.2
 kind: app
 name: pico2-riscv-smoke
 option: core no

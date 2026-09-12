@@ -128,7 +128,7 @@ void installed_tools_select_configured_lanes() {
     tree.manifest("test", "kind: test\nname: example_test\nunit: app/main.cpp\n");
     tree.manifest_raw("platforms", "mm: 1.1\nkind: dir\nname: platforms\nfolder: aarch64\nfolder: m68k\n");
     tree.manifest_raw("platforms/aarch64",
-                      "mm: 1.3\nkind: sdk\nname: aarch64-linux-glibc\n"
+                      "mm: 1.2\nkind: sdk\nname: aarch64-linux-glibc\n"
                       "target: aarch64-linux-gnu\ncompiler-family: gcc\nruntime: glibc\n"
                       "library: demo\n");
     tree.manifest_raw("platforms/m68k",
@@ -136,7 +136,7 @@ void installed_tools_select_configured_lanes() {
                       "target: m68k-linux-gnu\ncompiler-family: gcc\nruntime: glibc\n"
                       "runtime-prefix: " + tree.root().string() + "\n");
     tree.manifest_raw("library",
-                      "mm: 1.3\nkind: library\nname: demo\nsource: third_party\n"
+                      "mm: 1.2\nkind: library\nname: demo\nsource: third_party\n"
                       "licence: LICENSE\ninclude-directory: include\n");
     std::ofstream(tree.root() / "library/LICENSE") << "fixture licence\n";
     std::ofstream(tree.root() / "app/main.cpp")

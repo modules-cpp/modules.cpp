@@ -99,7 +99,7 @@ provides: memory-layout
 Closing fence
 
 - sdk names the SDK this board belongs to. Exactly one. Required.
-- cpu, instruction-set, and float-abi are the required processor properties. security-domain is an optional mm: 1.4 processor discriminator whose values are secure and non-secure; omission means non-secure. Their spellings are registry values, not compiler arguments.
+- cpu, instruction-set, and float-abi are the required processor properties. security-domain is an optional mm: 1.2 processor discriminator whose values are secure and non-secure; omission means non-secure. Their spellings are registry values, not compiler arguments.
 - machine names the target machine or chip family (e.g. mps2-an385 for QEMU, rp2040 or rp2350 for OpenOCD). Optional, and required only when a runner profile that resolves a machine is selected.
 - linker-script is a path relative to the manifest.
 - file entries are the board's own sources: vector table, reset handler, and any syscall implementation the runtime leaves to the machine. Paths are relative to the manifest, as on a module manifest.
@@ -382,7 +382,7 @@ valid_mm_version accepts 1.2. Two rules become table-driven at the same time, be
 - The unknown-key rule compares against the oldest version that rejects unknown keys, so 1.1 and every later version reject them. Adding 1.2 without this change would make unknown keys in a 1.2 manifest silently accepted.
 - The introduced-in rule compares against the version that introduced each key, rather than testing for 1.0.
 
-Each key names its introducing version and the kinds it is valid on. security-domain requires mm: 1.4 and is valid only on a board; the other platform keys require mm: 1.2. A processor key on a module manifest is an error, file on an sdk manifest is an error, target on a board manifest is an error, and requires-board on a module manifest is an error.
+Each key names its introducing version and the kinds it is valid on. security-domain requires mm: 1.2 and is valid only on a board; the other platform keys require mm: 1.2. A processor key on a module manifest is an error, file on an sdk manifest is an error, target on a board manifest is an error, and requires-board on a module manifest is an error.
 
 valid_manifest accepts sdk and board as kinds. Without that, adding platforms to the root manifest breaks every manifest-reading tool at once.
 

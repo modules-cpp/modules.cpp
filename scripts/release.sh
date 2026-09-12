@@ -11,7 +11,7 @@
 #                     previous tag
 #
 # Version is vMAJOR.MINOR.PATCH. The series branch is derived from it, so
-# v1.1.0 and v1.1.4 both live on release/v1.1.x, matching release/v1.0.x.
+# v1.2.0 and v1.2.4 both live on release/v1.2.x, matching release/v1.0.x.
 #
 # Existing tags in this repository are lightweight. This script writes an
 # annotated tag instead: a release should record who made it, when, and why,
@@ -56,10 +56,10 @@ fail() { echo "release: $*" >&2; exit 65; }
 # vMAJOR.MINOR.PATCH, digits only.
 case "$version" in
     v*.*.*) ;;
-    *) fail "version must look like v1.1.0, got: $version" ;;
+    *) fail "version must look like v1.2.0, got: $version" ;;
 esac
 printf '%s' "$version" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$' \
-    || fail "version must look like v1.1.0, got: $version"
+    || fail "version must look like v1.2.0, got: $version"
 
 series="release/$(printf '%s' "$version" | sed 's/\.[0-9]*$/.x/')"
 

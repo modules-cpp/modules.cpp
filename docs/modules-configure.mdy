@@ -3,12 +3,12 @@ mm: 1.0
 kind: doc
 name: modules.cpp configure specification
 status: official
-release: v1.3.0
+release: v1.2.0
 ---
 
 # modules.cpp configure specification
 
-This is the configure and manifest-option specification for release v1.3.0. Manifest options, explicit host and target lane configuration, platform selection, runner profiles, configured debugger profiles, and third-party library definitions are part of this release. It describes implemented behavior. Every rule below is enforced by the code in modules/mm/build and modules/mm/configure and is covered by the tests named in Conformance; where the implementation falls short of a rule, Current boundaries says so explicitly rather than lowering the rule.
+This is the configure and manifest-option specification for release v1.2.0. Manifest options, explicit host and target lane configuration, platform selection, runner profiles, configured debugger profiles, and third-party library definitions are part of this release. It describes implemented behavior. Every rule below is enforced by the code in modules/mm/build and modules/mm/configure and is covered by the tests named in Conformance; where the implementation falls short of a rule, Current boundaries says so explicitly rather than lowering the rule.
 
 configure validates named options declared in a manifest tree, resolves their inheritance, and writes a mirrored tree of resolved records beneath out. Build, test, run, and debug consume buildable-host, buildable-target, and core through the same resolver and warn about the other options they do not yet consume. No tool converts an option into a compiler argument in this release.
 
@@ -20,7 +20,7 @@ Examples use Opening fence and Closing fence instead of literal front matter del
 
 Implemented and required:
 
-- The shared manifest gate accepts mm: 1.0, mm: 1.1, mm: 1.2, mm: 1.3, and mm: 1.4 for all eight manifest-reading tools: configure, build, test, check, model, document, run, and debug.
+- The shared manifest gate accepts mm: 1.0, mm: 1.1, and mm: 1.2 for all eight manifest-reading tools: configure, build, test, check, model, document, run, and debug.
 - configure selects one SDK and an optional board for every newly configured target lane. docs/modules-platforms.mdy specifies the platform declarations, validation, and generated record.
 - configure resolves named options, resets, and read-only locks over the complete manifest tree and writes one resolved-options.mdy per node beneath the lane build directory.
 - The typed build-default policy is the single source of the debug and release baseline compile and link flags.
@@ -62,7 +62,7 @@ Compiler selector behavior is unchanged, including versioned spellings. --build 
 
 # Lane configuration
 
-docs/modules-build.mdy and docs/modules-test.mdy require configure to define the lanes they select. Release v1.3.0 provides:
+docs/modules-build.mdy and docs/modules-test.mdy require configure to define the lanes they select. Release v1.2.0 provides:
 
 configure --host --compiler clang++-21
 
@@ -262,7 +262,7 @@ selected lane.
 
 # Library definitions
 
-kind: library requires mm: 1.3. It is a structural node: folder entries are walked in declaration order, but the library itself never becomes a module, app, test, document, or platform build unit. file is invalid on it, so a library cannot itself declare foreign source, and a folder entry may not name a path inside source, lexically or through a symlink, so foreign source beneath its source directory never enters the project's compiler or check source collection. docs/modules-libraries.mdy owns this boundary.
+kind: library requires mm: 1.2. It is a structural node: folder entries are walked in declaration order, but the library itself never becomes a module, app, test, document, or platform build unit. file is invalid on it, so a library cannot itself declare foreign source, and a folder entry may not name a path inside source, lexically or through a symlink, so foreign source beneath its source directory never enters the project's compiler or check source collection. docs/modules-libraries.mdy owns this boundary.
 
 A library manifest requires exactly one non-empty source and licence. source is relative to the manifest and names the vendored directory; it is the one declared path permitted to be absent. licence is relative to the manifest, must be an existing regular project file, and must remain outside source. source is lexically contained by the project. When its checkout is present, canonical validation also rejects a source symlink escaping the project and a licence resolving inside source.
 
@@ -272,13 +272,13 @@ The public interface uses repeated, ordered include-directory, library-directory
 
 link-input starts with an ASCII letter, digit, or underscore, followed only by ASCII letters, digits, underscore, dot, plus, or hyphen. Whitespace, path separators, option prefixes, and shell metacharacters are rejected at manifest-load time.
 
-library is a single optional mm: 1.3 key on kind: sdk and kind: module. It names a library definition and is resolved after the complete tree has been collected, so an unknown name is diagnosed with the available names. When configure selects an SDK naming a library, it rechecks the checkout and canonical containment before writing configuration.
+library is a single optional mm: 1.2 key on kind: sdk and kind: module. It names a library definition and is resolved after the complete tree has been collected, so an unknown name is diagnosed with the available names. When configure selects an SDK naming a library, it rechecks the checkout and canonical containment before writing configuration.
 
 A module naming a library is its project-authored wrapper. The declaration does not make an absent checkout invalid while merely loading or configuring an unrelated tree. When build or test reaches the wrapper through its selected dependency closure, it rechecks checkout presence and canonical containment, requires every declared include-directory to exist as a directory, and appends those directories to that module's compile command in declaration order, resolved to absolute paths so the command does not depend on the invoking directory. No other node receives them. Library archive ordering, link arguments, and external build recipes remain outside this release stage.
 
 # Shared ownership
 
-- mm.build owns the reusable manifest walk and the single version and structural-key gate used by configure, build, test, check, model, document, run, and debug. Front ends do not implement their own copies of the 1.0, 1.1, 1.2, 1.3, 1.4, or key-version rules. The gate is reachable directly as validate_manifest_schema for a tool rendering one manifest outside a walk.
+- mm.build owns the reusable manifest walk and the single version and structural-key gate used by configure, build, test, check, model, document, run, and debug. Front ends do not implement their own copies of the 1.0, 1.1, 1.2, or key-version rules. The gate is reachable directly as validate_manifest_schema for a tool rendering one manifest outside a walk.
 - mm.configure owns the option registry, typed value and domain validation, the default policy, the inheritance and read-only resolver, provenance, and the record format. It imports nothing and starts no manifest walk.
 - The configure front end requests a strict folder-tree view from the shared loader through LoadPolicy, then adapts the parsed nodes, documents, and parent indices with configuration_nodes into the resolver's neutral OptionNode input. The adaptation carries data without re-parsing files or duplicating validation. The resolver accepts that neutral parent-indexed input, not an mm.build type, so mm.configure needs no reverse dependency.
 - Strict-tree traversal is a configure-only loader policy. In that mode the loader reports a repeated canonical directory before discarding its second occurrence, and rejects a manifest inside a generated root output lane named out or out- followed by any suffix. Unrelated names such as outside remain valid. Default policy and traversal behavior for every other tool are unchanged.
@@ -323,9 +323,23 @@ Names are serialized in lexical order, which the resolved map provides directly.
 
 # Version and diagnostics
 
-The single shared gate accepts mm: 1.0, mm: 1.1, mm: 1.2, mm: 1.3, and mm: 1.4 for configure, build, test, check, model, document, run, and debug, including the standalone test-manifest load. A manifest declaring option, reset, or read-only uses 1.1. The sdk and board kinds and their platform keys use 1.2, except security-domain, which uses 1.4; requires-board uses 1.2. The library kind, its source, licence, include-directory, library-directory, link-archive, and link-input keys, and library on an SDK or module use 1.3. external-build uses 1.4. A 1.0 manifest without newer declarations remains valid and inherits values and locks normally from a newer parent during configure. These key-version rules are enforced once in the shared loader, never separately in a front end.
+The single shared gate accepts mm: 1.0, mm: 1.1, and mm: 1.2 for configure,
+build, test, check, model, document, run, and debug, including the standalone
+test-manifest load. A manifest declaring option, reset, or read-only uses 1.1.
+The sdk, board, and library kinds and their platform, security-domain,
+requires-board, library-interface, library-reference, and external-build keys use
+1.2. A 1.0 manifest without newer declarations remains valid and inherits values
+and locks normally from a newer parent during configure. These key-version rules
+are enforced once in the shared loader, never separately in a front end.
 
-The gate recognizes option, reset, and read-only as valid 1.1 keys, the platform schema as 1.2 keys, and the library schema as 1.3 keys on their declared kinds. Unknown keys in a 1.1, 1.2, 1.3, or 1.4 manifest are errors under the strict traversal and warnings elsewhere. Unrelated keys in a 1.0 manifest keep their existing permissive treatment. option, reset, and read-only are rejected on doc, sdk, board, and library manifests because those declarations do not participate locally in the resolved build tree. Format errors, unsupported versions, and existing structural failures remain fatal in every tool.
+The gate recognizes option, reset, and read-only as valid 1.1 keys and the
+platform and library schemas as 1.2 keys on their declared kinds. Unknown keys
+in a 1.1 or 1.2 manifest are errors under the strict traversal and warnings
+elsewhere. Unrelated keys in a 1.0 manifest keep their existing permissive
+treatment. option, reset, and read-only are rejected on doc, sdk, board, and
+library manifests because those declarations do not participate locally in the
+resolved build tree. Format errors, unsupported versions, and existing
+structural failures remain fatal in every tool.
 
 configure rejects unknown option names and invalid values rather than writing a partial interpretation. A failure in tree validation, version validation, option parsing, or resolution happens before anything is published. Its diagnostics take the form of the tool name, the manifest, the option, and the reason:
 
@@ -354,7 +368,12 @@ Check and document accept and preserve recognized metadata through their existin
 
 Warnings alone never make build, test, run, or debug fail. Capability errors, structural errors, and unsupported versions are fatal, as is an option, reset, or read-only declaration in a 1.0 manifest. An unknown command-line flag such as --release remains fatal; the warning policy covers manifest declarations, not command-line typos.
 
-An older binary that does not accept 1.3 rejects a library manifest by version instead of ignoring keys that determine its interface. Every manifest-reading tool is rebuilt and verified with the shared gate before newer source manifests are adopted; a passing configure run alone is not sufficient evidence of compatibility.
+An older binary that does not accept 1.2 rejects a library manifest by version
+instead of ignoring keys that determine its interface. Prerelease binaries that
+accepted a narrower 1.2 schema reject the completed release schema as unknown
+rather than silently ignoring it. Every manifest-reading tool is rebuilt and
+verified with the shared gate; a passing configure run alone is not sufficient
+evidence of compatibility.
 
 # Resolved output tree
 
@@ -469,8 +488,8 @@ The requirements above are covered by tests/mm/configure/options.cpp, which exer
 - Boolean misspellings, leading-plus numbers, overflow, trailing characters, and out-of-range optimization levels fail with a diagnostic naming the permitted domain.
 - A directory is anchored at its declaring manifest and does not move when inherited. Missing directories, regular files, and escapes through parent components or symlinks fail validation.
 - configure rejects a repeated canonical node and a recursive folder reference as invalid tree input, and never chooses a parent by comparing option maps. Other tools keep their existing repeat-visit and cycle behavior.
-- A 1.0 manifest inherits values and locks normally, but declaring option, reset, or read-only requires 1.1. configure rejects unknown 1.1, 1.2, 1.3, and 1.4 keys, all three declaration keys on a doc manifest, and option declarations on sdk, board, and library manifests.
-- With a mixed 1.0, 1.1, 1.2, 1.3, and 1.4 tree containing options, platform definitions, and library definitions, all eight manifest-reading tools complete their ordinary workflows when their existing prerequisites are met. No tool fails on a supported version or recognized key, and none requires a generated configuration record merely to read the manifest tree.
+- A 1.0 manifest inherits values and locks normally, but declaring option, reset, or read-only requires 1.1. configure rejects unknown 1.1 and 1.2 keys, all three declaration keys on a doc manifest, and option declarations on sdk, board, and library manifests.
+- With a mixed 1.0, 1.1, and 1.2 tree containing options, platform definitions, and library definitions, all eight manifest-reading tools complete their ordinary workflows when their existing prerequisites are met. No tool fails on a supported version or recognized key, and none requires a generated configuration record merely to read the manifest tree.
 - Every manifest-reading tool uses the same gate to reject a declaration in a 1.0 manifest, including the standalone test load. Unsupported versions and structural errors stay fatal.
 - Build, test, run, and debug handle buildable-host, buildable-target, and core assignments, resets, and locks without ignored warnings. A core consumer using a non-core module is rejected with the non-core value's assigning ancestor. Build skips module and app targets unavailable in the selected lane; test rejects an unavailable requested test; run and debug reject an unavailable requested application. Other options, including an unknown name, still warn and continue. An unknown command-line flag still exits 64.
 - A library recurses through folder without becoming a build target, requires one source and licence, preserves ordered interface entries, rejects unsafe paths and link-input syntax, and permits an absent checkout until a selected SDK names it.

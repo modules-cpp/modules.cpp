@@ -164,34 +164,39 @@ void rejects_unsupported_mm_version() {
     const mm::test::scoped_tree tree{"badmmversion"};
     tree.manifest_raw("", "mm: 0.2\nkind: project\nname: p\n");
 
-    const auto loaded = mm::build::load_tree(tree.root());
+    auto loaded = mm::build::load_tree(tree.root());
 
-    mm::test::expect(!loaded.ok, "expected an unsupported mm: version to be rejected");
+    mm::test::expect(!loaded.ok, "expected an unsupported old mm: version to be rejected");
+
+    tree.manifest_raw("", "mm: 1.3\nkind: project\nname: p\n");
+    loaded = mm::build::load_tree(tree.root());
+    mm::test::expect(!loaded.ok, "expected mm: 1.3 to be rejected after consolidation");
+
+    tree.manifest_raw("", "mm: 1.4\nkind: project\nname: p\n");
+    loaded = mm::build::load_tree(tree.root());
+    mm::test::expect(!loaded.ok, "expected mm: 1.4 to be rejected after consolidation");
 }
 
-// 1.4 exists so a key introduced after release v1.3.0 has a version to be
-// introduced at: 1.3 is released and its key set is closed, so declaring a new
-// key inside it would make an existing binary reject the manifest for the wrong
-// reason. Until such a key lands, a 1.4 manifest is a 1.3 manifest.
+// 1.2 is the current strict source-manifest format for release v1.2.0.
 void accepts_current_mm_version() {
-    const mm::test::scoped_tree tree{"mm14version"};
-    tree.manifest_raw("", "mm: 1.4\nkind: project\nname: p\nfolder: m\n");
-    tree.manifest_raw("m", "mm: 1.4\nkind: module\nname: m\nmodule: p.m\nfile: m.cppm\n");
+    const mm::test::scoped_tree tree{"mm12version"};
+    tree.manifest_raw("", "mm: 1.2\nkind: project\nname: p\nfolder: m\n");
+    tree.manifest_raw("m", "mm: 1.2\nkind: module\nname: m\nmodule: p.m\nfile: m.cppm\n");
 
     const auto loaded = mm::build::load_tree(tree.root());
 
     mm::test::expect(loaded.ok && loaded.targets.size() == 1,
-                     "expected mm: 1.4 to be accepted");
+                     "expected mm: 1.2 to be accepted");
 }
 
 void rejects_unknown_key_in_current_mm_version() {
-    const mm::test::scoped_tree tree{"mm14unknown"};
-    tree.manifest_raw("", "mm: 1.4\nkind: project\nname: p\nnot-a-key: x\n");
+    const mm::test::scoped_tree tree{"mm12unknown"};
+    tree.manifest_raw("", "mm: 1.2\nkind: project\nname: p\nnot-a-key: x\n");
 
     bool ok = false;
     mm::build::load_nodes(tree.root(), ok, {.tool = "configure", .strict_tree = true});
 
-    mm::test::expect(!ok, "expected an unknown key in a 1.4 manifest to be rejected");
+    mm::test::expect(!ok, "expected an unknown key in a 1.2 manifest to be rejected");
 }
 
 void rejects_duplicate_mm_version() {

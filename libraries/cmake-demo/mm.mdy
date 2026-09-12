@@ -1,5 +1,5 @@
 ---
-mm: 1.4
+mm: 1.2
 kind: library
 name: cmake-demo
 source: upstream

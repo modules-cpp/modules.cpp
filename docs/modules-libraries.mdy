@@ -3,14 +3,14 @@ mm: 1.0
 kind: doc
 name: modules.cpp libraries specification
 status: official
-release: v1.3.0
+release: v1.2.0
 ---
 
 # modules.cpp libraries specification
 
 # Status and authority
 
-This document specifies the implemented libraries directory, the library manifest kind, the library key on SDK and module manifests, checkout observation, and the include interface a wrapper module receives at compile time, for release v1.3.0. Its drafting history is in drafts/plan-third-party-libraries and 2, and drafts/plan-libraries through 8, which it supersedes.
+This document specifies the implemented libraries directory, the library manifest kind, the library key on SDK and module manifests, checkout observation, and the include interface a wrapper module receives at compile time, for release v1.2.0. Its drafting history is in drafts/plan-third-party-libraries and 2, and drafts/plan-libraries through 8, which it supersedes.
 
 status: official gives this document the same authority as the other implemented specifications in docs.
 
@@ -54,7 +54,7 @@ The project root manifest declares folder: libraries. libraries/mm.mdy declares 
 # Library manifests
 
 Opening fence
-mm: 1.3
+mm: 1.2
 kind: library
 name: demo
 source: third_party
@@ -70,7 +70,7 @@ Closing fence
 - licence names the licence file, relative to the manifest. Exactly one, non-empty, an existing regular project file, and outside source.
 - include-directory, library-directory, and link-archive are repeated and ordered. All three are relative to source and may not escape it: a value that begins with a parent component after normalisation against source is rejected, as is an absolute one.
 - link-input is repeated and ordered. A value starts with an ASCII letter, digit, or underscore and continues with ASCII letters, digits, underscore, dot, plus, or hyphen. Whitespace, path separators, option prefixes, and shell metacharacters are rejected at manifest-load time.
-- external-build names the external build system used to build the foreign tree, introduced at mm: 1.4. The one supported value is cmake. A library declaring external-build carries its CMake project in a cmake directory beside its own manifest. The directory is validated when the library manifest is: it exists, it contains CMakeLists.txt, it is inside the project, and it resolves outside library source.
+- external-build names the external build system used to build the foreign tree, introduced at mm: 1.2. The one supported value is cmake. A library declaring external-build carries its CMake project in a cmake directory beside its own manifest. The directory is validated when the library manifest is: it exists, it contains CMakeLists.txt, it is inside the project, and it resolves outside library source.
 - folder entries are walked in declaration order, as on a project or dir manifest.
 
 Neither link-archive nor link-input requires a library-directory. An archive is a path and locates itself; a name may deliberately rely on the toolchain's own search paths, which is what link-input: m does.
@@ -126,7 +126,7 @@ the UF2 validation its bridge performs.
 
 # The library key
 
-library is a single optional mm: 1.3 key, valid on kind: sdk and kind: module and on no other kind. More than one declaration is rejected as requiring one non-empty value.
+library is a single optional mm: 1.2 key, valid on kind: sdk and kind: module and on no other kind. More than one declaration is rejected as requiring one non-empty value.
 
 A reference is resolved after the complete tree has been collected, never during the walk, so declaration order between a library and the manifest naming it does not matter. An unknown name is diagnosed with the names that do exist:
 
@@ -210,7 +210,13 @@ checkout_present() is the one working-tree observation in the manifest interface
 
 # Manifest version
 
-The library kind, its source, licence, include-directory, library-directory, link-archive, and link-input keys, and library on an SDK or a module all require mm: 1.3. external-build requires mm: 1.4. The rules are enforced once in the shared loader and never separately in a front end. A tool built before this release rejects a 1.3 manifest by version; after it, an unknown key in a 1.3 or 1.4 manifest is rejected as in a 1.1 one, and no tool reports library or external-build as an ignored unknown key in any strictness mode.
+The library kind, its source, licence, include-directory, library-directory,
+link-archive, link-input, and external-build keys, and library on an SDK or a
+module, all require mm: 1.2. The rules are enforced once in the shared loader
+and never separately in a front end. Release v1.2.0 defines this complete key
+set and does not accept source-manifest versions 1.3 or 1.4. Unknown keys in a
+1.2 manifest are rejected as in a 1.1 one, and no tool reports library or
+external-build as an ignored unknown key in any strictness mode.
 
 # Diagnostics and exit status
 
@@ -234,7 +240,8 @@ These are the conformance requirements for this release, not a description of ex
 - A library declaring link-archive with no library-directory is accepted; so is one declaring link-input with none.
 - Two libraries sharing a name are rejected naming both manifests; a library and a module may share a name.
 - An SDK or a module declaring more than one library is rejected; one naming an unknown library is rejected listing the libraries that exist; one declaring none is accepted.
-- A module declaring library in a 1.2 manifest is rejected by version.
+- A module declaring library in a 1.1 manifest is rejected by version; the same
+  declaration in a 1.2 manifest is accepted and resolved.
 - A reference is resolved after every definition is known, and a reference to a missing library reports that rather than a consequence of it.
 - Selecting an SDK whose library has an absent checkout fails at configure, naming the library and, when one exists, its executable provisioning script.
 - A checkout is an existing source directory with at least one entry; an empty directory reads as absent; a filesystem error is an error naming the path and never absence.
@@ -253,7 +260,7 @@ These are the conformance requirements for this release, not a description of ex
 - libraries/mm.mdy declaring core no with a lock makes every node beneath it non-core, and a core node using a non-core module is rejected naming consumer, dependency, and the assigning ancestor.
 - The header-only fixture builds and runs: the wrapper includes a foreign header through its shim, the test imports the wrapper, and the value crosses the boundary.
 - The native command set is unchanged by adding libraries with no wrapper reached, and a clean bootstrap succeeds with libraries registered in the root manifest.
-- external-build requires mm: 1.4, accepts cmake, and rejects any unknown build system. A library declaring external-build with no cmake directory beside it, with no CMakeLists.txt in it, or with one resolving inside source, is rejected at load.
+- external-build requires mm: 1.2, accepts cmake, and rejects any unknown build system. A library declaring external-build with no cmake directory beside it, with no CMakeLists.txt in it, or with one resolving inside source, is rejected at load.
 - An SDK referencing an external-build library rejects specs-profile and specs-file. Boards beneath such an SDK permit omitting linker-script, file, and provides, while ordinary boards require linker-script and at least one file.
 - models::LibraryNode::external_build() returns the declared external-build system name or an empty string.
 - A kind: module target naming an external-build library is available only in a target lane whose selected SDK names that same library, and is an unavailable skipped target with a reason naming the library in every other lane.

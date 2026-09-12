@@ -301,14 +301,14 @@ void structural_properties() {
 
     // Restore modules/lib to core so apps/app and tools/t do not violate the core rule.
     tree.manifest("", "kind: project\nname: p\nfolder: modules\nfolder: apps\nfolder: tools\nfolder: libdef\n");
-    tree.manifest_raw("libdef", "mm: 1.3\nkind: library\nname: demo\nsource: src\nlicence: LICENSE\n");
+    tree.manifest_raw("libdef", "mm: 1.2\nkind: library\nname: demo\nsource: src\nlicence: LICENSE\n");
     std::ofstream(tree.root() / "libdef/LICENSE") << "mit\n";
     std::filesystem::create_directories(tree.root() / "libdef/src");
     tree.manifest("modules/lib", "kind: module\nname: lib\nmodule: p.lib\nfile: lib.cppm\n");
 
     // A core module declaring library: is rejected by structural property validation.
     tree.manifest_raw("modules/lib",
-                      "mm: 1.3\nkind: module\nname: lib\nmodule: p.lib\nfile: lib.cppm\nlibrary: demo\n");
+                      "mm: 1.2\nkind: module\nname: lib\nmodule: p.lib\nfile: lib.cppm\nlibrary: demo\n");
     Resolution core_with_library;
     expect(resolve(tree, Build::Debug, core_with_library), "module with library resolves options");
     expect(!mm::build::validate_structural_properties(
@@ -317,7 +317,7 @@ void structural_properties() {
 
     // A non-core module declaring library: is permitted.
     tree.manifest_raw("modules/lib",
-                      "mm: 1.3\nkind: module\nname: lib\nmodule: p.lib\nfile: lib.cppm\nlibrary: demo\noption: core no\n");
+                      "mm: 1.2\nkind: module\nname: lib\nmodule: p.lib\nfile: lib.cppm\nlibrary: demo\noption: core no\n");
     tree.manifest_raw("apps/app",
                       "mm: 1.1\nkind: app\nname: app\nuse: p.lib\nfile: a.cpp\noption: core no\n");
     tree.manifest_raw("tools/t",

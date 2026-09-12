@@ -156,7 +156,7 @@ The source tree is organized by responsibility.
 |   +-- modules-build.mdy     build tool and lane-selection specification
 |   +-- modules-c++20.mdy     C++20 language subset specification
 |   +-- modules-cmake.mdy     external CMake builder specification
-|   +-- modules-configure.mdy official configure specification for release v1.3.0
+|   +-- modules-configure.mdy official configure specification for release v1.2.0
 |   +-- modules-debug.mdy     debug tool and debugger specification
 |   +-- modules-model.mdy     the abstract data model
 |   +-- modules-platforms.mdy SDK, board, and platform specification
@@ -198,7 +198,7 @@ and library. Project and dir targets organize the tree. The build tool compiles 
 and app targets. The test tool builds test targets. The mdy app renders docs.
 Sdk and board targets describe a target platform and require mm: 1.2; configure
 reads them to resolve a lane, and no tool compiles or links them as targets.
-Library targets require mm: 1.3 and describe a vendored tree and its public
+Library targets require mm: 1.2 and describe a vendored tree and its public
 interface. They recurse through folder entries to project-authored wrappers but
 never become build targets, and foreign source beneath source is not collected.
 A wrapper module names its library and receives that library's include
@@ -556,7 +556,7 @@ defects and become ordinary regression tests when fixed.
 # Current boundaries
 These are the gaps between the Design goals and today's implementation.
 
-docs/modules-configure.mdy is the official configure and manifest-option specification for release v1.3.0. configure implements typed options, branch-local resets and read-only settings, lanes, platforms, runners, debuggers, library definitions, and records beneath out. All eight manifest-reading tools accept 1.0, 1.1, 1.2, 1.3, and 1.4 through the shared gate. Build, test, run, and debug resolve buildable-host, buildable-target, and core, enforce the selected lane and core dependency boundary, and apply requires-board availability; other tuning declarations remain warning-only and are not yet applied to compilation.
+docs/modules-configure.mdy is the official configure and manifest-option specification for release v1.2.0. configure implements typed options, branch-local resets and read-only settings, lanes, platforms, runners, debuggers, library definitions, and records beneath out. All eight manifest-reading tools accept 1.0, 1.1, and 1.2 through the shared gate. Build, test, run, and debug resolve buildable-host, buildable-target, and core, enforce the selected lane and core dependency boundary, and apply requires-board availability; other tuning declarations remain warning-only and are not yet applied to compilation.
 
 docs/modules-build.mdy, docs/modules-cmake.mdy, docs/modules-test.mdy, docs/modules-run.mdy, docs/modules-debug.mdy, docs/modules-platforms.mdy, docs/modules-platform-pico.mdy, and docs/modules-libraries.mdy specify the implemented lane, external CMake builder, compile-only, platform, Raspberry Pi Pico, runner-backed execution, debugging, and third-party library interfaces.
 

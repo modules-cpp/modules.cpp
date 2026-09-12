@@ -3,6 +3,7 @@ mm: 1.0
 kind: doc
 name: modules.cpp external CMake builder specification
 status: official
+release: v1.2.0
 ---
 
 # modules.cpp external CMake builder specification
@@ -13,7 +14,7 @@ This document specifies the implemented external CMake builder: how a selected
 SDK delegates application linking to a library-owned bridge, the files and
 variables exchanged with that bridge, cache identity, ABI verification, and
 artifact publication. The manifest declarations that activate it require mm:
-1.4.
+1.2.
 
 status: official gives this document the same authority as the other implemented
 specifications in docs.
@@ -65,7 +66,7 @@ library/cmake/CMakeLists.txt    project-owned bridge
 library/cmake/mm-requires.txt   optional package requirements
 Closing fence
 
-external-build is a single optional mm: 1.4 key valid only on kind: library.
+external-build is a single optional mm: 1.2 key valid only on kind: library.
 cmake is its only supported value. The cmake directory is found by convention
 beside the library manifest; no second manifest key names it. Manifest loading
 requires that directory and CMakeLists.txt to exist inside the project and to
@@ -74,7 +75,7 @@ resolve outside the foreign source checkout.
 An SDK activates the bridge by naming the library:
 
 Opening fence
-mm: 1.4
+mm: 1.2
 kind: sdk
 name: m68k-linux-external
 target: m68k-linux-gnu

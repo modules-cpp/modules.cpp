@@ -68,11 +68,9 @@ void validates_platform_keys_by_version_and_kind() {
            "requires-board is not valid on a module");
 
     tree.manifest_raw("",
-                      "mm: 1.2\nkind: board\nname: old\nsdk: sdk\n"
-                      "cpu: cortex-m33\ninstruction-set: thumb\nfloat-abi: softfp\n"
-                      "security-domain: secure\n");
+                      "mm: 1.1\nkind: board\nname: old\nsecurity-domain: secure\n");
     expect(!mm::build::load_project(tree.root()).ok,
-           "security-domain requires manifest version 1.4");
+           "security-domain requires manifest version 1.2");
 }
 
 void rejects_bad_references_and_registry_values() {
@@ -136,7 +134,7 @@ void accepts_registered_processor_combinations() {
     const mm::test::scoped_tree secure_m33{"platform_secure_cortex_m33"};
     make_platform_tree(secure_m33);
     secure_m33.manifest_raw("platforms/board",
-                            "mm: 1.4\nkind: board\nname: pico2\n"
+                            "mm: 1.2\nkind: board\nname: pico2\n"
                             "sdk: arm-none-eabi-newlib\ncpu: cortex-m33\n"
                             "instruction-set: thumb\nfloat-abi: softfp\n"
                             "security-domain: secure\nmachine: rp2350\n"
@@ -151,7 +149,7 @@ void accepts_registered_processor_combinations() {
            "the secure Cortex-M33 registry entry carries its CMSE argument");
 
     secure_m33.manifest_raw("platforms/board",
-                            "mm: 1.4\nkind: board\nname: bad\n"
+                            "mm: 1.2\nkind: board\nname: bad\n"
                             "sdk: arm-none-eabi-newlib\ncpu: cortex-m33\n"
                             "instruction-set: thumb\nfloat-abi: softfp\n"
                             "security-domain: privileged\nlinker-script: link.ld\n"
@@ -164,10 +162,10 @@ void accepts_the_hazard3_processor_combination() {
     const mm::test::scoped_tree tree{"platform_hazard3"};
     make_platform_tree(tree);
     tree.manifest_raw("platforms/sdk",
-                      "mm: 1.4\nkind: sdk\nname: pico-riscv\n"
+                      "mm: 1.2\nkind: sdk\nname: pico-riscv\n"
                       "target: riscv32-pico-elf\ncompiler-family: gcc\nruntime: newlib\n");
     tree.manifest_raw("platforms/board",
-                      "mm: 1.4\nkind: board\nname: pico2-riscv\n"
+                      "mm: 1.2\nkind: board\nname: pico2-riscv\n"
                       "sdk: pico-riscv\ncpu: hazard3\n"
                       "instruction-set: rv32imacb_zicsr_zifencei_zmmul_zaamo_zalrsc_"
                       "zca_zcb_zcmp_zba_zbb_zbkb_zbs_xh3bextm\n"
@@ -184,7 +182,7 @@ void accepts_the_hazard3_processor_combination() {
            "Hazard3 emits the SDK's measured preferred CPU profile and strict alignment");
 
     tree.manifest_raw("platforms/sdk",
-                      "mm: 1.4\nkind: sdk\nname: pico-riscv\n"
+                      "mm: 1.2\nkind: sdk\nname: pico-riscv\n"
                       "target: riscv64-unknown-elf\ncompiler-family: gcc\nruntime: newlib\n");
     expect(!mm::build::load_project(tree.root()).ok,
            "an unregistered RISC-V triple is still rejected");
