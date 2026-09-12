@@ -1,0 +1,23 @@
+---
+mm: 1.0
+kind: module
+name: mcu
+module: mm.mcu
+file: status.cppm mm.mcu:status
+file: gpio.cppm mm.mcu:gpio
+file: uart.cppm mm.mcu:uart
+file: timer.cppm mm.mcu:timer
+file: mcu.cppm mm.mcu
+---
+
+# mm.mcu
+
+A portable microcontroller hardware interface, in partitions by facility. It
+declares what a platform may supply and translates the results into typed C++; it
+implements nothing. Every entry point calls an extern "C" function that a board,
+an adapter, or a test defines, because a name attached to a module cannot be
+defined by a translation unit outside that module and a platform's implementation
+is always outside.
+
+Partitions are listed before the primary interface because source order is
+declared, and the primary re-exports them.

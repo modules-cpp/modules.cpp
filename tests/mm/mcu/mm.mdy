@@ -1,0 +1,18 @@
+---
+mm: 1.0
+kind: test
+name: mcu
+use: mm.test
+use: mm.mcu
+unit: tests/mm/mcu/platform.cpp
+unit: tests/mm/mcu/mcu.cpp
+unit: tests/main.cpp
+---
+
+# mm.mcu test target
+
+Exercises every entry point of the portable hardware interface against a
+stand-in platform. platform.cpp is that platform: an ordinary translation unit
+defining the extern "C" ABI, which is the same mechanism a board's sources or a
+vendor adapter uses. It is listed first because the interface it satisfies is
+declared, not imported.

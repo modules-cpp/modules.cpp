@@ -3,6 +3,7 @@ mm: 1.1
 kind: dir
 name: mm
 option: buildable-target no
+folder: mcu
 folder: mdy
 folder: build
 folder: configure
