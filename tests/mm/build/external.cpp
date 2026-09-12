@@ -66,6 +66,37 @@ void inputs_cmake_escaping_and_validation() {
            "newline in output name is rejected");
 }
 
+void picotool_package_validation() {
+    const mm::test::scoped_tree tree{"picotool_package_test"};
+    std::filesystem::path resolved;
+
+    expect(!mm::build::validate_picotool_package({}, resolved, "test"),
+           "unset picotool_DIR is rejected");
+    expect(!mm::build::validate_picotool_package(tree.root() / "missing", resolved, "test"),
+           "missing picotool_DIR is rejected");
+
+    const auto package = tree.root() / "package";
+    std::filesystem::create_directories(package);
+    expect(!mm::build::validate_picotool_package(package, resolved, "test"),
+           "package without a config file is rejected");
+
+    const auto config = package / "picotoolConfig.cmake";
+    std::filesystem::create_directory(config);
+    expect(!mm::build::validate_picotool_package(package, resolved, "test"),
+           "config-package spelling must name a regular file");
+    std::filesystem::remove(config);
+    std::ofstream(config) << "set(picotool_FOUND TRUE)\n";
+    expect(mm::build::validate_picotool_package(package, resolved, "test"),
+           "canonical config-package spelling is accepted");
+    expect(resolved == std::filesystem::canonical(package),
+           "picotool package directory is canonicalised");
+
+    std::filesystem::remove(config);
+    std::ofstream(package / "picotool-config.cmake") << "set(picotool_FOUND TRUE)\n";
+    expect(mm::build::validate_picotool_package(package, resolved, "test"),
+           "lowercase config-package spelling is accepted");
+}
+
 void projection_schemas() {
     const auto* arm_schema = mm::build::find_projection_schema("arm-none-eabi");
     expect(arm_schema != nullptr, "arm-none-eabi schema exists");
@@ -265,6 +296,7 @@ void publish_results_validation() {
 
 const mm::test::case_ cases[] = {
     {"inputs cmake escaping and validation", &inputs_cmake_escaping_and_validation},
+    {"picotool package validation", &picotool_package_validation},
     {"projection schemas", &projection_schemas},
     {"query driver projection live", &query_driver_projection_live},
     {"projection accepts present empty value", &projection_accepts_present_empty_value},

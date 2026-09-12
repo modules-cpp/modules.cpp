@@ -2959,6 +2959,61 @@ bool write_inputs_cmake(const std::filesystem::path& destination,
     return file.good();
 }
 
+bool validate_picotool_package(const std::filesystem::path& configured_directory,
+                               std::filesystem::path& package_directory,
+                               std::string_view tool) {
+    if (configured_directory.empty()) {
+        std::cerr << tool
+                  << ": picotool is required for the pico-sdk external build: picotool_DIR "
+                     "is unset; no directory was searched (expected picotoolConfig.cmake or "
+                     "picotool-config.cmake)\n";
+        return false;
+    }
+
+    std::error_code ec;
+    const auto absolute = std::filesystem::absolute(configured_directory, ec).lexically_normal();
+    if (ec || !std::filesystem::is_directory(absolute, ec) || ec) {
+        std::cerr << tool
+                  << ": picotool is required for the pico-sdk external build: picotool_DIR "
+                  << absolute.string()
+                  << " is not an existing directory (expected picotoolConfig.cmake or "
+                     "picotool-config.cmake)\n";
+        return false;
+    }
+
+    const auto config = absolute / "picotoolConfig.cmake";
+    const auto lower_config = absolute / "picotool-config.cmake";
+    const bool has_config = std::filesystem::is_regular_file(config, ec);
+    if (ec && ec != std::errc::no_such_file_or_directory) {
+        std::cerr << tool << ": cannot inspect picotool_DIR " << absolute.string()
+                  << ": " << ec.message() << "\n";
+        return false;
+    }
+    ec.clear();
+    const bool has_lower_config = std::filesystem::is_regular_file(lower_config, ec);
+    if (ec && ec != std::errc::no_such_file_or_directory) {
+        std::cerr << tool << ": cannot inspect picotool_DIR " << absolute.string()
+                  << ": " << ec.message() << "\n";
+        return false;
+    }
+    ec.clear();
+    if (!has_config && !has_lower_config) {
+        std::cerr << tool
+                  << ": picotool is required for the pico-sdk external build: picotool_DIR "
+                  << absolute.string()
+                  << " contains neither picotoolConfig.cmake nor picotool-config.cmake\n";
+        return false;
+    }
+
+    package_directory = std::filesystem::canonical(absolute, ec);
+    if (ec) {
+        std::cerr << tool << ": cannot resolve picotool_DIR " << absolute.string()
+                  << ": " << ec.message() << "\n";
+        return false;
+    }
+    return true;
+}
+
 const std::vector<ProjectionSchema>& projection_schemas() {
     static const std::vector<ProjectionSchema> schemas = {
         {"arm-none-eabi", {"-march=", "-mthumb", "-mfloat-abi=", "-mfpu=", "-mcmse"}},
@@ -3056,7 +3111,7 @@ bool fingerprint_file(Fingerprint& fingerprint, std::string_view label,
 }
 
 bool fingerprint_directory(Fingerprint& fingerprint, const std::filesystem::path& directory,
-                           std::string_view tool) {
+                           std::string_view label, std::string_view tool) {
     std::error_code ec;
     std::vector<std::filesystem::path> entries;
     std::filesystem::recursive_directory_iterator iterator(directory, ec);
@@ -3092,15 +3147,20 @@ bool fingerprint_directory(Fingerprint& fingerprint, const std::filesystem::path
                           << ": " << ec.message() << "\n";
                 return false;
             }
-            fingerprint.add("bridge-symlink-path", relative);
-            fingerprint.add("bridge-symlink-target", target.generic_string());
+            fingerprint.add(std::string(label) + "-symlink-path", relative);
+            fingerprint.add(std::string(label) + "-symlink-target", target.generic_string());
+            if (std::filesystem::is_regular_file(entry, ec) && !ec &&
+                !fingerprint_file(fingerprint, std::string(label) + "-symlink-content",
+                                  entry, tool))
+                return false;
         } else if (std::filesystem::is_regular_file(status)) {
-            fingerprint.add("bridge-file-path", relative);
-            if (!fingerprint_file(fingerprint, "bridge-file-content", entry, tool)) return false;
+            fingerprint.add(std::string(label) + "-file-path", relative);
+            if (!fingerprint_file(fingerprint, std::string(label) + "-file-content", entry, tool))
+                return false;
         } else if (std::filesystem::is_directory(status)) {
-            fingerprint.add("bridge-directory", relative);
+            fingerprint.add(std::string(label) + "-directory", relative);
         } else {
-            fingerprint.add("bridge-other", relative);
+            fingerprint.add(std::string(label) + "-other", relative);
         }
     }
     return true;
@@ -3134,6 +3194,7 @@ bool external_cache_identity(const std::filesystem::path& bridge_dir,
                              std::string_view board_name,
                              std::string_view output_name,
                              const std::map<std::string, std::string>& project_projection,
+                             const std::optional<std::filesystem::path>& picotool_package,
                              std::filesystem::path& cmake_program,
                              std::string& identity,
                              std::string_view tool) {
@@ -3141,10 +3202,15 @@ bool external_cache_identity(const std::filesystem::path& bridge_dir,
     fingerprint.add("identity-format", "1");
     fingerprint.add("generator", "Unix Makefiles");
     fingerprint.add("bridge-path", bridge_dir.generic_string());
-    if (!fingerprint_directory(fingerprint, bridge_dir, tool) ||
+    if (!fingerprint_directory(fingerprint, bridge_dir, "bridge", tool) ||
         !fingerprint_file(fingerprint, "mm-toolchain.cmake", toolchain_file, tool) ||
         !fingerprint_file(fingerprint, "mm-inputs.cmake", inputs_file, tool))
         return false;
+    if (picotool_package) {
+        fingerprint.add("picotool-package-path", picotool_package->generic_string());
+        if (!fingerprint_directory(fingerprint, *picotool_package, "picotool-package", tool))
+            return false;
+    }
 
     cmake_program = resolve_executable_path("cmake");
     const auto c_program = resolve_executable_path(toolchain.c_compiler.invocation);
@@ -3769,6 +3835,18 @@ int external_link(
         std::cerr << "build: unsupported external-build: " << library->external_build << "\n";
         return exit_manifest;
     }
+
+    std::optional<std::filesystem::path> picotool_package;
+    if (library->name == "pico-sdk") {
+        const char* configured_picotool = std::getenv("picotool_DIR");
+        std::filesystem::path resolved_picotool;
+        if (!validate_picotool_package(
+                configured_picotool == nullptr ? std::filesystem::path{}
+                                               : std::filesystem::path(configured_picotool),
+                resolved_picotool, "build"))
+            return exit_manifest;
+        picotool_package = std::move(resolved_picotool);
+    }
     if (toolchain.c_compiler.invocation.empty()) {
         std::cerr << "build: external build requires a configured C compiler; rerun configure\n";
         return exit_compile;
@@ -3827,7 +3905,7 @@ int external_link(
     std::filesystem::path cmake_program;
     std::string cache_identity;
     if (!external_cache_identity(bridge_dir, toolchain_file, inputs_file, toolchain, platform,
-                                 bridge_board, app_name, project_proj, cmake_program,
+                                 bridge_board, app_name, project_proj, picotool_package, cmake_program,
                                  cache_identity, "build")) {
         return exit_link;
     }
@@ -3872,8 +3950,13 @@ int external_link(
     std::string configure_cmd = shell_quote(cmake_program) +
                                 " -G \"Unix Makefiles\" -DCMAKE_TOOLCHAIN_FILE=" +
                                 shell_quote(toolchain_file) +
-                                " -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DFETCHCONTENT_FULLY_DISCONNECTED=ON -S " +
-                                shell_quote(bridge_dir) + " -B " + shell_quote(external_dir);
+                                " -DCMAKE_EXPORT_COMPILE_COMMANDS=ON "
+                                "-DFETCHCONTENT_FULLY_DISCONNECTED=ON";
+    if (picotool_package) {
+        configure_cmd += " " + shell_quote(
+            std::filesystem::path("-Dpicotool_DIR:PATH=" + picotool_package->generic_string()));
+    }
+    configure_cmd += " -S " + shell_quote(bridge_dir) + " -B " + shell_quote(external_dir);
     if (!verbose) configure_cmd += " >/dev/null 2>&1";
 
     if (run(toolchain, configure_cmd) != 0) {

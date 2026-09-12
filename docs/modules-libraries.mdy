@@ -42,6 +42,8 @@ libraries/demo/ext/demo.cppm     the wrapper interface
 libraries/demo/ext/demo-c.h      the linkage shim, when the header needs one
 libraries/demo/test/mm.mdy       kind: test over the wrapper
 libraries/demo/third_party/      the vendored tree, may be absent
+libraries/pico-sdk/LICENSE.TXT   repository-owned Pico SDK licence copy
+libraries/pico-sdk/upstream/     Pico SDK 2.3.1 recursive submodule
 Closing fence
 
 The project root manifest declares folder: libraries. libraries/mm.mdy declares option: core no with read-only: core once, and inheritance marks the whole branch non-core, so a wrapper cannot be mistaken for core code and no descendant can declare itself core again.
@@ -93,6 +95,14 @@ An absent checkout is reported with the command that initialises it:
 Opening fence
 build: library demo checkout is absent: libraries/demo/third_party; run git submodule update --init --recursive -- 'libraries/demo/third_party'
 Closing fence
+
+# Pico SDK source and picotool
+
+The Pico SDK checkout is pinned as a recursive Git submodule at release 2.3.1, commit `079c6f39023649b154152db30f1d781e884879bc`, under `libraries/pico-sdk/upstream`. Its licence is copied to `libraries/pico-sdk/LICENSE.TXT`, outside the checkout. The SDK's own gitlinks pin its optional nested dependencies; the ordinary recovery command with `--recursive` initialises exactly those revisions. Stage 7 installs these source assets without registering `pico-sdk` in `libraries/mm.mdy`, so host and existing target walks do not observe or require the checkout before the Pico manifests and bridge are assembled.
+
+Pico SDK 2.3.1 may otherwise fetch and build picotool while configuring extra outputs. A build whose selected SDK library is named `pico-sdk` therefore requires the environment variable `picotool_DIR` to name an existing local CMake package directory before it invokes CMake. The directory must contain an existing regular file named either `picotoolConfig.cmake` or `picotool-config.cmake`. An unset variable, a missing directory, or a directory containing neither spelling is a configuration failure naming picotool, `picotool_DIR`, the directory searched, and both accepted file names.
+
+Build canonicalises the validated directory, passes it to CMake as `picotool_DIR:PATH`, and includes its path and contents in the external cache identity. It does not execute picotool or parse a foreign package file to make this decision. CMake configuration also sets `FETCHCONTENT_FULLY_DISCONNECTED=ON` as a second guard. The installed package remains responsible for satisfying the Pico SDK's required picotool version; an incompatible package fails in the SDK's config-mode `find_package` call rather than falling back to a download.
 
 # The library key
 
@@ -227,16 +237,18 @@ These are the conformance requirements for this release, not a description of ex
 - An SDK referencing an external-build library rejects specs-profile and specs-file. Boards beneath such an SDK permit omitting linker-script, file, and provides, while ordinary boards require linker-script and at least one file.
 - models::LibraryNode::external_build() returns the declared external-build system name or an empty string.
 - A kind: module target naming an external-build library is available only in a target lane whose selected SDK names that same library, and is an unavailable skipped target with a reason naming the library in every other lane.
+- The Pico SDK source is pinned at release 2.3.1 commit `079c6f39023649b154152db30f1d781e884879bc`; its repository-owned licence copy reproduces that revision's `LICENSE.TXT`, and recursive submodule initialisation selects the nested gitlinks recorded by that revision.
+- Before invoking CMake for a `pico-sdk` external build, build rejects an unset or invalid `picotool_DIR`, accepts either standard config-package file spelling, passes the canonical package directory to CMake, fingerprints its path and contents into the external cache identity, and keeps disconnected fetching enabled.
 
 # Current boundaries
 
 Not implemented, by design, in this release:
 
 - Archive and link-input propagation. library-directory, link-archive, and link-input are declared, validated, ordered, and carried, and no link command consumes them. Adding them means a typed link segment after the objects, library order from a reversed order_from, and duplicate removal across a closure.
-- Externally built libraries. The external-build: cmake manifest key and bridge convention are implemented at mm: 1.4. The links key, the recorded recipe, the build performed beneath the lane's output directory, and the driver probes belong to later stages.
+- Additional external build systems. external-build: cmake, its generated inputs and toolchain files, isolated cache, ABI projection check, external link, and artifact publication are implemented. No second external build system or manifest-selected recipe exists.
 - Build-prefix interface paths. The base exists in the definition and nothing constructs one, so an include directory that is not rooted at source is rejected as having no producer.
 - Compiling a vendored tree. There is no librarian, no manifest-declared source language for foreign code, and no rule for where a produced archive lands.
 - Machine-checked header ownership. Associating an include directive with a manifest-declared interface needs include analysis the check addon does not do, so the wrapper and linkage-shim rules stay normative and unenforced.
 - Declared ordering between libraries whose wrappers have no dependency. If the order matters, the dependency exists.
 - Contribution accounting across wrappers. Two wrappers over one library each receive its include interface today, which is correct because an include directory contributes the same thing however many times it appears. An archive does not, so the archive stage has to reduce a closure's libraries to one contribution each.
-- Versioning, updating, and vetting vendored source, which is process rather than mechanism.
+- A general dependency-update policy. Pico SDK is pinned to one reviewed release, but selecting, vetting, and advancing vendored revisions remains process rather than manifest mechanism.

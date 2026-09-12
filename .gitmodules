@@ -1,0 +1,3 @@
+[submodule "libraries/pico-sdk/upstream"]
+	path = libraries/pico-sdk/upstream
+	url = https://github.com/raspberrypi/pico-sdk.git

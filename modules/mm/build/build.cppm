@@ -460,6 +460,14 @@ int install(const std::filesystem::path& from, const std::filesystem::path& bin_
     const std::filesystem::path& library_source,
     const std::string& board_name);
 
+// Validates the locally installed picotool CMake package selected by
+// picotool_DIR without executing foreign code. Either standard config-package
+// file spelling is accepted; package_directory is canonical on success.
+[[nodiscard]] bool validate_picotool_package(
+    const std::filesystem::path& configured_directory,
+    std::filesystem::path& package_directory,
+    std::string_view tool = "build");
+
 struct ProjectionSchema {
     std::string_view target_triple;
     std::vector<std::string_view> fields;
