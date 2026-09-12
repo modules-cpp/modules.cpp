@@ -1,0 +1,26 @@
+---
+mm: 1.2
+kind: module
+name: lib-mcu
+module: lib.mcu
+use: mm.mcu
+library: pico-sdk
+file: lib-mcu.cppm
+---
+
+# lib.mcu, Pico SDK
+
+This platform's implementation of the portable mm.mcu interface. It registers a
+Platform subclass at static initialisation, so an executable that links it answers
+through Pico SDK and one that does not answers Unsupported.
+
+It names the pico-sdk library, which is true and load-bearing: the definitions it
+calls come from the adapter that library's bridge compiles, and naming it is what
+makes this module available only in a lane whose selected SDK names pico-sdk. In
+any other lane it is a skipped unavailable target, so nothing can link a
+registration whose adapter is absent.
+
+The C is all below this module: the SDK adapter the bridge compiles, reached
+through a private ABI and its linkage shim. An application names lib.mcu in its
+manifest and mm.mcu in its source, which is what keeps the source portable while
+the implementation stays here.

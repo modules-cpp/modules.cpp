@@ -6,6 +6,7 @@ source: upstream
 licence: LICENSE.TXT
 external-build: cmake
 folder: ext
+folder: mcu
 ---
 
 # Raspberry Pi Pico SDK

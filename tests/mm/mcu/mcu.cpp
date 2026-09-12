@@ -3,14 +3,12 @@
 import mm.mcu;
 import mm.test;
 
-extern "C" {
-extern int mm_test_forced_status;
-extern unsigned long mm_test_ticks;
-extern unsigned int mm_test_uart_instance;
-extern const char* mm_test_uart_text;
 void mm_test_reset();
-void mm_test_set_level(unsigned int pin, int high);
-}
+void mm_test_force(mm::mcu::Status status);
+void mm_test_set_level(unsigned int pin, bool high);
+unsigned long mm_test_ticks();
+unsigned int mm_test_uart_instance();
+bool mm_test_uart_written();
 
 namespace {
 
@@ -53,7 +51,7 @@ void a_failed_read_leaves_its_output_alone() {
     expect(high, "a failed read does not write its output");
 
     mm_test_reset();
-    mm_test_set_level(3, 1);
+    mm_test_set_level(3, true);
     expect(mm::mcu::gpio_configure(3, Direction::In, Pull::None) == Status::Ok, "input configured");
     bool sensed = false;
     expect(mm::mcu::gpio_read(3, sensed) == Status::Ok && sensed,
@@ -61,7 +59,7 @@ void a_failed_read_leaves_its_output_alone() {
 
     mm_test_reset();
     unsigned long ticks = 41;
-    mm_test_forced_status = 3;
+    mm_test_force(Status::Busy);
     expect(mm::mcu::ticks_ms(ticks) == Status::Busy, "a busy platform reports Busy");
     expect(ticks == 41, "a failed tick read does not write its output");
 }
@@ -69,7 +67,7 @@ void a_failed_read_leaves_its_output_alone() {
 void uart_reports_an_absent_instance() {
     mm_test_reset();
     expect(mm::mcu::uart_write(0, "hello") == Status::Ok, "writing instance zero succeeds");
-    expect(mm_test_uart_instance == 0 && mm_test_uart_text != nullptr,
+    expect(mm_test_uart_instance() == 0 && mm_test_uart_written(),
            "the platform observed the write");
     expect(mm::mcu::uart_write(4, "hello") == Status::Unsupported,
            "an instance the platform lacks is Unsupported");
@@ -89,24 +87,33 @@ void timer_advances_and_reads_back() {
            "ticks advance by what was delayed");
 }
 
-// The five documented codes map one to one; anything else is a platform bug, and
-// this layer reports it as BadArgument rather than inventing a sixth status that
-// every caller would have to switch on.
-void every_status_code_maps() {
+// Every status a platform can answer reaches the caller unchanged. The interface
+// is typed end to end now, so there is no undefined code for it to translate.
+void every_status_reaches_the_caller() {
     mm_test_reset();
-    mm_test_forced_status = 0;
+    mm_test_force(Status::Ok);
     expect(mm::mcu::delay_ms(1) == Status::Ok, "0 is Ok");
-    mm_test_forced_status = 1;
+    mm_test_force(Status::BadArgument);
     expect(mm::mcu::delay_ms(1) == Status::BadArgument, "1 is BadArgument");
-    mm_test_forced_status = 2;
+    mm_test_force(Status::Unsupported);
     expect(mm::mcu::delay_ms(1) == Status::Unsupported, "2 is Unsupported");
-    mm_test_forced_status = 3;
+    mm_test_force(Status::Busy);
     expect(mm::mcu::delay_ms(1) == Status::Busy, "3 is Busy");
-    mm_test_forced_status = 4;
+    mm_test_force(Status::Timeout);
     expect(mm::mcu::delay_ms(1) == Status::Timeout, "4 is Timeout");
-    mm_test_forced_status = 99;
-    expect(mm::mcu::delay_ms(1) == Status::BadArgument, "an undefined code is BadArgument");
+    // an out-of-range code cannot be forged through a typed interface
     mm_test_reset();
+}
+
+// A platform overrides what it has and inherits Unsupported for the rest, so an
+// interface may grow a facility without every platform growing with it.
+void an_unserved_facility_answers_unsupported() {
+    mm_test_reset();
+    mm::mcu::Platform bare;
+    expect(bare.gpio_write(0, true) == Status::Unsupported,
+           "an unimplemented facility answers Unsupported rather than failing to link");
+    expect(bare.uart_write(0, "x") == Status::Unsupported, "so does an unimplemented uart");
+    expect(bare.delay_ms(1) == Status::Unsupported, "so does an unimplemented timer");
 }
 
 const mm::test::case_ cases[] = {
@@ -115,7 +122,8 @@ const mm::test::case_ cases[] = {
     {"a failed read leaves its output alone", &a_failed_read_leaves_its_output_alone},
     {"uart reports an absent instance", &uart_reports_an_absent_instance},
     {"timer advances and reads back", &timer_advances_and_reads_back},
-    {"every status code maps", &every_status_code_maps},
+    {"every status reaches the caller", &every_status_reaches_the_caller},
+    {"an unserved facility answers Unsupported", &an_unserved_facility_answers_unsupported},
 };
 
 const mm::test::registrar reg{"mm.mcu", cases};

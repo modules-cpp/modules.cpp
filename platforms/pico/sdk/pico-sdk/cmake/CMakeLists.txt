@@ -28,11 +28,9 @@ project(modules_cpp_pico C CXX ASM)
 pico_sdk_init()
 
 set(MM_ADAPTER ${CMAKE_CURRENT_LIST_DIR}/../ext/adapter.c)
-# The adapter supplies the portable mm.mcu ABI as well as the vendor one, so it
-# needs that ABI's declarations. The path is resolved here rather than climbed
-# from the source, so moving the adapter does not rewrite an include.
-get_filename_component(MM_PROJECT_ROOT ${CMAKE_CURRENT_LIST_DIR}/../../../../.. ABSOLUTE)
-set(MM_MCU_INCLUDE ${MM_PROJECT_ROOT}/modules/mm/mcu)
+# The adapter implements this platform's private mm.mcu ABI as well as the vendor
+# one, and that ABI is declared beside lib.mcu.
+set(MM_MCU_INCLUDE ${CMAKE_CURRENT_LIST_DIR}/../mcu)
 set_source_files_properties(${MM_OBJECTS} PROPERTIES EXTERNAL_OBJECT TRUE GENERATED TRUE)
 add_executable(mm_external ${MM_OBJECTS} ${MM_ADAPTER})
 set_target_properties(mm_external PROPERTIES

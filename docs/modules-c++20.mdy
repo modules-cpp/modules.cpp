@@ -45,19 +45,9 @@ non-conformance section below records an explicit, bounded exception.
   one library MAY include headers exported through that library's declared
   include directories. It MAY put the foreign include in a project-authored,
   colocated linkage shim when the header requires C language linkage; the shim
-  has no broader permission to introduce another dependency.
-- A core module MAY declare a platform ABI in a plain-C header it owns, and MAY
-  include that header through a colocated C++ linkage shim. This is the one core
-  use of a project-authored header, and it exists because a name attached to a
-  module cannot be defined by a translation unit outside that module: an
-  interface a board, an adapter, or a test implements has to cross an extern "C"
-  boundary, and one header is what keeps the two sides from declaring that
-  boundary differently. Such a header declares functions and the integer codes
-  they answer with, and nothing else; it introduces no dependency, and the
-  implementation it describes is never in core.
-- Linkage shims are included into global module fragments and, with the ABI
-  headers above, are the only project-authored headers in scope that do not
-  declare or implement modules.
+  has no broader permission to introduce another dependency. Such shims are
+  included into wrapper global module fragments and are the only
+  project-authored headers in scope that do not declare or implement modules.
 - A project-owned C adapter MAY be compiled only by an external bridge. It MAY
   include its colocated linkage shim and the foreign headers needed to implement
   that ABI. A colocated C++ linkage shim MAY wrap that plain-C header in an
