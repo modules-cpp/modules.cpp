@@ -58,21 +58,23 @@ void repository_exposes_platform_definitions() {
     auto loaded = mm::model::Loaded::load(".", ok);
     const auto sdks = loaded.repository().sdks();
     const auto boards = loaded.repository().boards();
-    mm::test::expect(ok && sdks.size() == 6,
-                     "expected all six SDK definitions from the manifest walk");
-    mm::test::expect(boards.size() == 5,
-                     "expected all five board definitions from the manifest walk");
+    mm::test::expect(ok && sdks.size() == 7,
+                     "expected all seven SDK definitions from the manifest walk");
+    mm::test::expect(boards.size() == 6,
+                     "expected all six board definitions from the manifest walk");
     const models::BoardNode* mps2 = nullptr;
     const models::BoardNode* rp2040 = nullptr;
     const models::BoardNode* rp2350 = nullptr;
     const models::BoardNode* pico = nullptr;
     const models::BoardNode* pico2 = nullptr;
+    const models::BoardNode* pico2_riscv = nullptr;
     for (const auto* b : boards) {
         if (b->name() == "mps2-an385") mps2 = b;
         if (b->name() == "rp2040-ram") rp2040 = b;
         if (b->name() == "rp2350-ram") rp2350 = b;
         if (b->name() == "pico") pico = b;
         if (b->name() == "pico2-arm") pico2 = b;
+        if (b->name() == "pico2-riscv") pico2_riscv = b;
     }
     mm::test::expect(mps2 != nullptr && mps2->kind() == models::Kind::Board &&
                          mps2->sdk() == "arm-none-eabi-newlib" &&
@@ -94,7 +96,10 @@ void repository_exposes_platform_definitions() {
                      "expected Pico SDK RP2040 board definition");
     mm::test::expect(pico2 != nullptr && pico2->sdk() == "pico-arm" &&
                          pico2->cpu() == "cortex-m33" && pico2->sources().empty(),
-                     "expected Pico SDK RP2350 board definition");
+                     "expected Pico SDK RP2350 Arm board definition");
+    mm::test::expect(pico2_riscv != nullptr && pico2_riscv->sdk() == "pico-riscv" &&
+                         pico2_riscv->cpu() == "hazard3" && pico2_riscv->sources().empty(),
+                     "expected Pico SDK RP2350 RISC-V board definition");
 }
 
 void child_and_parent_agree_with_each_other() {

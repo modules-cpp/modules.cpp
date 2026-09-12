@@ -160,6 +160,37 @@ void accepts_registered_processor_combinations() {
            "an unknown security domain is rejected");
 }
 
+void accepts_the_hazard3_processor_combination() {
+    const mm::test::scoped_tree tree{"platform_hazard3"};
+    make_platform_tree(tree);
+    tree.manifest_raw("platforms/sdk",
+                      "mm: 1.4\nkind: sdk\nname: pico-riscv\n"
+                      "target: riscv32-pico-elf\ncompiler-family: gcc\nruntime: newlib\n");
+    tree.manifest_raw("platforms/board",
+                      "mm: 1.4\nkind: board\nname: pico2-riscv\n"
+                      "sdk: pico-riscv\ncpu: hazard3\n"
+                      "instruction-set: rv32imac_zicsr_zifencei_zba_zbb_zbs_zbkb\n"
+                      "float-abi: soft\nmachine: rp2350\nlinker-script: link.ld\n"
+                      "file: vectors.cpp\nprovides: reset-vector\n"
+                      "provides: initial-stack\nprovides: memory-layout\n"
+                      "provides: runtime-init\nprovides: syscalls\n");
+    const auto project = mm::build::load_project(tree.root());
+    expect(project.ok, "riscv32-pico-elf is a registered bare-metal target");
+    expect(project.boards.size() == 1 &&
+               project.boards.front().compiler_arguments.size() == 3 &&
+               project.boards.front().compiler_arguments[0] ==
+                   "-march=rv32imac_zicsr_zifencei_zba_zbb_zbs_zbkb" &&
+               project.boards.front().compiler_arguments[1] == "-mabi=ilp32" &&
+               project.boards.front().compiler_arguments[2] == "-mstrict-align",
+           "Hazard3 emits the SDK's fallback march, ilp32, and strict alignment");
+
+    tree.manifest_raw("platforms/sdk",
+                      "mm: 1.4\nkind: sdk\nname: pico-riscv\n"
+                      "target: riscv64-unknown-elf\ncompiler-family: gcc\nruntime: newlib\n");
+    expect(!mm::build::load_project(tree.root()).ok,
+           "an unregistered RISC-V triple is still rejected");
+}
+
 void external_directories_are_only_spelling_checked_by_the_walk() {
     const mm::test::scoped_tree tree{"platform_external_directory"};
     tree.manifest("", "kind: project\nname: p\nfolder: sdk\n");
@@ -183,6 +214,7 @@ const mm::test::case_ cases[] = {
     {"validates platform keys by version and kind", &validates_platform_keys_by_version_and_kind},
     {"rejects bad references and registry values", &rejects_bad_references_and_registry_values},
     {"accepts registered processor combinations", &accepts_registered_processor_combinations},
+    {"accepts the hazard3 processor combination", &accepts_the_hazard3_processor_combination},
     {"external directories are selection-scoped", &external_directories_are_only_spelling_checked_by_the_walk},
 };
 

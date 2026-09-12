@@ -176,6 +176,15 @@ constexpr ProcessorEntry processor_table[] = {
      {"-mcpu=cortex-m33", "-mthumb", "-mfloat-abi=softfp"}},
     {CompilerFamily::Gcc, "arm-none-eabi", "cortex-m33", "thumb", "softfp", "secure",
      {"-mcpu=cortex-m33", "-mthumb", "-mfloat-abi=softfp", "-mcmse"}},
+    // RP2350's Hazard3 cores. Read from the vendored SDK's own
+    // cmake/preload/toolchains/pico_riscv_gcc.cmake rather than invented: that
+    // file offers three flag sets in preference order and takes the first its
+    // toolchain accepts, so no fixed row can match every installation. This is
+    // its universal fallback, the one candidate that needs no recent assembler,
+    // plus the -mstrict-align it appends to whichever candidate wins.
+    {CompilerFamily::Gcc, "riscv32-pico-elf", "hazard3",
+     "rv32imac_zicsr_zifencei_zba_zbb_zbs_zbkb", "soft", "non-secure",
+     {"-march=rv32imac_zicsr_zifencei_zba_zbb_zbs_zbkb", "-mabi=ilp32", "-mstrict-align"}},
 };
 
 std::size_t processor_argument_count(const ProcessorEntry& entry) {
@@ -3138,6 +3147,13 @@ const std::vector<ProjectionSchema>& projection_schemas() {
     static const std::vector<ProjectionSchema> schemas = {
         {"arm-none-eabi", {"-march=", "-mthumb", "-mfloat-abi=", "-mfpu=", "-mcmse"}},
         {"m68k-linux-gnu", {"-march=", "-mcpu=", "-m68881", "-mhard-float", "-msoft-float"}},
+        // -march= and -mabi= are the pair that decides a RISC-V ABI. -mcpu= is
+        // excluded for the reason the ARM measurement established: naming an
+        // architecture leaves it empty, and the SDK may name a CPU where the
+        // project names an architecture. -mstrict-align and -mcmodel= are code
+        // generation rather than calling convention. Unconfirmed against a real
+        // riscv32-pico-elf driver; see docs/modules-platforms.mdy.
+        {"riscv32-pico-elf", {"-march=", "-mabi="}},
     };
     return schemas;
 }

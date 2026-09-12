@@ -184,7 +184,35 @@ Closing fence
 
 The project does not need to repeat the explicit `-march`: querying GCC shows that `-mcpu=cortex-m33` resolves to the same effective `armv8-m.main+dsp+fp` architecture. It must repeat `-mcmse`, whose query state changes from disabled to enabled. The resulting driver projections therefore agree on effective architecture, instruction state, float ABI and FPU, and security domain even though their argument spellings and order differ.
 
-platforms/pico/mm.mdy registers all three definitions. Their activation is atomic with the registered pico-sdk library and its bridge, so every strict project walk resolves the SDK's library reference.
+platforms/pico/sdk/mm.mdy registers every definition. Their activation is atomic with the registered pico-sdk library and its bridge, so every strict project walk resolves the SDK's library reference.
+
+# RP2350 RISC-V
+
+pico-riscv targets gcc riscv32-pico-elf with newlib, names the same pico-sdk library, and owns the same five responsibilities. riscv32-pico-elf is registered in the closed target-system registry as a bare-metal target; it is also the first triple Pico SDK itself prefers, ahead of riscv32-unknown-elf, riscv32-corev-elf, and riscv-none-elf.
+
+pico2-riscv names the same hardware pico2-arm names and selects its Hazard3 cores instead of its Cortex-M33 cores. A board reads sdk as a required scalar resolving to exactly one SDK, which is why one board cannot serve both architectures and the RP2350 boards are a symmetric pair. PICO_BOARD is pico2 for both; PICO_PLATFORM is rp2350-arm-s or rp2350-riscv, and the bridge owns that mapping.
+
+The RISC-V board keys need no new schema. cpu names the processor, hazard3. instruction-set names the instruction set, which ARM spells thumb and RISC-V spells as an ISA string. float-abi: soft is the soft-float integer ABI, which the registry row emits as -mabi=ilp32. security-domain has no RISC-V counterpart and keeps its non-secure default.
+
+The registry row emits `-march=rv32imac_zicsr_zifencei_zba_zbb_zbs_zbkb -mabi=ilp32 -mstrict-align`, read from the vendored SDK's own cmake/preload/toolchains/pico_riscv_gcc.cmake rather than inferred. That file is the reason a fixed row cannot match every installation: it offers three flag sets in preference order and takes the first its toolchain accepts, appending -mstrict-align to whichever wins.
+
+Opening fence
+-mcpu=hazard3-rp2350
+-march=rv32ima_zicsr_zifencei_zba_zbb_zbs_zbkb_zca_zcb_zcmp -mabi=ilp32
+-march=rv32imac_zicsr_zifencei_zba_zbb_zbs_zbkb -mabi=ilp32
+Closing fence
+
+The registry emits the third, the universal fallback that needs no recent assembler. A toolchain accepting either of the first two makes the SDK compile its own sources differently, and the ABI projection comparison reports that as a mismatch naming both projections. The fix is then one registry row, not a schema change.
+
+Two values remain unconfirmed against a real driver, because no riscv32-pico-elf toolchain is installed in the environment where this landed. The projection schema for riscv32-pico-elf names -march= and -mabi=, the pair that decides a RISC-V ABI; -mcpu= is excluded for the reason the ARM measurement established, that naming an architecture leaves it empty, and -mstrict-align and -mcmodel= are code generation rather than calling convention. Confirming both is one command on a machine that has the toolchain:
+
+Opening fence
+LC_ALL=C riscv32-pico-elf-gcc -march=rv32imac_zicsr_zifencei_zba_zbb_zbs_zbkb -mabi=ilp32 -mstrict-align -Q --help=target -c
+Closing fence
+
+Until then the lane resolves through the manifest tree and stops at the compiler probe, which reports that the C++ driver cannot be probed. Strict projection parsing is what keeps an unconfirmed schema from passing quietly: a named field the driver does not report fails the build naming the field.
+
+Adding a target triple is a two-step build, because the tool that validates the tree is built from the tree. The registry change must be compiled into out/bin before a manifest declaring the new triple is registered; a single-step attempt fails with unsupported target from the previously installed binary.
 
 A recognized profile name does not mean the installed toolchain ships the file. The compiler answers directly, and returns the query unchanged when it cannot resolve it:
 

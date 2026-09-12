@@ -1,0 +1,16 @@
+---
+mm: 1.4
+kind: board
+name: pico2-riscv
+sdk: pico-riscv
+cpu: hazard3
+instruction-set: rv32imac_zicsr_zifencei_zba_zbb_zbs_zbkb
+float-abi: soft
+machine: rp2350
+---
+
+# Raspberry Pi Pico 2, RISC-V
+
+The same hardware pico2-arm names, built for its Hazard3 cores instead of its
+Cortex-M33 cores. PICO_BOARD is pico2 for both; PICO_PLATFORM is what selects the
+architecture, and the bridge owns that mapping.

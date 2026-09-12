@@ -5,8 +5,10 @@ name: pico-sdk-platform
 option: core no
 read-only: core
 folder: pico-arm
+folder: pico-riscv
 folder: pico
 folder: pico2-arm
+folder: pico2-riscv
 folder: pico-sdk
 ---
 

@@ -158,6 +158,14 @@ void projection_schemas() {
            m68k_schema->fields[4] == "-msoft-float",
            "m68k-linux-gnu schema fields match");
 
+    // -mcpu= is deliberately absent: naming an architecture leaves it empty,
+    // and Pico SDK may name a CPU where the project names an architecture.
+    const auto* riscv_schema = mm::build::find_projection_schema("riscv32-pico-elf");
+    expect(riscv_schema != nullptr, "riscv32-pico-elf schema exists");
+    expect(riscv_schema->fields.size() == 2, "riscv32-pico-elf has 2 fields");
+    expect(riscv_schema->fields[0] == "-march=" && riscv_schema->fields[1] == "-mabi=",
+           "riscv32-pico-elf schema fields match");
+
     const auto* unknown = mm::build::find_projection_schema("x86_64-linux-gnu");
     expect(unknown == nullptr, "unknown target triple returns nullptr");
 }

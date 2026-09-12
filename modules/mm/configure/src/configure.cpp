@@ -55,7 +55,8 @@ std::optional<PlatformSystem> target_system(std::string_view target) {
     if (target == "m68k-linux-gnu" || target == "aarch64-linux-gnu" ||
         target == "arm-linux-gnueabihf")
         return PlatformSystem::Linux;
-    if (target == "arm-none-eabi") return PlatformSystem::BareMetal;
+    if (target == "arm-none-eabi" || target == "riscv32-pico-elf")
+        return PlatformSystem::BareMetal;
     return std::nullopt;
 }
 
