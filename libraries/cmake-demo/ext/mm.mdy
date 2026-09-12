@@ -2,7 +2,7 @@
 mm: 1.4
 kind: module
 name: cmake-demo
-module: ext.cmake-demo
+module: ext.cmake_demo
 file: demo.cppm
 library: cmake-demo
 ---

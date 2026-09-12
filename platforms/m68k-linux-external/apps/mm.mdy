@@ -1,0 +1,6 @@
+---
+mm: 1.0
+kind: dir
+name: m68k-linux-external-apps
+folder: cmake-demo-smoke
+---

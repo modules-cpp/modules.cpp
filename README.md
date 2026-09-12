@@ -91,8 +91,8 @@ resulting `out/config.mdy` and cannot select different values:
 ./configure --target arm-none-eabi --compiler arm-none-eabi-gcc \
     --board mps2-an385 --runner qemu-system --build debug
 ./build --target
-./run --target apps/target-smoke
-./test --target --compile-only
+./run --target platforms/mps2-an385/target-smoke
+./test --target --compile-only tests/target/board/
 ```
 
 Accepted compiler selectors are `gcc`, `g++`, `clang`, and `clang++`, with an

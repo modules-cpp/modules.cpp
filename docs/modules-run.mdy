@@ -12,7 +12,7 @@ run -h
 
 run --host apps/main -- -v
 
-run --target apps/target-smoke
+run --target platforms/mps2-an385/target-smoke
 
 Arguments after -- belong to the application and are passed without being interpreted as run options. The host lane executes its application directly. The target lane requires a configured runner and executes the application through that runner.
 

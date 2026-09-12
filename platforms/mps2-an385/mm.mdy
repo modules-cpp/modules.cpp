@@ -1,15 +1,7 @@
 ---
 mm: 1.2
-kind: board
-name: mps2-an385
-sdk: arm-none-eabi-newlib
-cpu: cortex-m3
-instruction-set: thumb
-float-abi: soft
-machine: mps2-an385
-linker-script: link.ld
-file: vectors.cpp
-provides: reset-vector
-provides: initial-stack
-provides: memory-layout
+kind: dir
+name: mps2-an385-platform
+folder: board
+folder: target-smoke
 ---

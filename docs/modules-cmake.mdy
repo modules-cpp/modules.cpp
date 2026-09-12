@@ -1,0 +1,340 @@
+---
+mm: 1.0
+kind: doc
+name: modules.cpp external CMake builder specification
+status: official
+---
+
+# modules.cpp external CMake builder specification
+
+# Status and authority
+
+This document specifies the implemented external CMake builder: how a selected
+SDK delegates application linking to a library-owned bridge, the files and
+variables exchanged with that bridge, cache identity, ABI verification, and
+artifact publication. The manifest declarations that activate it require mm:
+1.4.
+
+status: official gives this document the same authority as the other implemented
+specifications in docs.
+
+docs/modules-libraries.mdy remains authoritative for kind: library, library
+references, checkout validation, and wrapper availability. docs/modules-platforms.mdy
+remains authoritative for SDK selection and link ownership in the configuration
+record. docs/modules-build.mdy remains authoritative for compilation, application
+object closure, lane selection, and build exit status. This document owns the
+generic contract between mm.build and an external CMake bridge.
+
+docs/modules-platform-pico.mdy owns the Pico SDK instance of the contract,
+including board mapping, picotool, its C adapter, and UF2 validation.
+
+Examples use Opening fence and Closing fence instead of literal front matter
+delimiters, following docs/mdy.mdy.
+
+# What the external builder is
+
+CMake is a link/build mechanism, not a platform and not an application property.
+An SDK selects a library, the library declares external-build: cmake, and
+configure records cross-link: external for the selected target lane. At link
+time every available application in that lane is handed to the bridge. An
+application neither declares CMake nor becomes a CMake target in its manifest.
+
+Opening fence
+selected SDK
+  library: cmake-demo
+    -> library cmake-demo
+       external-build: cmake
+         -> cross-link: external
+            -> external CMake link for every application in the lane
+Closing fence
+
+This lane-wide rule is what lets a portable core application use the runtime
+supplied by a platform without declaring that runtime as its own dependency. A
+module may separately declare library: and an application may use that wrapper;
+those declarations describe source dependencies, not link ownership.
+
+# Activation and validation
+
+A CMake-backed library has this shape:
+
+Opening fence
+library/mm.mdy                  kind: library, external-build: cmake
+library/LICENSE                 repository-owned licence
+library/upstream/               foreign source checkout
+library/cmake/CMakeLists.txt    project-owned bridge
+library/cmake/mm-requires.txt   optional package requirements
+Closing fence
+
+external-build is a single optional mm: 1.4 key valid only on kind: library.
+cmake is its only supported value. The cmake directory is found by convention
+beside the library manifest; no second manifest key names it. Manifest loading
+requires that directory and CMakeLists.txt to exist inside the project and to
+resolve outside the foreign source checkout.
+
+An SDK activates the bridge by naming the library:
+
+Opening fence
+mm: 1.4
+kind: sdk
+name: m68k-linux-external
+target: m68k-linux-gnu
+compiler-family: gcc
+runtime: glibc
+library: cmake-demo
+Closing fence
+
+Selecting that SDK requires the checkout to be present. Configure writes
+cross-link: external and omits project-link fields that do not apply. Build
+loads the record, resolves the selected SDK and library again, and rejects a
+record whose saved ownership disagrees with the live external-build declaration.
+Changing either manifest therefore requires reconfiguration rather than silently
+changing the link path.
+
+# Application link dispatch
+
+mm.build compiles project modules and application translation units normally.
+For an application it computes the same ordered transitive object closure used
+by project linking and appends any selected board objects. If the configured
+platform owns the link, mm.build invokes its linker directly. If ownership is
+external, it calls the CMake builder with that object list.
+
+The external builder resolves the selected SDK's library and verifies that its
+external-build value is cmake. It requires configured C and C++ drivers and
+resolves both through PATH to canonical executable paths. The app name, not a
+manifest-derived CMake identifier, names the output and its isolated build
+directory:
+
+Opening fence
+out-target-TARGET/external/LIBRARY/BOARD-OR-none/APP/
+Closing fence
+
+Each application has its own CMake cache. Two applications in one external lane
+therefore configure and build independently in the current implementation.
+
+# Generated input files
+
+Before invoking CMake, mm.build writes mm-inputs.cmake and mm-toolchain.cmake in
+the isolated external directory.
+
+mm-inputs.cmake defines exactly these generic values:
+
+- MM_OBJECTS is the ordered list of absolute project and board object paths.
+- MM_OUTPUT_NAME is the application name.
+- MM_LIBRARY_SOURCE is the absolute foreign source checkout path.
+- MM_BOARD is the selected board name, or an empty string for a boardless lane.
+- MM_TOOLCHAIN_FILE is the absolute generated toolchain-file path.
+- MM_C_COMPILER is the canonical configured C driver.
+- MM_CXX_COMPILER is the canonical configured C++ driver.
+
+The file conveys no adapter name, foreign target name, Pico variable, or
+library-specific option. The bridge owns all such choices.
+
+Every generated value uses a CMake bracket argument with a delimiter chosen not
+to collide with the value. Newlines, carriage returns, and semicolons are
+rejected because a bracket argument cannot prevent a semicolon from splitting a
+CMake list. Failure to find a delimiter within the implementation's bound is
+also an error. These rules apply to object paths, names, source and toolchain
+paths, board names, and compiler paths.
+
+mm-toolchain.cmake defines:
+
+- CMAKE_SYSTEM_NAME as Generic for a bare-metal lane or Linux for a hosted lane.
+- CMAKE_TRY_COMPILE_TARGET_TYPE as STATIC_LIBRARY.
+- CMAKE_C_COMPILER and CMAKE_CXX_COMPILER from the configured lane.
+- CMAKE_SYSROOT when the platform supplies one.
+
+It deliberately contains no processor options. A bridge may select this file as
+its CMAKE_TOOLCHAIN_FILE, as cmake-demo does, or use a foreign build's toolchain
+selection, as Pico SDK does. Omitting project processor options prevents the
+foreign ABI check from passing merely because mm.build injected its own answer.
+
+# Bridge obligations
+
+The bridge is a checked-in CMake project owned by the library integration. It
+must:
+
+1. Read mm-inputs.cmake from CMAKE_CURRENT_BINARY_DIR.
+2. Configure its foreign build with the supplied drivers or a compatible
+   toolchain derived from them.
+3. Treat MM_OBJECTS as generated external objects and preserve their order.
+4. Define a build target named mm_external.
+5. Link mm_external with the C++ linker, normally with LINKER_LANGUAGE CXX.
+6. Enable compile-command export and compile at least one representative C
+   source with the foreign build's effective target options.
+7. Write mm-abi-probe.txt containing that source's absolute path.
+8. Write mm-result.txt containing the primary and optional supplemental outputs.
+
+MM_OBJECTS are passed directly rather than packed into a static archive. This
+preserves namespace-scope constructors and self-registering objects which an
+archive linker could omit when no ordinary symbol pulls their object from the
+archive.
+
+The bridge may generate private sources and artifacts. Their names and meanings
+stay inside the bridge; mm.build learns only the ABI probe path and reported
+result paths.
+
+# CMake package requirements
+
+A bridge that requires preinstalled CMake config packages declares their
+variables in cmake/mm-requires.txt, one per line:
+
+Opening fence
+picotool_DIR
+Closing fence
+
+Each name must match a CMake-style identifier ending in _DIR. Blank, malformed,
+and duplicate lines are rejected. Before CMake runs, each corresponding
+environment variable must name an existing directory containing either
+PackageConfig.cmake or Package-config.cmake, where Package is the variable name
+without _DIR.
+
+mm.build canonicalises each directory, passes it as
+-DVariable:PATH=directory, and includes the variable, path, and recursive package
+contents in cache identity. No package directory is searched implicitly. CMake
+is also invoked with FETCHCONTENT_FULLY_DISCONNECTED=ON, so a bridge cannot turn
+a missing local prerequisite into an unrequested download.
+
+The requirement belongs to the bridge rather than to a library name. Renaming a
+library does not disable it, and a second CMake library can declare its own
+requirements without adding a special case to mm.build.
+
+# Cache identity and configuration
+
+mm.build resolves CMake through PATH and queries the CMake, C, and C++ driver
+versions. It fingerprints:
+
+- the identity format and the fixed Unix Makefiles generator;
+- the bridge path and recursive bridge contents;
+- mm-inputs.cmake and mm-toolchain.cmake;
+- every required package variable, canonical path, and recursive contents;
+- CMake and compiler canonical paths and reported versions;
+- C, C++, and linker argument strings;
+- target, system, sysroot, board, and output name; and
+- the project's normalized ABI projection.
+
+The fingerprint is stored in mm-cache-identity.txt. If CMakeCache.txt exists and
+the identity is absent or different, mm.build first verifies that the directory
+is inside the project, removes that application's external directory, recreates
+it, and rewrites both generated files. This prevents CMake from retaining a
+compiler or lane value after the input changed.
+
+Foreign checkout contents are not recursively fingerprinted. Their path is in
+mm-inputs.cmake, while ordinary foreign source changes are left to CMake's own
+dependency tracking. Bridge and package contents are fingerprinted because they
+control configuration and may otherwise leave stale cache decisions.
+
+Whether the cache was retained or recreated, mm.build configures on every link:
+
+Opening fence
+cmake -G "Unix Makefiles"
+      -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+      -DFETCHCONTENT_FULLY_DISCONNECTED=ON
+      [required -DPackage_DIR:PATH=... values]
+      -S BRIDGE -B EXTERNAL_DIRECTORY
+Closing fence
+
+Verbose mode shows the commands and reports cache invalidation. Non-verbose mode
+suppresses CMake configure and build output while preserving the final
+modules.cpp diagnostic.
+
+# ABI verification
+
+The external builder refuses to link project and foreign objects until their
+calling conventions agree. After configure, it reads mm-abi-probe.txt. The file
+must name one source which resolves to exactly one command-form entry in
+compile_commands.json by canonical path. The JSON arguments form is unsupported,
+and @ response-file arguments are rejected.
+
+The compile command's driver must canonically equal the configured C driver.
+mm.build retains only -m options from that command, then asks the same driver for
+its effective target state under LC_ALL=C:
+
+Opening fence
+C-DRIVER OPTIONS -Q --help=target -c
+Closing fence
+
+It performs the same query for the project's processor options and compares a
+closed projection for the configured triple:
+
+Opening fence
+arm-none-eabi     -march= -mthumb -mfloat-abi= -mfpu= -mcmse
+m68k-linux-gnu    -march= -mcpu= -m68881 -mhard-float -msoft-float
+riscv32-pico-elf  -march= -mabi=
+Closing fence
+
+Every projected field must appear exactly once. Empty values of fields ending
+in = are valid driver state; boolean fields must be [enabled] or [disabled]. A
+missing, repeated, malformed, or unequal projection stops before
+the external link and prints both option sets and projections.
+
+# Build and result publication
+
+After ABI agreement, mm.build runs:
+
+Opening fence
+cmake --build EXTERNAL_DIRECTORY --target mm_external
+Closing fence
+
+The bridge reports outputs in mm-result.txt, one absolute path per line. The
+first line is the primary executable. Later lines are supplemental artifacts.
+Every reported path must identify an existing regular file whose canonical path
+is inside the isolated external directory. Sources must be unique; blank
+interior lines, symlink escapes, and destination collisions are errors.
+
+The primary result is copied atomically to the ordinary extensionless
+application path. A supplemental file name must start with MM_OUTPUT_NAME and
+continue with a dot-prefixed suffix. That suffix is preserved exactly:
+
+Opening fence
+app.elf.map -> published-name.elf.map
+app.bin     -> published-name.bin
+app.uf2     -> published-name.uf2
+Closing fence
+
+Run and debug consume the normal primary path and do not need to know that CMake
+linked it. Supplemental formats remain platform-defined.
+
+# Implemented bridges
+
+libraries/cmake-demo is the small generic fixture. Its bridge selects the
+generated toolchain file, compiles one foreign C source, links the project
+objects into mm_external, and reports one executable. The
+m68k-linux-external SDK selects it. Its cmake-demo-smoke application uses two
+project translation units so a successful QEMU exit proves that a namespace-scope
+constructor survived the object hand-off.
+
+platforms/pico/sdk/pico-sdk is the production integration. Its bridge maps the
+selected Pico board, lets Pico SDK select its own platform toolchain, compiles a
+project-owned C adapter, and reports ELF, BIN, HEX, MAP, and validated UF2
+artifacts. It declares picotool_DIR through mm-requires.txt. None of those Pico
+details appears in the generic builder.
+
+# Boundaries
+
+- Only CMake and the Unix Makefiles generator are supported.
+- Only target lanes may select external link ownership; the host platform is
+  project-linked.
+- Each application has a separate CMake configure/build directory. External SDK
+  compilation is not shared between executables.
+- Link ownership is lane-wide. There is no application-level external-build key.
+- Applications cannot name libraries directly. They depend on project wrapper
+  modules through use; a wrapper may name a library.
+- requires-sdk is not implemented, so a boardless SDK-specific application
+  cannot express that availability constraint directly in its manifest.
+- The compile-database reader intentionally supports only the narrow command
+  form generated by the pinned bridges; it is not a general compilation database
+  library.
+
+# Conformance
+
+tests/mm/build/external.cpp exercises generated input escaping, package
+requirements, projection schemas and parsing, live driver queries, cache identity,
+and result validation. tests/mm/build/configuration.cpp and
+tests/mm/configure/write_configuration.cpp exercise external link records and
+staleness rules.
+
+The m68k-linux-external fixture proves configuration, external CMake linking,
+artifact publication, and execution under qemu-user without Pico SDK. The ARM
+and RISC-V Pico SDK integration scripts prove the production bridges with real
+cross compilers and picotool. Requirements not reached by one of those tests
+remain review-enforced.

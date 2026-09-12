@@ -14,6 +14,9 @@ This document specifies the implemented build command and its host and target la
 
 docs/modules-configure.mdy remains authoritative for lane definitions, compiler selection, build type, option inheritance, read-only settings, and buildable-host and buildable-target. This document owns how build selects and consumes a configured lane.
 
+docs/modules-cmake.mdy owns the external CMake bridge protocol, cache identity,
+ABI verification, and external artifact publication.
+
 # Command line
 
 build [-v or --verbose] [-h or --help] [--host or --target] [manifest]
@@ -84,6 +87,9 @@ Unknown modules and dependency cycles are manifest errors. Compile and link fail
 
 # External build and link ownership
 
+The detailed and authoritative contract for this section is
+docs/modules-cmake.mdy.
+
 When a target lane platform declares `link: external` (recorded as `cross-link: external` in `out/config.mdy`), link ownership is delegated to the platform's selected SDK library external build bridge:
 
 - Application linking does not invoke the project linker directly. Instead, build creates an isolated external build directory under the target output tree (`external/<library>/<board-or-none>/<app-name>`).
@@ -93,7 +99,7 @@ When a target lane platform declares `link: external` (recorded as `cross-link: 
 - Initial CMake configuration is executed with compile commands export enabled (`-DCMAKE_EXPORT_COMPILE_COMMANDS=ON`). Build passes no library-specific option and does not select a toolchain on a bridge's behalf; all bridge inputs and required CMake packages use the generic contracts above. The canonical driver and ABI checks below verify the bridge's selection.
 - Build validates and extracts the ABI probe declared by the bridge in `mm-abi-probe.txt`. The probe path must resolve to exactly one entry in `compile_commands.json` by canonical path. Arguments-form entries and `@` response files are rejected.
 - The C driver identity in the compile database command must match the configured C compiler. Arguments are sanitised to retain only `-m*` options.
-- The C driver target projection is queried under `LC_ALL=C <driver> <options> -Q --help=target -c` and parsed strictly against the target triple's projection schema (closed registry: `arm-none-eabi`, `m68k-linux-gnu`). Missing, duplicate, or unrecognized fields are rejected.
+- The C driver target projection is queried under `LC_ALL=C <driver> <options> -Q --help=target -c` and parsed strictly against the target triple's projection schema (closed registry: `arm-none-eabi`, `m68k-linux-gnu`, `riscv32-pico-elf`). Missing or duplicate required fields and malformed boolean values are rejected.
 - The bridge probe projection must match the project target projection exactly. Any mismatch aborts linking with a diagnostic naming the differing fields and leaves the external build directory intact for inspection.
 - When the projection matches, `cmake --build` builds the `mm_external` target (with `LINKER_LANGUAGE CXX`).
 - Build validates and publishes artifacts listed in `mm-result.txt`. Trailing blank lines are stripped. Line 1 specifies the primary artifact path. Interior blank lines, non-existent files, non-regular files, relative paths, paths resolving outside the external build directory, duplicate sources, and colliding destinations are rejected.

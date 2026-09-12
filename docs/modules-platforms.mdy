@@ -14,7 +14,7 @@ This document specifies the implemented platforms directory, the sdk and board m
 
 status: official gives this document the same authority as the other implemented specifications in docs.
 
-docs/modules-configure.mdy remains authoritative for lane definitions, compiler selection, build type, option inheritance, read-only settings, and buildable-host and buildable-target. docs/modules-build.mdy and docs/modules-test.mdy remain authoritative for lane selection. docs/modules-model.mdy remains authoritative for the abstract model, including the platform accessor this document replaces. This document owns what a platform is, how it is declared, how it is selected, and what it contributes to a command.
+docs/modules-configure.mdy remains authoritative for lane definitions, compiler selection, build type, option inheritance, read-only settings, and buildable-host and buildable-target. docs/modules-build.mdy and docs/modules-test.mdy remain authoritative for lane selection. docs/modules-cmake.mdy remains authoritative for the external CMake bridge protocol selected by a platform. docs/modules-model.mdy remains authoritative for the abstract model, including the platform accessor this document replaces. This document owns what a platform is, how it is declared, how it is selected, and what it contributes to a command.
 
 Examples use Opening fence and Closing fence instead of literal front matter delimiters, following docs/mdy.mdy.
 
@@ -40,9 +40,11 @@ Changing a board manifest's settings or source list requires configure again, be
 Opening fence
 platforms/mm.mdy                       kind: dir, one folder: per SDK and board
 platforms/arm-none-eabi/mm.mdy         kind: sdk
-platforms/mps2-an385/mm.mdy            kind: board
-platforms/mps2-an385/link.ld           linker script
-platforms/mps2-an385/vectors.cpp       vector table and reset handler
+platforms/mps2-an385/mm.mdy            kind: dir
+platforms/mps2-an385/board/mm.mdy      kind: board
+platforms/mps2-an385/board/link.ld     linker script
+platforms/mps2-an385/board/vectors.cpp vector table and reset handler
+platforms/mps2-an385/target-smoke/     requires-board: mps2-an385
 Closing fence
 
 The project root manifest gains folder: platforms. Board sources are compiled by the build like any other declared source.
@@ -319,10 +321,10 @@ cross-sdk-specs-argument: --specs=rdimon.specs
 cross-sdk-provides: runtime-init
 cross-sdk-provides: syscalls
 cross-board: mps2-an385
-cross-board-manifest: platforms/mps2-an385/mm.mdy
+cross-board-manifest: platforms/mps2-an385/board/mm.mdy
 cross-board-machine: mps2-an385
-cross-board-linker-script: platforms/mps2-an385/link.ld
-cross-board-source: platforms/mps2-an385/vectors.cpp
+cross-board-linker-script: platforms/mps2-an385/board/link.ld
+cross-board-source: platforms/mps2-an385/board/vectors.cpp
 cross-board-provides: reset-vector
 cross-board-provides: initial-stack
 cross-board-provides: memory-layout
@@ -344,6 +346,9 @@ The board records no target of its own; cross-target and the SDK carry it. Absen
 The manifest is authoritative and the record is a snapshot, exactly as resolved-options.mdy is a snapshot of manifest options. Editing a platform manifest takes effect on the next configure.
 
 # Link ownership and external linking
+
+docs/modules-cmake.mdy owns the detailed execution contract after a lane selects
+external link ownership.
 
 When an SDK's library declares external-build, configure records the lane's link ownership as external:
 
@@ -418,9 +423,9 @@ Every platform diagnostic names the manifest it came from. A mismatch names both
 
 ./build --target
 
-./run --target target-smoke
+./run --target platforms/mps2-an385/target-smoke
 
-./test --target --compile-only
+./test --target --compile-only tests/target/board/
 
 ./configure --target arm-none-eabi --compiler arm-none-eabi-gcc --sdk arm-none-eabi-newlib
 

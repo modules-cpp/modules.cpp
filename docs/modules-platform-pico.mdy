@@ -24,7 +24,8 @@ how a platform is selected, the processor registry's shape, responsibility
 ownership, and the configuration record. docs/modules-libraries.mdy remains
 authoritative for kind: library, external-build, the bridge-location convention,
 bridge requirement files, checkout validation, and the external-wrapper
-availability rule. docs/modules-c++20.mdy remains authoritative for what a
+availability rule. docs/modules-cmake.mdy remains authoritative for the generic
+external CMake bridge protocol. docs/modules-c++20.mdy remains authoritative for what a
 wrapper, a linkage shim, and an adapter may contain. This document owns the Pico
 instance of all of them.
 

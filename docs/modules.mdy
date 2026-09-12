@@ -104,7 +104,6 @@ The source tree is organized by responsibility.
 +-- apps/
 |   +-- main/                 minimal application
 |   +-- mdy/                  MDY and documentation application
-|   +-- target-smoke/         board-specific bare-metal acceptance application
 |   +-- target-smoke-any/     boardless target acceptance application
 +-- libraries/                non-core third-party definitions and wrappers
 +-- models/                   the abstract data model; see docs/modules-model.mdy
@@ -120,7 +119,7 @@ The source tree is organized by responsibility.
 |   +-- artifacts/            models.artifacts
 +-- platforms/                target SDK and board manifests
 |   +-- arm-none-eabi/        newlib SDK
-|   +-- mps2-an385/           Cortex-M3 board, vectors, and linker script
+|   +-- mps2-an385/           Cortex-M3 board and acceptance application
 +-- modules/mm/
 |   +-- app/                  mm.app
 |   +-- build/                mm.build
@@ -156,6 +155,7 @@ The source tree is organized by responsibility.
 |   +-- modules.mdy           this guide
 |   +-- modules-build.mdy     build tool and lane-selection specification
 |   +-- modules-c++20.mdy     C++20 language subset specification
+|   +-- modules-cmake.mdy     external CMake builder specification
 |   +-- modules-configure.mdy official configure specification for release v1.3.0
 |   +-- modules-debug.mdy     debug tool and debugger specification
 |   +-- modules-model.mdy     the abstract data model
@@ -558,7 +558,7 @@ These are the gaps between the Design goals and today's implementation.
 
 docs/modules-configure.mdy is the official configure and manifest-option specification for release v1.3.0. configure implements typed options, branch-local resets and read-only settings, lanes, platforms, runners, debuggers, library definitions, and records beneath out. All eight manifest-reading tools accept 1.0, 1.1, 1.2, 1.3, and 1.4 through the shared gate. Build, test, run, and debug resolve buildable-host, buildable-target, and core, enforce the selected lane and core dependency boundary, and apply requires-board availability; other tuning declarations remain warning-only and are not yet applied to compilation.
 
-docs/modules-build.mdy, docs/modules-test.mdy, docs/modules-run.mdy, docs/modules-debug.mdy, docs/modules-platforms.mdy, docs/modules-platform-pico.mdy, and docs/modules-libraries.mdy specify the implemented lane, compile-only, platform, Raspberry Pi Pico, runner-backed execution, debugging, and third-party library interfaces.
+docs/modules-build.mdy, docs/modules-cmake.mdy, docs/modules-test.mdy, docs/modules-run.mdy, docs/modules-debug.mdy, docs/modules-platforms.mdy, docs/modules-platform-pico.mdy, and docs/modules-libraries.mdy specify the implemented lane, external CMake builder, compile-only, platform, Raspberry Pi Pico, runner-backed execution, debugging, and third-party library interfaces.
 
 - App defines the application boundary but stores no state; shared lifecycle, context, logging, or argument services can be added there without coupling them to build policy.
 - Bootstrap follows GCC modules-ts conventions; the self-hosted compiler driver

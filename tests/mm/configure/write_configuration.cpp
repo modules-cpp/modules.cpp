@@ -496,7 +496,7 @@ void writes_cross_link_external_configuration() {
     platform.runtime = mm::configure::PlatformRuntime::None;
     platform.link_ownership = mm::configure::LinkOwnership::External;
     platform.sdk = "cmake-demo";
-    platform.sdk_manifest = "platforms/m68k-linux-external/mm.mdy";
+    platform.sdk_manifest = "platforms/m68k-linux-external/sdk/mm.mdy";
     platform.board.reset();
     platform.board_manifest.reset();
     platform.machine.clear();

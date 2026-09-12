@@ -239,8 +239,8 @@ capability. tests declares buildable-target no because runner availability is
 a toolchain property rather than a promise that every target can execute tests;
 a hosted target may admit those tests and a configured runner may execute them.
 apps/mdy and apps/main declare buildable-target no because they are host
-applications. apps/target-smoke and apps/target-smoke-any are target-only
-acceptance applications; the first additionally requires mps2-an385. Everything
+applications. platforms/mps2-an385/target-smoke and apps/target-smoke-any are
+target-only acceptance applications; the first additionally requires mps2-an385. Everything
 under modules keeps the permissive default, and the use: rule is what keeps that
 honest.
 
