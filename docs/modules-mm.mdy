@@ -1,0 +1,282 @@
+---
+mm: 1.0
+kind: doc
+name: modules.cpp mm manifest specification
+status: official
+release: v1.2.0
+---
+
+# modules.cpp mm manifest specification
+
+# Status and authority
+
+This document specifies the mm manifest schema: every accepted format version,
+every key each version introduces, the manifest kinds each key is valid on, the
+order the shared gate applies those rules in, and the diagnostic each failure
+produces. It describes implemented behaviour.
+
+status: official gives this document the same authority as the other implemented
+specifications in docs.
+
+docs/mdy.mdy remains authoritative for the MDY file format itself: front matter,
+metadata lines, repeated values, and body prose. This document governs what a
+manifest may say, not how a file is written. docs/modules-configure.mdy remains
+authoritative for what option, reset, and read-only mean once accepted;
+docs/modules-platforms.mdy for the sdk and board keys; docs/modules-libraries.mdy
+for the library keys and external-build; docs/modules.mdy for what each kind is
+for. This document owns the version and key schema all of them share.
+
+Examples use Opening fence and Closing fence instead of literal front matter
+delimiters, following docs/mdy.mdy.
+
+# One gate, every tool
+
+The schema is enforced once, in mm.build's shared manifest gate, for configure,
+build, test, check, model, document, run, and debug, including the standalone
+test-manifest load. No front end implements its own copy of these rules, and a
+tool rendering one manifest outside a walk reaches the same gate directly through
+validate_manifest_schema.
+
+The list of accepted versions in the diagnostic is generated from the same table
+the rules are read from, so adding a version changes no message literal.
+
+Configuration records are not manifests and do not pass through this gate. A record
+under out declares kind: configuration with mm: 1.0 or mm: 2.0 and a schema key,
+none of which this schema accepts: configuration is not one of the nine kinds, 2.0
+is not an accepted version, and schema is not a key here. Records are generated
+build-lane artifacts with their own private schema, specified by
+docs/modules-platforms.mdy, and are read by a separate loader.
+
+# Versions
+
+Three versions are accepted.
+
+Opening fence
+1.0   unknown keys are kept
+1.1   unknown keys are rejected
+1.2   unknown keys are rejected
+Closing fence
+
+The mm key is required, appears exactly once, and must name an accepted version. A
+manifest with no mm key, with two, or with an unrecognised value is rejected before
+any other rule is applied.
+
+A 1.0 manifest without newer declarations remains valid and inherits values and
+locks normally from a newer parent. Its permissiveness is deliberate and is the
+one behaviour that does not carry forward: unknown keys in a 1.0 manifest are not
+diagnosed at all, while from 1.1 onward an unknown key is an error under a strict
+traversal and a warning elsewhere.
+
+1.3 and 1.4 are not accepted. Both existed during development, staging the library
+and external-build keys, and both were folded into 1.2 before release. A manifest
+declaring either is rejected as an unsupported version, which is asserted by test
+rather than left to convention.
+
+# Kinds
+
+Nine kinds exist: project, dir, module, app, test, doc, sdk, board, and library. A
+manifest declaring any other kind is rejected by name.
+
+kind: library additionally requires mm: 1.2, checked against the kind itself. That
+check is reached only when no key has already failed, so a 1.1 library manifest
+declaring a 1.2 key reports the key and one declaring none reports the kind. Rule
+order below states why. sdk and board carry no such floor: every key they need was
+introduced at 1.2, so a 1.0 or 1.1 manifest of either kind fails on its first
+platform key regardless.
+
+# The keys
+
+Every key, the version that introduced it, and the kinds it is valid on. A key is
+valid only on the kinds listed.
+
+Opening fence
+1.0  mm                  project dir module app test doc sdk board library
+1.0  kind                project dir module app test doc sdk board library
+1.0  name                project dir module app test doc sdk board library
+1.0  folder              project dir library
+1.0  module              module
+1.0  file                module app doc board
+1.0  unit                test
+1.0  use                 module app test
+
+1.1  option              project dir module app test
+1.1  reset               project dir module app test
+1.1  read-only           project dir module app test
+
+1.2  target              sdk
+1.2  compiler-family     sdk
+1.2  runtime             sdk
+1.2  specs-profile       sdk
+1.2  specs-file          sdk
+1.2  sysroot             sdk
+1.2  runtime-prefix      sdk
+1.2  provides            sdk board
+1.2  sdk                 board
+1.2  cpu                 board
+1.2  instruction-set     board
+1.2  float-abi           board
+1.2  security-domain     board
+1.2  machine             board
+1.2  linker-script       board
+1.2  requires-board      app test
+1.2  source              library
+1.2  licence             library
+1.2  include-directory   library
+1.2  library-directory   library
+1.2  link-archive        library
+1.2  link-input          library
+1.2  library             sdk module
+1.2  external-build      library
+Closing fence
+
+Three placements are worth stating because their absence is load-bearing rather
+than accidental.
+
+- file is not valid on sdk or library. An SDK declares a runtime and contributes
+  no sources; a library describes a vendored tree, and rejecting file is what keeps
+  foreign source out of the compiler and out of check's collection.
+- option, reset, and read-only are not valid on doc, sdk, board, or library. Those
+  kinds declare no code, so a local option value would have nothing to describe.
+  They still inherit a resolved value from an ancestor; restricted declaration and
+  inherited value are different things.
+- library is valid on sdk and module and on no other kind. On an SDK it names the
+  platform implementation; on a module it makes that module a wrapper.
+
+# Rule order
+
+The gate applies its rules in a fixed order, and the order decides which
+diagnostic a manifest with several faults produces.
+
+1. The document parsed, and mm names an accepted version, exactly once.
+2. Every key, in sorted order: unknown keys, then the introducing version, then
+   the valid kinds.
+3. kind: library requires 1.2.
+4. kind names one of the nine.
+5. name is present and safe.
+
+Two consequences follow, and both are observable rather than theoretical.
+
+The whole key pass precedes every kind and name check, so a manifest that is wrong
+in both ways reports the key. A 1.1 manifest declaring kind: library with a licence
+key reports that licence requires 1.2; the same manifest with no 1.2 key reports
+that kind library requires 1.2. Keys are visited in sorted order, not declaration
+order, so the key named is the first failing one alphabetically: a manifest
+declaring source, licence, and machine reports licence.
+
+kind is itself a key with a kinds rule, listing the nine. An unrecognised kind
+therefore fails that rule during the key pass and is reported as
+
+Opening fence
+<tool>: <manifest>: kind is not valid on kind: nonsense
+Closing fence
+
+rather than reaching the clearer unknown-kind diagnostic below, which survives for
+the cases the key pass does not catch first.
+
+Within one key, the introducing version is checked before the kinds, so a 1.0
+manifest declaring target on a module reports the version requirement rather than
+the placement. That is deliberate: raising the version is what makes the key legal
+to write at all.
+
+# Names
+
+A name is required on every manifest. It may not be empty, may not be "." or "..",
+and may not contain a path separator, because a name reaches a filesystem path and
+a command line.
+
+Names are unique within a kind, checked after the complete tree is collected. Two
+SDKs, two boards, or two libraries sharing a name is an error naming both
+manifests. Nodes of different kinds may share a name, which several parts of this
+repository rely on: the pico directory and the pico board, or the pico-sdk library
+and a module that wraps it.
+
+# Diagnostics
+
+Every failure names the manifest and the offending value.
+
+Opening fence
+<tool>: invalid or unsupported mm: version in <manifest> (supported: 1.0, 1.1, 1.2)
+<tool>: <manifest>: kind library requires mm: 1.2
+<tool>: unknown kind "<kind>" in <manifest>
+<tool>: manifest has no name: <manifest>
+<tool>: unsafe name "<name>" in <manifest>
+<tool>: <manifest>: unknown manifest key: <key>
+<tool>: <manifest>: unknown manifest key: <key> (ignored)
+<tool>: <manifest>: <key> requires mm: <version>
+<tool>: <manifest>: <key> is not valid on kind: <kind>
+Closing fence
+
+The two unknown-key forms differ by traversal, not by version: under the strict
+folder-tree traversal configure requests, an unknown key in a 1.1 or 1.2 manifest
+is fatal; under the default traversal every other tool uses, it is reported with
+(ignored) and the walk continues. In a 1.0 manifest neither form appears.
+
+A recognised declaration key whose value no lane tool consumes is reported
+separately, and only by the tools that resolve options, as an ignored declaration
+that does not stop the build.
+
+Every schema failure is a manifest fault and exits 65.
+
+# Compatibility
+
+- A binary built before a version existed rejects a manifest declaring it as an
+  unsupported version, naming the versions it supports. That is the intended
+  diagnosis, and it is why a new key is introduced at a new version rather than
+  added to a released one: an older binary must reject the manifest for the right
+  reason rather than ignore the key or reject it as unknown.
+- A newer binary reads every older version unchanged. Nothing introduced after 1.0
+  changes the meaning of a 1.0 manifest.
+- Raising a manifest's version is always safe on its own: no key changes meaning
+  between versions, and the newer version only admits more keys and, from 1.1,
+  stops ignoring unknown ones.
+
+# Conformance
+
+- A manifest with no mm key, with two, or with an unrecognised value is rejected,
+  naming the supported versions.
+- mm: 1.3 and mm: 1.4 are rejected as unsupported versions.
+- A key declared before its introducing version is rejected naming that version;
+  within one key that check precedes its kinds check.
+- The key pass precedes the kind and name checks. A 1.1 library manifest with a
+  1.2 key reports the key; the same manifest without one reports the kind. The key
+  named is the first failing one in sorted order, not in declaration order.
+- A key on a kind that does not accept it is rejected naming the kind, including
+  file on an sdk manifest, target on a board manifest, requires-board on a module
+  manifest, and option on a library manifest.
+- kind: library in a 1.0 or 1.1 manifest declaring no 1.2 key is rejected naming
+  the kind.
+- A configuration record does not load through this gate, and a manifest declaring
+  kind: configuration or mm: 2.0 is rejected.
+- An unknown key is fatal under the strict traversal, reported and ignored under
+  the default one, and invisible in a 1.0 manifest.
+- An unknown kind, a missing name, and a name containing a path separator, ".", or
+  ".." are each rejected.
+- Two SDKs, two boards, or two libraries sharing a name are rejected naming both
+  manifests; a library and a module may share one.
+- Every manifest-reading tool applies these rules identically, including the
+  standalone test-manifest load, and none requires a generated configuration
+  record to do so.
+- The supported-version diagnostic, the introduced-in diagnostic, and the
+  unknown-key threshold all derive from one table; adding a version changes no
+  message literal.
+
+# Current boundaries
+
+- There is no deprecation mechanism. A key is introduced at a version and valid
+  from then on; nothing removes or renames one, and no manifest can declare which
+  version it was written against beyond mm itself.
+- The kinds list is closed in code rather than in data, so a new kind is a source
+  change in the same place the key table lives.
+- A key's value grammar is not part of this schema. The gate decides whether a key
+  may appear; whether its value parses is the owning specification's rule and is
+  reported by the code that reads it.
+- Unknown keys in a 1.0 manifest remain undiagnosed. Tightening that would change
+  the meaning of existing 1.0 manifests, which is the one compatibility promise
+  this schema makes.
+- An unrecognised kind is usually reported as kind is not valid on kind: X, because
+  kind is checked as a key before the kind whitelist is reached. The clearer
+  unknown-kind diagnostic exists and is mostly unreachable. Running the key pass
+  after the kind and name checks would fix that, and would also make a 1.1 library
+  manifest name its kind rather than one of its keys; it is a diagnostic
+  improvement with no functional effect, and it changes which message an existing
+  broken manifest produces.

@@ -11,6 +11,7 @@ file: modules-cmake.mdy
 file: modules-configure.mdy
 file: modules-debug.mdy
 file: modules-libraries.mdy
+file: modules-mm.mdy
 file: modules-model.mdy
 file: modules-platform-pico.mdy
 file: modules-platforms.mdy
