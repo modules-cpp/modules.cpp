@@ -6,10 +6,5 @@ folder: main
 folder: mdy
 folder: target-smoke
 folder: target-smoke-any
-folder: target-smoke-rp2040
-folder: target-smoke-rp2350
 folder: cmake-demo-smoke
-folder: pico-smoke
-folder: pico2-arm-smoke
-folder: pico2-riscv-smoke
 ---

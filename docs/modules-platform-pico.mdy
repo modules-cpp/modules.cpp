@@ -51,8 +51,11 @@ them in separate subtrees is what lets one directory hold both.
 
 Opening fence
 platforms/pico/mm.mdy                        kind: dir, name: pico
+platforms/pico/apps/                         SDK-backed smoke applications
 platforms/pico/rp2040-ram/                   board, linker script, vector table
 platforms/pico/rp2350-ram/                   board, linker script, vector table
+platforms/pico/apps/target-smoke-rp2040/     requires-board: rp2040-ram
+platforms/pico/apps/target-smoke-rp2350/     requires-board: rp2350-ram
 
 platforms/pico/sdk/mm.mdy                    kind: dir, option: core no, read-only: core
 platforms/pico/sdk/pico-arm/mm.mdy           kind: sdk, arm-none-eabi
@@ -67,9 +70,9 @@ platforms/pico/sdk/pico-sdk/upstream/        the checkout, cloned and ignored
 platforms/pico/sdk/pico-sdk/cmake/           bridge, mm-requires.txt, UF2 validation
 platforms/pico/sdk/pico-sdk/ext/             adapter, shims, wrapper
 
-apps/pico-smoke/                             requires-board: pico
-apps/pico2-arm-smoke/                        requires-board: pico2-arm
-apps/pico2-riscv-smoke/                      requires-board: pico2-riscv
+platforms/pico/apps/pico-smoke/              requires-board: pico
+platforms/pico/apps/pico2-arm-smoke/         requires-board: pico2-arm
+platforms/pico/apps/pico2-riscv-smoke/       requires-board: pico2-riscv
 Closing fence
 
 Everything the project authors for Pico SDK, and the vendored tree itself, lives
@@ -427,11 +430,11 @@ run and debug reach it exactly as they reach a project-linked executable.
 Supplements are published beside it as the same name plus their own suffix:
 
 Opening fence
-out-target-arm-none-eabi/apps/pico-smoke/pico-smoke        the ELF
-out-target-arm-none-eabi/apps/pico-smoke/pico-smoke.bin
-out-target-arm-none-eabi/apps/pico-smoke/pico-smoke.hex
-out-target-arm-none-eabi/apps/pico-smoke/pico-smoke.uf2
-out-target-arm-none-eabi/apps/pico-smoke/pico-smoke.elf.map
+out-target-arm-none-eabi/platforms/pico/apps/pico-smoke/pico-smoke        the ELF
+out-target-arm-none-eabi/platforms/pico/apps/pico-smoke/pico-smoke.bin
+out-target-arm-none-eabi/platforms/pico/apps/pico-smoke/pico-smoke.hex
+out-target-arm-none-eabi/platforms/pico/apps/pico-smoke/pico-smoke.uf2
+out-target-arm-none-eabi/platforms/pico/apps/pico-smoke/pico-smoke.elf.map
 Closing fence
 
 External linking is lane-wide. Every available application in an SDK-backed lane is
