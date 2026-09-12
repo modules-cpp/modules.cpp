@@ -5,3 +5,7 @@ name: pico
 folder: rp2040-ram
 folder: rp2350-ram
 ---
+
+# Pico SDK staging
+
+The pico-sdk-arm, pico, and pico2 definitions are installed beside this manifest in stage 8. They are registered together with the pico-sdk library and bridge in stage 9, so no manifest walk can observe an unresolved library reference between stages.

@@ -156,7 +156,8 @@ struct ProcessorEntry {
     std::string_view cpu;
     std::string_view instruction_set;
     std::string_view float_abi;
-    std::string_view arguments[3];
+    std::string_view arguments[4];
+    bool manifest_selectable = true;
 };
 
 constexpr ProcessorEntry processor_table[] = {
@@ -165,8 +166,19 @@ constexpr ProcessorEntry processor_table[] = {
     {CompilerFamily::Gcc, "arm-none-eabi", "cortex-m0plus", "thumb", "soft",
      {"-mcpu=cortex-m0plus", "-mthumb", "-mfloat-abi=soft"}},
     {CompilerFamily::Gcc, "arm-none-eabi", "cortex-m33", "thumb", "softfp",
-     {"-mcpu=cortex-m33", "-mthumb", "-mfloat-abi=softfp"}},
+     {"-mcpu=cortex-m33", "-mthumb", "-mfloat-abi=softfp", "-mcmse"}},
+    // Configuration-2 records written before the Pico SDK integration carried
+    // three Cortex-M33 arguments. Keep those snapshots readable, while new
+    // manifest resolution selects the secure four-argument entry above.
+    {CompilerFamily::Gcc, "arm-none-eabi", "cortex-m33", "thumb", "softfp",
+     {"-mcpu=cortex-m33", "-mthumb", "-mfloat-abi=softfp", {}}, false},
 };
+
+std::size_t processor_argument_count(const ProcessorEntry& entry) {
+    std::size_t count = 0;
+    while (count < std::size(entry.arguments) && !entry.arguments[count].empty()) ++count;
+    return count;
+}
 
 const ProcessorEntry* find_processor_entry(
     CompilerFamily family,
@@ -175,7 +187,7 @@ const ProcessorEntry* find_processor_entry(
     std::string_view instruction_set,
     std::string_view float_abi) {
     for (const auto& entry : processor_table) {
-        if (entry.family == family && entry.target == target &&
+        if (entry.manifest_selectable && entry.family == family && entry.target == target &&
             entry.cpu == cpu && entry.instruction_set == instruction_set &&
             entry.float_abi == float_abi) {
             return &entry;
@@ -188,14 +200,14 @@ const ProcessorEntry* find_processor_entry_by_arguments(
     CompilerFamily family,
     std::string_view target,
     const std::vector<std::string>& arguments) {
-    if (arguments.size() != 3) return nullptr;
     for (const auto& entry : processor_table) {
-        if (entry.family == family && entry.target == target &&
-            arguments[0] == entry.arguments[0] &&
-            arguments[1] == entry.arguments[1] &&
-            arguments[2] == entry.arguments[2]) {
-            return &entry;
-        }
+        if (entry.family != family || entry.target != target ||
+            arguments.size() != processor_argument_count(entry))
+            continue;
+        bool equal = true;
+        for (std::size_t i = 0; i < arguments.size(); ++i)
+            if (arguments[i] != entry.arguments[i]) equal = false;
+        if (equal) return &entry;
     }
     return nullptr;
 }
@@ -1670,7 +1682,7 @@ bool parse_definitions(Project& project, const std::filesystem::path& root,
         return false;
     }
 
-    for (const auto& board : project.boards) {
+    for (auto& board : project.boards) {
         const SdkDefinition* sdk = nullptr;
         for (const auto& candidate : project.sdks)
             if (candidate.name == board.sdk) sdk = &candidate;
@@ -1679,12 +1691,15 @@ bool parse_definitions(Project& project, const std::filesystem::path& root,
                       << ": board references unknown SDK: " << board.sdk << "\n";
             return false;
         }
-        if (find_processor_entry(sdk->family, sdk->target, board.cpu,
-                                 board.instruction_set, board.float_abi) == nullptr) {
+        const auto* processor = find_processor_entry(sdk->family, sdk->target, board.cpu,
+                                                     board.instruction_set, board.float_abi);
+        if (processor == nullptr) {
             std::cerr << policy.tool << ": " << board.manifest.string()
                       << ": unknown processor combination for SDK " << sdk->name << "\n";
             return false;
         }
+        for (std::size_t i = 0; i < processor_argument_count(*processor); ++i)
+            board.compiler_arguments.emplace_back(processor->arguments[i]);
         const LibraryDefinition* library = nullptr;
         if (!sdk->library.empty()) {
             for (const auto& candidate : project.libraries)

@@ -232,9 +232,7 @@ int resolve_platform(const mm::build::Project& project,
             platform.linker_script = board->linker_script;
             platform.board_sources = board->sources;
         }
-        platform.compiler_arguments = {"-mcpu=" + board->cpu};
-        if (board->instruction_set == "thumb") platform.compiler_arguments.push_back("-mthumb");
-        platform.compiler_arguments.push_back("-mfloat-abi=" + board->float_abi);
+        platform.compiler_arguments = board->compiler_arguments;
         for (const auto responsibility : board->provides) {
             const auto found = platform.responsibility_owners.find(responsibility);
             if (found != platform.responsibility_owners.end()) {

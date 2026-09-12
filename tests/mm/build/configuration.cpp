@@ -802,6 +802,36 @@ void detects_stale_configuration_record() {
                      "vanished SDK library makes record stale");
 }
 
+void loads_secure_cortex_m33_processor_snapshots() {
+    const mm::test::scoped_tree tree{"build_secure_cortex_m33_configuration"};
+    platform_files(tree);
+
+    auto secure = platform_configuration();
+    const auto cpu = secure.find("cross-board-argument: -mcpu=cortex-m3\n");
+    secure.replace(cpu, std::string_view("cross-board-argument: -mcpu=cortex-m3\n").size(),
+                   "cross-board-argument: -mcpu=cortex-m33\n");
+    const auto float_abi = secure.find("cross-board-argument: -mfloat-abi=soft\n");
+    secure.replace(float_abi,
+                   std::string_view("cross-board-argument: -mfloat-abi=soft\n").size(),
+                   "cross-board-argument: -mfloat-abi=softfp\n"
+                   "cross-board-argument: -mcmse\n");
+
+    const auto current_path = tree.root() / "out/current.mdy";
+    write(current_path, secure);
+    mm::build::BuildConfiguration current;
+    mm::test::expect(mm::build::load_configuration(current_path, false, current),
+                     "current Cortex-M33 Arm Secure processor snapshot loads");
+
+    auto legacy = secure;
+    const auto cmse = legacy.find("cross-board-argument: -mcmse\n");
+    legacy.erase(cmse, std::string_view("cross-board-argument: -mcmse\n").size());
+    const auto legacy_path = tree.root() / "out/legacy.mdy";
+    write(legacy_path, legacy);
+    mm::build::BuildConfiguration old;
+    mm::test::expect(mm::build::load_configuration(legacy_path, false, old),
+                     "pre-CMSE Cortex-M33 processor snapshot remains readable");
+}
+
 const mm::test::case_ cases[] = {
     {"loads the host selection", &loads_the_host_selection},
     {"loads the cross selection", &loads_the_cross_selection},
@@ -822,6 +852,7 @@ const mm::test::case_ cases[] = {
     {"writes toolchain cmake for bare metal and linux", &writes_toolchain_cmake_bare_metal_and_linux},
     {"loads cross-link external configuration", &loads_cross_link_external_configuration},
     {"detects stale configuration record", &detects_stale_configuration_record},
+    {"loads secure Cortex-M33 processor snapshots", &loads_secure_cortex_m33_processor_snapshots},
 };
 
 const mm::test::registrar reg{"mm.build configuration", cases};

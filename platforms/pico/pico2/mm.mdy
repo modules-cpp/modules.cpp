@@ -1,0 +1,14 @@
+---
+mm: 1.4
+kind: board
+name: pico2
+sdk: pico-sdk-arm
+cpu: cortex-m33
+instruction-set: thumb
+float-abi: softfp
+machine: rp2350
+---
+
+# Raspberry Pi Pico 2
+
+RP2350 Arm Secure board linked by the Pico SDK external build.

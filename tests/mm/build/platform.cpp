@@ -119,8 +119,12 @@ void accepts_registered_processor_combinations() {
                      "machine: rp2350\nlinker-script: link.ld\n"
                      "file: vectors.cpp\nprovides: reset-vector\n"
                      "provides: initial-stack\nprovides: memory-layout\n");
-    expect(mm::build::load_project(m33.root()).ok,
-           "cortex-m33 with thumb and softfp is accepted");
+    const auto m33_project = mm::build::load_project(m33.root());
+    expect(m33_project.ok, "cortex-m33 with thumb and softfp is accepted");
+    expect(m33_project.boards.size() == 1 &&
+               m33_project.boards.front().compiler_arguments.size() == 4 &&
+               m33_project.boards.front().compiler_arguments.back() == "-mcmse",
+           "the Cortex-M33 Arm Secure registry entry carries its CMSE argument");
 }
 
 void external_directories_are_only_spelling_checked_by_the_walk() {

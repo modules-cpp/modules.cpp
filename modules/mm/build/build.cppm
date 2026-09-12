@@ -228,6 +228,7 @@ struct BoardDefinition {
     std::filesystem::path linker_script;
     std::vector<std::filesystem::path> sources;
     std::vector<mm::configure::Responsibility> provides;
+    std::vector<std::string> compiler_arguments;
 };
 
 struct Tree {

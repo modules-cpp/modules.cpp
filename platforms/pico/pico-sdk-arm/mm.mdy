@@ -1,0 +1,18 @@
+---
+mm: 1.4
+kind: sdk
+name: pico-sdk-arm
+target: arm-none-eabi
+compiler-family: gcc
+runtime: newlib
+library: pico-sdk
+provides: reset-vector
+provides: initial-stack
+provides: memory-layout
+provides: runtime-init
+provides: syscalls
+---
+
+# Pico SDK Arm platform
+
+The external Pico SDK build owns the complete bare-metal platform and the final link.
