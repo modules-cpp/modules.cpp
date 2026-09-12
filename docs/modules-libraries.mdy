@@ -96,17 +96,18 @@ The first two are enforced by the load itself, for every library in the tree who
 An absent checkout is reported with the command that initialises it:
 
 Opening fence
-build: library demo checkout is absent: libraries/demo/third_party; run 'libraries/demo/vendor.sh'
+build: library demo checkout is absent: libraries/demo/third_party
 Closing fence
 
 # Provisioning and bridge requirements
 
-A library's vendored checkout is provisioned by a script found beside its manifest,
-the way its bridge is found at `cmake/`. `vendor.sh` pins a revision, obtains the
-tree, verifies what it obtained, and does nothing when the checkout is already
-correct. No tool invokes it: provisioning is deliberate, and a build only reports
-that the checkout is absent, naming that script rather than assuming how the
-library was vendored.
+A library's vendored checkout may be provisioned by an executable `vendor.sh`
+found beside its manifest, the way its bridge is found at `cmake/`. Such a script
+pins a revision, obtains the tree, verifies what it obtained, and does nothing
+when the checkout is already correct. No tool invokes it: provisioning is
+deliberate. When an absent checkout has an existing executable provisioning
+script, the diagnostic names it; otherwise it reports the absence without
+inventing a recovery command or assuming how the library was obtained.
 
 A bridge may require CMake packages that its foreign build would otherwise fetch.
 It declares them in a checked-in `cmake/mm-requires.txt`, one variable name per
@@ -218,7 +219,7 @@ Every fault in this document is a manifest fault and exits 65. A library manifes
 Two diagnostics are emitted for one wrapper fault, deliberately. The checkout validator reports the resource failure and the recovery command, and the caller then names the consumer:
 
 Opening fence
-build: library demo checkout is absent: libraries/demo/third_party; run 'libraries/demo/vendor.sh'
+build: library demo checkout is absent: libraries/demo/third_party
 build: libraries/demo/ext/mm.mdy: module demo cannot use library demo
 Closing fence
 
@@ -235,11 +236,11 @@ These are the conformance requirements for this release, not a description of ex
 - An SDK or a module declaring more than one library is rejected; one naming an unknown library is rejected listing the libraries that exist; one declaring none is accepted.
 - A module declaring library in a 1.2 manifest is rejected by version.
 - A reference is resolved after every definition is known, and a reference to a missing library reports that rather than a consequence of it.
-- Selecting an SDK whose library has an absent checkout fails at configure, naming the library and the command that initialises it.
+- Selecting an SDK whose library has an absent checkout fails at configure, naming the library and, when one exists, its executable provisioning script.
 - A checkout is an existing source directory with at least one entry; an empty directory reads as absent; a filesystem error is an error naming the path and never absence.
 - Checkout presence is persisted nowhere. Adding or removing a checkout after configure changes what the next invocation observes.
 - A module declaring a library loads, checks, models, documents, and configures with no checkout present, and no tool requires a declared include directory to exist before a wrapper is compiled.
-- A build or test whose closure reaches a wrapper with an absent checkout fails, naming the library, the wrapper, and the command that initialises it.
+- A build or test whose closure reaches a wrapper with an absent checkout fails, naming the library and wrapper and naming an executable provisioning script only when one exists.
 - A build that reaches a wrapper rechecks canonical containment, so a symlink introduced after configure is rejected there.
 - A declared include directory that does not exist, or that exists and is not a directory, fails at the wrapper rather than at manifest load.
 - A library's include directories appear in its wrapper's compile command in declaration order, as absolute paths, one shell-quoted argument each, and in no other node's. A module declaring no library receives none.
@@ -256,7 +257,7 @@ These are the conformance requirements for this release, not a description of ex
 - An SDK referencing an external-build library rejects specs-profile and specs-file. Boards beneath such an SDK permit omitting linker-script, file, and provides, while ordinary boards require linker-script and at least one file.
 - models::LibraryNode::external_build() returns the declared external-build system name or an empty string.
 - A kind: module target naming an external-build library is available only in a target lane whose selected SDK names that same library, and is an unavailable skipped target with a reason naming the library in every other lane.
-- A vendored checkout is obtained by its library's own vendor.sh, verified against the pin that script records, and never by a tool during a build. docs/modules-platform-pico.mdy states the Pico SDK pin and the licence copy that accompanies it.
+- A vendored checkout may be obtained by its library's executable vendor.sh, is verified against the pin that script records, and is never obtained by a tool during a build. docs/modules-platform-pico.mdy states the Pico SDK pin and the licence copy that accompanies it.
 - Before invoking CMake, build reads optional bridge-owned `mm-requires.txt`, rejects malformed or duplicate variable names and unset or invalid package directories, accepts either conventional config-package file spelling, passes every canonical package directory to CMake, fingerprints its variable, path, and contents into the external cache identity, and keeps disconnected fetching enabled. The Pico bridge declares `picotool_DIR`, and the same requirement still applies if its library is renamed.
 
 # Current boundaries

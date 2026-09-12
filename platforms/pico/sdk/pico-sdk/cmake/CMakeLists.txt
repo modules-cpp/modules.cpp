@@ -34,7 +34,7 @@ set_target_properties(mm_external PROPERTIES
   LINKER_LANGUAGE CXX
   OUTPUT_NAME ${MM_OUTPUT_NAME})
 set_source_files_properties(${MM_ADAPTER} PROPERTIES
-  COMPILE_OPTIONS "-std=c11;-Wall;-Wextra;-Werror")
+  COMPILE_OPTIONS "-std=gnu11;-Wall;-Wextra;-Werror")
 target_link_libraries(mm_external pico_stdlib)
 pico_enable_stdio_semihosting(mm_external 1)
 pico_add_extra_outputs(mm_external)

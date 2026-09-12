@@ -156,7 +156,7 @@ Opening fence
 cortex-m0plus thumb soft    non-secure  -mcpu=cortex-m0plus -mthumb -mfloat-abi=soft
 cortex-m33    thumb softfp  non-secure  -mcpu=cortex-m33 -mthumb -mfloat-abi=softfp
 cortex-m33    thumb softfp  secure      -mcpu=cortex-m33 -mthumb -mfloat-abi=softfp -mcmse
-hazard3       rv32… soft    non-secure  -march=rv32imac_zicsr_zifencei_zba_zbb_zbs_zbkb -mabi=ilp32 -mstrict-align
+hazard3       rv32… soft    non-secure  -mcpu=hazard3-rp2350 -mstrict-align
 Closing fence
 
 For pico2-arm, a generated compile-database entry for a Pico SDK source contains:
@@ -179,11 +179,13 @@ Opening fence
 -march=rv32imac_zicsr_zifencei_zba_zbb_zbs_zbkb -mabi=ilp32
 Closing fence
 
-No fixed registry row can match every installation, so the row emits the third,
-the universal fallback that needs no recent assembler. A toolchain accepting an
-earlier candidate makes the SDK compile its own sources differently, and the ABI
-projection reports that as a mismatch naming both projections. The fix is one
-registry row, not a schema change.
+The supplied Pico SDK GCC 16.1.0 toolchain accepts the first candidate, so the
+registry emits that CPU profile and -mstrict-align too. Its normalised effective
+architecture is
+`rv32imacb_zicsr_zifencei_zmmul_zaamo_zalrsc_zca_zcb_zcmp_zba_zbb_zbkb_zbs_xh3bextm`;
+that measured value is the board's instruction-set registry spelling. A toolchain
+that accepts a different candidate is rejected by the ABI projection rather than
+silently mixing project and SDK objects compiled for different extension sets.
 
 # ABI projections
 
@@ -204,16 +206,23 @@ exists to establish. The same reasoning excludes it for RISC-V, where the SDK ma
 name a CPU and the project an architecture. -mstrict-align and -mcmodel= are code
 generation rather than calling convention.
 
-The RISC-V schema is unconfirmed against a real driver, because no
-riscv32-pico-elf toolchain was installed where it landed. One command confirms it:
+The RISC-V schema was confirmed with the supplied riscv32-pico-elf GCC 16.1.0:
 
 Opening fence
-LC_ALL=C riscv32-pico-elf-gcc -march=rv32imac_zicsr_zifencei_zba_zbb_zbs_zbkb -mabi=ilp32 -mstrict-align -Q --help=target -c
+LC_ALL=C riscv32-pico-elf-gcc -mcpu=hazard3-rp2350 -mstrict-align -Q --help=target -c
+
+-march= rv32imacb_zicsr_zifencei_zmmul_zaamo_zalrsc_zca_zcb_zcmp_zba_zbb_zbkb_zbs_xh3bextm
+-mabi= ilp32
+-mcpu= hazard3-rp2350
+-mcmodel= medlow
+-mstrict-align [enabled]
 Closing fence
 
-Strict parsing is what keeps an unconfirmed schema from passing quietly: a named
-field the driver does not report fails the build naming the field, so an empty
-projection cannot compare equal to another empty one.
+The schema retains -march and -mabi only. The driver reports both exactly once;
+-mcpu is a spelling choice, while -mcmodel and strict alignment are code-generation
+policy rather than calling convention. Strict parsing still makes a named field
+that disappears in a future driver an error rather than allowing two empty
+projections to compare equal.
 
 # The checkout
 
@@ -223,14 +232,19 @@ manifest, the way the bridge is found at cmake/. It pins release 2.3.1 and commi
 079c6f39023649b154152db30f1d781e884879bc, clones into upstream with the SDK's own
 submodules initialised, and verifies the result.
 
-Verification checks the repository root before the commit. git rev-parse inside an
-empty or non-repository directory answers for whichever repository encloses it, so
-without that check an unprovisioned upstream reports this project's own HEAD and
-compares unequal for the wrong reason.
+Verification checks the repository root before the commit, requires an empty
+porcelain status including submodule dirt, and requires every recursive submodule
+status line to carry the leading space that means it is initialized at its recorded
+gitlink. git rev-parse inside an empty or non-repository directory answers for
+whichever repository encloses it, so without the root check an unprovisioned
+upstream reports this project's own HEAD and compares unequal for the wrong reason.
 
-- With the checkout already at the pinned commit the script prints so and exits 0.
+- With a clean checkout and all recursive submodules at the pinned revisions the
+  script prints so and exits 0.
 - With it at another commit the script exits 65 naming both commits and does not
   modify anything.
+- With the top-level commit pinned but the checkout dirty or a recursive submodule
+  absent or drifted, it exits 65 and names that state.
 - With it absent the script clones, then verifies, and fails the same way if the
   tag no longer resolves to the pinned commit.
 
@@ -252,9 +266,9 @@ Opening fence
 configure: library pico-sdk checkout is absent: platforms/pico/sdk/pico-sdk/upstream; run 'platforms/pico/sdk/pico-sdk/vendor.sh'
 Closing fence
 
-A script pin is weaker than a gitlink: git neither verifies it nor shows drift, and
-a switched or dirty checkout is invisible to git status. Re-running the script is
-the check, and the tag and commit recorded here are the second record of the pin.
+A script pin is weaker than a gitlink: the parent repository neither verifies it
+nor shows drift. Re-running the script checks the ignored checkout itself, and the
+tag and commit recorded here are the second record of the pin.
 
 # The bridge
 
@@ -329,6 +343,11 @@ mis-sized, or incorrectly framed output fails the external build before publicat
 and is removed from the external cache. Supplying a package stub is therefore not
 evidence that UF2 production works.
 
+The three boards were built with picotool 2.3.1. The published images pass the
+bridge validator and `picotool info` identifies their family IDs as rp2040,
+rp2350-arm-s, and rp2350-riscv respectively; the RP2350 reports further identify
+the images as Arm Secure and RISC-V.
+
 # The wrapper boundary
 
 No project module includes pico/stdlib.h. That header aggregates generated
@@ -339,7 +358,9 @@ ext/adapter.c is the only file that includes Pico SDK headers. It is compiled by
 the bridge inside Pico SDK's own target graph, with whatever flags that graph
 selects, so one C source serves all three boards and both architectures. It
 implements a deliberately small C ABI: initialisation, output, delay, and one GPIO
-operation.
+operation. The bridge requests GNU C11 rather than strict C11 because Pico SDK's
+public Hazard3 headers use GNU `asm`; the adapter itself uses no language extension,
+but it must be parsed together with the foreign headers it includes.
 
 ext/pico-c.h declares that ABI in plain C, with no language linkage specifier of
 its own, because adapter.c compiles as C and the wrapper as C++. ext/pico-cxx.h is
@@ -451,10 +472,12 @@ Three behaviours surprise people and are recorded here rather than rediscovered.
   whose selected SDK names pico-sdk.
 - Removing the lock from platforms/pico/sdk/mm.mdy fails the load, naming the
   wrapper and the library. rp2350-ram remains core and mutable.
-- vendor.sh clones, verifies, is a no-op when correct, and exits 65 naming both
-  commits when HEAD has moved. clean.sh does not remove the checkout.
+- vendor.sh clones, verifies the top-level pin and recursive checkout state, is a
+  no-op when correct, and exits 65 when HEAD, tracked content, or a nested checkout
+  has moved. A moved HEAD diagnostic names both commits. clean.sh does not remove
+  the checkout.
 - An absent checkout names vendor.sh and no git command.
-- With picotool_DIR unset, pico and pico2-arm both fail before CMake is invoked,
+- With picotool_DIR unset, pico, pico2-arm, and pico2-riscv fail before CMake is invoked,
   naming the variable and both accepted file names.
 - No source beneath the checkout reaches the project compiler or cppcheck, on a
   whole-tree check and on a check rooted at platforms.
@@ -465,17 +488,13 @@ Three behaviours surprise people and are recorded here rather than rediscovered.
   build; an equivalent ABI spelled differently passes.
 - Project objects reach the link in declaration order, are not recompiled by CMake,
   and the final link is performed by the recorded C++ driver.
-- Published artifacts appear at the ordinary path with the documented suffixes, and
-  a declared artifact missing after the build is an external-build failure.
+- pico, pico2-arm, and pico2-riscv link with a real picotool 2.3.1 package. Their
+  published artifacts appear at the ordinary paths with the documented suffixes,
+  their UF2 family IDs match their platforms, and a declared artifact missing after
+  the build is an external-build failure.
 
 # Current boundaries
 
-- The RISC-V projection schema and registry row are unconfirmed against a real
-  driver. No riscv32-pico-elf toolchain was installed where they landed, and the
-  lane resolves through the manifest tree and stops at the compiler probe.
-- No verified UF2 has been produced in this repository. A package stub satisfies
-  the requirement check but not the bridge's UF2 validation, so UF2 encoding is
-  claimed only from a build using a real compatible picotool.
 - Nothing automated asserts that a Pico image ran. The OpenOCD profile programs,
   verifies, and resets, but defines no completion protocol, which is the same limit
   docs/modules-platforms.mdy records for target test execution. Hardware execution

@@ -169,7 +169,8 @@ void accepts_the_hazard3_processor_combination() {
     tree.manifest_raw("platforms/board",
                       "mm: 1.4\nkind: board\nname: pico2-riscv\n"
                       "sdk: pico-riscv\ncpu: hazard3\n"
-                      "instruction-set: rv32imac_zicsr_zifencei_zba_zbb_zbs_zbkb\n"
+                      "instruction-set: rv32imacb_zicsr_zifencei_zmmul_zaamo_zalrsc_"
+                      "zca_zcb_zcmp_zba_zbb_zbkb_zbs_xh3bextm\n"
                       "float-abi: soft\nmachine: rp2350\nlinker-script: link.ld\n"
                       "file: vectors.cpp\nprovides: reset-vector\n"
                       "provides: initial-stack\nprovides: memory-layout\n"
@@ -177,12 +178,10 @@ void accepts_the_hazard3_processor_combination() {
     const auto project = mm::build::load_project(tree.root());
     expect(project.ok, "riscv32-pico-elf is a registered bare-metal target");
     expect(project.boards.size() == 1 &&
-               project.boards.front().compiler_arguments.size() == 3 &&
-               project.boards.front().compiler_arguments[0] ==
-                   "-march=rv32imac_zicsr_zifencei_zba_zbb_zbs_zbkb" &&
-               project.boards.front().compiler_arguments[1] == "-mabi=ilp32" &&
-               project.boards.front().compiler_arguments[2] == "-mstrict-align",
-           "Hazard3 emits the SDK's fallback march, ilp32, and strict alignment");
+               project.boards.front().compiler_arguments.size() == 2 &&
+               project.boards.front().compiler_arguments[0] == "-mcpu=hazard3-rp2350" &&
+               project.boards.front().compiler_arguments[1] == "-mstrict-align",
+           "Hazard3 emits the SDK's measured preferred CPU profile and strict alignment");
 
     tree.manifest_raw("platforms/sdk",
                       "mm: 1.4\nkind: sdk\nname: pico-riscv\n"

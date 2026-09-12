@@ -4,7 +4,7 @@ kind: board
 name: pico2-riscv
 sdk: pico-riscv
 cpu: hazard3
-instruction-set: rv32imac_zicsr_zifencei_zba_zbb_zbs_zbkb
+instruction-set: rv32imacb_zicsr_zifencei_zmmul_zaamo_zalrsc_zca_zcb_zcmp_zba_zbb_zbkb_zbs_xh3bextm
 float-abi: soft
 machine: rp2350
 ---

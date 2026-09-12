@@ -170,8 +170,23 @@ void installed_tools_select_configured_lanes() {
                       root_arg,
                   log) == 65,
            "configure rejects an absent checkout selected by an SDK");
-    expect(read_text(log).find("vendor.sh") != std::string::npos,
-           "absent selected checkout names the library's provisioning script");
+    expect(read_text(log).find("checkout is absent") != std::string::npos &&
+               read_text(log).find("vendor.sh") == std::string::npos,
+           "absent checkout invents no provisioning command when none exists");
+    const auto vendor = tree.root() / "library/vendor.sh";
+    std::ofstream(vendor) << "#!/bin/sh\nexit 0\n";
+    std::filesystem::permissions(
+        vendor,
+        std::filesystem::perms::owner_read | std::filesystem::perms::owner_write |
+            std::filesystem::perms::owner_exec,
+        std::filesystem::perm_options::replace, ec);
+    expect(!ec, "fixture provisioning script is executable");
+    expect(invoke(bin / "configure",
+                  "--target aarch64-linux-gnu --sdk aarch64-linux-glibc "
+                  "--compiler aarch64-linux-gnu-g++-16 --build release " +
+                      root_arg,
+                  log) == 65 && read_text(log).find("library/vendor.sh") != std::string::npos,
+           "absent checkout names an existing executable provisioning script");
     std::filesystem::create_directories(tree.root() / "library/third_party/include");
     std::ofstream(tree.root() / "library/third_party/.checkout") << "present\n";
     expect(invoke(bin / "configure",

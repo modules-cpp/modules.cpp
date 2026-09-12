@@ -25,7 +25,15 @@ mm_checked_out() {
     mm_top=$(git -C "${MM_SOURCE}" rev-parse --show-toplevel 2>/dev/null) || return 1
     [ "${mm_top}" = "${MM_SOURCE}" ] || return 1
     mm_head=$(git -C "${MM_SOURCE}" rev-parse HEAD 2>/dev/null) || return 1
-    [ "${mm_head}" = "${MM_COMMIT}" ]
+    [ "${mm_head}" = "${MM_COMMIT}" ] || return 1
+    [ -z "$(git -C "${MM_SOURCE}" status --porcelain=v1 --untracked-files=all --ignore-submodules=none)" ] || return 1
+    git -C "${MM_SOURCE}" submodule status --recursive |
+        while IFS= read -r mm_submodule; do
+            case "${mm_submodule}" in
+                " "*) ;;
+                *) exit 1 ;;
+            esac
+        done
 }
 
 if mm_checked_out; then
@@ -35,7 +43,11 @@ fi
 
 if [ -e "${MM_SOURCE}/.git" ]; then
     mm_head=$(git -C "${MM_SOURCE}" rev-parse HEAD 2>/dev/null || echo unknown)
-    echo "vendor.sh: ${MM_SOURCE} holds ${mm_head}, not the pinned ${MM_COMMIT}" >&2
+    if [ "${mm_head}" = "${MM_COMMIT}" ]; then
+        echo "vendor.sh: ${MM_SOURCE} is dirty or has incomplete or drifted submodules at ${MM_COMMIT}" >&2
+    else
+        echo "vendor.sh: ${MM_SOURCE} holds ${mm_head}, not the pinned ${MM_COMMIT}" >&2
+    fi
     echo "vendor.sh: remove it and re-run to reprovision" >&2
     exit 65
 fi

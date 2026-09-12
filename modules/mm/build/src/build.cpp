@@ -176,15 +176,12 @@ constexpr ProcessorEntry processor_table[] = {
      {"-mcpu=cortex-m33", "-mthumb", "-mfloat-abi=softfp"}},
     {CompilerFamily::Gcc, "arm-none-eabi", "cortex-m33", "thumb", "softfp", "secure",
      {"-mcpu=cortex-m33", "-mthumb", "-mfloat-abi=softfp", "-mcmse"}},
-    // RP2350's Hazard3 cores. Read from the vendored SDK's own
-    // cmake/preload/toolchains/pico_riscv_gcc.cmake rather than invented: that
-    // file offers three flag sets in preference order and takes the first its
-    // toolchain accepts, so no fixed row can match every installation. This is
-    // its universal fallback, the one candidate that needs no recent assembler,
-    // plus the -mstrict-align it appends to whichever candidate wins.
+    // RP2350's Hazard3 cores, measured with the Pico SDK toolchain. GCC 16.1
+    // accepts the SDK's preferred CPU profile, so project objects use the same
+    // selection rather than the SDK's compatibility fallback.
     {CompilerFamily::Gcc, "riscv32-pico-elf", "hazard3",
-     "rv32imac_zicsr_zifencei_zba_zbb_zbs_zbkb", "soft", "non-secure",
-     {"-march=rv32imac_zicsr_zifencei_zba_zbb_zbs_zbkb", "-mabi=ilp32", "-mstrict-align"}},
+     "rv32imacb_zicsr_zifencei_zmmul_zaamo_zalrsc_zca_zcb_zcmp_zba_zbb_zbkb_zbs_xh3bextm",
+     "soft", "non-secure", {"-mcpu=hazard3-rp2350", "-mstrict-align"}},
 };
 
 std::size_t processor_argument_count(const ProcessorEntry& entry) {
@@ -2272,14 +2269,18 @@ bool validate_library_checkout(const std::filesystem::path& project_root,
                       << ": library source is not a directory: " << source.string() << "\n";
             return false;
         }
-        // The recovery command is the library's own provisioning script, found
-        // beside its manifest the way the CMake bridge is found at cmake/. Naming
-        // a git command here would assume how a library was vendored, which is
-        // the library's business and not this loader's.
         const auto provision = library.manifest.parent_path() / "vendor.sh";
+        const auto provision_status = std::filesystem::symlink_status(provision, ec);
+        const auto executable = std::filesystem::perms::owner_exec |
+                                std::filesystem::perms::group_exec |
+                                std::filesystem::perms::others_exec;
+        const bool has_provision = !ec && std::filesystem::is_regular_file(provision_status) &&
+                                   (provision_status.permissions() & executable) !=
+                                       std::filesystem::perms::none;
         std::cerr << tool << ": library " << library.name << " checkout is absent: "
-                  << library.source.generic_string()
-                  << "; run " << shell_quote(provision) << "\n";
+                  << library.source.generic_string();
+        if (has_provision) std::cerr << "; run " << shell_quote(provision);
+        std::cerr << "\n";
         return false;
     }
 
