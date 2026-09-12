@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.13)
 include(${CMAKE_CURRENT_BINARY_DIR}/mm-inputs.cmake)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+set(CMAKE_TOOLCHAIN_FILE ${MM_TOOLCHAIN_FILE} CACHE FILEPATH "" FORCE)
 project(cmake_demo C CXX)
 
 set(MM_DEMO_SOURCE ${MM_LIBRARY_SOURCE}/demo.c)

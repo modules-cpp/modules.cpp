@@ -13,6 +13,11 @@ else()
   message(FATAL_ERROR "pico-sdk bridge requires a selected board")
 endif()
 
+get_filename_component(MM_COMPILER_DIRECTORY ${MM_C_COMPILER} DIRECTORY)
+set(PICO_TOOLCHAIN_PATH ${MM_COMPILER_DIRECTORY} CACHE PATH "" FORCE)
+set(CMAKE_C_COMPILER ${MM_C_COMPILER} CACHE FILEPATH "" FORCE)
+set(CMAKE_CXX_COMPILER ${MM_CXX_COMPILER} CACHE FILEPATH "" FORCE)
+
 include(${MM_LIBRARY_SOURCE}/pico_sdk_init.cmake)
 project(modules_cpp_pico C CXX ASM)
 pico_sdk_init()

@@ -2924,7 +2924,10 @@ bool write_inputs_cmake(const std::filesystem::path& destination,
                         const std::vector<std::filesystem::path>& objects,
                         const std::string& output_name,
                         const std::filesystem::path& library_source,
-                        const std::string& board_name) {
+                        const std::string& board_name,
+                        const std::filesystem::path& toolchain_file,
+                        const std::filesystem::path& c_compiler,
+                        const std::filesystem::path& cxx_compiler) {
     std::string objects_text;
     for (const auto& obj : objects) {
         const auto bracket = cmake_bracket_argument(obj.generic_string());
@@ -2957,11 +2960,33 @@ bool write_inputs_cmake(const std::filesystem::path& destination,
         return false;
     }
 
+    const auto toolchain_bracket = cmake_bracket_argument(toolchain_file.generic_string());
+    if (!toolchain_bracket) {
+        std::cerr << "build: invalid toolchain path for external build: "
+                  << toolchain_file.generic_string() << "\n";
+        return false;
+    }
+    const auto c_bracket = cmake_bracket_argument(c_compiler.generic_string());
+    if (!c_bracket) {
+        std::cerr << "build: invalid C compiler path for external build: "
+                  << c_compiler.generic_string() << "\n";
+        return false;
+    }
+    const auto cxx_bracket = cmake_bracket_argument(cxx_compiler.generic_string());
+    if (!cxx_bracket) {
+        std::cerr << "build: invalid C++ compiler path for external build: "
+                  << cxx_compiler.generic_string() << "\n";
+        return false;
+    }
+
     std::ostringstream out;
     out << "set(MM_OBJECTS\n" << objects_text << ")\n";
     out << "set(MM_OUTPUT_NAME " << *name_bracket << ")\n";
     out << "set(MM_LIBRARY_SOURCE " << *source_bracket << ")\n";
     out << "set(MM_BOARD " << *board_bracket << ")\n";
+    out << "set(MM_TOOLCHAIN_FILE " << *toolchain_bracket << ")\n";
+    out << "set(MM_C_COMPILER " << *c_bracket << ")\n";
+    out << "set(MM_CXX_COMPILER " << *cxx_bracket << ")\n";
 
     std::error_code ec;
     std::filesystem::create_directories(destination.parent_path(), ec);
@@ -2980,56 +3005,117 @@ bool write_inputs_cmake(const std::filesystem::path& destination,
     return file.good();
 }
 
-bool validate_picotool_package(const std::filesystem::path& configured_directory,
-                               std::filesystem::path& package_directory,
-                               std::string_view tool) {
-    if (configured_directory.empty()) {
-        std::cerr << tool
-                  << ": picotool is required for the pico-sdk external build: picotool_DIR "
-                     "is unset; no directory was searched (expected picotoolConfig.cmake or "
-                     "picotool-config.cmake)\n";
-        return false;
-    }
-
+bool read_cmake_package_requirements(
+    const std::filesystem::path& bridge_directory,
+    std::vector<CMakePackageRequirement>& requirements,
+    std::string_view tool) {
+    requirements.clear();
+    const auto requirements_file = bridge_directory / "mm-requires.txt";
     std::error_code ec;
-    const auto absolute = std::filesystem::absolute(configured_directory, ec).lexically_normal();
-    if (ec || !std::filesystem::is_directory(absolute, ec) || ec) {
-        std::cerr << tool
-                  << ": picotool is required for the pico-sdk external build: picotool_DIR "
-                  << absolute.string()
-                  << " is not an existing directory (expected picotoolConfig.cmake or "
-                     "picotool-config.cmake)\n";
-        return false;
+    const auto status = std::filesystem::symlink_status(requirements_file, ec);
+    if (ec == std::errc::no_such_file_or_directory ||
+        status.type() == std::filesystem::file_type::not_found) {
+        return true;
     }
-
-    const auto config = absolute / "picotoolConfig.cmake";
-    const auto lower_config = absolute / "picotool-config.cmake";
-    const bool has_config = std::filesystem::is_regular_file(config, ec);
-    if (ec && ec != std::errc::no_such_file_or_directory) {
-        std::cerr << tool << ": cannot inspect picotool_DIR " << absolute.string()
-                  << ": " << ec.message() << "\n";
-        return false;
-    }
-    ec.clear();
-    const bool has_lower_config = std::filesystem::is_regular_file(lower_config, ec);
-    if (ec && ec != std::errc::no_such_file_or_directory) {
-        std::cerr << tool << ": cannot inspect picotool_DIR " << absolute.string()
-                  << ": " << ec.message() << "\n";
-        return false;
-    }
-    ec.clear();
-    if (!has_config && !has_lower_config) {
-        std::cerr << tool
-                  << ": picotool is required for the pico-sdk external build: picotool_DIR "
-                  << absolute.string()
-                  << " contains neither picotoolConfig.cmake nor picotool-config.cmake\n";
-        return false;
-    }
-
-    package_directory = std::filesystem::canonical(absolute, ec);
     if (ec) {
-        std::cerr << tool << ": cannot resolve picotool_DIR " << absolute.string()
-                  << ": " << ec.message() << "\n";
+        std::cerr << tool << ": cannot inspect external bridge requirements "
+                  << requirements_file.string() << ": " << ec.message() << "\n";
+        return false;
+    }
+    if (!std::filesystem::is_regular_file(status)) {
+        std::cerr << tool << ": external bridge requirements are not a regular file: "
+                  << requirements_file.string() << "\n";
+        return false;
+    }
+
+    std::ifstream input(requirements_file);
+    if (!input.is_open()) {
+        std::cerr << tool << ": cannot open external bridge requirements: "
+                  << requirements_file.string() << "\n";
+        return false;
+    }
+
+    std::set<std::string> seen;
+    std::string variable;
+    std::size_t line_number = 0;
+    while (std::getline(input, variable)) {
+        ++line_number;
+        if (!variable.empty() && variable.back() == '\r') variable.pop_back();
+        const auto valid_first = [](char c) {
+            return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c == '_';
+        };
+        const auto valid_rest = [&](char c) {
+            return valid_first(c) || (c >= '0' && c <= '9');
+        };
+        const bool valid_name = variable.size() > 4 && variable.ends_with("_DIR") &&
+                                valid_first(variable.front()) &&
+                                std::all_of(variable.begin() + 1, variable.end(), valid_rest);
+        if (!valid_name) {
+            std::cerr << tool << ": invalid CMake package variable in "
+                      << requirements_file.string() << " at line " << line_number
+                      << ": " << variable << "\n";
+            return false;
+        }
+        if (!seen.insert(variable).second) {
+            std::cerr << tool << ": duplicate CMake package variable in "
+                      << requirements_file.string() << " at line " << line_number
+                      << ": " << variable << "\n";
+            return false;
+        }
+
+        const std::string package = variable.substr(0, variable.size() - 4);
+        const std::string config_name = package + "Config.cmake";
+        const std::string lower_config_name = package + "-config.cmake";
+        const char* configured = std::getenv(variable.c_str());
+        if (configured == nullptr || *configured == '\0') {
+            std::cerr << tool << ": external bridge requires CMake package variable "
+                      << variable << "; it is unset (expected " << config_name
+                      << " or " << lower_config_name << ")\n";
+            return false;
+        }
+
+        const auto absolute =
+            std::filesystem::absolute(std::filesystem::path(configured), ec).lexically_normal();
+        if (ec || !std::filesystem::is_directory(absolute, ec) || ec) {
+            std::cerr << tool << ": CMake package variable " << variable << " names "
+                      << absolute.string() << ", which is not an existing directory (expected "
+                      << config_name << " or " << lower_config_name << ")\n";
+            return false;
+        }
+
+        ec.clear();
+        const bool has_config = std::filesystem::is_regular_file(absolute / config_name, ec);
+        if (ec && ec != std::errc::no_such_file_or_directory) {
+            std::cerr << tool << ": cannot inspect CMake package directory "
+                      << absolute.string() << ": " << ec.message() << "\n";
+            return false;
+        }
+        ec.clear();
+        const bool has_lower_config =
+            std::filesystem::is_regular_file(absolute / lower_config_name, ec);
+        if (ec && ec != std::errc::no_such_file_or_directory) {
+            std::cerr << tool << ": cannot inspect CMake package directory "
+                      << absolute.string() << ": " << ec.message() << "\n";
+            return false;
+        }
+        if (!has_config && !has_lower_config) {
+            std::cerr << tool << ": CMake package variable " << variable << " names "
+                      << absolute.string() << ", which contains neither " << config_name
+                      << " nor " << lower_config_name << "\n";
+            return false;
+        }
+
+        auto canonical = std::filesystem::canonical(absolute, ec);
+        if (ec) {
+            std::cerr << tool << ": cannot resolve CMake package variable " << variable
+                      << " at " << absolute.string() << ": " << ec.message() << "\n";
+            return false;
+        }
+        requirements.push_back({variable, std::move(canonical)});
+    }
+    if (!input.eof()) {
+        std::cerr << tool << ": cannot read external bridge requirements: "
+                  << requirements_file.string() << "\n";
         return false;
     }
     return true;
@@ -3138,7 +3224,7 @@ bool fingerprint_directory(Fingerprint& fingerprint, const std::filesystem::path
     std::filesystem::recursive_directory_iterator iterator(directory, ec);
     const std::filesystem::recursive_directory_iterator end;
     if (ec) {
-        std::cerr << tool << ": cannot walk bridge directory " << directory.string()
+        std::cerr << tool << ": cannot walk fingerprinted directory " << directory.string()
                   << ": " << ec.message() << "\n";
         return false;
     }
@@ -3146,7 +3232,7 @@ bool fingerprint_directory(Fingerprint& fingerprint, const std::filesystem::path
         entries.push_back(iterator->path());
         iterator.increment(ec);
         if (ec) {
-            std::cerr << tool << ": cannot walk bridge directory " << directory.string()
+            std::cerr << tool << ": cannot walk fingerprinted directory " << directory.string()
                       << ": " << ec.message() << "\n";
             return false;
         }
@@ -3215,23 +3301,25 @@ bool external_cache_identity(const std::filesystem::path& bridge_dir,
                              std::string_view board_name,
                              std::string_view output_name,
                              const std::map<std::string, std::string>& project_projection,
-                             const std::optional<std::filesystem::path>& picotool_package,
+                             const std::vector<CMakePackageRequirement>& package_requirements,
                              std::filesystem::path& cmake_program,
                              std::string& identity,
                              std::string_view tool) {
     Fingerprint fingerprint;
-    // Format 3 distinguishes the Pico-owned toolchain handoff, including both
-    // canonical driver paths, from caches created by the earlier contracts.
-    fingerprint.add("identity-format", "3");
+    // Format 4 makes bridge-owned toolchain selection and the generic package
+    // requirements protocol distinct from caches made by earlier contracts.
+    fingerprint.add("identity-format", "4");
     fingerprint.add("generator", "Unix Makefiles");
     fingerprint.add("bridge-path", bridge_dir.generic_string());
     if (!fingerprint_directory(fingerprint, bridge_dir, "bridge", tool) ||
         !fingerprint_file(fingerprint, "mm-toolchain.cmake", toolchain_file, tool) ||
         !fingerprint_file(fingerprint, "mm-inputs.cmake", inputs_file, tool))
         return false;
-    if (picotool_package) {
-        fingerprint.add("picotool-package-path", picotool_package->generic_string());
-        if (!fingerprint_directory(fingerprint, *picotool_package, "picotool-package", tool))
+    for (const auto& requirement : package_requirements) {
+        fingerprint.add("cmake-package-variable", requirement.variable);
+        fingerprint.add("cmake-package-path", requirement.directory.generic_string());
+        if (!fingerprint_directory(fingerprint, requirement.directory,
+                                   "cmake-package-" + requirement.variable, tool))
             return false;
     }
 
@@ -3859,19 +3947,29 @@ int external_link(
         return exit_manifest;
     }
 
-    std::optional<std::filesystem::path> picotool_package;
-    if (library->name == "pico-sdk") {
-        const char* configured_picotool = std::getenv("picotool_DIR");
-        std::filesystem::path resolved_picotool;
-        if (!validate_picotool_package(
-                configured_picotool == nullptr ? std::filesystem::path{}
-                                               : std::filesystem::path(configured_picotool),
-                resolved_picotool, "build"))
-            return exit_manifest;
-        picotool_package = std::move(resolved_picotool);
-    }
     if (toolchain.c_compiler.invocation.empty()) {
         std::cerr << "build: external build requires a configured C compiler; rerun configure\n";
+        return exit_compile;
+    }
+
+    const auto bridge_dir = std::filesystem::absolute(library->manifest.parent_path() / "cmake");
+    std::vector<CMakePackageRequirement> package_requirements;
+    if (!read_cmake_package_requirements(bridge_dir, package_requirements, "build")) {
+        return exit_manifest;
+    }
+
+    const auto c_driver = resolve_executable_path(toolchain.c_compiler.invocation);
+    const auto cxx_driver = resolve_executable_path(toolchain.compiler.invocation);
+    std::error_code driver_ec;
+    const bool c_exists = c_driver.is_absolute() &&
+                          std::filesystem::is_regular_file(c_driver, driver_ec) && !driver_ec;
+    driver_ec.clear();
+    const bool cxx_exists = cxx_driver.is_absolute() &&
+                            std::filesystem::is_regular_file(cxx_driver, driver_ec) && !driver_ec;
+    if (!c_exists || !cxx_exists) {
+        std::cerr << "build: cannot resolve configured external-build C/C++ compilers: "
+                  << toolchain.c_compiler.invocation << " and "
+                  << toolchain.compiler.invocation << "\n";
         return exit_compile;
     }
 
@@ -3898,11 +3996,10 @@ int external_link(
     const auto abs_lib_source = std::filesystem::absolute(library->source);
     const auto inputs_file = external_dir / "mm-inputs.cmake";
     const std::string bridge_board = (platform.board && !platform.board->empty()) ? *platform.board : "";
-    if (!write_inputs_cmake(inputs_file, abs_objects, app_name, abs_lib_source, bridge_board)) {
+    if (!write_inputs_cmake(inputs_file, abs_objects, app_name, abs_lib_source, bridge_board,
+                            toolchain_file, c_driver, cxx_driver)) {
         return exit_manifest;
     }
-
-    const auto bridge_dir = std::filesystem::absolute(library->manifest.parent_path() / "cmake");
 
     std::vector<std::string> project_options;
     std::vector<std::string> project_tokens;
@@ -3928,8 +4025,8 @@ int external_link(
     std::filesystem::path cmake_program;
     std::string cache_identity;
     if (!external_cache_identity(bridge_dir, toolchain_file, inputs_file, toolchain, platform,
-                                 bridge_board, app_name, project_proj, picotool_package, cmake_program,
-                                 cache_identity, "build")) {
+                                 bridge_board, app_name, project_proj, package_requirements,
+                                 cmake_program, cache_identity, "build")) {
         return exit_link;
     }
 
@@ -3966,43 +4063,17 @@ int external_link(
             return exit_link;
         }
         if (!write_toolchain_cmake(toolchain_file, toolchain, platform)) return exit_compile;
-        if (!write_inputs_cmake(inputs_file, abs_objects, app_name, abs_lib_source, bridge_board))
+        if (!write_inputs_cmake(inputs_file, abs_objects, app_name, abs_lib_source, bridge_board,
+                                toolchain_file, c_driver, cxx_driver))
             return exit_manifest;
     }
 
     std::string configure_cmd = shell_quote(cmake_program) + " -G \"Unix Makefiles\"";
-    if (library->name == "pico-sdk") {
-        // Pico SDK's platform toolchain supplies its processor and ABI flags.
-        // Constrain its compiler discovery to the configured driver's directory;
-        // the compile-database identity check below proves which driver it chose.
-        const auto c_driver = resolve_executable_path(toolchain.c_compiler.invocation);
-        const auto cxx_driver = resolve_executable_path(toolchain.compiler.invocation);
-        std::error_code driver_ec;
-        const bool c_exists = c_driver.is_absolute() &&
-                              std::filesystem::is_regular_file(c_driver, driver_ec) && !driver_ec;
-        driver_ec.clear();
-        const bool cxx_exists = cxx_driver.is_absolute() &&
-                                std::filesystem::is_regular_file(cxx_driver, driver_ec) && !driver_ec;
-        if (!c_exists || !cxx_exists) {
-            std::cerr << "build: cannot resolve configured Pico C/C++ compilers: "
-                      << toolchain.c_compiler.invocation << " and "
-                      << toolchain.compiler.invocation << "\n";
-            return exit_compile;
-        }
-        configure_cmd += " " + shell_quote(std::filesystem::path(
-            "-DPICO_TOOLCHAIN_PATH:PATH=" + c_driver.parent_path().generic_string()));
-        configure_cmd += " " + shell_quote(std::filesystem::path(
-            "-DCMAKE_C_COMPILER:FILEPATH=" + c_driver.generic_string()));
-        configure_cmd += " " + shell_quote(std::filesystem::path(
-            "-DCMAKE_CXX_COMPILER:FILEPATH=" + cxx_driver.generic_string()));
-    } else {
-        configure_cmd += " -DCMAKE_TOOLCHAIN_FILE=" + shell_quote(toolchain_file);
-    }
     configure_cmd += " -DCMAKE_EXPORT_COMPILE_COMMANDS=ON "
                      "-DFETCHCONTENT_FULLY_DISCONNECTED=ON";
-    if (picotool_package) {
-        configure_cmd += " " + shell_quote(
-            std::filesystem::path("-Dpicotool_DIR:PATH=" + picotool_package->generic_string()));
+    for (const auto& requirement : package_requirements) {
+        configure_cmd += " " + shell_quote(std::filesystem::path(
+            "-D" + requirement.variable + ":PATH=" + requirement.directory.generic_string()));
     }
     configure_cmd += " -S " + shell_quote(bridge_dir) + " -B " + shell_quote(external_dir);
     if (!verbose) configure_cmd += " >/dev/null 2>&1";

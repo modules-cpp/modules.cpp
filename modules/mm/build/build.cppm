@@ -459,14 +459,23 @@ int install(const std::filesystem::path& from, const std::filesystem::path& bin_
     const std::vector<std::filesystem::path>& objects,
     const std::string& output_name,
     const std::filesystem::path& library_source,
-    const std::string& board_name);
+    const std::string& board_name,
+    const std::filesystem::path& toolchain_file,
+    const std::filesystem::path& c_compiler,
+    const std::filesystem::path& cxx_compiler);
 
-// Validates the locally installed picotool CMake package selected by
-// picotool_DIR without executing foreign code. Either standard config-package
-// file spelling is accepted; package_directory is canonical on success.
-[[nodiscard]] bool validate_picotool_package(
-    const std::filesystem::path& configured_directory,
-    std::filesystem::path& package_directory,
+struct CMakePackageRequirement {
+    std::string variable;
+    std::filesystem::path directory;
+};
+
+// Reads an optional checked-in mm-requires.txt from a bridge directory. Each
+// line names one environment/CMake package variable ending in _DIR. Required
+// directories and conventional config-package files are validated without
+// executing foreign code; returned paths are canonical.
+[[nodiscard]] bool read_cmake_package_requirements(
+    const std::filesystem::path& bridge_directory,
+    std::vector<CMakePackageRequirement>& requirements,
     std::string_view tool = "build");
 
 struct ProjectionSchema {

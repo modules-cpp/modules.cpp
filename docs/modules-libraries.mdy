@@ -45,6 +45,7 @@ libraries/demo/third_party/      the vendored tree, may be absent
 libraries/pico-sdk/LICENSE.TXT   repository-owned Pico SDK licence copy
 libraries/pico-sdk/upstream/     Pico SDK 2.3.1 recursive submodule
 libraries/pico-sdk/cmake/        project-owned external link bridge
+libraries/pico-sdk/cmake/mm-requires.txt required CMake package variables
 libraries/pico-sdk/ext/          C adapter, linkage shim, and C++ wrapper
 Closing fence
 
@@ -102,9 +103,9 @@ Closing fence
 
 The Pico SDK checkout is pinned as a recursive Git submodule at release 2.3.1, commit `079c6f39023649b154152db30f1d781e884879bc`, under `libraries/pico-sdk/upstream`. Its licence is copied to `libraries/pico-sdk/LICENSE.TXT`, outside the checkout. The SDK's own gitlinks pin its optional nested dependencies; the ordinary recovery command with `--recursive` initialises exactly those revisions. The registered library has an empty include interface: its wrapper records the dependency and availability boundary, while the external bridge supplies the SDK implementation and owns the final link.
 
-Pico SDK 2.3.1 may otherwise fetch and build picotool while configuring extra outputs. A build whose selected SDK library is named `pico-sdk` therefore requires the environment variable `picotool_DIR` to name an existing local CMake package directory before it invokes CMake. The directory must contain an existing regular file named either `picotoolConfig.cmake` or `picotool-config.cmake`. An unset variable, a missing directory, or a directory containing neither spelling is a configuration failure naming picotool, `picotool_DIR`, the directory searched, and both accepted file names.
+Pico SDK 2.3.1 may otherwise fetch and build picotool while configuring extra outputs. Its bridge therefore carries a checked-in `mm-requires.txt` whose one line is `picotool_DIR`. This is an instance of the generic external-bridge requirements contract, not a check on the library name. Before invoking CMake, build requires that environment variable to name an existing local CMake package directory containing an existing regular file named either `picotoolConfig.cmake` or `picotool-config.cmake`. An unset variable, a missing directory, or a directory containing neither spelling is a configuration failure naming the variable, the directory searched, and both accepted file names. Renaming the library does not change the requirement.
 
-Build canonicalises the validated directory, passes it to CMake as `picotool_DIR:PATH`, and includes its path and contents in the external cache identity. It does not execute picotool or parse a foreign package file to make this decision. CMake configuration also sets `FETCHCONTENT_FULLY_DISCONNECTED=ON` as a second guard. The installed package remains responsible for satisfying the Pico SDK's required picotool version; an incompatible package fails in the SDK's config-mode `find_package` call rather than falling back to a download.
+Build canonicalises every directory named by a bridge requirement, passes it to CMake as `<variable>:PATH`, and includes the variable, path, and contents in the external cache identity. It does not execute the package tool or parse a foreign package file to make this decision. CMake configuration also sets `FETCHCONTENT_FULLY_DISCONNECTED=ON` as a second guard. The installed package remains responsible for satisfying the Pico SDK's required picotool version; an incompatible package fails in the SDK's config-mode `find_package` call rather than falling back to a download.
 
 # The library key
 
@@ -240,7 +241,7 @@ These are the conformance requirements for this release, not a description of ex
 - models::LibraryNode::external_build() returns the declared external-build system name or an empty string.
 - A kind: module target naming an external-build library is available only in a target lane whose selected SDK names that same library, and is an unavailable skipped target with a reason naming the library in every other lane.
 - The Pico SDK source is pinned at release 2.3.1 commit `079c6f39023649b154152db30f1d781e884879bc`; its repository-owned licence copy reproduces that revision's `LICENSE.TXT`, and recursive submodule initialisation selects the nested gitlinks recorded by that revision.
-- Before invoking CMake for a `pico-sdk` external build, build rejects an unset or invalid `picotool_DIR`, accepts either standard config-package file spelling, passes the canonical package directory to CMake, fingerprints its path and contents into the external cache identity, and keeps disconnected fetching enabled.
+- Before invoking CMake, build reads optional bridge-owned `mm-requires.txt`, rejects malformed or duplicate variable names and unset or invalid package directories, accepts either conventional config-package file spelling, passes every canonical package directory to CMake, fingerprints its variable, path, and contents into the external cache identity, and keeps disconnected fetching enabled. The Pico bridge declares `picotool_DIR`, and the same requirement still applies if its library is renamed.
 
 # Current boundaries
 

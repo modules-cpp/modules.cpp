@@ -1,3 +1,4 @@
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <map>
@@ -20,10 +21,14 @@ void inputs_cmake_escaping_and_validation() {
         tree.root() / "obj1.o",
         tree.root() / "obj2.o"
     };
+    const auto toolchain_file = tree.root() / "mm-toolchain.cmake";
+    const auto c_compiler = tree.root() / "bin/fixture-gcc";
+    const auto cxx_compiler = tree.root() / "bin/fixture-g++";
 
     // Valid inputs
     expect(mm::build::write_inputs_cmake(
-               inputs_file, objects, "smoke", tree.root() / "lib", "pico"),
+               inputs_file, objects, "smoke", tree.root() / "lib", "pico",
+               toolchain_file, c_compiler, cxx_compiler),
            "valid inputs succeed");
 
     std::ifstream in(inputs_file);
@@ -33,18 +38,28 @@ void inputs_cmake_escaping_and_validation() {
            "output name uses bracket syntax");
     expect(content.find("set(MM_BOARD [==[pico]==])") != std::string::npos,
            "board name uses bracket syntax");
+    expect(content.find("set(MM_TOOLCHAIN_FILE [==[") != std::string::npos &&
+               content.find("mm-toolchain.cmake]==])") != std::string::npos,
+           "generated toolchain path is a generic bridge input");
+    expect(content.find("set(MM_C_COMPILER [==[") != std::string::npos &&
+               content.find("fixture-gcc]==])") != std::string::npos &&
+               content.find("set(MM_CXX_COMPILER [==[") != std::string::npos &&
+               content.find("fixture-g++]==])") != std::string::npos,
+           "canonical compiler paths are generic bridge inputs");
     expect(content.find("obj1.o]==]") != std::string::npos &&
            content.find("obj2.o]==]") != std::string::npos,
            "objects use bracket syntax");
 
     // Semicolon in output_name
     expect(!mm::build::write_inputs_cmake(
-               inputs_file, objects, "bad;name", tree.root() / "lib", "pico"),
+               inputs_file, objects, "bad;name", tree.root() / "lib", "pico",
+               toolchain_file, c_compiler, cxx_compiler),
            "semicolon in output name is rejected");
 
     // Semicolon in board_name
     expect(!mm::build::write_inputs_cmake(
-               inputs_file, objects, "smoke", tree.root() / "lib", "bad;board"),
+               inputs_file, objects, "smoke", tree.root() / "lib", "bad;board",
+               toolchain_file, c_compiler, cxx_compiler),
            "semicolon in board name is rejected");
 
     // Semicolon in object path
@@ -52,49 +67,74 @@ void inputs_cmake_escaping_and_validation() {
         tree.root() / "bad;obj.o"
     };
     expect(!mm::build::write_inputs_cmake(
-               inputs_file, bad_objects, "smoke", tree.root() / "lib", "pico"),
+               inputs_file, bad_objects, "smoke", tree.root() / "lib", "pico",
+               toolchain_file, c_compiler, cxx_compiler),
            "semicolon in object path is rejected");
 
     // Semicolon in library source
     expect(!mm::build::write_inputs_cmake(
-               inputs_file, objects, "smoke", tree.root() / "bad;lib", "pico"),
+               inputs_file, objects, "smoke", tree.root() / "bad;lib", "pico",
+               toolchain_file, c_compiler, cxx_compiler),
            "semicolon in library source path is rejected");
 
     // Newline in output_name
     expect(!mm::build::write_inputs_cmake(
-               inputs_file, objects, "bad\nname", tree.root() / "lib", "pico"),
+               inputs_file, objects, "bad\nname", tree.root() / "lib", "pico",
+               toolchain_file, c_compiler, cxx_compiler),
            "newline in output name is rejected");
 }
 
-void picotool_package_validation() {
-    const mm::test::scoped_tree tree{"picotool_package_test"};
-    std::filesystem::path resolved;
-
-    expect(!mm::build::validate_picotool_package({}, resolved, "test"),
-           "unset picotool_DIR is rejected");
-    expect(!mm::build::validate_picotool_package(tree.root() / "missing", resolved, "test"),
-           "missing picotool_DIR is rejected");
-
+void cmake_package_requirements() {
+    const mm::test::scoped_tree tree{"cmake_package_requirements"};
+    const auto bridge = tree.root() / "renamed-library/cmake";
+    const auto requirements_file = bridge / "mm-requires.txt";
     const auto package = tree.root() / "package";
+    std::filesystem::create_directories(bridge);
     std::filesystem::create_directories(package);
-    expect(!mm::build::validate_picotool_package(package, resolved, "test"),
-           "package without a config file is rejected");
 
-    const auto config = package / "picotoolConfig.cmake";
+    std::vector<mm::build::CMakePackageRequirement> requirements;
+    expect(mm::build::read_cmake_package_requirements(bridge, requirements, "test") &&
+               requirements.empty(),
+           "a bridge with no requirements file has no package requirements");
+
+    std::ofstream(requirements_file) << "MM_TEST_PACKAGE_DIR\n";
+    ::unsetenv("MM_TEST_PACKAGE_DIR");
+    expect(!mm::build::read_cmake_package_requirements(bridge, requirements, "test"),
+           "an unset required package variable is rejected");
+
+    ::setenv("MM_TEST_PACKAGE_DIR", (tree.root() / "missing").c_str(), 1);
+    expect(!mm::build::read_cmake_package_requirements(bridge, requirements, "test"),
+           "a required package variable naming a missing directory is rejected");
+
+    ::setenv("MM_TEST_PACKAGE_DIR", package.c_str(), 1);
+    expect(!mm::build::read_cmake_package_requirements(bridge, requirements, "test"),
+           "a required package directory without its config file is rejected");
+
+    const auto config = package / "MM_TEST_PACKAGEConfig.cmake";
     std::filesystem::create_directory(config);
-    expect(!mm::build::validate_picotool_package(package, resolved, "test"),
-           "config-package spelling must name a regular file");
+    expect(!mm::build::read_cmake_package_requirements(bridge, requirements, "test"),
+           "a required config-package spelling must name a regular file");
     std::filesystem::remove(config);
-    std::ofstream(config) << "set(picotool_FOUND TRUE)\n";
-    expect(mm::build::validate_picotool_package(package, resolved, "test"),
-           "canonical config-package spelling is accepted");
-    expect(resolved == std::filesystem::canonical(package),
-           "picotool package directory is canonicalised");
+    std::ofstream(config) << "set(MM_TEST_PACKAGE_FOUND TRUE)\n";
+    expect(mm::build::read_cmake_package_requirements(bridge, requirements, "test") &&
+               requirements.size() == 1 &&
+               requirements.front().variable == "MM_TEST_PACKAGE_DIR" &&
+               requirements.front().directory == std::filesystem::canonical(package),
+           "requirements work under a renamed library and canonicalise the package path");
 
     std::filesystem::remove(config);
-    std::ofstream(package / "picotool-config.cmake") << "set(picotool_FOUND TRUE)\n";
-    expect(mm::build::validate_picotool_package(package, resolved, "test"),
-           "lowercase config-package spelling is accepted");
+    std::ofstream(package / "MM_TEST_PACKAGE-config.cmake")
+        << "set(MM_TEST_PACKAGE_FOUND TRUE)\n";
+    expect(mm::build::read_cmake_package_requirements(bridge, requirements, "test"),
+           "lowercase config-package spelling is accepted generically");
+
+    std::ofstream(requirements_file) << "bad-name_DIR\n";
+    expect(!mm::build::read_cmake_package_requirements(bridge, requirements, "test"),
+           "invalid CMake variable syntax is rejected");
+    std::ofstream(requirements_file) << "MM_TEST_PACKAGE_DIR\nMM_TEST_PACKAGE_DIR\n";
+    expect(!mm::build::read_cmake_package_requirements(bridge, requirements, "test"),
+           "duplicate package requirements are rejected");
+    ::unsetenv("MM_TEST_PACKAGE_DIR");
 }
 
 void projection_schemas() {
@@ -296,7 +336,7 @@ void publish_results_validation() {
 
 const mm::test::case_ cases[] = {
     {"inputs cmake escaping and validation", &inputs_cmake_escaping_and_validation},
-    {"picotool package validation", &picotool_package_validation},
+    {"cmake package requirements", &cmake_package_requirements},
     {"projection schemas", &projection_schemas},
     {"query driver projection live", &query_driver_projection_live},
     {"projection accepts present empty value", &projection_accepts_present_empty_value},
