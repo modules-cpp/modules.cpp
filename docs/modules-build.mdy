@@ -86,8 +86,9 @@ Unknown modules and dependency cycles are manifest errors. Compile and link fail
 
 When a target lane platform declares `link: external` (recorded as `cross-link: external` in `out/config.mdy`), link ownership is delegated to the platform's selected SDK library external build bridge:
 
-- Application linking does not invoke the project linker directly. Instead, build creates an isolated external build directory under the target output tree (`external/<app-name>`).
+- Application linking does not invoke the project linker directly. Instead, build creates an isolated external build directory under the target output tree (`external/<library>/<board-or-none>/<app-name>`).
 - Build writes `mm-inputs.cmake` beside `mm-toolchain.cmake`, containing CMake variables for `MM_OBJECTS`, `MM_OUTPUT_NAME`, `MM_LIBRARY_SOURCE`, and `MM_BOARD`. All values follow an escaping contract using CMake bracket arguments `[=[...]=]`, and semicolons or newlines are rejected.
+- Before configuring, build compares a persisted cache identity over the bridge path and contents, both generated CMake files, the generator and CMake identity, the C and C++ compiler identities and options, the target, system, sysroot, board, output name, and project ABI projection. A missing or changed identity clears that executable's isolated CMake build directory before configuration, so CMake cannot retain a compiler or another cached lane value after its inputs change.
 - Initial CMake configuration is executed with compile commands export enabled (`-DCMAKE_EXPORT_COMPILE_COMMANDS=ON`).
 - Build validates and extracts the ABI probe declared by the bridge in `mm-abi-probe.txt`. The probe path must resolve to exactly one entry in `compile_commands.json` by canonical path. Arguments-form entries and `@` response files are rejected.
 - The C driver identity in the compile database command must match the configured C compiler. Arguments are sanitised to retain only `-m*` options.

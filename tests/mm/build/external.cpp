@@ -108,6 +108,22 @@ void query_driver_projection_live() {
     }
 }
 
+void projection_accepts_present_empty_value() {
+    const mm::build::ProjectionSchema schema{
+        "fixture", {"-march=", "-mcpu=", "-mhard-float"}};
+    std::map<std::string, std::string> projection;
+    expect(mm::build::parse_driver_projection(
+               "  -march= m68020\n  -mcpu=\t\n  -mhard-float [disabled]\n",
+               schema, projection, "test"),
+           "present empty value is a valid projection field");
+    expect(projection.contains("-mcpu=") && projection["-mcpu="].empty(),
+           "empty projection value remains distinguishable from a missing field");
+    expect(!mm::build::parse_driver_projection(
+               "  -march= m68020\n  -mhard-float [disabled]\n",
+               schema, projection, "test"),
+           "an absent value field remains an error");
+}
+
 void publish_results_validation() {
     const mm::test::scoped_tree tree{"publish_results_test"};
     const auto external_dir = tree.root() / "external";
@@ -218,7 +234,21 @@ void publish_results_validation() {
                results_file, external_dir, "app", target_output, "test"),
            "duplicate source path is rejected");
 
-    // 11. Valid primary + supplemental with trailing newlines
+    // 11. A component beginning with two dots remains inside the external tree.
+    const auto dots_dir = external_dir / "..artifacts";
+    const auto dots_primary = dots_dir / "app";
+    std::filesystem::create_directories(dots_dir);
+    {
+        std::ofstream dp(dots_primary);
+        dp << "primary";
+        std::ofstream res(results_file);
+        res << dots_primary.string() << "\n";
+    }
+    expect(mm::build::publish_external_results(
+               results_file, external_dir, "app", target_output, "test"),
+           "a contained path whose component begins with two dots is accepted");
+
+    // 12. Valid primary + supplemental with trailing newlines
     {
         std::ofstream res(results_file);
         res << primary.string() << "\n" << supplemental.string() << "\n\n\n";
@@ -237,6 +267,7 @@ const mm::test::case_ cases[] = {
     {"inputs cmake escaping and validation", &inputs_cmake_escaping_and_validation},
     {"projection schemas", &projection_schemas},
     {"query driver projection live", &query_driver_projection_live},
+    {"projection accepts present empty value", &projection_accepts_present_empty_value},
     {"publish results validation", &publish_results_validation},
 };
 

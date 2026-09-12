@@ -474,6 +474,15 @@ struct ProjectionSchema {
     std::map<std::string, std::string>& projection,
     std::string_view tool);
 
+// Parses one LC_ALL=C GCC --help=target listing against a closed schema.
+// Value fields may be present with an empty value: GCC uses that representation
+// when an equivalent architecture spelling leaves a CPU name unset.
+[[nodiscard]] bool parse_driver_projection(
+    std::string_view output,
+    const ProjectionSchema& schema,
+    std::map<std::string, std::string>& projection,
+    std::string_view tool);
+
 [[nodiscard]] bool publish_external_results(
     const std::filesystem::path& results_file,
     const std::filesystem::path& external_dir,
@@ -498,4 +507,3 @@ struct ProjectionSchema {
 [[nodiscard]] bool clear_module_cache(const std::filesystem::path& build_dir = "out");
 
 }
-

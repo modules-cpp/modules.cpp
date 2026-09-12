@@ -1,10 +1,13 @@
 module;
 
+#include <algorithm>
 #include <cstddef>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <map>
 #include <optional>
@@ -2973,6 +2976,36 @@ const ProjectionSchema* find_projection_schema(std::string_view target_triple) {
 
 namespace {
 
+class Fingerprint {
+public:
+    void add(std::string_view label, std::string_view value) {
+        append(std::to_string(label.size()));
+        append(":");
+        append(label);
+        append(":");
+        append(std::to_string(value.size()));
+        append(":");
+        append(value);
+        append("\n");
+    }
+
+    [[nodiscard]] std::string value() const {
+        std::ostringstream out;
+        out << std::hex << std::setfill('0') << std::setw(16) << value_;
+        return out.str();
+    }
+
+private:
+    void append(std::string_view value) {
+        for (const unsigned char byte : value) {
+            value_ ^= byte;
+            value_ *= 1099511628211ULL;
+        }
+    }
+
+    std::uint64_t value_ = 14695981039346656037ULL;
+};
+
 std::filesystem::path resolve_executable_path(std::string_view name) {
     if (name.find('/') != std::string_view::npos) {
         std::error_code ec;
@@ -2997,6 +3030,188 @@ std::filesystem::path resolve_executable_path(std::string_view name) {
         path_view = path_view.substr(colon + 1);
     }
     return name;
+}
+
+bool read_binary_file(const std::filesystem::path& path, std::string& contents,
+                      std::string_view tool) {
+    std::ifstream in(path, std::ios::binary);
+    if (!in.is_open()) {
+        std::cerr << tool << ": cannot open " << path.string() << " for fingerprinting\n";
+        return false;
+    }
+    contents.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+    if (!in.good() && !in.eof()) {
+        std::cerr << tool << ": cannot read " << path.string() << " for fingerprinting\n";
+        return false;
+    }
+    return true;
+}
+
+bool fingerprint_file(Fingerprint& fingerprint, std::string_view label,
+                      const std::filesystem::path& path, std::string_view tool) {
+    std::string contents;
+    if (!read_binary_file(path, contents, tool)) return false;
+    fingerprint.add(label, contents);
+    return true;
+}
+
+bool fingerprint_directory(Fingerprint& fingerprint, const std::filesystem::path& directory,
+                           std::string_view tool) {
+    std::error_code ec;
+    std::vector<std::filesystem::path> entries;
+    std::filesystem::recursive_directory_iterator iterator(directory, ec);
+    const std::filesystem::recursive_directory_iterator end;
+    if (ec) {
+        std::cerr << tool << ": cannot walk bridge directory " << directory.string()
+                  << ": " << ec.message() << "\n";
+        return false;
+    }
+    while (iterator != end) {
+        entries.push_back(iterator->path());
+        iterator.increment(ec);
+        if (ec) {
+            std::cerr << tool << ": cannot walk bridge directory " << directory.string()
+                      << ": " << ec.message() << "\n";
+            return false;
+        }
+    }
+    std::sort(entries.begin(), entries.end());
+
+    for (const auto& entry : entries) {
+        const auto relative = entry.lexically_relative(directory).generic_string();
+        const auto status = std::filesystem::symlink_status(entry, ec);
+        if (ec) {
+            std::cerr << tool << ": cannot inspect bridge entry " << entry.string()
+                      << ": " << ec.message() << "\n";
+            return false;
+        }
+        if (std::filesystem::is_symlink(status)) {
+            const auto target = std::filesystem::read_symlink(entry, ec);
+            if (ec) {
+                std::cerr << tool << ": cannot read bridge symlink " << entry.string()
+                          << ": " << ec.message() << "\n";
+                return false;
+            }
+            fingerprint.add("bridge-symlink-path", relative);
+            fingerprint.add("bridge-symlink-target", target.generic_string());
+        } else if (std::filesystem::is_regular_file(status)) {
+            fingerprint.add("bridge-file-path", relative);
+            if (!fingerprint_file(fingerprint, "bridge-file-content", entry, tool)) return false;
+        } else if (std::filesystem::is_directory(status)) {
+            fingerprint.add("bridge-directory", relative);
+        } else {
+            fingerprint.add("bridge-other", relative);
+        }
+    }
+    return true;
+}
+
+bool program_version(const std::filesystem::path& program, std::string& version,
+                     std::string_view tool) {
+    const std::string command = "LC_ALL=C " + shell_quote(program) + " --version";
+    FILE* pipe = ::popen(command.c_str(), "r");
+    if (pipe == nullptr) {
+        std::cerr << tool << ": failed to query version of " << program.string() << "\n";
+        return false;
+    }
+    version.clear();
+    char buffer[512];
+    while (std::fgets(buffer, sizeof(buffer), pipe) != nullptr) version += buffer;
+    const int status = ::pclose(pipe);
+    if (status != 0) {
+        std::cerr << tool << ": version query failed for " << program.string()
+                  << " with status " << status << "\n";
+        return false;
+    }
+    return true;
+}
+
+bool external_cache_identity(const std::filesystem::path& bridge_dir,
+                             const std::filesystem::path& toolchain_file,
+                             const std::filesystem::path& inputs_file,
+                             const Toolchain& toolchain,
+                             const Platform& platform,
+                             std::string_view board_name,
+                             std::string_view output_name,
+                             const std::map<std::string, std::string>& project_projection,
+                             std::filesystem::path& cmake_program,
+                             std::string& identity,
+                             std::string_view tool) {
+    Fingerprint fingerprint;
+    fingerprint.add("identity-format", "1");
+    fingerprint.add("generator", "Unix Makefiles");
+    fingerprint.add("bridge-path", bridge_dir.generic_string());
+    if (!fingerprint_directory(fingerprint, bridge_dir, tool) ||
+        !fingerprint_file(fingerprint, "mm-toolchain.cmake", toolchain_file, tool) ||
+        !fingerprint_file(fingerprint, "mm-inputs.cmake", inputs_file, tool))
+        return false;
+
+    cmake_program = resolve_executable_path("cmake");
+    const auto c_program = resolve_executable_path(toolchain.c_compiler.invocation);
+    const auto cxx_program = resolve_executable_path(toolchain.compiler.invocation);
+    std::string cmake_version;
+    std::string c_version;
+    std::string cxx_version;
+    if (!program_version(cmake_program, cmake_version, tool) ||
+        !program_version(c_program, c_version, tool) ||
+        !program_version(cxx_program, cxx_version, tool))
+        return false;
+
+    fingerprint.add("cmake-path", cmake_program.generic_string());
+    fingerprint.add("cmake-version", cmake_version);
+    fingerprint.add("c-driver-path", c_program.generic_string());
+    fingerprint.add("c-driver-version", c_version);
+    fingerprint.add("cxx-driver-path", cxx_program.generic_string());
+    fingerprint.add("cxx-driver-version", cxx_version);
+    fingerprint.add("c-options", toolchain.c_compiler.arguments);
+    fingerprint.add("cxx-options", toolchain.compiler.arguments);
+    fingerprint.add("link-options", toolchain.linker.arguments);
+    fingerprint.add("target", platform.target);
+    fingerprint.add("system", std::to_string(static_cast<int>(platform.system)));
+    fingerprint.add("sysroot", platform.sysroot ? platform.sysroot->generic_string() : "");
+    fingerprint.add("board", board_name);
+    fingerprint.add("output", output_name);
+    for (const auto& [field, value] : project_projection) {
+        fingerprint.add("projection-field", field);
+        fingerprint.add("projection-value", value);
+    }
+    identity = fingerprint.value();
+    return true;
+}
+
+bool read_cache_identity(const std::filesystem::path& path, std::string& identity) {
+    std::ifstream in(path);
+    if (!in.is_open()) return false;
+    std::getline(in, identity);
+    return in.good() || in.eof();
+}
+
+bool write_cache_identity(const std::filesystem::path& path, std::string_view identity,
+                          std::string_view tool) {
+    auto temporary = path;
+    temporary += ".tmp";
+    std::ofstream out(temporary, std::ios::trunc);
+    if (!out.is_open()) {
+        std::cerr << tool << ": cannot write external cache identity " << temporary.string()
+                  << "\n";
+        return false;
+    }
+    out << identity << "\n";
+    out.close();
+    if (!out) {
+        std::cerr << tool << ": cannot write external cache identity " << temporary.string()
+                  << "\n";
+        return false;
+    }
+    std::error_code ec;
+    std::filesystem::rename(temporary, path, ec);
+    if (ec) {
+        std::filesystem::remove(temporary, ec);
+        std::cerr << tool << ": cannot publish external cache identity " << path.string()
+                  << ": " << ec.message() << "\n";
+        return false;
+    }
+    return true;
 }
 
 std::string read_json_string(std::string_view s, std::size_t& pos) {
@@ -3315,12 +3530,20 @@ bool query_driver_projection(
         return false;
     }
 
+    return parse_driver_projection(output, schema, projection, tool);
+}
+
+bool parse_driver_projection(
+    std::string_view output,
+    const ProjectionSchema& schema,
+    std::map<std::string, std::string>& projection,
+    std::string_view tool) {
     projection.clear();
     std::set<std::string> seen;
     std::set<std::string> schema_fields;
     for (const auto f : schema.fields) schema_fields.emplace(f);
 
-    std::istringstream stream(output);
+    std::istringstream stream{std::string(output)};
     std::string line;
     while (std::getline(stream, line)) {
         while (!line.empty() && (line.back() == '\r' || line.back() == ' ' || line.back() == '\t'))
@@ -3333,8 +3556,6 @@ bool query_driver_projection(
         if (!trimmed.starts_with("-m")) continue;
 
         const auto space_pos = trimmed.find_first_of(" \t");
-        if (space_pos == std::string_view::npos) continue;
-
         const auto opt_name = std::string(trimmed.substr(0, space_pos));
         if (!schema_fields.contains(opt_name)) continue;
 
@@ -3344,18 +3565,14 @@ bool query_driver_projection(
             return false;
         }
 
-        const auto val_start = trimmed.find_first_not_of(" \t", space_pos);
+        const auto val_start = space_pos == std::string_view::npos
+                                   ? std::string_view::npos
+                                   : trimmed.find_first_not_of(" \t", space_pos);
         const auto val = val_start == std::string_view::npos
                              ? std::string{}
                              : std::string(trimmed.substr(val_start));
 
-        if (opt_name.ends_with('=')) {
-            if (val.empty()) {
-                std::cerr << tool << ": malformed or empty value for projection field: "
-                          << opt_name << "\n";
-                return false;
-            }
-        } else {
+        if (!opt_name.ends_with('=')) {
             if (val != "[enabled]" && val != "[disabled]") {
                 std::cerr << tool << ": unrecognised value for boolean projection field "
                           << opt_name << ": \"" << val << "\"\n";
@@ -3445,8 +3662,7 @@ bool publish_external_results(
             std::cerr << tool << ": cannot resolve artifact path: " << lines[i] << "\n";
             return false;
         }
-        auto rel = std::filesystem::relative(can_src, can_ext_dir, ec);
-        if (ec || rel.empty() || rel.string().starts_with("..")) {
+        if (!path_within(can_ext_dir, can_src)) {
             std::cerr << tool << ": artifact resolves outside external build directory: "
                       << lines[i] << "\n";
             return false;
@@ -3586,31 +3802,6 @@ int external_link(
     }
 
     const auto bridge_dir = std::filesystem::absolute(library->manifest.parent_path() / "cmake");
-    std::string configure_cmd = "cmake -G \"Unix Makefiles\" -DCMAKE_TOOLCHAIN_FILE=" +
-                                shell_quote(toolchain_file) +
-                                " -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DFETCHCONTENT_FULLY_DISCONNECTED=ON -S " +
-                                shell_quote(bridge_dir) + " -B " + shell_quote(external_dir);
-    if (!verbose) configure_cmd += " >/dev/null 2>&1";
-
-    if (run(toolchain, configure_cmd) != 0) {
-        std::cerr << "build: external build configuration failed for " << app_name << "\n";
-        return exit_link;
-    }
-
-    // Step 5: ABI probe and projection comparison
-    const auto probe_txt = external_dir / "mm-abi-probe.txt";
-    std::filesystem::path canonical_probe;
-    if (!read_abi_probe_path(probe_txt, canonical_probe, "build")) {
-        return exit_link;
-    }
-
-    const auto compile_commands_file = external_dir / "compile_commands.json";
-    std::vector<std::string> bridge_sanitised_options;
-    if (!extract_probe_options(compile_commands_file, canonical_probe,
-                               toolchain.c_compiler.invocation, bridge_sanitised_options,
-                               "build")) {
-        return exit_link;
-    }
 
     std::vector<std::string> project_options;
     std::vector<std::string> project_tokens;
@@ -3630,6 +3821,81 @@ int external_link(
     std::map<std::string, std::string> project_proj;
     if (!query_driver_projection(toolchain.c_compiler.invocation, project_options, *schema,
                                  project_proj, "build")) {
+        return exit_link;
+    }
+
+    std::filesystem::path cmake_program;
+    std::string cache_identity;
+    if (!external_cache_identity(bridge_dir, toolchain_file, inputs_file, toolchain, platform,
+                                 bridge_board, app_name, project_proj, cmake_program,
+                                 cache_identity, "build")) {
+        return exit_link;
+    }
+
+    const auto identity_file = external_dir / "mm-cache-identity.txt";
+    std::string previous_identity;
+    const bool has_identity = read_cache_identity(identity_file, previous_identity);
+    const bool has_cmake_cache = std::filesystem::exists(external_dir / "CMakeCache.txt", ec);
+    if (ec) {
+        std::cerr << "build: cannot inspect external build cache " << external_dir.string()
+                  << ": " << ec.message() << "\n";
+        return exit_link;
+    }
+    if (has_cmake_cache && (!has_identity || previous_identity != cache_identity)) {
+        if (!within_root(external_dir)) {
+            std::cerr << "build: refusing to clear external cache outside the project: "
+                      << external_dir.string() << "\n";
+            return exit_link;
+        }
+        if (verbose) {
+            std::cout << "    external cache identity "
+                      << (has_identity ? "changed" : "missing") << "; clearing "
+                      << external_dir.string() << "\n";
+        }
+        std::filesystem::remove_all(external_dir, ec);
+        if (ec) {
+            std::cerr << "build: cannot clear external build cache " << external_dir.string()
+                      << ": " << ec.message() << "\n";
+            return exit_link;
+        }
+        std::filesystem::create_directories(external_dir, ec);
+        if (ec) {
+            std::cerr << "build: cannot recreate external build directory "
+                      << external_dir.string() << ": " << ec.message() << "\n";
+            return exit_link;
+        }
+        if (!write_toolchain_cmake(toolchain_file, toolchain, platform)) return exit_compile;
+        if (!write_inputs_cmake(inputs_file, abs_objects, app_name, abs_lib_source, bridge_board))
+            return exit_manifest;
+    }
+
+    std::string configure_cmd = shell_quote(cmake_program) +
+                                " -G \"Unix Makefiles\" -DCMAKE_TOOLCHAIN_FILE=" +
+                                shell_quote(toolchain_file) +
+                                " -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DFETCHCONTENT_FULLY_DISCONNECTED=ON -S " +
+                                shell_quote(bridge_dir) + " -B " + shell_quote(external_dir);
+    if (!verbose) configure_cmd += " >/dev/null 2>&1";
+
+    if (run(toolchain, configure_cmd) != 0) {
+        std::filesystem::remove(identity_file, ec);
+        std::cerr << "build: external build configuration failed for " << app_name << "\n";
+        return exit_link;
+    }
+
+    if (!write_cache_identity(identity_file, cache_identity, "build")) return exit_link;
+
+    // Step 5: ABI probe and projection comparison
+    const auto probe_txt = external_dir / "mm-abi-probe.txt";
+    std::filesystem::path canonical_probe;
+    if (!read_abi_probe_path(probe_txt, canonical_probe, "build")) {
+        return exit_link;
+    }
+
+    const auto compile_commands_file = external_dir / "compile_commands.json";
+    std::vector<std::string> bridge_sanitised_options;
+    if (!extract_probe_options(compile_commands_file, canonical_probe,
+                               toolchain.c_compiler.invocation, bridge_sanitised_options,
+                               "build")) {
         return exit_link;
     }
 
@@ -3671,7 +3937,7 @@ int external_link(
     }
 
     // Step 6: Build target mm_external
-    std::string build_cmd = "cmake --build " + shell_quote(external_dir) +
+    std::string build_cmd = shell_quote(cmake_program) + " --build " + shell_quote(external_dir) +
                             " --target mm_external";
     if (!verbose) build_cmd += " >/dev/null 2>&1";
 
@@ -3690,5 +3956,3 @@ int external_link(
 }
 
 }
-
-

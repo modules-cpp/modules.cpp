@@ -1,9 +1,8 @@
 cmake_minimum_required(VERSION 3.13)
 include(${CMAKE_CURRENT_BINARY_DIR}/mm-inputs.cmake)
 
-project(cmake_demo C CXX)
-
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+project(cmake_demo C CXX)
 
 set(MM_DEMO_SOURCE ${MM_LIBRARY_SOURCE}/demo.c)
 set_source_files_properties(${MM_OBJECTS} PROPERTIES EXTERNAL_OBJECT TRUE GENERATED TRUE)
