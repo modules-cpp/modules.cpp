@@ -1,7 +1,7 @@
 ---
 mm: 1.4
 kind: sdk
-name: pico-sdk-arm
+name: pico-arm
 target: arm-none-eabi
 compiler-family: gcc
 runtime: newlib

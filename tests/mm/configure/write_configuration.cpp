@@ -459,8 +459,8 @@ void writes_cross_link_external_configuration() {
     platform.system = mm::configure::PlatformSystem::BareMetal;
     platform.runtime = mm::configure::PlatformRuntime::None;
     platform.link_ownership = mm::configure::LinkOwnership::External;
-    platform.sdk = "pico-sdk-arm";
-    platform.sdk_manifest = "platforms/pico/pico-sdk-arm/mm.mdy";
+    platform.sdk = "pico-arm";
+    platform.sdk_manifest = "platforms/pico/sdk/pico-arm/mm.mdy";
     platform.sdk_family = mm::configure::CompilerFamily::Gcc;
     platform.board = "pico";
     platform.board_manifest = "platforms/pico/pico/mm.mdy";

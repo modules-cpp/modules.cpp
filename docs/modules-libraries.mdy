@@ -42,14 +42,23 @@ libraries/demo/ext/demo.cppm     the wrapper interface
 libraries/demo/ext/demo-c.h      the linkage shim, when the header needs one
 libraries/demo/test/mm.mdy       kind: test over the wrapper
 libraries/demo/third_party/      the vendored tree, may be absent
-libraries/pico-sdk/LICENSE.TXT   repository-owned Pico SDK licence copy
-libraries/pico-sdk/upstream/     Pico SDK 2.3.1 recursive submodule
-libraries/pico-sdk/cmake/        project-owned external link bridge
-libraries/pico-sdk/cmake/mm-requires.txt required CMake package variables
-libraries/pico-sdk/ext/          C adapter, linkage shim, and C++ wrapper
 Closing fence
 
-The project root manifest declares folder: libraries. libraries/mm.mdy declares option: core no with read-only: core once, and inheritance marks the whole branch non-core, so a wrapper cannot be mistaken for core code and no descendant can declare itself core again.
+A library that implements one platform lives with that platform rather than here.
+Pico SDK is the instance: every asset of it, vendored and project-authored, lives
+under platforms/pico/sdk, and docs/modules-platforms.mdy gives that layout.
+
+Opening fence
+platforms/pico/sdk/mm.mdy                    kind: dir, option: core no, read-only: core
+platforms/pico/sdk/pico-sdk/mm.mdy           kind: library, name: pico-sdk
+platforms/pico/sdk/pico-sdk/LICENSE.TXT      repository-owned Pico SDK licence copy
+platforms/pico/sdk/pico-sdk/vendor.sh        clones and pins the checkout
+platforms/pico/sdk/pico-sdk/upstream/        the checkout, cloned and ignored
+platforms/pico/sdk/pico-sdk/cmake/           bridge and mm-requires.txt
+platforms/pico/sdk/pico-sdk/ext/             C adapter, linkage shim, and C++ wrapper
+Closing fence
+
+The project root manifest declares folder: libraries. libraries/mm.mdy declares option: core no with read-only: core once, and inheritance marks the whole branch non-core, so a wrapper cannot be mistaken for core code and no descendant can declare itself core again. A wrapper living with its platform instead needs the same declaration on a kind: dir of its own, because option and read-only are rejected on library, sdk, and board manifests; platforms/pico/sdk/mm.mdy is that node for Pico SDK. Without it the tree does not load: the wrapper is core, and a core node declaring library: is rejected.
 
 # Library manifests
 
@@ -96,12 +105,14 @@ The first two are enforced by the load itself, for every library in the tree who
 An absent checkout is reported with the command that initialises it:
 
 Opening fence
-build: library demo checkout is absent: libraries/demo/third_party; run git submodule update --init --recursive -- 'libraries/demo/third_party'
+build: library demo checkout is absent: libraries/demo/third_party; run 'libraries/demo/vendor.sh'
 Closing fence
 
 # Pico SDK source and picotool
 
-The Pico SDK checkout is pinned as a recursive Git submodule at release 2.3.1, commit `079c6f39023649b154152db30f1d781e884879bc`, under `libraries/pico-sdk/upstream`. Its licence is copied to `libraries/pico-sdk/LICENSE.TXT`, outside the checkout. The SDK's own gitlinks pin its optional nested dependencies; the ordinary recovery command with `--recursive` initialises exactly those revisions. The registered library has an empty include interface: its wrapper records the dependency and availability boundary, while the external bridge supplies the SDK implementation and owns the final link.
+The Pico SDK checkout is provisioned by a script, not tracked as a submodule. `platforms/pico/sdk/pico-sdk/vendor.sh` is found by convention beside the library manifest, the way the bridge is found at `cmake/`. It pins release 2.3.1 and commit `079c6f39023649b154152db30f1d781e884879bc`, clones into `upstream` with the SDK's own submodules initialised, verifies that the resulting HEAD equals the pinned commit and fails naming both when it does not, and does nothing when the checkout is already correct. No tool invokes it: provisioning is deliberate, and a build only reports that the checkout is absent. `upstream` is ignored, and clean.sh does not remove it. The licence is copied to `platforms/pico/sdk/pico-sdk/LICENSE.TXT`, outside the checkout, so an unprovisioned tree stays inspectable and valid.
+
+An absent-checkout diagnostic names that script rather than a git command, derived from the library manifest's own directory, so the loader assumes nothing about how a library was vendored. A script pin is weaker than a gitlink: git neither verifies it nor shows drift, and a switched or dirty checkout is invisible to git status. Re-running the script is the check, and the tag and commit recorded here are the second record of the pin. The registered library has an empty include interface: its wrapper records the dependency and availability boundary, while the external bridge supplies the SDK implementation and owns the final link.
 
 Pico SDK 2.3.1 may otherwise fetch and build picotool while configuring extra outputs. Its bridge therefore carries a checked-in `mm-requires.txt` whose one line is `picotool_DIR`. This is an instance of the generic external-bridge requirements contract, not a check on the library name. Before invoking CMake, build requires that environment variable to name an existing local CMake package directory containing an existing regular file named either `picotoolConfig.cmake` or `picotool-config.cmake`. An unset variable, a missing directory, or a directory containing neither spelling is a configuration failure naming the variable, the directory searched, and both accepted file names. Renaming the library does not change the requirement.
 
@@ -204,7 +215,7 @@ Every fault in this document is a manifest fault and exits 65. A library manifes
 Two diagnostics are emitted for one wrapper fault, deliberately. The checkout validator reports the resource failure and the recovery command, and the caller then names the consumer:
 
 Opening fence
-build: library demo checkout is absent: libraries/demo/third_party; run git submodule update --init --recursive -- 'libraries/demo/third_party'
+build: library demo checkout is absent: libraries/demo/third_party; run 'libraries/demo/vendor.sh'
 build: libraries/demo/ext/mm.mdy: module demo cannot use library demo
 Closing fence
 

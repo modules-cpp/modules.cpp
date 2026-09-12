@@ -10,5 +10,5 @@ folder: target-smoke-rp2040
 folder: target-smoke-rp2350
 folder: cmake-demo-smoke
 folder: pico-smoke
-folder: pico2-smoke
+folder: pico2-arm-smoke
 ---

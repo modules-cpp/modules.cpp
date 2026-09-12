@@ -1,0 +1,19 @@
+---
+mm: 1.1
+kind: dir
+name: pico-sdk-platform
+option: core no
+read-only: core
+folder: pico-arm
+folder: pico
+folder: pico2-arm
+folder: pico-sdk
+---
+
+# Pico SDK platform
+
+The SDK definitions, boards, vendored library, bridge, and wrapper that make up
+the Pico SDK-backed platform. The branch is non-core with a lock: the wrapper
+names a third-party library, and a core node may not. rp2040-ram and rp2350-ram
+stay outside this directory because they are project-linked core platforms that
+do not depend on Pico SDK.

@@ -1,7 +1,7 @@
 ---
 mm: 1.4
 kind: module
-name: pico
+name: pico-ext
 module: ext.pico
 file: pico.cppm
 library: pico-sdk

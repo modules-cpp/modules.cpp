@@ -152,19 +152,31 @@ The registered gcc arm-none-eabi Cortex-M33, Thumb, softfp combination has two r
 
 # Pico SDK platform definitions
 
-Three registered definitions live under platforms/pico:
+The Pico SDK platform is one directory, holding its definitions and every asset
+they need:
 
 Opening fence
-platforms/pico/pico-sdk-arm/mm.mdy   kind: sdk
-platforms/pico/pico/mm.mdy           kind: board
-platforms/pico/pico2/mm.mdy          kind: board
+platforms/pico/sdk/mm.mdy                kind: dir, option: core no, read-only: core
+platforms/pico/sdk/pico-arm/mm.mdy       kind: sdk
+platforms/pico/sdk/pico/mm.mdy           kind: board
+platforms/pico/sdk/pico2-arm/mm.mdy      kind: board
+platforms/pico/sdk/pico-sdk/            kind: library, checkout, bridge, wrapper
 Closing fence
 
-pico-sdk-arm targets gcc arm-none-eabi with newlib, names the pico-sdk library, and owns reset-vector, initial-stack, memory-layout, runtime-init, and syscalls. It declares neither a specs profile nor a specs file because the external SDK build owns the final link.
+rp2040-ram and rp2350-ram stay outside that directory: they are project-linked
+core platforms that do not depend on Pico SDK, and the non-core lock on
+platforms/pico/sdk must not reach them.
 
-pico selects Cortex-M0+, Thumb, soft float ABI, and machine rp2040. pico2 selects Cortex-M33, Thumb, softfp float ABI, machine rp2350, and explicitly declares `security-domain: secure`, selecting the Arm Secure processor row above. The existing rp2350-ram board omits the key and therefore retains its non-secure three-argument compile and link commands. Both Pico SDK boards omit linker-script, file, and provides; those are optional only after reference resolution establishes that their SDK's library declares external-build.
+Renaming a selected SDK or board invalidates a configuration record, which stores
+both names and both manifest paths. The stale record blocks configure as well as
+build, because configure loads the existing record before writing a new one, so
+the recovery is to remove out/config.mdy and configure again.
 
-The RP2350 mapping is measured against the pinned Pico SDK 2.3.1 toolchain rather than inferred from the board name. A generated compile-database entry for a pico2 source contains:
+pico-arm targets gcc arm-none-eabi with newlib, names the pico-sdk library, and owns reset-vector, initial-stack, memory-layout, runtime-init, and syscalls. It declares neither a specs profile nor a specs file because the external SDK build owns the final link.
+
+pico selects Cortex-M0+, Thumb, soft float ABI, and machine rp2040. pico2-arm selects Cortex-M33, Thumb, softfp float ABI, machine rp2350, and explicitly declares `security-domain: secure`, selecting the Arm Secure processor row above. The existing rp2350-ram board omits the key and therefore retains its non-secure three-argument compile and link commands. Both Pico SDK boards omit linker-script, file, and provides; those are optional only after reference resolution establishes that their SDK's library declares external-build.
+
+The RP2350 mapping is measured against the pinned Pico SDK 2.3.1 toolchain rather than inferred from the board name. A generated compile-database entry for a pico2-arm source contains:
 
 Opening fence
 -mcpu=cortex-m33 -mthumb -march=armv8-m.main+fp+dsp -mcmse -mfloat-abi=softfp

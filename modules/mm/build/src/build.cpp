@@ -2263,10 +2263,14 @@ bool validate_library_checkout(const std::filesystem::path& project_root,
                       << ": library source is not a directory: " << source.string() << "\n";
             return false;
         }
+        // The recovery command is the library's own provisioning script, found
+        // beside its manifest the way the CMake bridge is found at cmake/. Naming
+        // a git command here would assume how a library was vendored, which is
+        // the library's business and not this loader's.
+        const auto provision = library.manifest.parent_path() / "vendor.sh";
         std::cerr << tool << ": library " << library.name << " checkout is absent: "
                   << library.source.generic_string()
-                  << "; run git submodule update --init --recursive -- "
-                  << shell_quote(library.source) << "\n";
+                  << "; run " << shell_quote(provision) << "\n";
         return false;
     }
 

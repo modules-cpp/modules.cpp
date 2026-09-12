@@ -604,7 +604,7 @@ void loads_cross_link_external_configuration() {
     const auto board_manifest = tree.root() / "platforms/board/mm.mdy";
     write(board_manifest, "mm: 1.2\nkind: board\nname: pico\n");
     const auto arm_sdk_manifest = tree.root() / "platforms/pico-sdk/mm.mdy";
-    write(arm_sdk_manifest, "mm: 1.2\nkind: sdk\nname: pico-sdk-arm\n");
+    write(arm_sdk_manifest, "mm: 1.2\nkind: sdk\nname: pico-arm\n");
 
     const auto bm_path = tree.root() / "out/config-bm.mdy";
     const std::string bm_config =
@@ -629,7 +629,7 @@ void loads_cross_link_external_configuration() {
         "cross-link-flags: cross link flags\n"
         "cross-system: bare-metal\n"
         "cross-runtime: none\n"
-        "cross-sdk: pico-sdk-arm\n"
+        "cross-sdk: pico-arm\n"
         "cross-sdk-manifest: platforms/pico-sdk/mm.mdy\n"
         "cross-sdk-compiler-family: gcc\n"
         "cross-sdk-provides: reset-vector\n"
@@ -694,7 +694,7 @@ void loads_cross_link_external_configuration() {
 void detects_stale_configuration_record() {
     const mm::test::scoped_tree tree{"build_stale_config"};
     const auto sdk_manifest = tree.root() / "platforms/pico-sdk/mm.mdy";
-    write(sdk_manifest, "mm: 1.2\nkind: sdk\nname: pico-sdk-arm\n");
+    write(sdk_manifest, "mm: 1.2\nkind: sdk\nname: pico-arm\n");
     const auto board_manifest = tree.root() / "platforms/board/mm.mdy";
     write(board_manifest, "mm: 1.2\nkind: board\nname: pico\n");
     const auto bm_path = tree.root() / "out/config.mdy";
@@ -719,7 +719,7 @@ void detects_stale_configuration_record() {
         "cross-link-flags: flags\n"
         "cross-system: bare-metal\n"
         "cross-runtime: none\n"
-        "cross-sdk: pico-sdk-arm\n"
+        "cross-sdk: pico-arm\n"
         "cross-sdk-manifest: platforms/pico-sdk/mm.mdy\n"
         "cross-sdk-compiler-family: gcc\n"
         "cross-sdk-provides: reset-vector\n"
@@ -744,7 +744,7 @@ void detects_stale_configuration_record() {
 
     mm::build::Project project;
     mm::build::SdkDefinition sdk;
-    sdk.name = "pico-sdk-arm";
+    sdk.name = "pico-arm";
     sdk.library = "pico-sdk";
     project.sdks.push_back(sdk);
 

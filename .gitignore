@@ -77,3 +77,6 @@ debug-*.sh
 
 # local release scripts
 release-*.sh
+
+# vendored library checkouts, provisioned by each library's vendor.sh
+platforms/pico/sdk/pico-sdk/upstream/

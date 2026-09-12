@@ -2,7 +2,7 @@
 mm: 1.4
 kind: board
 name: pico
-sdk: pico-sdk-arm
+sdk: pico-arm
 cpu: cortex-m0plus
 instruction-set: thumb
 float-abi: soft

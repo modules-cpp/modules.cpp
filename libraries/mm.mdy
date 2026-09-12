@@ -6,7 +6,6 @@ option: core no
 read-only: core
 folder: demo
 folder: cmake-demo
-folder: pico-sdk
 ---
 
 # Libraries

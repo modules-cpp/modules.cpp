@@ -72,7 +72,7 @@ void repository_exposes_platform_definitions() {
         if (b->name() == "rp2040-ram") rp2040 = b;
         if (b->name() == "rp2350-ram") rp2350 = b;
         if (b->name() == "pico") pico = b;
-        if (b->name() == "pico2") pico2 = b;
+        if (b->name() == "pico2-arm") pico2 = b;
     }
     mm::test::expect(mps2 != nullptr && mps2->kind() == models::Kind::Board &&
                          mps2->sdk() == "arm-none-eabi-newlib" &&
@@ -89,10 +89,10 @@ void repository_exposes_platform_definitions() {
                          rp2350->cpu() == "cortex-m33" &&
                          rp2350->sources().size() == 1,
                      "expected rp2350 board's SDK, processor, and source");
-    mm::test::expect(pico != nullptr && pico->sdk() == "pico-sdk-arm" &&
+    mm::test::expect(pico != nullptr && pico->sdk() == "pico-arm" &&
                          pico->cpu() == "cortex-m0plus" && pico->sources().empty(),
                      "expected Pico SDK RP2040 board definition");
-    mm::test::expect(pico2 != nullptr && pico2->sdk() == "pico-sdk-arm" &&
+    mm::test::expect(pico2 != nullptr && pico2->sdk() == "pico-arm" &&
                          pico2->cpu() == "cortex-m33" && pico2->sources().empty(),
                      "expected Pico SDK RP2350 board definition");
 }

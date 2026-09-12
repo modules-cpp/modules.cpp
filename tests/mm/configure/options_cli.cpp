@@ -170,8 +170,8 @@ void installed_tools_select_configured_lanes() {
                       root_arg,
                   log) == 65,
            "configure rejects an absent checkout selected by an SDK");
-    expect(read_text(log).find("git submodule update --init --recursive") != std::string::npos,
-           "absent selected checkout has an actionable diagnostic");
+    expect(read_text(log).find("vendor.sh") != std::string::npos,
+           "absent selected checkout names the library's provisioning script");
     std::filesystem::create_directories(tree.root() / "library/third_party/include");
     std::ofstream(tree.root() / "library/third_party/.checkout") << "present\n";
     expect(invoke(bin / "configure",
