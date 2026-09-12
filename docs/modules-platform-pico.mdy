@@ -1,0 +1,491 @@
+---
+mm: 1.0
+kind: doc
+name: modules.cpp Pico platform specification
+status: official
+---
+
+# modules.cpp Pico platform specification
+
+# Status and authority
+
+This document specifies every Raspberry Pi Pico platform in this repository: the
+two project-linked RAM platforms, the two Pico SDK-backed SDKs and their three
+boards, the vendored Pico SDK checkout and how it is provisioned, the CMake
+bridge that links against it, the C adapter and C++ wrapper that expose it, and
+the smoke applications that prove it. It describes implemented behaviour. Its
+manifests require mm: 1.4.
+
+status: official gives this document the same authority as the other implemented
+specifications in docs.
+
+docs/modules-platforms.mdy remains authoritative for what an SDK and a board are,
+how a platform is selected, the processor registry's shape, responsibility
+ownership, and the configuration record. docs/modules-libraries.mdy remains
+authoritative for kind: library, external-build, the bridge-location convention,
+bridge requirement files, checkout validation, and the external-wrapper
+availability rule. docs/modules-c++20.mdy remains authoritative for what a
+wrapper, a linkage shim, and an adapter may contain. This document owns the Pico
+instance of all of them.
+
+Examples use Opening fence and Closing fence instead of literal front matter
+delimiters, following docs/mdy.mdy.
+
+# Two families under one directory
+
+platforms/pico holds two kinds of platform that share a vendor and nothing else.
+
+- rp2040-ram and rp2350-ram are minimal, project-linked, core platforms. They
+  declare their own linker script, vector table, and three responsibilities, the
+  project's own linker produces their executables, and they depend on no
+  third-party code. They exist to prove processor arguments, responsibility
+  ownership, linker scripts, and target testing without Pico SDK.
+- pico, pico2-arm, and pico2-riscv are Pico SDK-backed. They declare no linker
+  script, no source, and no responsibility, because Pico SDK's own CMake build
+  owns startup, the runtime, the executable link, and the post-link images.
+
+The second family is non-core and locked; the first is core and mutable. Keeping
+them in separate subtrees is what lets one directory hold both.
+
+# Layout
+
+Opening fence
+platforms/pico/mm.mdy                        kind: dir, name: pico
+platforms/pico/rp2040-ram/                   board, linker script, vector table
+platforms/pico/rp2350-ram/                   board, linker script, vector table
+
+platforms/pico/sdk/mm.mdy                    kind: dir, option: core no, read-only: core
+platforms/pico/sdk/pico-arm/mm.mdy           kind: sdk, arm-none-eabi
+platforms/pico/sdk/pico-riscv/mm.mdy         kind: sdk, riscv32-pico-elf
+platforms/pico/sdk/pico/mm.mdy               kind: board, RP2040
+platforms/pico/sdk/pico2-arm/mm.mdy          kind: board, RP2350 Arm Secure
+platforms/pico/sdk/pico2-riscv/mm.mdy        kind: board, RP2350 RISC-V
+platforms/pico/sdk/pico-sdk/mm.mdy           kind: library, name: pico-sdk
+platforms/pico/sdk/pico-sdk/LICENSE.TXT      repository-owned licence copy
+platforms/pico/sdk/pico-sdk/vendor.sh        provisions and pins the checkout
+platforms/pico/sdk/pico-sdk/upstream/        the checkout, cloned and ignored
+platforms/pico/sdk/pico-sdk/cmake/           bridge, mm-requires.txt, UF2 validation
+platforms/pico/sdk/pico-sdk/ext/             adapter, shims, wrapper
+
+apps/pico-smoke/                             requires-board: pico
+apps/pico2-arm-smoke/                        requires-board: pico2-arm
+apps/pico2-riscv-smoke/                      requires-board: pico2-riscv
+Closing fence
+
+Everything the project authors for Pico SDK, and the vendored tree itself, lives
+under platforms/pico/sdk/pico-sdk. A library that implements one platform lives
+with that platform; libraries/ keeps the libraries any lane may consume.
+
+# The non-core lock
+
+platforms/pico/sdk/mm.mdy declares option: core no with read-only: core, and the
+whole subtree inherits both: two SDKs, three boards, the library, and the wrapper.
+
+The lock is load-bearing, not decorative. The wrapper declares library: pico-sdk,
+and the shared structural-property validation rejects a core node that does. With
+the declaration removed the tree does not load:
+
+Opening fence
+configure: platforms/pico/sdk/pico-sdk/ext/mm.mdy: pico-ext is core, but declares library pico-sdk
+Closing fence
+
+It cannot live anywhere else. option and read-only are rejected on library, sdk,
+and board manifests, so the library manifest cannot carry it, and
+platforms/pico/mm.mdy would declare rp2040-ram and rp2350-ram non-core and then
+lock them out of saying otherwise. The resolved records show the boundary holding:
+
+Opening fence
+platforms/pico/rp2350-ram        core: yes; default for debug; mutable
+platforms/pico/sdk/pico2-arm     core: no; assigned by platforms/pico/sdk/mm.mdy; read-only
+platforms/pico/sdk/pico-sdk/ext  core: no; assigned by platforms/pico/sdk/mm.mdy; read-only
+Closing fence
+
+# The SDKs
+
+pico-arm targets gcc arm-none-eabi with newlib. pico-riscv targets gcc
+riscv32-pico-elf with newlib. Both name the pico-sdk library, and both own all
+five bare-metal responsibilities: reset-vector, initial-stack, memory-layout,
+runtime-init, and syscalls. Neither declares a specs profile or a specs file,
+which are rejected on an SDK whose library declares external-build, because the
+external build owns the link and two runtimes cannot both own it.
+
+riscv32-pico-elf is registered in the closed target-system registry as a
+bare-metal target. It is also the first triple Pico SDK itself prefers, ahead of
+riscv32-unknown-elf, riscv32-corev-elf, and riscv-none-elf, so the vendor field
+names the Pico-targeted toolchain rather than a generic riscv32 build.
+
+Neither SDK is named pico-sdk. A board would then declare sdk: pico-sdk while the
+SDK declares library: pico-sdk, one string naming two nodes of two kinds.
+
+# The boards
+
+Opening fence
+pico          cortex-m0plus  thumb  soft    rp2040   sdk: pico-arm
+pico2-arm     cortex-m33     thumb  softfp  rp2350   sdk: pico-arm    security-domain: secure
+pico2-riscv   hazard3        rv32…  soft    rp2350   sdk: pico-riscv
+rp2040-ram    cortex-m0plus  thumb  soft    rp2040   sdk: arm-none-eabi-newlib
+rp2350-ram    cortex-m33     thumb  softfp  rp2350   sdk: arm-none-eabi-newlib
+Closing fence
+
+pico2-arm and pico2-riscv name the same hardware. A board reads sdk as a required
+scalar resolving to exactly one SDK, so one board cannot serve two architectures,
+and the RP2350 pair is symmetric rather than one board with a variant. pico is not
+split: RP2040 has no RISC-V cores.
+
+The three SDK-backed boards omit linker-script, file, and provides. Those keys
+become optional only after reference resolution establishes that the board's SDK
+names a library declaring external-build, which is why the completeness check runs
+after every SDK and library reference resolves rather than while a board is
+parsed.
+
+pico2-arm declares security-domain: secure and selects the Arm Secure processor
+row. rp2350-ram omits the key, keeps the non-secure default, and therefore keeps
+its three-argument commands unchanged.
+
+The RISC-V board needs no new schema. cpu names the processor, hazard3.
+instruction-set names the instruction set, which ARM spells thumb and RISC-V
+spells as an ISA string. float-abi: soft is the soft-float integer ABI, emitted as
+-mabi=ilp32. security-domain has no RISC-V counterpart and keeps its default.
+
+# Processor arguments, and where they come from
+
+Every argument below is read from the pinned SDK rather than inferred from a board
+name.
+
+Opening fence
+cortex-m0plus thumb soft    non-secure  -mcpu=cortex-m0plus -mthumb -mfloat-abi=soft
+cortex-m33    thumb softfp  non-secure  -mcpu=cortex-m33 -mthumb -mfloat-abi=softfp
+cortex-m33    thumb softfp  secure      -mcpu=cortex-m33 -mthumb -mfloat-abi=softfp -mcmse
+hazard3       rv32… soft    non-secure  -march=rv32imac_zicsr_zifencei_zba_zbb_zbs_zbkb -mabi=ilp32 -mstrict-align
+Closing fence
+
+For pico2-arm, a generated compile-database entry for a Pico SDK source contains:
+
+Opening fence
+-mcpu=cortex-m33 -mthumb -march=armv8-m.main+fp+dsp -mcmse -mfloat-abi=softfp
+Closing fence
+
+The project does not repeat the explicit -march: querying GCC shows -mcpu=cortex-m33
+resolves to the same effective armv8-m.main+dsp+fp architecture. It must repeat
+-mcmse, whose query state changes from disabled to enabled.
+
+For pico2-riscv the SDK's own cmake/preload/toolchains/pico_riscv_gcc.cmake offers
+three flag sets in preference order and takes the first its toolchain accepts,
+appending -mstrict-align to whichever wins:
+
+Opening fence
+-mcpu=hazard3-rp2350
+-march=rv32ima_zicsr_zifencei_zba_zbb_zbs_zbkb_zca_zcb_zcmp -mabi=ilp32
+-march=rv32imac_zicsr_zifencei_zba_zbb_zbs_zbkb -mabi=ilp32
+Closing fence
+
+No fixed registry row can match every installation, so the row emits the third,
+the universal fallback that needs no recent assembler. A toolchain accepting an
+earlier candidate makes the SDK compile its own sources differently, and the ABI
+projection reports that as a mismatch naming both projections. The fix is one
+registry row, not a schema change.
+
+# ABI projections
+
+The project compiles its objects with the registry's arguments; Pico SDK compiles
+its own with whatever its platform selects. Nothing makes those agree, so build
+compares them, after CMake configure and before CMake build, over a normalised
+projection obtained by asking the driver rather than by comparing spellings.
+
+Opening fence
+arm-none-eabi     -march=  -mthumb  -mfloat-abi=  -mfpu=  -mcmse
+riscv32-pico-elf  -march=  -mabi=
+Closing fence
+
+-mcpu= is excluded from both. Measured on arm-none-eabi: naming a CPU reports both
+-march and -mcpu, while naming the equivalent architecture reports the same -march
+and leaves -mcpu empty, so comparing it would fail the equivalence the projection
+exists to establish. The same reasoning excludes it for RISC-V, where the SDK may
+name a CPU and the project an architecture. -mstrict-align and -mcmodel= are code
+generation rather than calling convention.
+
+The RISC-V schema is unconfirmed against a real driver, because no
+riscv32-pico-elf toolchain was installed where it landed. One command confirms it:
+
+Opening fence
+LC_ALL=C riscv32-pico-elf-gcc -march=rv32imac_zicsr_zifencei_zba_zbb_zbs_zbkb -mabi=ilp32 -mstrict-align -Q --help=target -c
+Closing fence
+
+Strict parsing is what keeps an unconfirmed schema from passing quietly: a named
+field the driver does not report fails the build naming the field, so an empty
+projection cannot compare equal to another empty one.
+
+# The checkout
+
+The Pico SDK checkout is provisioned by a script, not tracked as a submodule.
+platforms/pico/sdk/pico-sdk/vendor.sh is found by convention beside the library
+manifest, the way the bridge is found at cmake/. It pins release 2.3.1 and commit
+079c6f39023649b154152db30f1d781e884879bc, clones into upstream with the SDK's own
+submodules initialised, and verifies the result.
+
+Verification checks the repository root before the commit. git rev-parse inside an
+empty or non-repository directory answers for whichever repository encloses it, so
+without that check an unprovisioned upstream reports this project's own HEAD and
+compares unequal for the wrong reason.
+
+- With the checkout already at the pinned commit the script prints so and exits 0.
+- With it at another commit the script exits 65 naming both commits and does not
+  modify anything.
+- With it absent the script clones, then verifies, and fails the same way if the
+  tag no longer resolves to the pinned commit.
+
+The recursive checkout is about 800 MB and carries six nested gitlinks: btstack,
+cyw43-driver, lwip, mbedtls with its own framework, and tinyusb. None is needed by
+this integration, which links pico_stdlib with semihosting stdio; they are
+initialised because the SDK pins them and a partial checkout is a second thing to
+reason about.
+
+upstream is ignored, and clean.sh keeps its out/, out-*/, gcm.cache/ scope, so
+cleaning never discards a checkout that costs a clone to restore. The licence is
+copied to LICENSE.TXT outside the checkout, so an unprovisioned tree stays
+inspectable and valid.
+
+An absent checkout is reported by naming that script, derived from the library
+manifest's own directory:
+
+Opening fence
+configure: library pico-sdk checkout is absent: platforms/pico/sdk/pico-sdk/upstream; run 'platforms/pico/sdk/pico-sdk/vendor.sh'
+Closing fence
+
+A script pin is weaker than a gitlink: git neither verifies it nor shows drift, and
+a switched or dirty checkout is invisible to git status. Re-running the script is
+the check, and the tag and commit recorded here are the second record of the pin.
+
+# The bridge
+
+platforms/pico/sdk/pico-sdk/cmake/CMakeLists.txt is project-authored and owns
+everything Pico-specific. Build hands it generic values only: the ordered project
+objects, the requested output name, the library's source path, the selected
+board's name, and the compiler drivers. Nothing in mm.build names Pico.
+
+The order matters and is deliberate: inputs are read, the board is mapped, and only
+then does Pico SDK see either.
+
+Opening fence
+include(${CMAKE_CURRENT_BINARY_DIR}/mm-inputs.cmake)
+map MM_BOARD -> PICO_BOARD, PICO_PLATFORM
+include(${MM_LIBRARY_SOURCE}/pico_sdk_init.cmake)
+project(... C CXX ASM)
+pico_sdk_init()
+Closing fence
+
+The board mapping lives only here, because only CMake needs it:
+
+Opening fence
+pico          PICO_BOARD=pico    PICO_PLATFORM=rp2040
+pico2-arm     PICO_BOARD=pico2   PICO_PLATFORM=rp2350-arm-s
+pico2-riscv   PICO_BOARD=pico2   PICO_PLATFORM=rp2350-riscv
+Closing fence
+
+PICO_BOARD is the same for both RP2350 rows because it names the hardware;
+PICO_PLATFORM is what selects the architecture. An unrecognised board name is a
+fatal error: this bridge requires one, even though generic external linking does
+not.
+
+The target is the fixed internal name mm_external, so no manifest-derived name
+reaches a CMake identifier; the requested name arrives only as OUTPUT_NAME. Project
+objects carry EXTERNAL_OBJECT and GENERATED so CMake does not recompile them, and
+they are listed in order because self-registering static initialisers depend on it.
+LINKER_LANGUAGE CXX is set explicitly: the only ordinary source in the target is
+one C file, and without it CMake may drive the link with the C compiler.
+
+The bridge reports two things back through generated files: mm-abi-probe.txt names
+the source whose compile-database entry build projects, and mm-result.txt names the
+primary artifact and its supplements.
+
+# picotool
+
+Pico SDK 2.3.1 may otherwise fetch and build picotool while configuring extra
+outputs. The bridge therefore carries a checked-in cmake/mm-requires.txt whose one
+line is picotool_DIR. This is the generic bridge-requirements contract, not a check
+on the library name.
+
+Before invoking CMake, build requires that variable to name an existing directory
+containing an existing regular file named either picotoolConfig.cmake or
+picotool-config.cmake, the two spellings find_package accepts. It canonicalises the
+directory, passes it as picotool_DIR:PATH, and fingerprints its path and contents
+into the external cache identity. It does not execute the tool or parse the package
+file to reach that decision.
+
+Opening fence
+build: external bridge requires CMake package variable picotool_DIR; it is unset (expected picotoolConfig.cmake or picotool-config.cmake)
+Closing fence
+
+CMake configuration also sets FETCHCONTENT_FULLY_DISCONNECTED=ON as a second guard,
+because CMake's own documentation says that flag assumes dependencies are already
+populated and is not a first-run network guard. The guard is build refusing to
+configure. The installed package remains responsible for satisfying the SDK's
+required picotool version; an incompatible one fails in the SDK's config-mode
+find_package rather than falling back to a download.
+
+After picotool runs, the bridge validates every 512-byte block of the generated UF2
+against both leading magic words and the trailing magic word. A missing, empty,
+mis-sized, or incorrectly framed output fails the external build before publication
+and is removed from the external cache. Supplying a package stub is therefore not
+evidence that UF2 production works.
+
+# The wrapper boundary
+
+No project module includes pico/stdlib.h. That header aggregates generated
+configuration headers, board headers, hardware headers, compile definitions, and
+transitive CMake targets, none of which a library include interface can carry.
+
+ext/adapter.c is the only file that includes Pico SDK headers. It is compiled by
+the bridge inside Pico SDK's own target graph, with whatever flags that graph
+selects, so one C source serves all three boards and both architectures. It
+implements a deliberately small C ABI: initialisation, output, delay, and one GPIO
+operation.
+
+ext/pico-c.h declares that ABI in plain C, with no language linkage specifier of
+its own, because adapter.c compiles as C and the wrapper as C++. ext/pico-cxx.h is
+the colocated C++ linkage shim that wraps it in extern "C", which is how the
+wrapper obtains the linkage without an __cplusplus test: docs/modules-c++20.mdy
+permits no preprocessor directive other than #include.
+
+ext/pico.cppm exports module ext.pico with typed C++ functions over that ABI. Its
+manifest name is pico-ext, so that pico names two nodes rather than three.
+
+The wrapper's library: pico-sdk declaration contributes nothing to any compile
+command. It requires the checkout when a closure reaches the wrapper, it drives the
+availability rule, and it records the dependency in the manifest tree and the
+model, but its include interface is empty. The external build is what makes Pico
+SDK work, not include propagation.
+
+ext.pico is available only in a target lane whose selected SDK names pico-sdk, so
+it compiles in the pico-arm and pico-riscv lanes and is reported as a skipped
+unavailable target everywhere else, including an arm-none-eabi lane with rp2040-ram
+selected.
+
+adapter.c is project-authored production code that no manifest declares, so it is
+invisible to the source inventory, cppcheck, model, and document. The bridge
+compiles it with an explicit strict C dialect and warnings as errors, every smoke
+application references every ABI entry point so a removed function fails the link,
+and its review is a named acceptance condition.
+
+# The smoke applications
+
+Opening fence
+mm: 1.4
+kind: app
+name: pico2-arm-smoke
+option: core no
+option: buildable-host no
+requires-board: pico2-arm
+use: ext.pico
+file: main.cpp
+Closing fence
+
+All three declarations are load-bearing. core no because the application uses
+ext.pico, which is non-core, and that is a declared dependency edge the core rule
+governs. buildable-host no because requires-board is not consulted in the host
+lane. requires-board because it is what makes the application unavailable in every
+other target lane, which the wrapper's availability rule depends on: an application
+whose closure reaches an external wrapper must be pinned to a lane where that
+wrapper is available.
+
+# Build and publication
+
+1. Resolve the lane, SDK, board, responsibilities, and checkout, and compare the
+   record's link ownership with the manifest's.
+2. Compile project modules and the application with the lane compiler and the
+   registry's processor arguments.
+3. Create or validate the external directory for this lane and executable.
+4. Generate mm-inputs.cmake and mm-toolchain.cmake, and configure the bridge with
+   the pinned generator, the recorded C, C++, and ASM drivers, and picotool_DIR.
+5. Read the bridge's ABI probe, project both sides, and fail on any difference.
+6. Build the CMake target and validate the UF2.
+7. Read mm-result.txt and publish.
+
+The primary artifact is published at the ordinary artifact path, extensionless, so
+run and debug reach it exactly as they reach a project-linked executable.
+Supplements are published beside it as the same name plus their own suffix:
+
+Opening fence
+out-target-arm-none-eabi/apps/pico-smoke/pico-smoke        the ELF
+out-target-arm-none-eabi/apps/pico-smoke/pico-smoke.bin
+out-target-arm-none-eabi/apps/pico-smoke/pico-smoke.hex
+out-target-arm-none-eabi/apps/pico-smoke/pico-smoke.uf2
+out-target-arm-none-eabi/apps/pico-smoke/pico-smoke.elf.map
+Closing fence
+
+External linking is lane-wide. Every available application in an SDK-backed lane is
+handed to the bridge, whether or not its closure reaches the wrapper, so a portable
+core application builds there too and is linked by the platform it was going to be
+linked against anyway.
+
+The external directory is out-target-<target>/external/pico-sdk/<board>/<executable>.
+Its cache identity covers the bridge directory's contents, both generated files,
+the generator, CMake, the drivers and their versions, picotool, the sysroot, the
+system name, the processor arguments, the ABI projection, the board, the output
+name, and the build type. A mismatch clears and reconfigures; nothing stale is
+reused.
+
+# Operational notes
+
+Three behaviours surprise people and are recorded here rather than rediscovered.
+
+- Renaming a selected SDK or board invalidates a configuration record, which stores
+  both names and both manifest paths. The stale record blocks configure as well as
+  build, because configure loads the existing record before writing a new one, so
+  the recovery is to remove out/config.mdy and configure again.
+- Adding a target triple is a two-step build, because the tool that validates the
+  tree is built from the tree. The registry change must be compiled into out/bin
+  before a manifest declaring the new triple is registered; a single-step attempt
+  fails with unsupported target from the previously installed binary.
+- option and read-only are rejected on kind: board, so a board can never declare
+  its own core value. A board's core value is inherited, and the resolved records
+  under the lane build directory are where to read it.
+
+# Conformance
+
+- A clean bootstrap and an ordinary host build succeed with the checkout absent,
+  and neither reaches ext.pico.
+- rp2040-ram and rp2350-ram build with the checkout absent, and their compile and
+  link commands are unchanged by any of the Pico SDK work.
+- ext.pico is reported as a skipped unavailable target in every lane except one
+  whose selected SDK names pico-sdk.
+- Removing the lock from platforms/pico/sdk/mm.mdy fails the load, naming the
+  wrapper and the library. rp2350-ram remains core and mutable.
+- vendor.sh clones, verifies, is a no-op when correct, and exits 65 naming both
+  commits when HEAD has moved. clean.sh does not remove the checkout.
+- An absent checkout names vendor.sh and no git command.
+- With picotool_DIR unset, pico and pico2-arm both fail before CMake is invoked,
+  naming the variable and both accepted file names.
+- No source beneath the checkout reaches the project compiler or cppcheck, on a
+  whole-tree check and on a check rooted at platforms.
+- pico-arm, pico-riscv, pico, pico2-arm, and pico2-riscv all resolve by name; the
+  superseded pico-sdk-arm and pico2 resolve nowhere.
+- A record written after the rename names pico-arm and pico2-arm.
+- The ABI projections of both sides are compared between CMake configure and CMake
+  build; an equivalent ABI spelled differently passes.
+- Project objects reach the link in declaration order, are not recompiled by CMake,
+  and the final link is performed by the recorded C++ driver.
+- Published artifacts appear at the ordinary path with the documented suffixes, and
+  a declared artifact missing after the build is an external-build failure.
+
+# Current boundaries
+
+- The RISC-V projection schema and registry row are unconfirmed against a real
+  driver. No riscv32-pico-elf toolchain was installed where they landed, and the
+  lane resolves through the manifest tree and stops at the compiler probe.
+- No verified UF2 has been produced in this repository. A package stub satisfies
+  the requirement check but not the bridge's UF2 validation, so UF2 encoding is
+  claimed only from a build using a real compatible picotool.
+- Nothing automated asserts that a Pico image ran. The OpenOCD profile programs,
+  verifies, and resets, but defines no completion protocol, which is the same limit
+  docs/modules-platforms.mdy records for target test execution. Hardware execution
+  is an opt-in script whose result a person reads.
+- Which OpenOCD machine value pico2-riscv should carry is unsettled. RP2350's
+  RISC-V debug path is not the ARM one, and no runner profile is claimed for it.
+- RP2350 RISC-V hardware has not been exercised at all.
+- Pico W, CYW43 firmware, lwIP, Bluetooth, TinyUSB policy, flash boot policy, and
+  signed images are outside this integration, though their sources are present in
+  the recursive checkout.
+- picotool is required, not vendored. A hermetic image pipeline would vendor it.
+- Direct project-module use of Pico SDK headers waits for a library interface that
+  can carry generated include directories and compile definitions as typed data.

@@ -11,6 +11,7 @@ file: modules-configure.mdy
 file: modules-debug.mdy
 file: modules-libraries.mdy
 file: modules-model.mdy
+file: modules-platform-pico.mdy
 file: modules-platforms.mdy
 file: modules-run.mdy
 file: modules-test.mdy

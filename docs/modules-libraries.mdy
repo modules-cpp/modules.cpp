@@ -46,17 +46,8 @@ Closing fence
 
 A library that implements one platform lives with that platform rather than here.
 Pico SDK is the instance: every asset of it, vendored and project-authored, lives
-under platforms/pico/sdk, and docs/modules-platforms.mdy gives that layout.
-
-Opening fence
-platforms/pico/sdk/mm.mdy                    kind: dir, option: core no, read-only: core
-platforms/pico/sdk/pico-sdk/mm.mdy           kind: library, name: pico-sdk
-platforms/pico/sdk/pico-sdk/LICENSE.TXT      repository-owned Pico SDK licence copy
-platforms/pico/sdk/pico-sdk/vendor.sh        clones and pins the checkout
-platforms/pico/sdk/pico-sdk/upstream/        the checkout, cloned and ignored
-platforms/pico/sdk/pico-sdk/cmake/           bridge and mm-requires.txt
-platforms/pico/sdk/pico-sdk/ext/             C adapter, linkage shim, and C++ wrapper
-Closing fence
+under platforms/pico/sdk, and docs/modules-platform-pico.mdy gives that layout and
+everything else about it.
 
 The project root manifest declares folder: libraries. libraries/mm.mdy declares option: core no with read-only: core once, and inheritance marks the whole branch non-core, so a wrapper cannot be mistaken for core code and no descendant can declare itself core again. A wrapper living with its platform instead needs the same declaration on a kind: dir of its own, because option and read-only are rejected on library, sdk, and board manifests; platforms/pico/sdk/mm.mdy is that node for Pico SDK. Without it the tree does not load: the wrapper is core, and a core node declaring library: is rejected.
 
@@ -108,17 +99,29 @@ Opening fence
 build: library demo checkout is absent: libraries/demo/third_party; run 'libraries/demo/vendor.sh'
 Closing fence
 
-# Pico SDK source and picotool
+# Provisioning and bridge requirements
 
-The Pico SDK checkout is provisioned by a script, not tracked as a submodule. `platforms/pico/sdk/pico-sdk/vendor.sh` is found by convention beside the library manifest, the way the bridge is found at `cmake/`. It pins release 2.3.1 and commit `079c6f39023649b154152db30f1d781e884879bc`, clones into `upstream` with the SDK's own submodules initialised, verifies that the resulting HEAD equals the pinned commit and fails naming both when it does not, and does nothing when the checkout is already correct. No tool invokes it: provisioning is deliberate, and a build only reports that the checkout is absent. `upstream` is ignored, and clean.sh does not remove it. The licence is copied to `platforms/pico/sdk/pico-sdk/LICENSE.TXT`, outside the checkout, so an unprovisioned tree stays inspectable and valid.
+A library's vendored checkout is provisioned by a script found beside its manifest,
+the way its bridge is found at `cmake/`. `vendor.sh` pins a revision, obtains the
+tree, verifies what it obtained, and does nothing when the checkout is already
+correct. No tool invokes it: provisioning is deliberate, and a build only reports
+that the checkout is absent, naming that script rather than assuming how the
+library was vendored.
 
-An absent-checkout diagnostic names that script rather than a git command, derived from the library manifest's own directory, so the loader assumes nothing about how a library was vendored. A script pin is weaker than a gitlink: git neither verifies it nor shows drift, and a switched or dirty checkout is invisible to git status. Re-running the script is the check, and the tag and commit recorded here are the second record of the pin. The registered library has an empty include interface: its wrapper records the dependency and availability boundary, while the external bridge supplies the SDK implementation and owns the final link.
+A bridge may require CMake packages that its foreign build would otherwise fetch.
+It declares them in a checked-in `cmake/mm-requires.txt`, one variable name per
+line. Before invoking CMake, build requires each named environment variable to name
+an existing directory containing an existing regular file called either
+`<package>Config.cmake` or `<package>-config.cmake`, the two spellings
+`find_package` accepts in config mode. It canonicalises the directory, passes it as
+`<variable>:PATH`, and fingerprints the variable, path, and contents into the
+external cache identity. It does not execute the package tool or parse a foreign
+package file to reach that decision, and it sets `FETCHCONTENT_FULLY_DISCONNECTED=ON`
+as a second guard. The requirement follows the bridge, not the library's name.
 
-Pico SDK 2.3.1 may otherwise fetch and build picotool while configuring extra outputs. Its bridge therefore carries a checked-in `mm-requires.txt` whose one line is `picotool_DIR`. This is an instance of the generic external-bridge requirements contract, not a check on the library name. Before invoking CMake, build requires that environment variable to name an existing local CMake package directory containing an existing regular file named either `picotoolConfig.cmake` or `picotool-config.cmake`. An unset variable, a missing directory, or a directory containing neither spelling is a configuration failure naming the variable, the directory searched, and both accepted file names. Renaming the library does not change the requirement.
-
-Build canonicalises every directory named by a bridge requirement, passes it to CMake as `<variable>:PATH`, and includes the variable, path, and contents in the external cache identity. It does not execute the package tool or parse a foreign package file to make this decision. CMake configuration also sets `FETCHCONTENT_FULLY_DISCONNECTED=ON` as a second guard. The installed package remains responsible for satisfying the Pico SDK's required picotool version; an incompatible package fails in the SDK's config-mode `find_package` call rather than falling back to a download.
-
-After picotool runs, the Pico bridge validates every 512-byte block of the generated UF2 against both leading magic words and the trailing magic word. A missing, empty, mis-sized, or incorrectly framed output fails the external build before artifact publication, and an invalid file is removed from the external cache. Merely supplying a CMake package stub is therefore insufficient evidence that UF2 production works; that acceptance requirement is met only by a build using a real compatible picotool.
+docs/modules-platform-pico.mdy specifies the Pico SDK instance of both: its pinned
+release and commit, its provisioning script, its `picotool_DIR` requirement, and
+the UF2 validation its bridge performs.
 
 # The library key
 
@@ -253,7 +256,7 @@ These are the conformance requirements for this release, not a description of ex
 - An SDK referencing an external-build library rejects specs-profile and specs-file. Boards beneath such an SDK permit omitting linker-script, file, and provides, while ordinary boards require linker-script and at least one file.
 - models::LibraryNode::external_build() returns the declared external-build system name or an empty string.
 - A kind: module target naming an external-build library is available only in a target lane whose selected SDK names that same library, and is an unavailable skipped target with a reason naming the library in every other lane.
-- The Pico SDK source is pinned at release 2.3.1 commit `079c6f39023649b154152db30f1d781e884879bc`; its repository-owned licence copy reproduces that revision's `LICENSE.TXT`, and recursive submodule initialisation selects the nested gitlinks recorded by that revision.
+- A vendored checkout is obtained by its library's own vendor.sh, verified against the pin that script records, and never by a tool during a build. docs/modules-platform-pico.mdy states the Pico SDK pin and the licence copy that accompanies it.
 - Before invoking CMake, build reads optional bridge-owned `mm-requires.txt`, rejects malformed or duplicate variable names and unset or invalid package directories, accepts either conventional config-package file spelling, passes every canonical package directory to CMake, fingerprints its variable, path, and contents into the external cache identity, and keeps disconnected fetching enabled. The Pico bridge declares `picotool_DIR`, and the same requirement still applies if its library is renamed.
 
 # Current boundaries
