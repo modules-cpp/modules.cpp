@@ -18,6 +18,12 @@ module;
 
 module mm.configure;
 
+// POSIX pipe declarations are hidden by newlib's strict C++ feature profile.
+// The compiler probe is host-only behavior, but this module remains compilable
+// in target lanes whose applications do not reach those functions.
+extern "C" std::FILE* popen(const char*, const char*);
+extern "C" int pclose(std::FILE*);
+
 namespace mm::configure {
 
 std::string_view platform_system_name(PlatformSystem system) {

@@ -1,0 +1,14 @@
+---
+mm: 1.4
+kind: app
+name: pico2-smoke
+option: core no
+option: buildable-host no
+requires-board: pico2
+use: ext.pico
+file: main.cpp
+---
+
+# Pico 2 smoke application
+
+Compile-and-link coverage for the RP2350 Arm Secure Pico SDK platform and every wrapper entry point.

@@ -1,0 +1,14 @@
+---
+mm: 1.4
+kind: app
+name: pico-smoke
+option: core no
+option: buildable-host no
+requires-board: pico
+use: ext.pico
+file: main.cpp
+---
+
+# Pico smoke application
+
+Compile-and-link coverage for the RP2040 Pico SDK platform and every wrapper entry point.

@@ -152,7 +152,7 @@ The registered gcc arm-none-eabi Cortex-M33, Thumb, softfp combination describes
 
 # Pico SDK platform definitions
 
-Stage 8 installs three definitions under platforms/pico:
+Three registered definitions live under platforms/pico:
 
 Opening fence
 platforms/pico/pico-sdk-arm/mm.mdy   kind: sdk
@@ -172,7 +172,7 @@ Closing fence
 
 The project does not need to repeat the explicit `-march`: querying GCC shows that `-mcpu=cortex-m33` resolves to the same effective `armv8-m.main+dsp+fp` architecture. It must repeat `-mcmse`, whose query state changes from disabled to enabled. The resulting driver projections therefore agree on effective architecture, instruction state, float ABI and FPU, and security domain even though their argument spellings and order differ.
 
-These definitions are installed but deliberately not yet named by platforms/pico/mm.mdy. Registering pico-sdk-arm would immediately make its `library: pico-sdk` reference part of every strict project walk, so the three definitions are activated atomically in the bridge stage that also registers the library and supplies its CMake project. This keeps the repository valid at every stage instead of introducing a temporarily unresolved reference.
+platforms/pico/mm.mdy registers all three definitions. Their activation is atomic with the registered pico-sdk library and its bridge, so every strict project walk resolves the SDK's library reference.
 
 A recognized profile name does not mean the installed toolchain ships the file. The compiler answers directly, and returns the query unchanged when it cannot resolve it:
 
@@ -407,6 +407,8 @@ When building through a CMake bridge for an external library, build generates mm
 - CMAKE_C_COMPILER and CMAKE_CXX_COMPILER are emitted as bracket arguments ([==[...] ==]), quoting their paths safely without variable or escape expansion.
 - CMAKE_SYSROOT is emitted as a bracket argument when the platform defines an explicit sysroot.
 - mm-toolchain.cmake carries no processor flags (-mcpu, -march, -mthumb, -mfloat-abi). Putting the lane's processor arguments there would feed the project's own flags into foreign compile commands and let the ABI comparison pass by construction; omitting them keeps the driver-level ABI projection comparison honest.
+
+Ordinary bridges receive mm-toolchain.cmake as CMAKE_TOOLCHAIN_FILE. Pico SDK is the deliberate exception because its platform toolchain is the source of the foreign side's processor flags and target-system setup. Build passes the canonical configured C and C++ paths explicitly, constrains `PICO_TOOLCHAIN_PATH` to their toolchain directory, lets Pico SDK select its board toolchain, and then requires the compile database's canonical C driver to equal the configured one. The ABI projection comparison proves the selected Pico flags independently, while CMake's explicit C++ compiler selection controls the final link driver. mm-toolchain.cmake remains generated and fingerprinted so the complete configured toolchain identity still invalidates a stale external cache.
 
 # Analysis and reporting
 

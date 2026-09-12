@@ -44,6 +44,8 @@ libraries/demo/test/mm.mdy       kind: test over the wrapper
 libraries/demo/third_party/      the vendored tree, may be absent
 libraries/pico-sdk/LICENSE.TXT   repository-owned Pico SDK licence copy
 libraries/pico-sdk/upstream/     Pico SDK 2.3.1 recursive submodule
+libraries/pico-sdk/cmake/        project-owned external link bridge
+libraries/pico-sdk/ext/          C adapter, linkage shim, and C++ wrapper
 Closing fence
 
 The project root manifest declares folder: libraries. libraries/mm.mdy declares option: core no with read-only: core once, and inheritance marks the whole branch non-core, so a wrapper cannot be mistaken for core code and no descendant can declare itself core again.
@@ -98,7 +100,7 @@ Closing fence
 
 # Pico SDK source and picotool
 
-The Pico SDK checkout is pinned as a recursive Git submodule at release 2.3.1, commit `079c6f39023649b154152db30f1d781e884879bc`, under `libraries/pico-sdk/upstream`. Its licence is copied to `libraries/pico-sdk/LICENSE.TXT`, outside the checkout. The SDK's own gitlinks pin its optional nested dependencies; the ordinary recovery command with `--recursive` initialises exactly those revisions. Stage 7 installs these source assets without registering `pico-sdk` in `libraries/mm.mdy`, so host and existing target walks do not observe or require the checkout before the Pico manifests and bridge are assembled.
+The Pico SDK checkout is pinned as a recursive Git submodule at release 2.3.1, commit `079c6f39023649b154152db30f1d781e884879bc`, under `libraries/pico-sdk/upstream`. Its licence is copied to `libraries/pico-sdk/LICENSE.TXT`, outside the checkout. The SDK's own gitlinks pin its optional nested dependencies; the ordinary recovery command with `--recursive` initialises exactly those revisions. The registered library has an empty include interface: its wrapper records the dependency and availability boundary, while the external bridge supplies the SDK implementation and owns the final link.
 
 Pico SDK 2.3.1 may otherwise fetch and build picotool while configuring extra outputs. A build whose selected SDK library is named `pico-sdk` therefore requires the environment variable `picotool_DIR` to name an existing local CMake package directory before it invokes CMake. The directory must contain an existing regular file named either `picotoolConfig.cmake` or `picotool-config.cmake`. An unset variable, a missing directory, or a directory containing neither spelling is a configuration failure naming picotool, `picotool_DIR`, the directory searched, and both accepted file names.
 
@@ -148,7 +150,7 @@ A wrapper is an ordinary module target: it declares module and file, and may dec
 
 A wrapper in this repository is non-core, by inheritance from libraries/mm.mdy, and a core node may not use a non-core module. That second rule is machine-checked across direct use: edges by the shared structural-property validation, which proves it over the transitive closure. The first is repository layout rather than a property of naming a library: nothing requires a wrapper to live under libraries, and a module declared elsewhere may name a library and remain core by default. docs/modules-c++20.mdy forbids that combination, and the shared structural-property validation pass rejects a core node declaring library:.
 
-It may include a foreign header in its global module fragment, and it may route that include through a colocated linkage shim when the header requires C language linkage. The shim is the only project-authored header in scope. Header ownership and the shim allowance are normative and unenforced: the check addon does not associate an include directive with a manifest-declared interface, so a wrapper reaching a header the library does not export is a review failure rather than a tool failure.
+It may include a foreign header in its global module fragment, and it may route that include through a colocated linkage shim when the header requires C language linkage. Linkage shims are the only project-authored headers in scope. Header ownership and the shim allowance are normative and unenforced: the check addon does not associate an include directive with a manifest-declared interface, so a wrapper reaching a header the library does not export is a review failure rather than a tool failure. The Pico bridge also compiles one project-owned C adapter which includes the plain-C ABI header directly; the C++ wrapper includes a second shim that supplies C language linkage around that same header. docs/modules-c++20.mdy defines this narrow exception.
 
 Opening fence
 module;

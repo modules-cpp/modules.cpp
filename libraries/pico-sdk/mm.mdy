@@ -1,0 +1,13 @@
+---
+mm: 1.4
+kind: library
+name: pico-sdk
+source: upstream
+licence: LICENSE.TXT
+external-build: cmake
+folder: ext
+---
+
+# Raspberry Pi Pico SDK
+
+The pinned Pico SDK checkout and its project-owned bridge and wrapper.

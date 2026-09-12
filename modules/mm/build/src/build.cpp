@@ -24,6 +24,12 @@ module mm.build;
 
 import mm.mdy;
 
+// POSIX pipe declarations are hidden by newlib's strict C++ feature profile.
+// Version and ABI probes run only in the host build tool, while the module's
+// remaining interfaces stay compilable for target lanes.
+extern "C" std::FILE* popen(const char*, const char*);
+extern "C" int pclose(std::FILE*);
+
 namespace mm::build {
 
 namespace {
@@ -3214,7 +3220,9 @@ bool external_cache_identity(const std::filesystem::path& bridge_dir,
                              std::string& identity,
                              std::string_view tool) {
     Fingerprint fingerprint;
-    fingerprint.add("identity-format", "1");
+    // Format 3 distinguishes the Pico-owned toolchain handoff, including both
+    // canonical driver paths, from caches created by the earlier contracts.
+    fingerprint.add("identity-format", "3");
     fingerprint.add("generator", "Unix Makefiles");
     fingerprint.add("bridge-path", bridge_dir.generic_string());
     if (!fingerprint_directory(fingerprint, bridge_dir, "bridge", tool) ||
@@ -3962,11 +3970,36 @@ int external_link(
             return exit_manifest;
     }
 
-    std::string configure_cmd = shell_quote(cmake_program) +
-                                " -G \"Unix Makefiles\" -DCMAKE_TOOLCHAIN_FILE=" +
-                                shell_quote(toolchain_file) +
-                                " -DCMAKE_EXPORT_COMPILE_COMMANDS=ON "
-                                "-DFETCHCONTENT_FULLY_DISCONNECTED=ON";
+    std::string configure_cmd = shell_quote(cmake_program) + " -G \"Unix Makefiles\"";
+    if (library->name == "pico-sdk") {
+        // Pico SDK's platform toolchain supplies its processor and ABI flags.
+        // Constrain its compiler discovery to the configured driver's directory;
+        // the compile-database identity check below proves which driver it chose.
+        const auto c_driver = resolve_executable_path(toolchain.c_compiler.invocation);
+        const auto cxx_driver = resolve_executable_path(toolchain.compiler.invocation);
+        std::error_code driver_ec;
+        const bool c_exists = c_driver.is_absolute() &&
+                              std::filesystem::is_regular_file(c_driver, driver_ec) && !driver_ec;
+        driver_ec.clear();
+        const bool cxx_exists = cxx_driver.is_absolute() &&
+                                std::filesystem::is_regular_file(cxx_driver, driver_ec) && !driver_ec;
+        if (!c_exists || !cxx_exists) {
+            std::cerr << "build: cannot resolve configured Pico C/C++ compilers: "
+                      << toolchain.c_compiler.invocation << " and "
+                      << toolchain.compiler.invocation << "\n";
+            return exit_compile;
+        }
+        configure_cmd += " " + shell_quote(std::filesystem::path(
+            "-DPICO_TOOLCHAIN_PATH:PATH=" + c_driver.parent_path().generic_string()));
+        configure_cmd += " " + shell_quote(std::filesystem::path(
+            "-DCMAKE_C_COMPILER:FILEPATH=" + c_driver.generic_string()));
+        configure_cmd += " " + shell_quote(std::filesystem::path(
+            "-DCMAKE_CXX_COMPILER:FILEPATH=" + cxx_driver.generic_string()));
+    } else {
+        configure_cmd += " -DCMAKE_TOOLCHAIN_FILE=" + shell_quote(toolchain_file);
+    }
+    configure_cmd += " -DCMAKE_EXPORT_COMPILE_COMMANDS=ON "
+                     "-DFETCHCONTENT_FULLY_DISCONNECTED=ON";
     if (picotool_package) {
         configure_cmd += " " + shell_quote(
             std::filesystem::path("-Dpicotool_DIR:PATH=" + picotool_package->generic_string()));
