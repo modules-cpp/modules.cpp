@@ -137,6 +137,7 @@ const std::vector<ManifestKeyRule> manifest_key_rules = {
     {"cpu", 12, "board"},
     {"instruction-set", 12, "board"},
     {"float-abi", 12, "board"},
+    {"security-domain", 14, "board"},
     {"machine", 12, "board"},
     {"linker-script", 12, "board"},
     {"requires-board", 12, "app test"},
@@ -162,22 +163,19 @@ struct ProcessorEntry {
     std::string_view cpu;
     std::string_view instruction_set;
     std::string_view float_abi;
+    std::string_view security_domain;
     std::string_view arguments[4];
-    bool manifest_selectable = true;
 };
 
 constexpr ProcessorEntry processor_table[] = {
-    {CompilerFamily::Gcc, "arm-none-eabi", "cortex-m3", "thumb", "soft",
+    {CompilerFamily::Gcc, "arm-none-eabi", "cortex-m3", "thumb", "soft", "non-secure",
      {"-mcpu=cortex-m3", "-mthumb", "-mfloat-abi=soft"}},
-    {CompilerFamily::Gcc, "arm-none-eabi", "cortex-m0plus", "thumb", "soft",
+    {CompilerFamily::Gcc, "arm-none-eabi", "cortex-m0plus", "thumb", "soft", "non-secure",
      {"-mcpu=cortex-m0plus", "-mthumb", "-mfloat-abi=soft"}},
-    {CompilerFamily::Gcc, "arm-none-eabi", "cortex-m33", "thumb", "softfp",
+    {CompilerFamily::Gcc, "arm-none-eabi", "cortex-m33", "thumb", "softfp", "non-secure",
+     {"-mcpu=cortex-m33", "-mthumb", "-mfloat-abi=softfp"}},
+    {CompilerFamily::Gcc, "arm-none-eabi", "cortex-m33", "thumb", "softfp", "secure",
      {"-mcpu=cortex-m33", "-mthumb", "-mfloat-abi=softfp", "-mcmse"}},
-    // Configuration-2 records written before the Pico SDK integration carried
-    // three Cortex-M33 arguments. Keep those snapshots readable, while new
-    // manifest resolution selects the secure four-argument entry above.
-    {CompilerFamily::Gcc, "arm-none-eabi", "cortex-m33", "thumb", "softfp",
-     {"-mcpu=cortex-m33", "-mthumb", "-mfloat-abi=softfp", {}}, false},
 };
 
 std::size_t processor_argument_count(const ProcessorEntry& entry) {
@@ -191,11 +189,13 @@ const ProcessorEntry* find_processor_entry(
     std::string_view target,
     std::string_view cpu,
     std::string_view instruction_set,
-    std::string_view float_abi) {
+    std::string_view float_abi,
+    std::string_view security_domain) {
+    if (security_domain.empty()) security_domain = "non-secure";
     for (const auto& entry : processor_table) {
-        if (entry.manifest_selectable && entry.family == family && entry.target == target &&
+        if (entry.family == family && entry.target == target &&
             entry.cpu == cpu && entry.instruction_set == instruction_set &&
-            entry.float_abi == float_abi) {
+            entry.float_abi == float_abi && entry.security_domain == security_domain) {
             return &entry;
         }
     }
@@ -1515,11 +1515,19 @@ bool parse_definitions(Project& project, const std::filesystem::path& root,
                                    board.instruction_set, policy.tool) ||
                 !definition_scalar(doc, "float-abi", node.manifest, board.float_abi,
                                    policy.tool) ||
+                !definition_scalar(doc, "security-domain", node.manifest,
+                                   board.security_domain, policy.tool, false) ||
                 !definition_scalar(doc, "machine", node.manifest, board.machine,
                                    policy.tool, false) ||
                 !definition_scalar(doc, "linker-script", node.manifest, linker,
                                    policy.tool, false))
                 return false;
+            if (board.security_domain.empty()) board.security_domain = "non-secure";
+            if (board.security_domain != "secure" && board.security_domain != "non-secure") {
+                std::cerr << policy.tool << ": " << node.manifest.string()
+                          << ": security-domain must be secure or non-secure\n";
+                return false;
+            }
             if (!linker.empty() &&
                 !definition_path(root, node, linker, board.linker_script,
                                  "linker-script", policy.tool))
@@ -1698,7 +1706,8 @@ bool parse_definitions(Project& project, const std::filesystem::path& root,
             return false;
         }
         const auto* processor = find_processor_entry(sdk->family, sdk->target, board.cpu,
-                                                     board.instruction_set, board.float_abi);
+                                                     board.instruction_set, board.float_abi,
+                                                     board.security_domain);
         if (processor == nullptr) {
             std::cerr << policy.tool << ": " << board.manifest.string()
                       << ": unknown processor combination for SDK " << sdk->name << "\n";

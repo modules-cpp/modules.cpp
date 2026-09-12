@@ -97,7 +97,7 @@ provides: memory-layout
 Closing fence
 
 - sdk names the SDK this board belongs to. Exactly one. Required.
-- cpu, instruction-set, and float-abi are the processor properties. Their spellings are registry values, not compiler arguments.
+- cpu, instruction-set, and float-abi are the required processor properties. security-domain is an optional mm: 1.4 processor discriminator whose values are secure and non-secure; omission means non-secure. Their spellings are registry values, not compiler arguments.
 - machine names the target machine or chip family (e.g. mps2-an385 for QEMU, rp2040 or rp2350 for OpenOCD). Optional, and required only when a runner profile that resolves a machine is selected.
 - linker-script is a path relative to the manifest.
 - file entries are the board's own sources: vector table, reset handler, and any syscall implementation the runtime leaves to the machine. Paths are relative to the manifest, as on a module manifest.
@@ -130,7 +130,7 @@ Checked at walk time, for every SDK and board, on any machine, with no cross too
 
 - Syntax, required keys, closed-set values, and keys valid on the kind.
 - Absolute spelling of sysroot and runtime-prefix.
-- Registry compatibility: the specs profile is known for the declared compiler family and target, and the processor properties are known for that family and architecture.
+- Registry compatibility: the specs profile is known for the declared compiler family and target, and the processor properties, including the effective security domain, are known for that family and architecture.
 - Project-internal paths: the linker script and every declared source exist and resolve inside the project.
 - The two board reference rules.
 
@@ -146,9 +146,9 @@ A value the repository owns is checked always. A value the machine owns is check
 
 The specs registry is keyed on compiler family, target, and profile name. It records the argument the profile normalizes to and the responsibilities it supplies. For gcc, arm-none-eabi, and rdimon, the argument is --specs=rdimon.specs and the responsibilities are runtime-init and syscalls. A combination the registry does not know is an error at walk time.
 
-The processor registry is keyed on compiler family, target architecture, and the property combination. For gcc on ARM, cortex-m3 with thumb and soft becomes -mcpu=cortex-m3 -mthumb -mfloat-abi=soft. These arguments select a multilib, so the mapping decides which prebuilt runtime the link uses, and an unmapped combination is an error rather than a default.
+The processor registry is keyed on compiler family, target architecture, and the property combination, including security domain. For gcc on ARM, cortex-m3 with thumb, soft, and the default non-secure domain becomes -mcpu=cortex-m3 -mthumb -mfloat-abi=soft. These arguments select a multilib, so the mapping decides which prebuilt runtime the link uses, and an unmapped combination is an error rather than a default.
 
-The registered gcc arm-none-eabi Cortex-M33, Thumb, softfp combination describes Arm Secure code and emits `-mcpu=cortex-m33 -mthumb -mfloat-abi=softfp -mcmse`. Configuration-2 records written before that fourth argument was introduced remain readable as immutable three-argument snapshots; a newly resolved board always receives the current four-argument mapping.
+The registered gcc arm-none-eabi Cortex-M33, Thumb, softfp combination has two rows. The default non-secure row emits `-mcpu=cortex-m33 -mthumb -mfloat-abi=softfp`; the secure row adds `-mcmse`. The discriminator belongs to the board rather than to CPU properties shared by boards. Configuration-2 persists the resulting argument list rather than the discriminator, so both older three-argument snapshots and secure four-argument snapshots remain readable unchanged.
 
 # Pico SDK platform definitions
 
@@ -162,7 +162,7 @@ Closing fence
 
 pico-sdk-arm targets gcc arm-none-eabi with newlib, names the pico-sdk library, and owns reset-vector, initial-stack, memory-layout, runtime-init, and syscalls. It declares neither a specs profile nor a specs file because the external SDK build owns the final link.
 
-pico selects Cortex-M0+, Thumb, soft float ABI, and machine rp2040. pico2 selects Cortex-M33, Thumb, softfp float ABI, machine rp2350, and the Arm Secure processor mapping above. Both boards omit linker-script, file, and provides; those are optional only after reference resolution establishes that their SDK's library declares external-build.
+pico selects Cortex-M0+, Thumb, soft float ABI, and machine rp2040. pico2 selects Cortex-M33, Thumb, softfp float ABI, machine rp2350, and explicitly declares `security-domain: secure`, selecting the Arm Secure processor row above. The existing rp2350-ram board omits the key and therefore retains its non-secure three-argument compile and link commands. Both Pico SDK boards omit linker-script, file, and provides; those are optional only after reference resolution establishes that their SDK's library declares external-build.
 
 The RP2350 mapping is measured against the pinned Pico SDK 2.3.1 toolchain rather than inferred from the board name. A generated compile-database entry for a pico2 source contains:
 
@@ -392,7 +392,7 @@ valid_mm_version accepts 1.2. Two rules become table-driven at the same time, be
 - The unknown-key rule compares against the oldest version that rejects unknown keys, so 1.1 and every later version reject them. Adding 1.2 without this change would make unknown keys in a 1.2 manifest silently accepted.
 - The introduced-in rule compares against the version that introduced each key, rather than testing for 1.0.
 
-Each key names its introducing version and the kinds it is valid on. A processor key on a module manifest is an error, file on an sdk manifest is an error, target on a board manifest is an error, and requires-board on a module manifest is an error.
+Each key names its introducing version and the kinds it is valid on. security-domain requires mm: 1.4 and is valid only on a board; the other platform keys require mm: 1.2. A processor key on a module manifest is an error, file on an sdk manifest is an error, target on a board manifest is an error, and requires-board on a module manifest is an error.
 
 valid_manifest accepts sdk and board as kinds. Without that, adding platforms to the root manifest breaks every manifest-reading tool at once.
 
@@ -462,7 +462,7 @@ Every platform diagnostic names the manifest it came from. A mismatch names both
 - A bare-metal lane with a board requires all five exactly once; a gap names the missing one and an overlap names both claimants.
 - An SDK using specs-file may declare provides and must declare both runtime-init and syscalls; an SDK with specs-profile and any provides is rejected; a hosted SDK with provides is rejected; a duplicate provides value is rejected; an SDK declaring file is rejected.
 - A board with no machine, configured with a system-emulation runner, is rejected, as is a machine the profile does not recognize.
-- Processor arguments appear identically in the compile and link commands; specs and the linker script appear in the link command only; sysroot appears in both; runtime-prefix appears in neither.
+- Processor arguments appear identically in the compile and link commands; specs and the linker script appear in the link command only; sysroot appears in both; runtime-prefix appears in neither. An omitted security-domain selects non-secure arguments, while a supported secure combination adds its security argument.
 - An application buildable in both lanes depends on a target-only board with no change to its own capability values.
 - Board objects are produced once per build output tree, so each test target has its own, distinct from an application's.
 - An application or test declaring requires-board is skipped as unavailable by a root build in a lane with a different board or none, is counted among the skipped, reported as unavailable for the target lane, and exits 77 when requested explicitly.
@@ -477,7 +477,7 @@ Every platform diagnostic names the manifest it came from. A mismatch names both
 - check analyzes every board source on an unconfigured tree; a check rooted at a subtree analyzes only the board sources beneath it while resolving SDK references against the whole project.
 - Changing a board manifest's source list without reconfiguring does not change what build links.
 - A native configuration's compile and link commands are byte-identical to the preceding release.
-- Pico SDK 2.3.1's generated commands for pico and pico2 project to the same ARM ABI fields as the project's processor arguments; pico2 has `-mcmse` enabled on both sides, while an older three-argument Cortex-M33 configuration record remains readable.
+- Pico SDK 2.3.1's generated commands for pico and pico2 project to the same ARM ABI fields as the project's processor arguments; pico2 has `-mcmse` enabled on both sides. rp2350-ram remains non-secure and carries no `-mcmse`, while both three- and four-argument Cortex-M33 configuration records remain readable.
 - A clean bootstrap succeeds with platforms registered in the root manifest.
 - One board runs under an emulator, reaching main, writing observable output, and terminating under control, with no application argument reaching the emulator.
 - An SDK whose library declares external-build configures with cross-link: external; with a board, it omits cross-board-linker-script and cross-board-source; without a board, it carries no board fields.

@@ -6,7 +6,6 @@ module;
 #include <charconv>
 #include <cctype>
 #include <chrono>
-#include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -17,12 +16,6 @@ module;
 #include <utility>
 
 module mm.configure;
-
-// POSIX pipe declarations are hidden by newlib's strict C++ feature profile.
-// The compiler probe is host-only behavior, but this module remains compilable
-// in target lanes whose applications do not reach those functions.
-extern "C" std::FILE* popen(const char*, const char*);
-extern "C" int pclose(std::FILE*);
 
 namespace mm::configure {
 
@@ -369,8 +362,6 @@ std::optional<CompilerRequest> parse_compiler(std::string_view value) {
     return result;
 }
 
-namespace {
-
 std::string shell_quote_command_arg(std::string_view arg) {
     std::string result = "'";
     for (const char c : arg) {
@@ -380,21 +371,6 @@ std::string shell_quote_command_arg(std::string_view arg) {
     result += "'";
     return result;
 }
-
-bool run_driver_command(const std::string& command, std::string& output) {
-    FILE* pipe = ::popen(command.c_str(), "r");
-    if (pipe == nullptr) return false;
-    output.clear();
-    char buffer[512];
-    while (std::fgets(buffer, sizeof(buffer), pipe) != nullptr) output += buffer;
-    const int status = ::pclose(pipe);
-    while (!output.empty() && (output.back() == '\n' || output.back() == '\r' ||
-                              output.back() == ' ' || output.back() == '\t'))
-        output.pop_back();
-    return status == 0 && !output.empty();
-}
-
-}  // namespace
 
 std::string candidate_c_compiler(std::string_view cpp_compiler) {
     if (cpp_compiler.starts_with("clang++")) {
@@ -416,17 +392,18 @@ std::string candidate_c_compiler(std::string_view cpp_compiler) {
     return {};
 }
 
-std::optional<CompilerProbe> probe_compiler(std::string_view invocation) {
-    if (invocation.empty()) return std::nullopt;
+std::optional<CompilerProbe> probe_compiler(std::string_view invocation,
+                                            DriverCommandRunner run_command) {
+    if (invocation.empty() || run_command == nullptr) return std::nullopt;
     const auto quoted = shell_quote_command_arg(invocation);
     std::string machine;
-    if (!run_driver_command(quoted + " -dumpmachine", machine))
+    if (!run_command(quoted + " -dumpmachine", machine))
         return std::nullopt;
     std::string ver;
-    if (!run_driver_command(quoted + " -dumpversion", ver))
+    if (!run_command(quoted + " -dumpversion", ver))
         return std::nullopt;
     std::string banner;
-    if (!run_driver_command(quoted + " --version", banner))
+    if (!run_command(quoted + " --version", banner))
         return std::nullopt;
     CompilerProbe probe;
     if (banner.find("clang") != std::string::npos || banner.find("Clang") != std::string::npos)
@@ -441,13 +418,14 @@ std::optional<CompilerProbe> probe_compiler(std::string_view invocation) {
 bool probe_c_compiler(std::string_view c_driver,
                       std::string_view cpp_driver,
                       CompilerFamily expected_family,
-                      std::string& error_message) {
-    const auto cpp_probe = probe_compiler(cpp_driver);
+                      std::string& error_message,
+                      DriverCommandRunner run_command) {
+    const auto cpp_probe = probe_compiler(cpp_driver, run_command);
     if (!cpp_probe) {
         error_message = "cannot probe C++ compiler: " + std::string(cpp_driver);
         return false;
     }
-    const auto c_probe = probe_compiler(c_driver);
+    const auto c_probe = probe_compiler(c_driver, run_command);
     if (!c_probe) {
         error_message = "cannot probe C compiler: " + std::string(c_driver);
         return false;

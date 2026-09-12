@@ -66,6 +66,13 @@ void validates_platform_keys_by_version_and_kind() {
                       "file: source.cpp\nrequires-board: mps2-an385\n");
     expect(!mm::build::load_project(tree.root()).ok,
            "requires-board is not valid on a module");
+
+    tree.manifest_raw("",
+                      "mm: 1.2\nkind: board\nname: old\nsdk: sdk\n"
+                      "cpu: cortex-m33\ninstruction-set: thumb\nfloat-abi: softfp\n"
+                      "security-domain: secure\n");
+    expect(!mm::build::load_project(tree.root()).ok,
+           "security-domain requires manifest version 1.4");
 }
 
 void rejects_bad_references_and_registry_values() {
@@ -122,9 +129,35 @@ void accepts_registered_processor_combinations() {
     const auto m33_project = mm::build::load_project(m33.root());
     expect(m33_project.ok, "cortex-m33 with thumb and softfp is accepted");
     expect(m33_project.boards.size() == 1 &&
-               m33_project.boards.front().compiler_arguments.size() == 4 &&
-               m33_project.boards.front().compiler_arguments.back() == "-mcmse",
-           "the Cortex-M33 Arm Secure registry entry carries its CMSE argument");
+               m33_project.boards.front().security_domain == "non-secure" &&
+               m33_project.boards.front().compiler_arguments.size() == 3,
+           "an omitted security domain preserves the non-secure Cortex-M33 arguments");
+
+    const mm::test::scoped_tree secure_m33{"platform_secure_cortex_m33"};
+    make_platform_tree(secure_m33);
+    secure_m33.manifest_raw("platforms/board",
+                            "mm: 1.4\nkind: board\nname: pico2\n"
+                            "sdk: arm-none-eabi-newlib\ncpu: cortex-m33\n"
+                            "instruction-set: thumb\nfloat-abi: softfp\n"
+                            "security-domain: secure\nmachine: rp2350\n"
+                            "linker-script: link.ld\nfile: vectors.cpp\n"
+                            "provides: reset-vector\nprovides: initial-stack\n"
+                            "provides: memory-layout\n");
+    const auto secure_project = mm::build::load_project(secure_m33.root());
+    expect(secure_project.ok && secure_project.boards.size() == 1 &&
+               secure_project.boards.front().security_domain == "secure" &&
+               secure_project.boards.front().compiler_arguments.size() == 4 &&
+               secure_project.boards.front().compiler_arguments.back() == "-mcmse",
+           "the secure Cortex-M33 registry entry carries its CMSE argument");
+
+    secure_m33.manifest_raw("platforms/board",
+                            "mm: 1.4\nkind: board\nname: bad\n"
+                            "sdk: arm-none-eabi-newlib\ncpu: cortex-m33\n"
+                            "instruction-set: thumb\nfloat-abi: softfp\n"
+                            "security-domain: privileged\nlinker-script: link.ld\n"
+                            "file: vectors.cpp\n");
+    expect(!mm::build::load_project(secure_m33.root()).ok,
+           "an unknown security domain is rejected");
 }
 
 void external_directories_are_only_spelling_checked_by_the_walk() {

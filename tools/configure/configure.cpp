@@ -55,6 +55,19 @@ bool available_program(std::string_view invocation) {
     return false;
 }
 
+bool run_driver_command(const std::string& command, std::string& output) {
+    FILE* pipe = ::popen(command.c_str(), "r");
+    if (pipe == nullptr) return false;
+    output.clear();
+    char buffer[512];
+    while (std::fgets(buffer, sizeof(buffer), pipe) != nullptr) output += buffer;
+    const int status = ::pclose(pipe);
+    while (!output.empty() && (output.back() == '\n' || output.back() == '\r' ||
+                              output.back() == ' ' || output.back() == '\t'))
+        output.pop_back();
+    return status == 0 && !output.empty();
+}
+
 std::string compile_flags(mm::configure::Build build, mm::configure::CompilerFamily family,
                           std::string_view target) {
     std::string flags(mm::configure::build_compile_flags(build));
@@ -119,16 +132,8 @@ bool probe_specs(std::string_view compiler, std::string_view profile) {
     const std::string command = mm::build::shell_quote(std::filesystem::path(compiler)) +
                                 " -print-file-name=" +
                                 mm::build::shell_quote(std::filesystem::path(query));
-    FILE* pipe = ::popen(command.c_str(), "r");
-    if (pipe == nullptr) return false;
     std::string output;
-    char buffer[512];
-    while (std::fgets(buffer, sizeof(buffer), pipe) != nullptr) output += buffer;
-    const int status = ::pclose(pipe);
-    while (!output.empty() && (output.back() == '\n' || output.back() == '\r' ||
-                              output.back() == ' ' || output.back() == '\t'))
-        output.pop_back();
-    if (status != 0 || output.empty() || output == query) return false;
+    if (!run_driver_command(command, output) || output == query) return false;
     std::error_code ec;
     return std::filesystem::is_regular_file(output, ec) && !ec;
 }
@@ -516,14 +521,17 @@ int main(int argc, char** argv) {
     if (!c_compilers.empty()) {
         c_driver = c_compilers.front();
         std::string err;
-        if (!mm::configure::probe_c_compiler(c_driver, compiler->invocation, expected_family, err)) {
+        if (!mm::configure::probe_c_compiler(c_driver, compiler->invocation, expected_family,
+                                             err, run_driver_command)) {
             std::cerr << "configure: " << err << "\n";
             return mm::build::exit_usage;
         }
     } else {
         const auto candidate = mm::configure::candidate_c_compiler(compiler->invocation);
         std::string err;
-        if (!candidate.empty() && mm::configure::probe_c_compiler(candidate, compiler->invocation, expected_family, err)) {
+        if (!candidate.empty() &&
+            mm::configure::probe_c_compiler(candidate, compiler->invocation, expected_family,
+                                            err, run_driver_command)) {
             c_driver = candidate;
         } else if (external_lane) {
             std::cerr << "configure: external build requires a compatible C driver: "

@@ -369,24 +369,36 @@ void derives_candidate_c_compiler() {
                      "unknown driver returns empty string");
 }
 
+bool fixture_driver_command(const std::string& command, std::string& output) {
+    if (command.find("nonexistent-compiler-xyz-123") != std::string::npos) return false;
+    if (command.ends_with(" -dumpmachine")) output = "x86_64-linux-gnu";
+    else if (command.ends_with(" -dumpversion")) output = "16";
+    else if (command.ends_with(" --version")) output = "gcc fixture 16";
+    else return false;
+    return true;
+}
+
 void probes_c_compiler() {
     using mm::configure::CompilerFamily;
     using mm::configure::probe_compiler;
     using mm::configure::probe_c_compiler;
 
     std::string err;
-    const auto probe = probe_compiler("gcc");
+    const auto probe = probe_compiler("gcc", fixture_driver_command);
     if (probe.has_value()) {
-        mm::test::expect(probe_c_compiler("gcc", "g++", CompilerFamily::Gcc, err),
+        mm::test::expect(probe_c_compiler("gcc", "g++", CompilerFamily::Gcc, err,
+                                         fixture_driver_command),
                          "matching C compiler probe succeeds");
 
-        mm::test::expect(!probe_c_compiler("gcc", "g++", CompilerFamily::Clang, err),
+        mm::test::expect(!probe_c_compiler("gcc", "g++", CompilerFamily::Clang, err,
+                                          fixture_driver_command),
                          "family mismatch fails");
         mm::test::expect(err.find("family") != std::string::npos,
                          "diagnostic mentions family");
     }
 
-    mm::test::expect(!probe_c_compiler("nonexistent-compiler-xyz-123", "g++", CompilerFamily::Gcc, err),
+    mm::test::expect(!probe_c_compiler("nonexistent-compiler-xyz-123", "g++",
+                                      CompilerFamily::Gcc, err, fixture_driver_command),
                      "missing compiler fails to probe");
     mm::test::expect(err.find("cannot probe") != std::string::npos,
                      "diagnostic mentions probe failure");

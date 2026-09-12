@@ -6,6 +6,7 @@ sdk: pico-sdk-arm
 cpu: cortex-m33
 instruction-set: thumb
 float-abi: softfp
+security-domain: secure
 machine: rp2350
 ---
 

@@ -128,8 +128,15 @@ struct CompilerProbe {
     std::string version;
 };
 
-// Probes a compiler driver for its family, target triple, and version.
-[[nodiscard]] std::optional<CompilerProbe> probe_compiler(std::string_view invocation);
+// The host configure front end supplies command execution. Keeping that
+// operation injected leaves this module free of POSIX process APIs when it is
+// compiled as part of a target lane.
+using DriverCommandRunner = bool (*)(const std::string& command, std::string& output);
+
+// Probes a compiler driver for its family, target triple, and version through
+// the supplied host-side command runner.
+[[nodiscard]] std::optional<CompilerProbe> probe_compiler(
+    std::string_view invocation, DriverCommandRunner run_command);
 
 // Three-way probe for a candidate or overriding C driver against the C++ driver:
 // checks compiler family == expected_family, target triple == C++ driver's, and
@@ -137,7 +144,8 @@ struct CompilerProbe {
 [[nodiscard]] bool probe_c_compiler(std::string_view c_driver,
                                     std::string_view cpp_driver,
                                     CompilerFamily expected_family,
-                                    std::string& error_message);
+                                    std::string& error_message,
+                                    DriverCommandRunner run_command);
 
 enum class LinkOwnership { Project, External };
 

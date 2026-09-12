@@ -224,6 +224,7 @@ struct BoardDefinition {
     std::string cpu;
     std::string instruction_set;
     std::string float_abi;
+    std::string security_domain;
     std::string machine;
     std::filesystem::path linker_script;
     std::vector<std::filesystem::path> sources;
