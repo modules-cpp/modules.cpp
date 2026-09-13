@@ -60,21 +60,27 @@ void repository_exposes_platform_definitions() {
     const auto boards = loaded.repository().boards();
     mm::test::expect(ok && sdks.size() == 7,
                      "expected all seven SDK definitions from the manifest walk");
-    mm::test::expect(boards.size() == 6,
-                     "expected all six board definitions from the manifest walk");
+    mm::test::expect(boards.size() == 9,
+                     "expected all nine board definitions from the manifest walk");
     const models::BoardNode* mps2 = nullptr;
     const models::BoardNode* rp2040 = nullptr;
     const models::BoardNode* rp2350 = nullptr;
     const models::BoardNode* pico = nullptr;
+    const models::BoardNode* pico_w = nullptr;
     const models::BoardNode* pico2 = nullptr;
     const models::BoardNode* pico2_riscv = nullptr;
+    const models::BoardNode* pico2_w_arm = nullptr;
+    const models::BoardNode* pico2_w_riscv = nullptr;
     for (const auto* b : boards) {
         if (b->name() == "mps2-an385") mps2 = b;
         if (b->name() == "rp2040-ram") rp2040 = b;
         if (b->name() == "rp2350-ram") rp2350 = b;
         if (b->name() == "pico") pico = b;
+        if (b->name() == "pico-w") pico_w = b;
         if (b->name() == "pico2-arm") pico2 = b;
         if (b->name() == "pico2-riscv") pico2_riscv = b;
+        if (b->name() == "pico2-w-arm") pico2_w_arm = b;
+        if (b->name() == "pico2-w-riscv") pico2_w_riscv = b;
     }
     mm::test::expect(mps2 != nullptr && mps2->kind() == models::Kind::Board &&
                          mps2->sdk() == "arm-none-eabi-newlib" &&
@@ -94,12 +100,24 @@ void repository_exposes_platform_definitions() {
     mm::test::expect(pico != nullptr && pico->sdk() == "pico-arm" &&
                          pico->cpu() == "cortex-m0plus" && pico->sources().empty(),
                      "expected Pico SDK RP2040 board definition");
+    mm::test::expect(pico_w != nullptr && pico_w->sdk() == "pico-arm" &&
+                         pico_w->cpu() == "cortex-m0plus" && pico_w->sources().empty(),
+                     "expected Pico W SDK RP2040 board definition");
     mm::test::expect(pico2 != nullptr && pico2->sdk() == "pico-arm" &&
                          pico2->cpu() == "cortex-m33" && pico2->sources().empty(),
                      "expected Pico SDK RP2350 Arm board definition");
     mm::test::expect(pico2_riscv != nullptr && pico2_riscv->sdk() == "pico-riscv" &&
                          pico2_riscv->cpu() == "hazard3" && pico2_riscv->sources().empty(),
                      "expected Pico SDK RP2350 RISC-V board definition");
+    mm::test::expect(pico2_w_arm != nullptr && pico2_w_arm->sdk() == "pico-arm" &&
+                         pico2_w_arm->cpu() == "cortex-m33" &&
+                         pico2_w_arm->sources().empty(),
+                     "expected Pico 2 W SDK RP2350 Arm board definition");
+    mm::test::expect(pico2_w_riscv != nullptr &&
+                         pico2_w_riscv->sdk() == "pico-riscv" &&
+                         pico2_w_riscv->cpu() == "hazard3" &&
+                         pico2_w_riscv->sources().empty(),
+                     "expected Pico 2 W SDK RP2350 RISC-V board definition");
 }
 
 void repository_exposes_provider_declarations() {

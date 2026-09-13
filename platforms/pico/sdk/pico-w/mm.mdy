@@ -1,0 +1,19 @@
+---
+mm: 1.2
+kind: board
+name: pico-w
+sdk: pico-arm
+cpu: cortex-m0plus
+instruction-set: thumb
+float-abi: soft
+machine: rp2040
+---
+
+# Raspberry Pi Pico W
+
+RP2040 Pico W linked by the Pico SDK external build. The GPIO, default hardware
+UART, and monotonic timer facilities are supplied by platform.pico.mcu. Wireless
+CYW43 facilities are deliberately outside this board contract; its LED is on the
+CYW43 rather than on an RP2040 GPIO and is therefore not reported as a GPIO LED.
+
+Pico WH is the same SDK board with headers fitted and uses this declaration.

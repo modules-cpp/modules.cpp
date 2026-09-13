@@ -1,0 +1,17 @@
+---
+mm: 1.2
+kind: board
+name: pico2-w-riscv
+sdk: pico-riscv
+cpu: hazard3
+instruction-set: rv32imacb_zicsr_zifencei_zmmul_zaamo_zalrsc_zca_zcb_zcmp_zba_zbb_zbkb_zbs_xh3bextm
+float-abi: soft
+machine: rp2350
+---
+
+# Raspberry Pi Pico 2 W, RISC-V
+
+The same Pico 2 W hardware as pico2-w-arm, built for its Hazard3 cores. The
+Pico SDK external build owns startup and linking; platform.pico.mcu supplies
+GPIO, the default hardware UART, and the monotonic timer. Wireless CYW43
+facilities and its CYW43-attached LED remain outside the portable board contract.

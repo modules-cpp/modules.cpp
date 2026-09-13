@@ -16,12 +16,17 @@ and declares no library. Its availability comes from the platform-provider
 binding in the pico-arm and pico-riscv SDK definitions, which is also what makes
 it unavailable in any lane those SDKs do not select.
 
-One provider module serves both SDKs. Two SDKs binding the same provider is one
-module with one identity, not two implementations that happen to agree.
+One provider module serves both SDKs and every Raspberry Pi Pico board
+declaration. Two SDKs binding the same provider is one module with one identity,
+not two implementations that happen to agree.
 
-The bridge reports the selected Pico board name, GPIO count, and LED pin. This
-module turns those private values into mm.mcu's Board, Gpio, and Led values, so
-portable applications neither see SDK macros nor hard-code board properties.
+The bridge reports the selected Pico board name, GPIO count, and any GPIO-backed
+LED. This module turns those private values into mm.mcu's Board, Gpio, and Led
+values, so portable applications neither see SDK macros nor hard-code board
+properties. GPIO operations use Pico SDK GPIO, portable UART instance zero uses
+the selected board's default hardware UART and pins, and timer operations use
+Pico SDK's monotonic time. Pico W LEDs and wireless facilities remain outside
+this interface because their LED is attached to the CYW43, not to an RP GPIO.
 
 Beneath its pure C++ surface it calls a private, project-owned C ABI implemented
 by the bridge's adapter, the only translation unit permitted to include Pico SDK

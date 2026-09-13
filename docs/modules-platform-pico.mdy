@@ -42,9 +42,10 @@ platforms/pico holds two kinds of platform that share a vendor and nothing else.
   project's own linker produces their executables, and they depend on no
   third-party code. They exist to prove processor arguments, responsibility
   ownership, linker scripts, and target testing without Pico SDK.
-- pico, pico2-arm, and pico2-riscv are Pico SDK-backed. They declare no linker
-  script, no source, and no responsibility, because Pico SDK's own CMake build
-  owns startup, the runtime, the executable link, and the post-link images.
+- pico, pico-w, pico2-arm, pico2-riscv, pico2-w-arm, and pico2-w-riscv are Pico
+  SDK-backed. They declare no linker script, no source, and no responsibility,
+  because Pico SDK's own CMake build owns startup, the runtime, the executable
+  link, and the post-link images.
 
 The second family is non-core and locked; the first is core and mutable. Keeping
 them in separate subtrees is what lets one directory hold both.
@@ -63,8 +64,11 @@ platforms/pico/sdk/mm.mdy                    kind: dir, option: core no, read-on
 platforms/pico/sdk/pico-arm/mm.mdy           kind: sdk, arm-none-eabi
 platforms/pico/sdk/pico-riscv/mm.mdy         kind: sdk, riscv32-pico-elf
 platforms/pico/sdk/pico/mm.mdy               kind: board, RP2040
+platforms/pico/sdk/pico-w/mm.mdy             kind: board, RP2040 with CYW43
 platforms/pico/sdk/pico2-arm/mm.mdy          kind: board, RP2350 Arm Secure
 platforms/pico/sdk/pico2-riscv/mm.mdy        kind: board, RP2350 RISC-V
+platforms/pico/sdk/pico2-w-arm/mm.mdy        kind: board, RP2350 with CYW43, Arm Secure
+platforms/pico/sdk/pico2-w-riscv/mm.mdy      kind: board, RP2350 with CYW43, RISC-V
 platforms/pico/sdk/pico-sdk/mm.mdy           kind: library, name: pico-sdk
 platforms/pico/sdk/pico-sdk/LICENSE.TXT      repository-owned licence copy
 platforms/pico/sdk/pico-sdk/vendor.sh        provisions and pins the checkout
@@ -84,7 +88,8 @@ with that platform; libraries/ keeps the libraries any lane may consume.
 # The non-core lock
 
 platforms/pico/sdk/mm.mdy declares option: core no with read-only: core, and the
-whole subtree inherits both: two SDKs, three boards, the library, and the wrapper.
+whole subtree inherits both: two SDKs, six board declarations, the library, and
+the wrapper.
 
 The lock is load-bearing, not decorative. The wrapper declares library: pico-sdk,
 and the shared structural-property validation rejects a core node that does. With
@@ -126,31 +131,59 @@ SDK declares library: pico-sdk, one string naming two nodes of two kinds.
 
 Opening fence
 pico          cortex-m0plus  thumb  soft    rp2040   sdk: pico-arm
+pico-w        cortex-m0plus  thumb  soft    rp2040   sdk: pico-arm
 pico2-arm     cortex-m33     thumb  softfp  rp2350   sdk: pico-arm    security-domain: secure
 pico2-riscv   hazard3        rv32…  soft    rp2350   sdk: pico-riscv
+pico2-w-arm   cortex-m33     thumb  softfp  rp2350   sdk: pico-arm    security-domain: secure
+pico2-w-riscv hazard3        rv32…  soft    rp2350   sdk: pico-riscv
 rp2040-ram    cortex-m0plus  thumb  soft    rp2040   sdk: arm-none-eabi-newlib
 rp2350-ram    cortex-m33     thumb  softfp  rp2350   sdk: arm-none-eabi-newlib
 Closing fence
 
-pico2-arm and pico2-riscv name the same hardware. A board reads sdk as a required
-scalar resolving to exactly one SDK, so one board cannot serve two architectures,
-and the RP2350 pair is symmetric rather than one board with a variant. pico is not
-split: RP2040 has no RISC-V cores.
+pico2-arm and pico2-riscv name the same Pico 2 hardware; pico2-w-arm and
+pico2-w-riscv do the same for Pico 2 W. A board reads sdk as a required scalar
+resolving to exactly one SDK, so one board cannot serve two architectures, and
+each RP2350 pair is symmetric rather than one board with a variant. The RP2040
+Pico and Pico W are not split because RP2040 has no RISC-V cores. Pico H and Pico
+WH are header-fitted forms of Pico and Pico W and use those same SDK board names.
 
-The three SDK-backed boards omit linker-script, file, and provides. Those keys
-become optional only after reference resolution establishes that the board's SDK
-names a library declaring external-build, which is why the completeness check runs
-after every SDK and library reference resolves rather than while a board is
-parsed.
+The six SDK-backed board declarations omit linker-script, file, and provides.
+Those keys become optional only after reference resolution establishes that the
+board's SDK names a library declaring external-build, which is why the
+completeness check runs after every SDK and library reference resolves rather
+than while a board is parsed.
 
-pico2-arm declares security-domain: secure and selects the Arm Secure processor
-row. rp2350-ram omits the key, keeps the non-secure default, and therefore keeps
-its three-argument commands unchanged.
+pico2-arm and pico2-w-arm declare security-domain: secure and select the Arm
+Secure processor row. rp2350-ram omits the key, keeps the non-secure default,
+and therefore keeps its three-argument commands unchanged.
 
-The RISC-V board needs no new schema. cpu names the processor, hazard3.
+The RISC-V boards need no new schema. cpu names the processor, hazard3.
 instruction-set names the instruction set, which ARM spells thumb and RISC-V
 spells as an ISA string. float-abi: soft is the soft-float integer ABI, emitted as
 -mabi=ilp32. security-domain has no RISC-V counterpart and keeps its default.
+
+## GPIO, UART, and timer surface
+
+All six SDK-backed board declarations select platform.pico.mcu through their
+SDK. The provider exposes the three portable facilities implemented for this
+family:
+
+- GPIO configure, read, and write use Pico SDK's GPIO API and validate against
+  the selected chip's Bank 0 GPIO count.
+- portable UART instance zero is the board header's PICO_DEFAULT_UART, using its
+  PICO_DEFAULT_UART_TX_PIN, PICO_DEFAULT_UART_RX_PIN, and
+  PICO_DEFAULT_UART_BAUD_RATE. It is initialized on first use and writes through
+  hardware_uart rather than through semihosted stdio. Other portable UART
+  instances answer Unsupported until the Board description can name their pin
+  assignments.
+- delay_ms and ticks_ms use Pico SDK's monotonic timer. The timer's epoch remains
+  platform-defined, as required by mm.mcu.
+
+The Board value reports the SDK board name and its RP GPIO inventory. Pico and
+Pico 2 report their GPIO-backed LED and polarity. Pico W and Pico 2 W report no
+LED: their onboard LED is attached to the CYW43 wireless device and pretending
+it were an RP GPIO would violate the board-description contract. CYW43 GPIO,
+Wi-Fi, and Bluetooth are not enabled merely by recognizing the W board.
 
 # Processor arguments, and where they come from
 
@@ -164,7 +197,8 @@ cortex-m33    thumb softfp  secure      -mcpu=cortex-m33 -mthumb -mfloat-abi=sof
 hazard3       rv32… soft    non-secure  -mcpu=hazard3-rp2350 -mstrict-align
 Closing fence
 
-For pico2-arm, a generated compile-database entry for a Pico SDK source contains:
+For pico2-arm and pico2-w-arm, a generated compile-database entry for a Pico SDK
+source contains:
 
 Opening fence
 -mcpu=cortex-m33 -mthumb -march=armv8-m.main+fp+dsp -mcmse -mfloat-abi=softfp
@@ -174,7 +208,8 @@ The project does not repeat the explicit -march: querying GCC shows -mcpu=cortex
 resolves to the same effective armv8-m.main+dsp+fp architecture. It must repeat
 -mcmse, whose query state changes from disabled to enabled.
 
-For pico2-riscv the SDK's own cmake/preload/toolchains/pico_riscv_gcc.cmake offers
+For pico2-riscv and pico2-w-riscv the SDK's own
+cmake/preload/toolchains/pico_riscv_gcc.cmake offers
 three flag sets in preference order and takes the first its toolchain accepts,
 appending -mstrict-align to whichever wins:
 
@@ -297,14 +332,17 @@ The board mapping lives only here, because only CMake needs it:
 
 Opening fence
 pico          PICO_BOARD=pico    PICO_PLATFORM=rp2040
+pico-w        PICO_BOARD=pico_w  PICO_PLATFORM=rp2040
 pico2-arm     PICO_BOARD=pico2   PICO_PLATFORM=rp2350-arm-s
 pico2-riscv   PICO_BOARD=pico2   PICO_PLATFORM=rp2350-riscv
+pico2-w-arm   PICO_BOARD=pico2_w PICO_PLATFORM=rp2350-arm-s
+pico2-w-riscv PICO_BOARD=pico2_w PICO_PLATFORM=rp2350-riscv
 Closing fence
 
-PICO_BOARD is the same for both RP2350 rows because it names the hardware;
-PICO_PLATFORM is what selects the architecture. An unrecognised board name is a
-fatal error: this bridge requires one, even though generic external linking does
-not.
+PICO_BOARD is the same within each RP2350 hardware pair because it names the
+board; PICO_PLATFORM is what selects the architecture. An unrecognised board
+name is a fatal error: this bridge requires one, even though generic external
+linking does not.
 
 The target is the fixed internal name mm_external, so no manifest-derived name
 reaches a CMake identifier; the requested name arrives only as OUTPUT_NAME. Project
@@ -348,10 +386,10 @@ mis-sized, or incorrectly framed output fails the external build before publicat
 and is removed from the external cache. Supplying a package stub is therefore not
 evidence that UF2 production works.
 
-The three boards were built with picotool 2.3.1. The published images pass the
-bridge validator and `picotool info` identifies their family IDs as rp2040,
-rp2350-arm-s, and rp2350-riscv respectively; the RP2350 reports further identify
-the images as Arm Secure and RISC-V.
+All six board declarations were built with picotool 2.3.1. The published images
+pass the bridge validator and `picotool info` identifies their family IDs as
+rp2040, rp2350-arm-s, and rp2350-riscv respectively; the RP2350 reports further
+identify the images as Arm Secure and RISC-V.
 
 # The wrapper boundary
 
@@ -361,11 +399,12 @@ transitive CMake targets, none of which a library include interface can carry.
 
 ext/adapter.c is the only file that includes Pico SDK headers. It is compiled by
 the bridge inside Pico SDK's own target graph, with whatever flags that graph
-selects, so one C source serves all three boards and both architectures. It
-implements a deliberately small C ABI: initialisation, output, delay, and one GPIO
-operation. The bridge requests GNU C11 rather than strict C11 because Pico SDK's
-public Hazard3 headers use GNU `asm`; the adapter itself uses no language extension,
-but it must be parsed together with the foreign headers it includes.
+selects, so one C source serves all six board declarations and both
+architectures. It implements the wrapper ABI plus platform.pico.mcu's private
+GPIO, hardware-UART, timer, and board-description ABI. The bridge requests GNU
+C11 rather than strict C11 because Pico SDK's public Hazard3 headers use GNU
+`asm`; the adapter itself uses no language extension, but it must be parsed
+together with the foreign headers it includes.
 
 ext/pico-c.h declares that ABI in plain C, with no language linkage specifier of
 its own, because adapter.c compiles as C and the wrapper as C++. ext/pico-cxx.h is
@@ -482,21 +521,24 @@ Three behaviours surprise people and are recorded here rather than rediscovered.
   has moved. A moved HEAD diagnostic names both commits. clean.sh does not remove
   the checkout.
 - An absent checkout names vendor.sh and no git command.
-- With picotool_DIR unset, pico, pico2-arm, and pico2-riscv fail before CMake is invoked,
-  naming the variable and both accepted file names.
+- With picotool_DIR unset, every SDK-backed Pico board fails before CMake is
+  invoked, naming the variable and both accepted file names.
 - No source beneath the checkout reaches the project compiler or cppcheck, on a
   whole-tree check and on a check rooted at platforms.
-- pico-arm, pico-riscv, pico, pico2-arm, and pico2-riscv all resolve by name; the
-  superseded pico-sdk-arm and pico2 resolve nowhere.
+- pico-arm, pico-riscv, pico, pico-w, pico2-arm, pico2-riscv, pico2-w-arm, and
+  pico2-w-riscv all resolve by name; the superseded pico-sdk-arm and pico2
+  resolve nowhere.
 - A record written after the rename names pico-arm and pico2-arm.
 - The ABI projections of both sides are compared between CMake configure and CMake
   build; an equivalent ABI spelled differently passes.
 - Project objects reach the link in declaration order, are not recompiled by CMake,
   and the final link is performed by the recorded C++ driver.
-- pico, pico2-arm, and pico2-riscv link with a real picotool 2.3.1 package. Their
-  published artifacts appear at the ordinary paths with the documented suffixes,
-  their UF2 family IDs match their platforms, and a declared artifact missing after
-  the build is an external-build failure.
+- All six SDK-backed board declarations link with a real picotool 2.3.1 package.
+  Their published artifacts appear at the ordinary paths with the documented
+  suffixes, their UF2 family IDs match their platforms, and a declared artifact
+  missing after the build is an external-build failure.
+- The adapter for each board compiles GPIO, the default hardware UART, and
+  monotonic timer support. W-board builds report no GPIO-backed LED.
 
 # Current boundaries
 
@@ -504,12 +546,14 @@ Three behaviours surprise people and are recorded here rather than rediscovered.
   verifies, and resets, but defines no completion protocol, which is the same limit
   docs/modules-platforms.mdy records for target test execution. Hardware execution
   is an opt-in script whose result a person reads.
-- Which OpenOCD machine value pico2-riscv should carry is unsettled. RP2350's
-  RISC-V debug path is not the ARM one, and no runner profile is claimed for it.
+- Which OpenOCD machine value the RP2350 RISC-V boards should carry is unsettled.
+  Their RISC-V debug path is not the ARM one, and no runner profile is claimed
+  for it.
 - RP2350 RISC-V hardware has not been exercised at all.
-- Pico W, CYW43 firmware, lwIP, Bluetooth, TinyUSB policy, flash boot policy, and
-  signed images are outside this integration, though their sources are present in
-  the recursive checkout.
+- CYW43 GPIO and firmware, Wi-Fi, lwIP, Bluetooth, TinyUSB policy, flash boot
+  policy, and signed images are outside this integration, though their sources
+  are present in the recursive checkout. Pico W and Pico 2 W are supported for
+  the same RP GPIO, hardware UART, and timer surface as the non-wireless boards.
 - picotool is required, not vendored. A hermetic image pipeline would vendor it.
 - Direct project-module use of Pico SDK headers waits for a library interface that
   can carry generated include directories and compile definitions as typed data.

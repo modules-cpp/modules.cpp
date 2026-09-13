@@ -13,3 +13,5 @@ machine: rp2350
 # Raspberry Pi Pico 2
 
 RP2350 Arm Secure board linked by the Pico SDK external build.
+platform.pico.mcu supplies GPIO, the default hardware UART, and the monotonic
+timer.

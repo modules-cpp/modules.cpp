@@ -11,4 +11,6 @@ machine: rp2040
 
 # Raspberry Pi Pico
 
-RP2040 board linked by the Pico SDK external build.
+RP2040 board linked by the Pico SDK external build. platform.pico.mcu supplies
+GPIO, the default hardware UART, and the monotonic timer. Pico H is the same SDK
+board with headers fitted and uses this declaration.

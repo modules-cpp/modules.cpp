@@ -307,7 +307,10 @@ The current direct RP2040 provider describes rp2040-ram, GPIOs GP0 through GP29,
 and an active-high LED on GP25. The Pico bridge reports the selected PICO_BOARD,
 NUM_BANK0_GPIOS, and, when the SDK board declares one, its LED pin and polarity
 to platform.pico.mcu; the provider turns those bridge-private values into the
-same pure C++ Board representation.
+same pure C++ Board representation. Pico W and Pico 2 W therefore have no
+GPIO-backed LED in Board: their onboard LED belongs to the CYW43. The same
+provider supplies GPIO, the selected board's default hardware UART, and the
+monotonic timer for every Pico SDK board declaration.
 
 # Per-executable closure augmentation
 

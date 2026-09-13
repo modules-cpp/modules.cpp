@@ -7,15 +7,19 @@ read-only: core
 folder: pico-arm
 folder: pico-riscv
 folder: pico
+folder: pico-w
 folder: pico2-arm
 folder: pico2-riscv
+folder: pico2-w-arm
+folder: pico2-w-riscv
 folder: pico-sdk
 ---
 
 # Pico SDK platform
 
-The SDK definitions, boards, vendored library, bridge, and wrapper that make up
-the Pico SDK-backed platform. The branch is non-core with a lock: the wrapper
-names a third-party library, and a core node may not. rp2040-ram and rp2350-ram
-stay outside this directory because they are project-linked core platforms that
-do not depend on Pico SDK.
+The SDK definitions, all four Raspberry Pi Pico SDK board definitions (with
+separate Arm and RISC-V declarations for RP2350), vendored library, bridge, and
+wrapper that make up the Pico SDK-backed platform. The branch is non-core with a
+lock: the wrapper names a third-party library, and a core node may not.
+rp2040-ram and rp2350-ram stay outside this directory because they are
+project-linked core platforms that do not depend on Pico SDK.

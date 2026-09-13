@@ -2,6 +2,7 @@
 // The private ABI beneath platform.pico.mcu, declared beside that module
 // rather than here: this file implements it, and the module calls it.
 #include "../mcu/mcu-c.h"
+#include "hardware/uart.h"
 #include "pico/stdlib.h"
 #include "pico/time.h"
 #include <stdio.h>
@@ -65,13 +66,22 @@ int mm_pico_mcu_gpio_read(unsigned int pin, int* high) {
     return MM_PICO_MCU_OK;
 }
 
-// Instance zero is the SDK's configured stdio, which the bridge points at
-// semihosting. A second instance would mean driving a UART the SDK has not been
-// told to own, so it is Unsupported rather than silently the same one.
+// Portable instance zero means the selected SDK board's default hardware UART.
+// Every Raspberry Pi Pico board definition supplies its UART number and TX/RX
+// pins. A second portable instance would need its own board description and is
+// Unsupported rather than silently aliasing the default.
 int mm_pico_mcu_uart_write(unsigned int instance, const char* text) {
+    static int initialized = 0;
     if (text == NULL) return MM_PICO_MCU_BAD_ARGUMENT;
     if (instance != 0) return MM_PICO_MCU_UNSUPPORTED;
-    if (puts(text) < 0) return MM_PICO_MCU_BUSY;
+
+    if (!initialized) {
+        uart_init(uart_default, PICO_DEFAULT_UART_BAUD_RATE);
+        gpio_set_function(PICO_DEFAULT_UART_TX_PIN, GPIO_FUNC_UART);
+        gpio_set_function(PICO_DEFAULT_UART_RX_PIN, GPIO_FUNC_UART);
+        initialized = 1;
+    }
+    uart_puts(uart_default, text);
     return MM_PICO_MCU_OK;
 }
 

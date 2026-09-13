@@ -157,11 +157,12 @@ The registered gcc arm-none-eabi Cortex-M33, Thumb, softfp combination has two r
 # Pico platforms
 
 platforms/pico holds two families: rp2040-ram and rp2350-ram, which are
-project-linked and core, and the Pico SDK-backed pico, pico2-arm, and pico2-riscv,
-which are externally linked and non-core. docs/modules-platform-pico.mdy specifies
-all of them, their SDKs, the vendored checkout, the CMake bridge, and the wrapper.
-It also records the processor rows those boards select and the measurements they
-were read from.
+project-linked and core, and six Pico SDK-backed declarations covering Pico,
+Pico W, Pico 2, and Pico 2 W on every supported RP2040/RP2350 architecture.
+Those declarations are externally linked and non-core.
+docs/modules-platform-pico.mdy specifies all of them, their SDKs, the vendored
+checkout, the CMake bridge, and the wrapper. It also records the processor rows
+those boards select and the measurements they were read from.
 
 A recognized profile name does not mean the installed toolchain ships the file. The compiler answers directly, and returns the query unchanged when it cannot resolve it:
 
