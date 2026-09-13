@@ -313,7 +313,8 @@ void installed_tools_support_common_help() {
     const auto bin = std::filesystem::current_path(ec) / "out/bin";
     expect(!ec, "installed tool directory available");
 
-    for (const auto tool : {"build", "configure", "test", "check", "model", "run", "debug", "shell"}) {
+    for (const auto tool : {"build", "configure", "test", "check", "model", "run", "flash",
+                            "debug", "shell"}) {
         const auto log = std::filesystem::temp_directory_path() /
                          (std::string("mm_help_") + tool + ".log");
         for (const auto flags : {"-h", "--help", "-v -h", "--verbose --help"}) {

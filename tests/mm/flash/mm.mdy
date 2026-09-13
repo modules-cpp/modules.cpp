@@ -1,0 +1,15 @@
+---
+mm: 1.0
+kind: test
+name: flash
+use: mm.test
+use: mm.build
+use: mm.flash
+unit: tests/mm/flash/flash.cpp
+unit: tests/main.cpp
+---
+
+# mm.flash test target
+
+Verifies Pico-only platform recognition, UF2 naming, safe picotool command
+construction, and execution without accessing a device.

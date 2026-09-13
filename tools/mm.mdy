@@ -7,6 +7,7 @@ read-only: buildable-target
 folder: build
 folder: configure
 folder: debug
+folder: flash
 folder: test
 folder: check
 folder: model

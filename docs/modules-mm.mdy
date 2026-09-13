@@ -32,7 +32,7 @@ delimiters, following docs/mdy.mdy.
 # One gate, every tool
 
 The schema is enforced once, in mm.build's shared manifest gate, for configure,
-build, test, check, model, document, run, and debug, including the standalone
+build, test, check, model, document, run, flash, and debug, including the standalone
 test-manifest load. No front end implements its own copy of these rules, and a
 tool rendering one manifest outside a walk reaches the same gate directly through
 validate_manifest_schema.

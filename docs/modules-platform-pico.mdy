@@ -391,6 +391,11 @@ pass the bridge validator and `picotool info` identifies their family IDs as
 rp2040, rp2350-arm-s, and rp2350-riscv respectively; the RP2350 reports further
 identify the images as Arm Secure and RISC-V.
 
+The separate flash operation consumes one of those published UF2 supplements.
+tools/flash validates the retained Pico target and runs `picotool load -v -x`;
+flash.sh supplies the repository-local picotool package location when the
+environment does not. docs/modules-flash.mdy owns the programming contract.
+
 # The wrapper boundary
 
 No project module includes pico/stdlib.h. That header aggregates generated

@@ -652,7 +652,7 @@ private:
     bool ok_ = false;
 };
 
-// Fixed, hand authored data: the ten *.sh scripts and how they relate are
+// Fixed, hand authored data: the eleven *.sh scripts and how they relate are
 // not something any manifest declares, the same reasoning as build0/build1
 // in build_tools(). invokes() is precomputed per branch rather than derived
 // on demand, since it only ever needs to hand back what was given at
@@ -703,6 +703,7 @@ std::vector<std::unique_ptr<models::Operation>> build_operations(
     const auto* check = find_tool(tools, "check");
     const auto* model = find_tool(tools, "model");
     const auto* run_tool = find_tool(tools, "run");
+    const auto* flash_tool = find_tool(tools, "flash");
     const auto* debug_tool = find_tool(tools, "debug");
     const auto* configure = find_tool(tools, "configure");
 
@@ -718,7 +719,8 @@ std::vector<std::unique_ptr<models::Operation>> build_operations(
     // of the above resolved to a real Tool.
     if (cxx == nullptr || build0 == nullptr || build1 == nullptr || build == nullptr ||
         main_tool == nullptr || mdy == nullptr || test_runner == nullptr || check == nullptr ||
-        model == nullptr || run_tool == nullptr || debug_tool == nullptr || configure == nullptr)
+        model == nullptr || run_tool == nullptr || flash_tool == nullptr ||
+        debug_tool == nullptr || configure == nullptr)
         return {};
 
     // Every kind:app manifest's compiled/linked/installed output, the
@@ -731,7 +733,7 @@ std::vector<std::unique_ptr<models::Operation>> build_operations(
     };
 
     std::vector<std::unique_ptr<models::Operation>> result;
-    result.reserve(10);
+    result.reserve(11);
 
     // bootstrap.sh: compile build0, then either build0 builds build1
     // (branch 0) or, only if that leaves no executable build1, the same
@@ -772,7 +774,7 @@ std::vector<std::unique_ptr<models::Operation>> build_operations(
         "test", "test.sh", models::Role::Optional,
         std::vector<std::vector<const models::Tool*>>{
             {build0, build1, build, main_tool, mdy, test_runner, test_runner, test_runner,
-             test_runner, test_runner, test_runner, test_runner, test_runner}},
+             test_runner, test_runner, test_runner, test_runner, test_runner, test_runner}},
         std::vector<models::ArtifactKind>{models::ArtifactKind::Staged,
                                           models::ArtifactKind::InstalledBinary},
         std::vector<models::ArtifactKind>{models::ArtifactKind::TestBuild}));
@@ -800,6 +802,14 @@ std::vector<std::unique_ptr<models::Operation>> build_operations(
         std::vector<std::vector<const models::Tool*>>{{run_tool}},
         std::vector<models::ArtifactKind>{models::ArtifactKind::InstalledBinary,
                                           models::ArtifactKind::AppExecutable},
+        std::vector<models::ArtifactKind>{}));
+
+    result.push_back(std::make_unique<RealOperation>(
+        "flash", "flash.sh", models::Role::UserInitiated,
+        std::vector<std::vector<const models::Tool*>>{{flash_tool}},
+        std::vector<models::ArtifactKind>{models::ArtifactKind::InstalledBinary,
+                                          models::ArtifactKind::AppExecutable,
+                                          models::ArtifactKind::Configuration},
         std::vector<models::ArtifactKind>{}));
 
     result.push_back(std::make_unique<RealOperation>(
@@ -1424,9 +1434,9 @@ std::unique_ptr<models::Configuration> configuration(const std::filesystem::path
 
 std::vector<const models::Operation*> recommended_sequence(
     const std::vector<const models::Operation*>& operations) {
-    static constexpr std::array<std::string_view, 10> order = {
+    static constexpr std::array<std::string_view, 11> order = {
         "clean", "bootstrap", "configure", "build", "test", "document", "check", "model",
-        "run", "debug",
+        "run", "flash", "debug",
     };
 
     std::vector<const models::Operation*> result;

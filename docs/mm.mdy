@@ -10,6 +10,7 @@ file: modules-c++20.mdy
 file: modules-cmake.mdy
 file: modules-configure.mdy
 file: modules-debug.mdy
+file: modules-flash.mdy
 file: modules-libraries.mdy
 file: modules-mm.mdy
 file: modules-model.mdy

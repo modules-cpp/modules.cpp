@@ -125,6 +125,7 @@ The source tree is organized by responsibility.
 |   +-- build/                mm.build
 |   +-- configure/            mm.configure
 |   +-- debug/                mm.debug
+|   +-- flash/                mm.flash Pico firmware flashing
 |   +-- mdy/                  mm.mdy and white-box tests
 |   +-- model/                mm.model, the models/ adapter
 |   +-- run/                  mm.run execution orchestration
@@ -134,6 +135,7 @@ The source tree is organized by responsibility.
 |   +-- build/                bootstrap and build front ends
 |   +-- configure/            compiler, lane, and runner configuration
 |   +-- debug/                configured application debugging
+|   +-- flash/                Pico SDK UF2 flashing
 |   +-- test/                 test front end
 |   +-- check/                cppcheck front end and addon; see check.sh
 |   +-- model/                consistency front end; see docs/modules-model.mdy
@@ -143,6 +145,7 @@ The source tree is organized by responsibility.
 |   +-- build/                mm.build tests
 |   +-- configure/            mm.configure tests
 |   +-- debug/                mm.debug tests
+|   +-- flash/                mm.flash tests
 |   +-- mdy/                  mm.mdy public and regression tests
 |   +-- model/                mm.model tests
 |   +-- run/                  mm.run tests
@@ -158,6 +161,7 @@ The source tree is organized by responsibility.
 |   +-- modules-cmake.mdy     external CMake builder specification
 |   +-- modules-configure.mdy official configure specification for release v1.2.0
 |   +-- modules-debug.mdy     debug tool and debugger specification
+|   +-- modules-flash.mdy     Pico firmware flashing specification
 |   +-- modules-model.mdy     the abstract data model
 |   +-- modules-platforms.mdy SDK, board, and platform specification
 |   +-- modules-test.mdy      test tool and target execution specification
@@ -275,6 +279,12 @@ configured target runner, and executes it through mm.build's common process
 wrapper. Its command interface accepts additional runner arguments so mm.debug
 can enable a runner's remote stub without duplicating runner layout policy.
 
+## mm.flash
+mm.flash recognizes the Pico SDK platform backend, derives the UF2 supplement
+beside a built target application, and constructs and executes the safely quoted
+picotool load command. Flashing is user initiated and never part of building or
+running an application. docs/modules-flash.mdy owns the complete contract.
+
 ## mm.test
 mm.test provides the project test framework. It exports assertions, test cases,
 suites, a static registrar, expected-failure support, and the test runner.
@@ -388,6 +398,12 @@ tools/run/main.cpp is installed as out/bin/run. It resolves one registered
 kind:app manifest and executes its already-built artifact directly for the host
 lane or through the target toolchain runner. Arguments after -- are passed to
 the application. See docs/modules-run.mdy.
+
+## flash
+tools/flash/main.cpp is installed as out/bin/flash. It resolves one registered
+target application, validates the retained Pico SDK platform and built UF2
+supplement, then programs and starts it through picotool. See
+docs/modules-flash.mdy.
 
 ## debug
 tools/debug/main.cpp is installed as out/bin/debug. It resolves one registered
@@ -510,10 +526,10 @@ depends on nothing outside the project; it is optional because it is an
 additional cross-check, not because anything else is missing to run it.
 
 ## Shell tool wrapper scripts
-Each of the ten scripts above (clean, bootstrap, configure, build, test,
-document, check, model, run, debug) has a second, no-extension counterpart at the project root
-with no shebang: `bootstrap`, `build`, `clean`, `check`, `document`, `model`,
-`test`, `configure`, `run`, `debug`. Where the `.sh` version runs its work directly through the system
+Each of the eleven scripts above (clean, bootstrap, configure, build, test,
+document, check, model, run, flash, debug) has a second, no-extension counterpart
+at the project root: `bootstrap`, `build`, `clean`, `check`, `document`, `model`,
+`test`, `configure`, `run`, `flash`, `debug`. Where the `.sh` version runs its work directly through the system
 shell, the no-extension version routes the same command through
 out/bin/shell (mm.shell, tools/shell) instead. Before the first full build,
 the configure and build wrappers fall back to configure.sh and build.sh because
@@ -556,9 +572,9 @@ defects and become ordinary regression tests when fixed.
 # Current boundaries
 These are the gaps between the Design goals and today's implementation.
 
-docs/modules-configure.mdy is the official configure and manifest-option specification for release v1.2.0. configure implements typed options, branch-local resets and read-only settings, lanes, platforms, runners, debuggers, library definitions, and records beneath out. All eight manifest-reading tools accept 1.0, 1.1, and 1.2 through the shared gate. Build, test, run, and debug resolve buildable-host, buildable-target, and core, enforce the selected lane and core dependency boundary, and apply requires-board availability; other tuning declarations remain warning-only and are not yet applied to compilation.
+docs/modules-configure.mdy is the official configure and manifest-option specification for release v1.2.0. configure implements typed options, branch-local resets and read-only settings, lanes, platforms, runners, debuggers, library definitions, and records beneath out. All nine manifest-reading tools accept 1.0, 1.1, and 1.2 through the shared gate. Build, test, run, debug, and flash resolve buildable-host, buildable-target, and core, enforce the selected lane and core dependency boundary, and apply requires-board availability; other tuning declarations remain warning-only and are not yet applied to compilation.
 
-docs/modules-build.mdy, docs/modules-cmake.mdy, docs/modules-test.mdy, docs/modules-run.mdy, docs/modules-debug.mdy, docs/modules-platforms.mdy, docs/modules-platform-pico.mdy, and docs/modules-libraries.mdy specify the implemented lane, external CMake builder, compile-only, platform, Raspberry Pi Pico, runner-backed execution, debugging, and third-party library interfaces.
+docs/modules-build.mdy, docs/modules-cmake.mdy, docs/modules-test.mdy, docs/modules-run.mdy, docs/modules-flash.mdy, docs/modules-debug.mdy, docs/modules-platforms.mdy, docs/modules-platform-pico.mdy, and docs/modules-libraries.mdy specify the implemented lane, external CMake builder, compile-only, platform, Raspberry Pi Pico, runner-backed execution, flashing, debugging, and third-party library interfaces.
 
 - App defines the application boundary but stores no state; shared lifecycle, context, logging, or argument services can be added there without coupling them to build policy.
 - Bootstrap follows GCC modules-ts conventions; the self-hosted compiler driver

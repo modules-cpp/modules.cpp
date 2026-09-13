@@ -512,7 +512,7 @@ Every platform diagnostic names the manifest it came from. A mismatch names both
 - One board runs under an emulator, reaching main, writing observable output, and terminating under control, with no application argument reaching the emulator.
 - An SDK whose library declares external-build configures with cross-link: external; with a board, it omits cross-board-linker-script and cross-board-source; without a board, it carries no board fields.
 - A record carrying cross-link: external with a linker script, or omitting the linker script without cross-link: external, is rejected.
-- Build, test, run, and debug detect a mismatch between the record's link ownership and the library's external-build declaration as a stale configuration record.
+- Build, test, run, flash, and debug detect a mismatch between the record's link ownership and the library's external-build declaration as a stale configuration record.
 - models::Platform exposes link_ownership() reflecting the lane's link ownership.
 
 # Current boundaries

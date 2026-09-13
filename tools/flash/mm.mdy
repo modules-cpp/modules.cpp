@@ -1,0 +1,14 @@
+---
+mm: 1.0
+kind: app
+name: flash
+file: main.cpp
+use: mm.app
+use: mm.build
+use: mm.flash
+---
+
+# flash tool
+
+Resolves one built target application and flashes its UF2 supplement through
+picotool. The initial backend accepts only Pico SDK platforms.

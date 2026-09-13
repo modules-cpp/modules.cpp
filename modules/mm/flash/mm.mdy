@@ -1,0 +1,15 @@
+---
+mm: 1.0
+kind: module
+name: flash
+module: mm.flash
+use: mm.build
+file: flash.cppm
+file: src/flash.cpp
+---
+
+# mm.flash
+
+Recognizes the initial Pico-only flashing backend, derives the UF2 supplement
+from a built application path, and constructs and executes a safely quoted
+picotool load command.

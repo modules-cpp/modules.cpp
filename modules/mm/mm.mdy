@@ -6,6 +6,7 @@ folder: app
 folder: build
 folder: configure
 folder: debug
+folder: flash
 folder: mcu
 folder: mdy
 folder: model

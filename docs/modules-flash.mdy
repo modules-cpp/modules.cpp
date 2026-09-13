@@ -1,0 +1,115 @@
+---
+title: modules.cpp firmware flashing
+description: Pico SDK UF2 flashing through the modules.cpp flash tool
+author: Pawel Wodnicki
+company: 32bitmicro LLC
+date: 2026-09-13
+status: implemented
+release: v1.2.0
+---
+
+# Purpose
+
+flash installs one already-built target application on a physical board. It is
+a separate operation from build and run: build produces an image, flash changes
+device state, and run executes through a configured runner without programming
+hardware. The initial implementation supports only the Raspberry Pi Pico SDK
+platform family and uses picotool's UF2 loader.
+
+# Command
+
+Opening fence
+./flash.sh [-v|--verbose] <app-manifest>
+./flash [-v|--verbose] <app-manifest>
+out/bin/flash [-v|--verbose] <app-manifest>
+Closing fence
+
+The manifest may be an app directory, its mm.mdy, or another spelling accepted
+by the common manifest resolver. Exactly one registered kind: app is required.
+Flashing always uses the retained configured target lane; there is no host mode
+and the command does not change the persisted lane selection.
+
+flash.sh requires out/bin/flash and does not rebuild it. When picotool_DIR is
+unset, the root wrapper exports the local package installed at
+platforms/pico/pico-sdk/picotool. An explicitly supplied picotool_DIR wins. The
+no-extension flash wrapper follows the project's ordinary convention and routes
+flash.sh through out/bin/shell when that tool exists.
+
+# Preconditions
+
+Before starting picotool, the tool requires all of the following:
+
+- a retained target toolchain, target build directory, and configuration-2
+  platform record;
+- an SDK/board pair recognized by the Pico backend;
+- a registered application available in that target lane;
+- a regular UF2 supplement at <target-build-directory>/<app-dir>/<name>.uf2;
+- picotool_DIR naming an existing directory containing a regular file named
+  picotool.
+
+The recognized boards are pico, pico-w, pico2-arm, pico2-riscv, pico2-w-arm,
+and pico2-w-riscv under pico-arm or pico-riscv as appropriate. Project-linked
+rp2040-ram and rp2350-ram do not produce Pico SDK UF2 supplements and are
+rejected. Other platforms remain future backends rather than aliases for the
+Pico behavior.
+
+Configuration staleness, structural properties, platform-provider resolution,
+and target availability are checked with the same shared machinery as build,
+test, run, and debug. A missing image says to run build first. flash never starts
+a build implicitly, so the file installed is always the file the user can inspect
+before changing a device.
+
+# Picotool invocation
+
+The current backend executes exactly:
+
+Opening fence
+picotool load -v -x <application.uf2>
+Closing fence
+
+- load programs the UF2 image;
+- -v verifies the written data;
+- -x asks the boot ROM to reboot and execute the new image after loading.
+
+The picotool executable and image path are individually shell-quoted through
+mm.build before the common process wrapper executes them. Picotool's exit status
+is returned to the caller. The command deliberately omits -f: a board running an
+application without compatible USB support cannot be forced into BOOTSEL through
+picotool. The reliable first-use procedure is to hold BOOTSEL while connecting
+USB, release it after the device appears, and then invoke flash.
+
+# Example
+
+For a plain Raspberry Pi Pico:
+
+Opening fence
+./configure --target arm-none-eabi --compiler arm-none-eabi-gcc \
+  --sdk pico-arm --board pico --build debug
+picotool_DIR="$PWD/platforms/pico/pico-sdk/picotool" \
+  ./build --target apps/mcu-blink/
+./flash.sh -v apps/mcu-blink/
+Closing fence
+
+The build step publishes both the extensionless ELF and
+out-target-arm-none-eabi/apps/mcu-blink/mcu-blink.uf2. flash selects the UF2; it
+never sends the extensionless ELF by accident.
+
+# Conformance
+
+- mm.flash unit tests cover the six-board allowlist, rejection of a
+  project-linked RP2040 platform, UF2 path derivation, safe quoting, and child
+  status propagation without accessing hardware.
+- tools/flash validates project membership, target availability, configuration
+  freshness, the image, and picotool before executing an external command.
+- flash.sh reports a missing installed tool and supplies only the repository's
+  local picotool package default.
+- No automated test flashes a device. Actual programming remains an explicit,
+  user-initiated operation.
+
+# Current boundaries
+
+- Only picotool and Pico SDK UF2 images are supported.
+- Device selection options are not yet forwarded. With multiple boards in
+  BOOTSEL, picotool decides whether its default selection is unambiguous.
+- Flash success proves that picotool programmed and verified the image. It does
+  not prove application-level behavior after the reboot.
