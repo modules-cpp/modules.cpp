@@ -18,6 +18,7 @@
 #include <cstddef>
 #include <filesystem>
 #include <iostream>
+#include <string>
 #include <string_view>
 #include <system_error>
 #include <vector>
@@ -169,11 +170,17 @@ int main(int argc, char** argv) {
 
     const auto buildable = properties.lane(
         target_lane, configuration.target_has_host_capability());
+
+    // Resolved from the complete project, before the filtered tree below is
+    // built: an interface requirement decides whether a node survives
+    // filtering, so it cannot be discovered from the filtered tree itself.
+    const auto providers = mm::build::platform_providers(project, target_lane, platform, "build");
+
     std::vector<mm::build::Availability> available;
     available.reserve(project.nodes.size());
     for (std::size_t i = 0; i < project.nodes.size(); ++i)
         available.push_back(mm::build::availability(project, i, buildable[i], target_lane,
-                                                    platform));
+                                                    platform, &providers));
     if ((project.nodes[scope].kind == "app" || project.nodes[scope].kind == "module" ||
          project.nodes[scope].kind == "test") &&
         !available[scope].available) {
@@ -203,14 +210,40 @@ int main(int argc, char** argv) {
         if (!in_scope[i]) continue;
         if (project.nodes[i].kind == "module" || project.nodes[i].kind == "app") {
             ++declared_targets;
-            if (!available[i].available)
+            if (!available[i].available) {
                 ++unavailable_targets;
-            else
+            } else if (project.nodes[i].kind == "module" &&
+                       providers.declares_provider(
+                           tree.targets[old_to_new[project.target[i]]].module_name)) {
+                // Selected, so available, but never a root of its own: a
+                // provider is compiled because a retained executable requires
+                // its interface, and its objects are added to that executable
+                // alone.
+            } else {
                 roots.push_back(old_to_new[project.target[i]]);
+            }
         } else if (project.nodes[i].kind == "test") {
             ++skipped_tests;
         } else if (project.nodes[i].kind == "doc") {
             ++skipped_docs;
+        }
+    }
+
+    // Selected providers enter compilation through the executables that
+    // require them, so one required by an in-scope application is built even
+    // when the provider's own manifest is outside the requested scope.
+    for (std::size_t i = 0; i < project.nodes.size(); ++i) {
+        if (!in_scope[i] || project.nodes[i].kind != "app" || !available[i].available) continue;
+        for (const auto& interface_module : providers.requirements[i]) {
+            const auto* binding = providers.binding(interface_module);
+            if (binding == nullptr) continue;
+            for (std::size_t candidate = 0; candidate < tree.targets.size(); ++candidate) {
+                if (tree.targets[candidate].kind != "module" ||
+                    tree.targets[candidate].module_name != binding->provider_module)
+                    continue;
+                roots.push_back(candidate);
+                break;
+            }
         }
     }
 
@@ -283,7 +316,10 @@ int main(int argc, char** argv) {
 
         if (!mm::build::can_link_executable(platform, "build", target.name))
             return mm::build::exit_manifest;
-        auto objects = mm::build::closure(tree, index);
+        std::vector<std::string> merged;
+        auto objects = mm::build::augmented_closure(tree, index, providers, &merged);
+        for (const auto& provider : merged)
+            std::cout << "    platform provider " << provider << "\n";
         if (board) objects.insert(objects.end(), board->objects.begin(), board->objects.end());
 
         if (platform != nullptr &&

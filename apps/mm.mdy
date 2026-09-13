@@ -3,6 +3,7 @@ mm: 1.0
 kind: dir
 name: apps
 folder: main
+folder: mcu-blink
 folder: mdy
 folder: target-smoke-any
 ---

@@ -1,0 +1,26 @@
+---
+mm: 1.2
+kind: module
+name: rp2040-ram-mcu
+module: platform.rp2040_ram.mcu
+use: mm.mcu
+file: mcu.cppm
+option: buildable-host no
+---
+
+# platform.rp2040_ram.mcu
+
+rp2040-ram's implementation of mm.mcu. It drives the RP2040 register map
+directly and names no third-party library, so it stays core.
+
+No application names it. The rp2040-ram board manifest binds mm.mcu to it, and
+an executable whose closure reaches mm.mcu is linked against it because of the
+platform it is building for. In any other lane it is an unavailable skipped
+target, so nothing can link a registration for hardware that is not there.
+
+It is a sibling of the board rather than a folder inside it because a kind:board
+manifest has no folder: key: boards name their own sources, and a module is a
+manifest of its own. The module name spells the board with an underscore because
+a C++ module name component is an identifier; the board's platform-provider
+declaration is the authoritative mapping between the two, and no tool derives
+either spelling from the other.

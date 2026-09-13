@@ -28,9 +28,6 @@ project(modules_cpp_pico C CXX ASM)
 pico_sdk_init()
 
 set(MM_ADAPTER ${CMAKE_CURRENT_LIST_DIR}/../ext/adapter.c)
-# The adapter implements this platform's private mm.mcu ABI as well as the vendor
-# one, and that ABI is declared beside lib.mcu.
-set(MM_MCU_INCLUDE ${CMAKE_CURRENT_LIST_DIR}/../mcu)
 set_source_files_properties(${MM_OBJECTS} PROPERTIES EXTERNAL_OBJECT TRUE GENERATED TRUE)
 add_executable(mm_external ${MM_OBJECTS} ${MM_ADAPTER})
 set_target_properties(mm_external PROPERTIES
@@ -38,7 +35,6 @@ set_target_properties(mm_external PROPERTIES
   OUTPUT_NAME ${MM_OUTPUT_NAME})
 set_source_files_properties(${MM_ADAPTER} PROPERTIES
   COMPILE_OPTIONS "-std=gnu11;-Wall;-Wextra;-Werror")
-target_include_directories(mm_external PRIVATE ${MM_MCU_INCLUDE})
 target_link_libraries(mm_external pico_stdlib)
 pico_enable_stdio_semihosting(mm_external 1)
 pico_add_extra_outputs(mm_external)

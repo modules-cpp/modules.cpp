@@ -125,6 +125,24 @@ coming back as a Module whose imports() is silently shorter than
 declared_by().uses(). tests/mm/model pins this against a scratch tree built
 specifically to have one such edge.
 
+Platform providers are exposed without collapsing the distinction between what
+a manifest declared and what a lane supplies. ModuleNode::platform_interface()
+reports the marker, and the module's own exported_module_name() is the interface
+identity, so nothing repeats that name. SdkNode::platform_providers() and
+BoardNode::platform_providers() report the bindings those manifests declared,
+selected or not. models::Platform::platform_providers() reports the effective
+bindings after SDK defaults and board overrides, each naming the owner that
+supplied it and whether that owner was the board; mm::model::configuration()
+loads the manifest tree to resolve them, because the configuration record names
+the SDK and board while which providers they bind is a fact about the tree.
+
+An injected provider is never inserted into a Module's imports(): imports() is
+the authored graph, and provider injection is a platform edge. A client that
+wants an executable's augmented closure asks the platform for its bindings and
+follows them; a client that wants what the manifest said reads imports(). The
+duplicate module-name check is not relaxed for providers, so neither view can
+return an arbitrary one of two modules sharing a name.
+
 # tools/model: the consistency tool
 tools/model is a kind:app target, use: mm.model, installed as out/bin/model.
 It checks the real project against itself through models::Repository and

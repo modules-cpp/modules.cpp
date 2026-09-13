@@ -56,11 +56,15 @@ A test declaring requires-board is available only when the selected target platf
 
 A module naming a library that declares external-build is available only in a target lane whose selected SDK names that same library. Every module reached through use must be available in the same lane. Capability and availability incompatibility is rejected before compilation and identifies the consumer, dependency, lane, and restricting origin.
 
+Platform-interface requirements are resolved by the same post-load, pre-filter analysis build uses. On a target lane, a test whose authored closure or selected provider closure reaches an interface with no effective provider is unavailable and exits 77. A selected board binding overrides its SDK's default. A host test needs no manifest provider: the interface's fallback remains linkable so a unit may register a stand-in Platform and exercise the portable surface without pretending the host is an MCU platform.
+
 Capability declarations produce no ignored-option warnings. Other manifest options retain their warning-only behavior until compilation consumes them.
 
 # Compile and link
 
-Test appends the requested kind:test target to the selected project modules, orders only its transitive dependency closure, compiles its unit entries, compiles the configured board unit in that test's output tree, and links one test executable with the board objects.
+Test appends the requested kind:test target to the selected project modules, orders only its transitive dependency closure, and augments that closure with every effective platform provider it requires. It compiles each selected provider once, compiles the test's unit entries, compiles the configured board unit in that test's output tree, and links one test executable with the provider and board objects. An unselected provider is never compiled as an independent root, and a test that does not reach an interface receives no provider object.
+
+Project and external link ownership consume the same augmented ordered object list. When the selected SDK owns linking, test delegates to that library's external CMake bridge exactly as build does; the bridge publishes the primary test executable at the ordinary test path. This is required for a provider such as platform.pico.mcu whose private adapter and platform runtime are supplied by the bridge rather than project objects.
 
 A configuration-2 bare-metal test with an unresolved startup responsibility exits 65 before linking. Module compilation remains available in a boardless lane.
 
@@ -133,6 +137,9 @@ Compile and link a target test without executing it:
 - An explicitly requested test unavailable in the lane exits 77 and names that lane.
 - A requires-board mismatch exits 77 and names the required and selected boards.
 - An unavailable dependency is rejected before compilation.
+- A target test reaching a platform interface receives the selected provider closure; an unbound requirement exits 77 before compilation, while a host unit test may register a stand-in against the interface fallback.
+- A selected provider is compiled once and appears once in the test link; an unrelated test receives no provider object.
+- Project and external link ownership receive the same augmented object list, and external ownership delegates the test link to the selected SDK library's CMake bridge.
 - Platform compiler arguments reach test and board compilation and linking; specs and linker script arguments reach linking only.
 - The configured board unit is compiled in the selected test output tree and linked into the test executable.
 - An unresolved responsibility exits 65 before linking an executable.

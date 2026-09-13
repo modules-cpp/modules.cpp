@@ -129,6 +129,14 @@ public:
     [[nodiscard]] Kind kind() const override { return Kind::Directory; }
 };
 
+// One platform-provider declaration on an SDK or board: the portable interface
+// module, and the provider module that platform binds it to. Authored text, not
+// a resolved edge: what a selected platform actually binds is Platform's.
+struct PlatformProviderBinding {
+    std::string_view interface_module;
+    std::string_view provider_module;
+};
+
 // A module target, such as modules/mm/build/mm.mdy. Compiled by the build
 // tool; consumed by other targets through use:.
 class ModuleNode : public BuildableNode {
@@ -143,6 +151,11 @@ public:
     // The library: field: the library definition this wrapper consumes, or
     // empty when this is an ordinary project module.
     [[nodiscard]] virtual std::string_view library() const = 0;
+
+    // The platform-interface marker: this module is a portable interface whose
+    // implementation the selected platform supplies. exported_module_name() is
+    // the interface identity; the marker carries no name of its own.
+    [[nodiscard]] virtual bool platform_interface() const = 0;
 };
 
 // An application target, such as apps/main/mm.mdy. Compiled, linked, and
@@ -185,6 +198,7 @@ public:
     [[nodiscard]] virtual std::string_view compiler_family() const = 0;
     [[nodiscard]] virtual std::string_view runtime() const = 0;
     [[nodiscard]] virtual std::string_view library() const = 0;
+    [[nodiscard]] virtual std::vector<PlatformProviderBinding> platform_providers() const = 0;
 };
 
 class BoardNode : public ManifestNode {
@@ -195,6 +209,7 @@ public:
     [[nodiscard]] virtual std::string_view machine() const = 0;
     [[nodiscard]] virtual std::filesystem::path linker_script() const = 0;
     [[nodiscard]] virtual std::vector<std::filesystem::path> sources() const = 0;
+    [[nodiscard]] virtual std::vector<PlatformProviderBinding> platform_providers() const = 0;
 };
 
 // A vendored source tree and its declared public interface. Paths are root

@@ -1,26 +1,25 @@
 ---
 mm: 1.2
 kind: module
-name: lib-mcu
-module: lib.mcu
+name: pico-mcu
+module: platform.pico.mcu
 use: mm.mcu
-library: pico-sdk
-file: lib-mcu.cppm
+file: mcu.cppm
+option: buildable-host no
 ---
 
-# lib.mcu, Pico SDK
+# platform.pico.mcu
 
-This platform's implementation of the portable mm.mcu interface. It registers a
-Platform subclass at static initialisation, so an executable that links it answers
-through Pico SDK and one that does not answers Unsupported.
+The Pico platform's implementation of mm.mcu. It is project-owned platform code,
+not the public wrapper for a vendored library: it therefore takes no lib. prefix
+and declares no library. Its availability comes from the platform-provider
+binding in the pico-arm and pico-riscv SDK definitions, which is also what makes
+it unavailable in any lane those SDKs do not select.
 
-It names the pico-sdk library, which is true and load-bearing: the definitions it
-calls come from the adapter that library's bridge compiles, and naming it is what
-makes this module available only in a lane whose selected SDK names pico-sdk. In
-any other lane it is a skipped unavailable target, so nothing can link a
-registration whose adapter is absent.
+One provider module serves both SDKs. Two SDKs binding the same provider is one
+module with one identity, not two implementations that happen to agree.
 
-The C is all below this module: the SDK adapter the bridge compiles, reached
-through a private ABI and its linkage shim. An application names lib.mcu in its
-manifest and mm.mcu in its source, which is what keeps the source portable while
-the implementation stays here.
+Beneath its pure C++ surface it calls a private, project-owned C ABI implemented
+by the bridge's adapter, the only translation unit permitted to include Pico SDK
+headers. That ABI is specific to this bridge; it is not the portable mm.mcu
+contract, and nothing outside this directory declares or calls it.

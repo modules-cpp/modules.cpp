@@ -102,6 +102,46 @@ void repository_exposes_platform_definitions() {
                      "expected Pico SDK RP2350 RISC-V board definition");
 }
 
+void repository_exposes_provider_declarations() {
+    bool ok = false;
+    auto loaded = mm::model::Loaded::load(".", ok);
+    const auto modules = loaded.repository().modules();
+    const auto sdks = loaded.repository().sdks();
+    const auto boards = loaded.repository().boards();
+
+    const models::ModuleNode* interface = nullptr;
+    for (const auto* module : modules)
+        if (module->exported_module_name() == "mm.mcu") interface = module;
+    mm::test::expect(ok && interface != nullptr && interface->platform_interface(),
+                     "expected mm.mcu to expose its platform-interface marker");
+
+    const models::SdkNode* pico_arm = nullptr;
+    for (const auto* sdk : sdks)
+        if (sdk->name() == "pico-arm") pico_arm = sdk;
+    mm::test::expect(pico_arm != nullptr, "expected the Pico ARM SDK definition");
+    if (pico_arm != nullptr) {
+        const auto bindings = pico_arm->platform_providers();
+        mm::test::expect(bindings.size() == 1 &&
+                             bindings.front().interface_module == "mm.mcu" &&
+                             bindings.front().provider_module == "platform.pico.mcu",
+                         "expected the SDK's authored provider binding");
+    }
+
+    const models::BoardNode* rp2040 = nullptr;
+    for (const auto* board : boards)
+        if (board->name() == "rp2040-ram") rp2040 = board;
+    mm::test::expect(rp2040 != nullptr,
+                     "expected the direct-register RP2040 board definition");
+    if (rp2040 != nullptr) {
+        const auto bindings = rp2040->platform_providers();
+        mm::test::expect(bindings.size() == 1 &&
+                             bindings.front().interface_module == "mm.mcu" &&
+                             bindings.front().provider_module ==
+                                 "platform.rp2040_ram.mcu",
+                         "expected the board's authored provider binding");
+    }
+}
+
 void child_and_parent_agree_with_each_other() {
     bool ok = false;
     auto loaded = mm::model::Loaded::load(".", ok);
@@ -194,6 +234,7 @@ const mm::test::case_ cases[] = {
     { "root reflects the real project manifest",       &root_reflects_the_real_project_manifest },
     { "root children include a real directory node",   &root_children_include_a_real_directory_node },
     { "repository exposes platform definitions",       &repository_exposes_platform_definitions },
+    { "repository exposes provider declarations",      &repository_exposes_provider_declarations },
     { "child and parent agree with each other",        &child_and_parent_agree_with_each_other },
     { "every app reaches the root by walking parent",  &every_app_reaches_the_root_by_walking_parent },
     { "load of a nonexistent directory fails",         &load_of_a_nonexistent_directory_fails },

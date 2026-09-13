@@ -2,6 +2,7 @@
 // describe: a tree with no out/config.mdy, and one configure has written.
 
 #include <filesystem>
+#include <fstream>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -310,6 +311,64 @@ void platform_exposes_link_ownership() {
     }
 }
 
+void configured_platform_exposes_effective_provider() {
+    const mm::test::scoped_tree tree{"model_platform_providers"};
+    tree.manifest("", "kind: project\nname: p\nfolder: iface\nfolder: sdk-provider\n"
+                      "folder: board-provider\nfolder: sdk\nfolder: board\n");
+    tree.manifest_raw("iface", "mm: 1.2\nkind: module\nname: iface\nmodule: mm.iface\n"
+                               "file: iface.cppm\nplatform-interface:\n");
+    tree.manifest_raw("sdk-provider", "mm: 1.2\nkind: module\nname: sdk-provider\n"
+                                      "module: platform.sdk.iface\nuse: mm.iface\n"
+                                      "file: provider.cppm\n");
+    tree.manifest_raw("board-provider", "mm: 1.2\nkind: module\nname: board-provider\n"
+                                        "module: platform.board.iface\nuse: mm.iface\n"
+                                        "file: provider.cppm\n");
+    tree.manifest_raw("sdk", "mm: 1.2\nkind: sdk\nname: demo-sdk\n"
+                             "target: arm-none-eabi\ncompiler-family: gcc\nruntime: newlib\n"
+                             "platform-provider: mm.iface platform.sdk.iface\n");
+    tree.manifest_raw("board", "mm: 1.2\nkind: board\nname: demo-board\n"
+                               "sdk: demo-sdk\ncpu: cortex-m0plus\ninstruction-set: thumb\n"
+                               "float-abi: soft\nlinker-script: link.ld\nfile: vectors.cpp\n"
+                               "platform-provider: mm.iface platform.board.iface\n");
+    std::ofstream(tree.root() / "board/link.ld") << "/* fixture */\n";
+    std::ofstream(tree.root() / "board/vectors.cpp") << "// fixture\n";
+
+    auto settings = settings_with_cross(true, "arm-none-eabi", "arm-none-eabi-g++");
+    settings.configuration_2 = true;
+    mm::configure::PlatformSettings platform;
+    platform.target = "arm-none-eabi";
+    platform.system = mm::configure::PlatformSystem::BareMetal;
+    platform.runtime = mm::configure::PlatformRuntime::Newlib;
+    platform.sdk = "demo-sdk";
+    platform.sdk_manifest = "sdk/mm.mdy";
+    platform.board = "demo-board";
+    platform.board_manifest = "board/mm.mdy";
+    platform.sdk_family = mm::configure::CompilerFamily::Gcc;
+    platform.linker_script = "board/link.ld";
+    platform.board_sources = {"board/vectors.cpp"};
+    platform.compiler_arguments = {"-mcpu=cortex-m0plus", "-mthumb", "-mfloat-abi=soft"};
+    platform.models_responsibilities = true;
+    platform.responsibility_owners[mm::configure::Responsibility::ResetVector] = "demo-board";
+    platform.responsibility_owners[mm::configure::Responsibility::InitialStack] = "demo-board";
+    platform.responsibility_owners[mm::configure::Responsibility::MemoryLayout] = "demo-board";
+    platform.responsibility_owners[mm::configure::Responsibility::RuntimeInit] = "demo-sdk";
+    platform.responsibility_owners[mm::configure::Responsibility::Syscalls] = "demo-sdk";
+    settings.cross_platform = platform;
+    expect(mm::configure::write_configuration(tree.root(), settings),
+           "provider platform configuration written");
+
+    const auto configuration = mm::model::configuration(tree.root(), false);
+    expect(configuration != nullptr && configuration->target_platform() != nullptr,
+           "selected provider platform resolves");
+    if (configuration == nullptr || configuration->target_platform() == nullptr) return;
+
+    const auto providers = configuration->target_platform()->platform_providers();
+    expect(providers.size() == 1 && providers.front().interface_module == "mm.iface" &&
+               providers.front().provider_module == "platform.board.iface" &&
+               providers.front().owner == "demo-board" && providers.front().from_board,
+           "model exposes the effective board override and its owner");
+}
+
 const mm::test::case_ cases[] = {
     { "unconfigured reports the shared default", &unconfigured_reports_the_shared_default },
     { "persisted reports the written lane",      &persisted_reports_the_written_lane },
@@ -320,6 +379,7 @@ const mm::test::case_ cases[] = {
     { "configured platform follows selection",  &configured_platform_follows_lane_selection },
     { "toolchain exposes C compiler",           &toolchain_exposes_c_compiler },
     { "platform exposes link ownership",        &platform_exposes_link_ownership },
+    { "platform exposes effective provider",    &configured_platform_exposes_effective_provider },
 };
 
 const mm::test::registrar reg{"mm.model configuration", cases};

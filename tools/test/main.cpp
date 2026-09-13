@@ -15,6 +15,7 @@
 #include <cstddef>
 #include <filesystem>
 #include <iostream>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -137,8 +138,15 @@ int main(int argc, char** argv) {
 
     const auto buildable = properties.lane(
         target_lane, configuration.target_has_host_capability());
+
+    // The same shared analysis build uses, resolved from the complete project
+    // before this tool builds its own filtered tree below. The two tools differ
+    // in how they select roots; they must not differ in how they resolve
+    // providers.
+    const auto providers = mm::build::platform_providers(project, target_lane, platform, "test");
+
     const auto test_availability = mm::build::availability(
-        project, test_node, buildable[test_node], target_lane, platform);
+        project, test_node, buildable[test_node], target_lane, platform, &providers);
     if (!test_availability.available) {
         std::cerr << "test: " << project.nodes[test_node].manifest.string() << ": "
                   << test_availability.reason << "\n";
@@ -185,6 +193,29 @@ int main(int argc, char** argv) {
     std::vector<std::size_t> order;
     if (!mm::build::order_from(tree, index, order)) return mm::build::exit_manifest;
 
+    // A selected provider is compiled because this test requires its interface,
+    // never as a root of its own.
+    std::vector<bool> ordered(tree.targets.size(), false);
+    for (const auto position : order) ordered[position] = true;
+    for (const auto& interface_module : providers.requirements[test_node]) {
+        const auto* binding = providers.binding(interface_module);
+        if (binding == nullptr) continue;
+        for (std::size_t candidate = 0; candidate < tree.targets.size(); ++candidate) {
+            if (tree.targets[candidate].kind != "module" ||
+                tree.targets[candidate].module_name != binding->provider_module)
+                continue;
+            std::vector<std::size_t> provider_order;
+            if (!mm::build::order_from(tree, candidate, provider_order))
+                return mm::build::exit_manifest;
+            for (const auto position : provider_order) {
+                if (ordered[position]) continue;
+                ordered[position] = true;
+                order.push_back(position);
+            }
+            break;
+        }
+    }
+
     if (!mm::build::clear_module_cache(build_dir)) return mm::build::exit_compile;
 
     std::filesystem::remove_all(build_dir, ec);
@@ -221,10 +252,21 @@ int main(int argc, char** argv) {
 
     if (!mm::build::can_link_executable(platform, "test", name))
         return mm::build::exit_manifest;
-    auto objects = mm::build::closure(tree, index);
+    std::vector<std::string> merged;
+    auto objects = mm::build::augmented_closure(tree, index, providers, &merged);
+    for (const auto& provider : merged)
+        std::cout << "  platform provider " << provider << "\n";
     if (board) objects.insert(objects.end(), board->objects.begin(), board->objects.end());
-    if (const int status = mm::build::link(toolchain, objects, binary); status != 0)
-        return status;
+    if (platform != nullptr &&
+        platform->link_ownership == mm::configure::LinkOwnership::External) {
+        if (const int status = mm::build::external_link(
+                project, *platform, toolchain, name, objects, build_dir, binary, verbose);
+            status != 0)
+            return status;
+    } else {
+        if (const int status = mm::build::link(toolchain, objects, binary); status != 0)
+            return status;
+    }
 
     if (compile_only) return mm::build::exit_ok;
 

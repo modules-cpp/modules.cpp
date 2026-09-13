@@ -1,0 +1,14 @@
+---
+mm: 1.1
+kind: app
+name: mcu-blink
+option: buildable-host no
+use: mm.mcu
+file: main.cpp
+---
+
+# mcu-blink
+
+A portable application. It imports mm.mcu and names no platform, no board, and no
+vendor; the platform it runs on is whichever one the lane links in. It is core,
+because the interface it uses is core and it declares no library.

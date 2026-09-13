@@ -28,6 +28,16 @@ struct ResponsibilityOwner {
     std::string_view owner;
 };
 
+// One interface this platform resolves, after SDK defaults and board overrides
+// have been applied. owner names the SDK or board that supplied the binding,
+// and from_board distinguishes a board's specialisation from its SDK's default.
+struct EffectivePlatformProvider {
+    std::string_view interface_module;
+    std::string_view provider_module;
+    std::string_view owner;
+    bool from_board = false;
+};
+
 class Platform {
 public:
     virtual ~Platform() = default;
@@ -43,6 +53,11 @@ public:
     [[nodiscard]] virtual bool models_responsibilities() const = 0;
     [[nodiscard]] virtual std::vector<ResponsibilityOwner> responsibility_owners() const = 0;
     [[nodiscard]] virtual std::vector<PlatformResponsibility> unresolved() const = 0;
+
+    // The providers this platform supplies, which are selected rather than
+    // authored: they are never use: edges, and never appear in a Module's
+    // imports().
+    [[nodiscard]] virtual std::vector<EffectivePlatformProvider> platform_providers() const = 0;
 };
 
 }  // namespace models

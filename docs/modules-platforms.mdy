@@ -77,6 +77,7 @@ Closing fence
 - specs-profile names a profile the compiler resolves through its own search. specs-file names a file in this repository. They are different things, at most one may appear, and merging them into one key is how a path reaches a parameter that expected a name.
 - sysroot and runtime-prefix are optional, absolute, and name directories outside the project. sysroot is passed to the compiler when its own default is wrong. runtime-prefix is passed to a runner and reaches no compiler invocation.
 - provides names a responsibility this SDK's runtime supplies. Repeatable.
+- platform-provider binds a portable interface module to the provider module this SDK supplies for it. Repeatable, one interface each. See Platform providers below.
 
 file is not valid on an sdk manifest. An SDK declares a runtime; it contributes no sources.
 
@@ -104,6 +105,7 @@ Closing fence
 - linker-script is a path relative to the manifest.
 - file entries are the board's own sources: vector table, reset handler, and any syscall implementation the runtime leaves to the machine. Paths are relative to the manifest, as on a module manifest.
 - provides names a responsibility this board supplies. Repeatable.
+- platform-provider binds an interface the way an SDK does, and overrides its SDK's binding for the same interface. See Platform providers below.
 
 target is not valid on a board manifest. A board's target is its SDK's. Declaring it as well would place a second copy of one value one hop from the first, and the only thing a check between them buys is catching a wrong copy.
 
@@ -223,6 +225,31 @@ configure creates no runner on its own, so --runner is named explicitly on any l
 A lane may be configured with an SDK and no board. That is a complete configuration for a hosted target, and a partial one for a bare-metal target: it compiles modules and fails when an executable is required, naming the unowned responsibilities. The build has no librarian and creates no archives.
 
 A host reconfiguration preserves the target lane's SDK, board, arguments, responsibility state, machine, and runner. This extends the guarantee configure already keeps for the target compiler. Reconfiguring the same target replaces that lane; a target reconfigured without --runner has no runner, because that is a deliberate reconfiguration rather than a preservation.
+
+# Platform providers
+
+A responsibility is something a platform must supply for any executable to link at all. A platform provider is narrower: an implementation of one portable interface, supplied only to the executables that use it.
+
+A kind:module manifest declares platform-interface, a marker with no value, to say that it is a portable interface whose implementation the selected platform supplies. Its module name is the interface identity; the marker names nothing. The interface module compiles, checks, models, and documents with no platform selected. mm.mcu is the one interface in this release.
+
+A selected SDK or board declares which module implements it:
+
+Opening fence
+platform-provider: mm.mcu platform.pico.mcu
+Closing fence
+
+- Both names are module names. Neither is derived from the SDK or board name, and no tool infers one spelling from the other: a board named rp2040-ram may bind platform.rp2040_ram.mcu, because a C++ module name component is an identifier and a board name need not be one. The declaration is the mapping.
+- The interface must name a module carrying the marker. The provider must name a different kind:module target whose use closure reaches that interface. Both are resolved after the whole tree is collected, so folder order is irrelevant, and an unresolved name is a manifest error naming the declaration.
+- Two bindings for one interface in one SDK, or on one board, are a manifest error naming the owner.
+- A selected board's binding overrides its selected SDK's binding for the same interface. That is structural precedence, most specific wins, not declaration or folder order: an SDK supplies a general implementation and one board specialises it, without the SDK having to withdraw its default for each such board.
+- A binding on an unselected SDK or board has no effect on the lane.
+- One provider may be bound by several compatible platforms. It remains one module with one identity; provider names identify implementations, never roles, and the global uniqueness of module names is not relaxed for them.
+
+A provider is never an independent root. It is available only in a target lane whose selected platform binds it, so a root build compiles no implementation for hardware it is not building for, and an unrelated application receives no provider object or static initialiser. It is compiled because a retained executable or test requires its interface, once however many executables require it, and its objects are added to each requiring closure alone.
+
+On a target lane, an executable whose use closure reaches an interface the selected platform does not bind is unavailable, before compilation, with a diagnostic naming the interface, the board, and the SDK. Requirements expand through selected provider closures to a fixed point, so a provider reaching a second unbound interface also makes the executable unavailable independently of manifest order. In a root build it is a skipped target and the rest of the lane still builds; requested explicitly it exits 77. An executable that does not reach the interface has no requirement even where the platform offers one. A host lane binds no target provider and links the interface fallback, which permits host unit tests to register stand-in Platform objects.
+
+Provider injection is a platform edge, not a use: declaration. It never appears in a module's imports, and it does not make a core application non-core: a core application remains core because its own authored graph still cannot name a third-party library or use a non-core module, while the platform supplies whatever the selected platform supplies. That is already true of newlib, glibc, and an external platform library. The exemption is exactly as wide as the binding: the provider must be the module the selected SDK or board names, injected only for the interface that binding names, and depending on that interface.
 
 # Argument placement
 
@@ -457,6 +484,17 @@ Every platform diagnostic names the manifest it came from. A mismatch names both
 - Board objects are produced once per build output tree, so each test target has its own, distinct from an application's.
 - An application or test declaring requires-board is skipped as unavailable by a root build in a lane with a different board or none, is counted among the skipped, reported as unavailable for the target lane, and exits 77 when requested explicitly.
 - A host reconfiguration preserves the target lane's SDK, board, arguments, responsibility state, machine, and runner, and a target build and run still succeed; reconfiguring the same target without --runner leaves no runner.
+- platform-interface with a value, declared twice, or on a kind other than module is rejected; so is platform-provider with one field, with three, or on a kind other than sdk and board.
+- A platform-provider naming an unknown module, a module carrying no platform-interface marker, the interface itself, or a provider whose use closure does not reach its interface is rejected at load, naming the manifest; an unknown interface also lists the interfaces that exist.
+- Two platform-provider declarations for one interface in one SDK, or on one board, are rejected naming the owner.
+- A selected board's binding overrides its selected SDK's binding for the same interface, independently of declaration and folder order, and the interface resolves to exactly one effective provider.
+- Two different platforms may bind one interface to two different provider modules; the duplicate module-name check is not relaxed for them.
+- A target executable whose closure, including selected provider closures, reaches an unbound interface is unavailable before compilation, naming the interface, board, and SDK; it is counted among a root build's skipped targets and exits 77 when requested explicitly, while the rest of the lane still builds. Nested requirements resolve to a fixed point independently of manifest order; a host test may register a stand-in against the linkable interface fallback.
+- An executable that does not reach the interface receives no provider-module object, provider-module symbol, or provider static initialiser. An external bridge may still carry a lane-wide private adapter until its inputs describe required interfaces.
+- An unselected provider module is an unavailable skipped target; a selected one is compiled once however many executables require it, and its objects appear exactly once in each requiring executable's ordered object list.
+- Build and test give project linking and external linking the same augmented object list, and a provider's static initialiser survives the external CMake hand-off.
+- An application that names only a core interface stays core in a lane whose provider is non-core.
+- model exposes the platform-interface marker, each SDK's and board's declared bindings, and the selected platform's effective bindings, without inserting an injected provider into a module's imports.
 - A binary from an earlier release rejects a record carrying mm 2.0.
 - A host-only configuration, and a legacy cross configuration reconfigured for the host, are both written as mm 1.0; configuring a target with an SDK or a board upgrades the record, and it stays upgraded.
 - A configuration-2 record with an unknown key, a missing required platform key, a duplicated scalar, mm 2.0 without its schema, mm 1.0 with a schema key, or cross-platform is rejected; a legacy record keeps its permissive reading and a legacy record carrying cross-platform still loads.

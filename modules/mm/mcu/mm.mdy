@@ -1,8 +1,9 @@
 ---
-mm: 1.0
+mm: 1.2
 kind: module
 name: mcu
 module: mm.mcu
+platform-interface:
 file: status.cppm mm.mcu:status
 file: platform.cppm mm.mcu:platform
 file: gpio.cppm mm.mcu:gpio
@@ -21,6 +22,13 @@ A platform supplies an object rather than functions. A name declared in this
 module's purview is attached to it and cannot be defined from outside, so the seam
 is a Platform subclass the platform's own module registers when it is linked in.
 Whatever C the platform needs lives on its side of that seam.
+
+platform-interface is the marker that makes the selected platform's provider part
+of an executable's link closure, and only of the executables whose closure reaches
+this module. The marker takes no value: module: above already names the interface,
+and a second spelling of one name is a mismatch waiting to be diagnosed. Compiling,
+checking, modelling, and documenting this module need no platform at all; a
+provider becomes a requirement when an executable that reaches it is linked.
 
 Partitions are listed before the primary interface because source order is
 declared, and the primary re-exports them.

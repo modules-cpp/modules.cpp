@@ -127,6 +127,8 @@ Opening fence
 1.2  link-input          library
 1.2  library             sdk module
 1.2  external-build      library
+1.2  platform-interface  module
+1.2  platform-provider   sdk board
 Closing fence
 
 Three placements are worth stating because their absence is load-bearing rather
@@ -141,6 +143,11 @@ than accidental.
   inherited value are different things.
 - library is valid on sdk and module and on no other kind. On an SDK it names the
   platform implementation; on a module it makes that module a wrapper.
+- platform-interface is valid on module and platform-provider on sdk and board,
+  and neither is valid on the other's kinds. The pair is one relationship read
+  from two ends: a module declares that it is a portable interface, and a
+  platform declares which module implements it. Neither key is valid on app or
+  test, which is what keeps an application from naming its own provider.
 
 # Rule order
 
@@ -177,6 +184,17 @@ Within one key, the introducing version is checked before the kinds, so a 1.0
 manifest declaring target on a module reports the version requirement rather than
 the placement. That is deliberate: raising the version is what makes the key legal
 to write at all.
+
+# Two value grammars this gate does not check
+
+platform-interface is a marker: it occurs at most once and its value must be
+empty. The module key on the same manifest already names the interface, so a
+second spelling would only create a mismatch to diagnose. platform-provider is
+repeated, and each value is exactly two module names separated by whitespace: the
+interface, then its provider. A third field is rejected. Both grammars are the
+owning specification's rules rather than this gate's, and are reported by the
+code that reads them; they are stated here because the keys are otherwise
+indistinguishable from the free-form ones above.
 
 # Names
 
@@ -253,6 +271,12 @@ Every schema failure is a manifest fault and exits 65.
   ".." are each rejected.
 - Two SDKs, two boards, or two libraries sharing a name are rejected naming both
   manifests; a library and a module may share one.
+- platform-interface with a value, declared twice, or on any kind but module is
+  rejected; so is platform-provider on any kind but sdk and board. In a 1.0 or
+  1.1 manifest both are rejected as requiring 1.2 rather than accepted with an
+  older meaning.
+- A platform-provider value with one field or with three is rejected naming the
+  declaration.
 - Every manifest-reading tool applies these rules identically, including the
   standalone test-manifest load, and none requires a generated configuration
   record to do so.

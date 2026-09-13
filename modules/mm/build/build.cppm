@@ -174,7 +174,16 @@ struct BuildableNode {
     std::vector<std::string> uses;               // module names
     std::string requires_board;                  // kind:app or kind:test only
     std::string library;                         // kind:module only
+    bool platform_interface = false;             // kind:module only
     std::vector<std::filesystem::path> objects;  // filled in by compile
+};
+
+// One platform-provider declaration: a portable interface module, and the
+// provider module a selected SDK or board binds it to. Both names are module
+// names; neither is derived from the SDK or board name.
+struct PlatformProviderBinding {
+    std::string interface_module;
+    std::string provider_module;
 };
 
 struct SdkDefinition {
@@ -190,6 +199,7 @@ struct SdkDefinition {
     std::optional<std::filesystem::path> runtime_prefix;
     std::vector<mm::configure::Responsibility> provides;
     std::string library;
+    std::vector<PlatformProviderBinding> providers;
 };
 
 enum class LibraryPathBase { Source, BuildPrefix };
@@ -230,6 +240,7 @@ struct BoardDefinition {
     std::vector<std::filesystem::path> sources;
     std::vector<mm::configure::Responsibility> provides;
     std::vector<std::string> compiler_arguments;
+    std::vector<PlatformProviderBinding> providers;
 };
 
 struct Tree {
@@ -301,9 +312,66 @@ struct Availability {
     std::string reason;
 };
 
+// The provider one selected platform binds an interface to, and the definition
+// that supplied it. from_board distinguishes a board's specialisation from its
+// SDK's default, which the board overrides.
+struct EffectiveProvider {
+    std::string interface_module;
+    std::string provider_module;
+    std::string owner;
+    bool from_board = false;
+};
+
+// The shared post-load, pre-filter provider analysis.
+//
+// It is computed from the complete Project::targets collection and its globally
+// resolved use: names, before either lane tool constructs its filtered tree.
+// That ordering is the point: the interface requirement that decides whether a
+// node survives filtering cannot be discovered from an already filtered tree.
+// build and test consume this one result rather than approximating it twice.
+struct PlatformProviders {
+    bool ok = true;
+
+    // Every module carrying the platform-interface marker, in walk order.
+    std::vector<std::string> interfaces;
+
+    // Named as the provider of some declaration, whether or not selected.
+    std::vector<std::string> declared;
+
+    // The effective binding per interface after SDK and board selection.
+    std::vector<EffectiveProvider> effective;
+
+    // Interfaces reached by each node's authored use: closure, parallel to
+    // Project::nodes and empty for a node that requires none. Authored edges
+    // only: an injected provider is never inserted here.
+    std::vector<std::vector<std::string>> requirements;
+
+    // The platform this analysis was resolved against, named so a diagnostic
+    // can say which SDK and board failed to supply a binding.
+    std::string selected_sdk;
+    std::string selected_board;
+
+    [[nodiscard]] const EffectiveProvider* binding(std::string_view interface_module) const;
+    [[nodiscard]] bool declares_provider(std::string_view module_name) const;
+    [[nodiscard]] bool selects_provider(std::string_view module_name) const;
+
+    // Why an executable at this node cannot be linked in the analysed lane, or
+    // empty when every interface it reaches resolves.
+    [[nodiscard]] std::string unmet_requirement(std::size_t node) const;
+};
+
+// Resolves the analysis above for one lane. A host lane binds nothing and uses
+// an interface's linkable fallback, which lets unit tests register stand-ins.
+// A target lane with no effective binding leaves every reached interface
+// requirement unmet, so the executable is unavailable before compilation.
+[[nodiscard]] PlatformProviders platform_providers(const Project& project, bool target_lane,
+                                                   const Platform* platform,
+                                                   std::string_view tool = "build");
+
 [[nodiscard]] Availability availability(const Project& project, std::size_t node,
                                         bool capability, bool target_lane,
-                                        const Platform* platform);
+                                        const Platform* platform,
+                                        const PlatformProviders* providers = nullptr);
 
 [[nodiscard]] bool can_link_executable(const Platform* platform, std::string_view tool,
                                        std::string_view name);
@@ -413,6 +481,14 @@ bool order_from(const Tree& tree, std::size_t index, std::vector<std::size_t>& o
 
 // Objects of a target plus every module reachable through use:, target first.
 std::vector<std::filesystem::path> closure(const Tree& tree, std::size_t index);
+
+// The same, extended with the closure of every selected provider the target's
+// own closure requires. Objects are never repeated: a provider required by two
+// applications is compiled once and appears once in each link. extra names the
+// provider modules that were merged in, for diagnostics.
+std::vector<std::filesystem::path> augmented_closure(const Tree& tree, std::size_t index,
+                                                     const PlatformProviders& providers,
+                                                     std::vector<std::string>* merged = nullptr);
 
 // Quotes a path for /bin/sh. Uses single quotes: $(), backticks and $NAME all
 // still expand inside double quotes, so a path is not safe merely for being

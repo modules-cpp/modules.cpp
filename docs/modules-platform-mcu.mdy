@@ -1,0 +1,484 @@
+---
+mm: 1.0
+kind: doc
+name: modules.cpp platform MCU provider specification
+status: official
+release: v1.2.0
+---
+
+# modules.cpp platform MCU provider specification
+
+# Status and authority
+
+This document specifies the implemented pure C++ platform-provider mechanism
+for mm.mcu in release v1.2.0. status: official gives it the same authority as
+the other implemented specifications in docs.
+
+docs/modules-mm.mdy remains authoritative for the implemented manifest schema.
+docs/modules-platforms.mdy remains authoritative for SDK and board selection,
+responsibilities, and link ownership. docs/modules-build.mdy remains
+authoritative for the implemented dependency closure and link pipeline.
+docs/modules-c++20.mdy remains authoritative for permitted project code.
+
+# Decision
+
+platform-interface and platform-provider belong to source-manifest version mm:
+1.2 and are part of release v1.2.0. An older binary rejects manifests using
+them rather than assigning them an older meaning.
+
+The portable interface remains the globally unique core module mm.mcu. Each
+platform implementation is a different, globally unique provider module. A
+selected SDK or board binds the interface to one provider. The build injects
+that provider into an executable only when the executable's ordinary dependency
+closure reaches mm.mcu.
+
+An application declares only:
+
+Opening fence
+use: mm.mcu
+Closing fence
+
+It never names a board, SDK, vendor library, or provider module. Platform
+selection supplies the provider exactly as it already supplies startup code,
+runtime support, and link ownership.
+
+The mechanism does not relax global module-name uniqueness. It does not make a
+board source part of the module dependency graph. It does not expose a generic
+mm_mcu C ABI as the portable interface.
+
+# Required invariants
+
+- mm.mcu has one meaning in the whole repository.
+- Every provider module has a globally unique module name.
+- One selected platform resolves an interface to exactly one effective
+  provider, with a selected board overriding its selected SDK's default.
+- An application neither names nor imports its provider.
+- A provider is linked only when the executable closure requires its interface.
+- An executable that does not use mm.mcu receives no mm.mcu provider object.
+- A missing, duplicate, or unavailable provider is diagnosed before linking.
+- Project and external CMake link paths receive the same augmented object list.
+- The model exposes the binding without collapsing duplicate module names.
+- Core applications remain core because the provider is supplied by the
+  selected platform, not declared by the application.
+
+# Why duplicate provider names are rejected
+
+Several platforms must not export interchangeable modules all named lib.mcu.
+The project loader rejects duplicate module names before lane filtering. That
+invariant prevents index_of_module from selecting whichever declaration happens
+to appear first in manifest walk order.
+
+Weakening the check would make correctness depend on every availability rule
+leaving exactly one declaration alive. If two survived, build and test could
+silently select different implementations after an innocent folder reorder.
+Model and document also load the unfiltered project and could expose an
+arbitrary provider. A platform role therefore does not redefine module
+identity.
+
+Provider names identify implementations rather than roles. Examples are:
+
+- platform.rp2040_ram.mcu
+- platform.pico.mcu
+- platform.mps2_an385.mcu
+
+These names are explicit module identifiers, not values derived mechanically
+from platform names. C++ module components are identifiers, so a platform name
+containing a hyphen commonly uses an underscore in its provider module name:
+rp2040-ram may bind platform.rp2040_ram.mcu. The platform-provider declaration
+is the authoritative mapping; no tool infers it from either spelling.
+
+One provider may be bound by several compatible boards or SDKs. Two different
+providers may implement the same interface because their module names remain
+different.
+
+# Why board-source dependencies are insufficient
+
+Board file entries are compiled as one synthetic board unit and their objects
+are appended to every executable in the lane. They have no use declarations and
+do not participate in order or closure traversal.
+
+Allowing board sources to import modules would be a useful independent feature,
+but it would not provide conditional implementation selection. A board source
+that registers a Platform subclass refers to mm.mcu. Appending that object to an
+executable whose closure does not contain mm.mcu creates undefined references.
+Appending mm.mcu and the provider to every executable instead makes unused
+applications pay for the interface.
+
+The observed module-attached vtable and set_platform link failures demonstrate
+that mismatch. They do not establish that a module-attached polymorphic class is
+unusable. When an application reaches mm.mcu and the build also injects the
+selected provider closure, both sides of those references are present.
+
+# Manifest declarations
+
+Two mm: 1.2 declarations express the relationship. docs/modules-mm.mdy lists
+them in the closed key table and the shared manifest gate enforces their version
+and kind placement in every manifest-reading tool.
+
+## platform-interface
+
+platform-interface is an optional marker valid only on kind: module. It occurs
+at most once and must have no value. Its presence marks the manifest's module as
+a portable interface that requires a selected platform provider at executable
+link time. The module declaration already supplies the interface identity, so
+the marker does not repeat that name or create a mismatch case.
+
+The mm.mcu manifest declares:
+
+Opening fence
+mm: 1.2
+kind: module
+name: mcu
+module: mm.mcu
+platform-interface:
+file: status.cppm mm.mcu:status
+file: platform.cppm mm.mcu:platform
+file: gpio.cppm mm.mcu:gpio
+file: uart.cppm mm.mcu:uart
+file: timer.cppm mm.mcu:timer
+file: mcu.cppm mm.mcu
+file: src/platform.cpp
+Closing fence
+
+The declaration does not make the module itself unavailable. mm.mcu can be
+compiled, checked, modelled, and documented without selecting a platform. The
+provider becomes a requirement only when linking an executable whose closure
+contains the interface.
+
+## platform-provider
+
+platform-provider is repeated and valid on kind: sdk and kind: board. Each value
+contains an interface module name followed by one provider module name:
+
+Opening fence
+platform-provider: mm.mcu platform.rp2040_ram.mcu
+Closing fence
+
+Both names are required. Extra fields are rejected. The interface must resolve
+to a module carrying the platform-interface marker. The provider must resolve
+to a different kind: module target, and its use closure must reach the interface
+module.
+
+All declarations are resolved after the complete manifest tree is collected,
+so folder order is irrelevant. Referencing an unknown interface or provider is a
+manifest error naming the declaration and available candidates.
+
+# Provider ownership and selection
+
+The effective platform is the selected SDK plus its optional selected board.
+For each required interface, the selected board binding is more specific than
+the selected SDK binding.
+
+- A board owns a provider implemented by project-linked board support.
+- An SDK owns a default provider supplied by its runtime or external platform
+  library.
+- A selected board binding for an interface overrides the selected SDK's
+  binding for that same interface.
+- More than one binding for the same interface in one SDK or one board is a
+  manifest error.
+- A binding on an unselected SDK or board has no effect on the lane.
+- A provider named by several compatible platform definitions remains one
+  module with one identity.
+
+Board override is deterministic structural precedence, not declaration order.
+It supports the ordinary platform pattern in which an SDK supplies a general
+implementation while one board specializes pin multiplexing, UART selection,
+clocking, or another facility. Requiring the SDK to withdraw its default for
+each specialized board would move board knowledge into the SDK declaration.
+Unlike first-match or walk-order selection, most-specific-wins cannot silently
+change after a folder reorder.
+
+The current platforms declare:
+
+Opening fence
+# platforms/pico/rp2040-ram/mm.mdy
+platform-provider: mm.mcu platform.rp2040_ram.mcu
+
+# platforms/pico/sdk/pico-arm/mm.mdy
+platform-provider: mm.mcu platform.pico.mcu
+
+# platforms/pico/sdk/pico-riscv/mm.mdy
+platform-provider: mm.mcu platform.pico.mcu
+Closing fence
+
+rp2350-ram and mps2-an385 declare no binding until they have real, tested
+implementations. A portable application requiring mm.mcu is unavailable in
+those lanes rather than failing late with undefined symbols.
+
+# Provider modules
+
+A provider is an ordinary kind: module with a globally unique name and a use
+edge to its interface. Appearing as the right-hand side of any platform-provider
+declaration classifies it as a provider target.
+
+A provider target is not an independent root. It is available only when the
+selected platform binds its interface to that provider, and it enters an
+executable closure only through provider injection. This prevents a root build
+from compiling every platform implementation and prevents an unrelated
+application from receiving provider static initializers.
+
+The direct-register RP2040 provider has this shape:
+
+Opening fence
+mm: 1.1
+kind: module
+name: rp2040-ram-mcu
+module: platform.rp2040_ram.mcu
+use: mm.mcu
+file: mcu.cppm
+option: buildable-host no
+Closing fence
+
+It imports mm.mcu, derives from mm::mcu::Platform, implements the facilities the
+board supports, and registers one object during static initialization. It uses
+the RP2040 register map directly and names no third-party library.
+
+The Pico SDK provider has this shape:
+
+Opening fence
+mm: 1.1
+kind: module
+name: pico-mcu
+module: platform.pico.mcu
+use: mm.mcu
+file: mcu.cppm
+option: buildable-host no
+Closing fence
+
+It is project-owned platform code, not the public wrapper for a vendored
+library. It therefore does not use the lib. module-name prefix and does not
+declare library: pico-sdk. Its availability comes from the selected SDK's
+platform-provider binding. Beneath its pure C++ interface it may call a private
+project-owned C adapter ABI implemented by the Pico external bridge. That ABI is
+specific to the bridge and is not the portable mm.mcu contract.
+
+# Pure C++ interface
+
+mm.mcu exports enum class types and a Platform base class. Unsupported remains a
+first-class result, so one provider may implement GPIO while inheriting honest
+Unsupported answers for UART and time.
+
+The platform partition owns:
+
+- Platform with virtual facility operations and Unsupported defaults;
+- set_platform taking a Platform reference;
+- platform returning the registered object or an unserved fallback.
+
+The implementation unit owns the fallback object, the current pointer,
+set_platform, and platform. Public facility functions call platform and return
+typed Status values. An application sees no C declarations, integer status
+codes, adapter headers, or vendor types.
+
+The provider owns its subclass and registration object. The provider object is
+linked directly, not extracted from an archive, so its namespace-scope
+registration initializer is retained. The existing m68k external-link fixture
+already proves that project object initializers survive the CMake hand-off.
+
+# Per-executable closure augmentation
+
+Provider requirements are computed before the lane's filtered target tree is
+constructed. A shared post-load analysis operates on the complete
+project.targets collection and its globally resolved use names:
+
+1. Validate global module identity and the authored use graph.
+2. Compute each application and test's transitive platform-interface
+   requirements over that unfiltered graph.
+3. Resolve the selected SDK defaults and selected board overrides.
+4. Record the effective provider, or the reason no provider can be selected,
+   for each required interface.
+5. Follow each selected provider's authored closure and add any further
+   platform interfaces it reaches, repeating to a fixed point.
+6. Derive node availability and provider compilation requirements from that
+   complete record.
+7. Only then construct the filtered build or test tree.
+
+This ordering avoids asking an already filtered tree to discover the dependency
+that determines whether a node survives filtering. Build and test use this same
+analysis result even though their current root-selection filters differ. The
+provider mechanism must not be implemented as separate approximations in
+tools/build and tools/test.
+
+The build computes one augmented closure for each executable or test.
+
+1. Compute the ordinary use closure from the requested application or test.
+2. Collect every module in that closure declaring platform-interface.
+3. Resolve each interface through the selected SDK and board bindings.
+4. Validate that the selected provider is available in the lane.
+5. Compute the provider's ordinary dependency closure.
+6. Repeat from step 2 for interfaces reached only through that provider, until
+   no new provider is found.
+7. Merge the application and provider closures without repeating targets or
+   object paths, preserving the existing authored-closure object order.
+8. Append the selected board unit as today.
+9. Hand the same final ordered object list to project link or external_link.
+
+Provider closure traversal uses the existing cycle and unknown-module
+diagnostics. Fixed-point expansion is independent of manifest order: an
+interface reached from a provider is resolved even when its target appeared
+earlier in the walk. A provider whose closure does not reach its declared
+interface is rejected during project validation rather than linked as an
+unrelated object.
+
+Compilation planning must include the selected providers required by any
+retained executable. Non-selected providers remain unavailable skipped targets.
+A provider is compiled once even when several applications require it, while
+its object is added only to each requiring application's link closure.
+
+# Availability behavior
+
+Platform-interface requirements apply at target executable selection, not when
+merely loading or compiling the interface module. A host lane binds no target
+platform provider and links the interface fallback, allowing a host unit test
+to register a stand-in Platform. Applications such as mcu-blink that have no
+useful host behavior remain explicitly buildable-host no.
+
+For a target root build, an application whose closure requires an interface
+with no selected provider is unavailable and is counted among skipped targets.
+Other applications in the lane continue to build. An explicitly requested
+target application or test exits with the existing unavailable-target status
+and a diagnostic such as:
+
+build: app mcu-blink requires platform interface mm.mcu, but board rp2350-ram and SDK arm-none-eabi-newlib provide no binding
+
+A repeated binding within one SDK or board is a manifest error. A binding on
+both the selected SDK and selected board is not ambiguous: the board binding is
+the effective one and the SDK binding remains its default.
+
+An application not reaching mm.mcu has no provider requirement even when the
+selected platform offers one. target-smoke-any therefore receives no MCU
+provider object.
+
+# Core boundary
+
+Core describes the dependencies authored by project code; it is not a promise
+that every object in the final platform executable is core. A core executable
+may contain non-core runtime or provider objects supplied by its selected
+platform. This is already true when a selected SDK supplies newlib, glibc, or an
+external platform library without the application declaring that dependency.
+
+Provider injection is likewise a platform edge, not a use declaration authored
+by the application. A core application remains core because its authored graph
+still cannot declare a third-party library or use an arbitrary non-core module.
+For example, platform.pico.mcu may be non-core because it delegates to the Pico
+SDK adapter while the portable application importing only core mm.mcu remains
+core.
+
+The exemption is narrow:
+
+- the provider must be the exact module named by the selected SDK or board;
+- it is injected only for the exact interface named by that binding;
+- the provider must depend on that interface;
+- it creates no general permission for a core node to use non-core modules;
+- a module declaring library remains a lib. wrapper and follows the existing
+  core prohibition.
+
+Structural-property validation must evaluate the selected platform edge with
+this explicit rule rather than suppressing core checks generally.
+
+# Model
+
+The abstract model exposes the mechanism without selecting arbitrary duplicate
+modules.
+
+- ModuleNode exposes whether it carries the platform-interface marker; its
+  existing module identity is the interface identity.
+- SdkNode and BoardNode expose their platform-provider bindings.
+- Platform exposes the effective bindings after SDK and board selection.
+- A workflow or artifact query may ask for an application's augmented provider
+  closure separately from its authored use closure.
+
+Authored imports remain authored facts. Provider injection is reported as a
+platform binding, not inserted into ModuleNode::uses, so model clients can tell
+what the application declared from what the lane supplied.
+
+# External CMake bridge
+
+External linking receives the augmented project object list unchanged from both
+build and test. The Pico provider object therefore reaches CMake only for
+applications and target tests using mm.mcu. Its static initializer is preserved
+by the existing EXTERNAL_OBJECT hand-off and direct object ordering.
+
+The bridge continues to compile the private adapter that translates
+project-owned C calls into Pico SDK calls. That adapter may remain lane-wide in
+the first implementation. A later optimization may pass the required platform
+interface set through mm-inputs.cmake and let the bridge omit facility adapters
+for executables that do not need them. This optimization is not required for
+correct provider selection.
+
+No generic external-builder code names mm.mcu, a provider module, or a Pico
+adapter. It transports the final object list and generic bridge inputs only.
+
+# Implemented transition
+
+mm.mcu exports its Platform base class, fallback object, set_platform, and typed
+facility dispatch. platform.rp2040_ram.mcu implements GPIO directly against the
+RP2040 register map. platform.pico.mcu implements the same C++ interface and
+delegates beneath it to the bridge-private Pico adapter ABI. The core interface
+contains no C ABI header, and the former lib.mcu identity no longer exists.
+
+mcu-blink imports only mm.mcu. Provider binding makes it available on
+rp2040-ram and the Pico SDK lanes, and unavailable on target lanes with no
+binding. Unrelated executables retain their ordinary closure.
+
+# Conformance
+
+- The complete project loads with globally unique module names.
+- Two different platforms may bind mm.mcu to two different provider modules.
+- Two bindings for mm.mcu in one SDK or one board fail before compilation and
+  name their owner.
+- A selected board binding for mm.mcu overrides a selected SDK default
+  independently of manifest declaration and folder order.
+- An unknown interface or provider fails at load and names its manifest.
+- A provider whose use closure does not reach its interface is rejected.
+- An interface reached only through a selected provider is resolved to a fixed
+  point; a missing nested provider makes the target unavailable before
+  compilation, independently of manifest order.
+- mcu-blink names only mm.mcu and remains core.
+- mcu-blink links on rp2040-ram through platform.rp2040_ram.mcu.
+- With the corresponding external tools installed, mcu-blink links on Pico ARM
+  and Pico RISC-V through platform.pico.mcu and the real external CMake bridge.
+- An explicit mcu-blink build on rp2350-ram or mps2-an385 reports the missing
+  provider before compilation or linking.
+- A root build on either unsupported board skips mcu-blink and still builds
+  target-smoke-any successfully.
+- target-smoke-any contains no provider-module registration object or
+  provider-module symbols. A lane-wide external adapter is not mistaken for the
+  conditionally injected provider module.
+- The mm.mcu implementation object and selected provider appear exactly once in
+  a requiring executable's ordered object list.
+- Provider static initialization executes in the hosted external-link fixture.
+- Project linking and external linking consume identical augmented closure
+  semantics.
+- The target-mcu-provider compile test receives the direct provider under
+  rp2040-ram and delegates through the real external bridge under Pico SDK.
+- Model output distinguishes authored use edges from selected provider bindings.
+- Host build, all unit suites, check, model, and document pass in a configured
+  development environment with the repository's documented host prerequisites.
+- Release qualification additionally passes ARM and RISC-V Pico SDK integration
+  when the required cross toolchains, Pico SDK checkout, and picotool package
+  are available.
+
+# Qualification environments
+
+Unit fixtures for marker grammar, reference resolution, precedence,
+availability, closure augmentation, and core validation are mandatory and do
+not depend on Pico tools or hardware.
+
+Real Pico ARM and Pico RISC-V links are environment-gated release qualification,
+not reasons to weaken those fixtures or to report an implementation failure on
+a machine lacking the tools. In this repository workspace the qualification is
+currently exercisable: the Pico SDK bundle supplies its picotool package and
+the riscv32-pico-elf tools through its bin directory. Other environments must
+record a skipped qualification with the missing prerequisite named.
+
+# What this does not settle
+
+- It does not make arbitrary board sources import project modules.
+- It does not permit duplicate module names per lane.
+- It does not choose individual UART instances, GPIO pin ownership, or clocks.
+- It does not promise that every provider supports every mm.mcu facility;
+  Unsupported remains part of the interface.
+- It does not require a dynamically replaceable provider after program startup.
+- It does not yet remove private C linkage at a vendor SDK boundary where the
+  SDK itself is C. The portable application and provider contract remain pure
+  C++ even when a provider delegates to such an adapter.

@@ -242,12 +242,32 @@ private:
     std::vector<std::filesystem::path> files_;
 };
 
+// platform-provider values are exposed as string_views, so the strings they
+// point into live here for the node's lifetime rather than in a temporary.
+class ProviderData {
+public:
+    explicit ProviderData(const std::vector<mm::build::PlatformProviderBinding>& declared)
+        : declared_(declared) {}
+
+    [[nodiscard]] std::vector<models::PlatformProviderBinding> bindings() const {
+        std::vector<models::PlatformProviderBinding> result;
+        result.reserve(declared_.size());
+        for (const auto& binding : declared_)
+            result.push_back({binding.interface_module, binding.provider_module});
+        return result;
+    }
+
+private:
+    std::vector<mm::build::PlatformProviderBinding> declared_;
+};
+
 class RealSdkNode : public models::SdkNode {
 public:
     RealSdkNode(NodeData data, const mm::build::SdkDefinition& sdk)
         : data_(std::move(data)), target_(sdk.target),
           family_(sdk.family == mm::build::CompilerFamily::Gcc ? "gcc" : "clang"),
-          runtime_(mm::configure::platform_runtime_name(sdk.runtime)), library_(sdk.library) {}
+          runtime_(mm::configure::platform_runtime_name(sdk.runtime)), library_(sdk.library),
+          providers_(sdk.providers) {}
 
     [[nodiscard]] std::string_view name() const override { return data_.name(); }
     [[nodiscard]] std::filesystem::path manifest_path() const override { return data_.manifest_path(); }
@@ -259,6 +279,10 @@ public:
     [[nodiscard]] std::string_view compiler_family() const override { return family_; }
     [[nodiscard]] std::string_view runtime() const override { return runtime_; }
     [[nodiscard]] std::string_view library() const override { return library_; }
+    [[nodiscard]] std::vector<models::PlatformProviderBinding> platform_providers()
+        const override {
+        return providers_.bindings();
+    }
 
 private:
     NodeData data_;
@@ -266,13 +290,15 @@ private:
     std::string family_;
     std::string runtime_;
     std::string library_;
+    ProviderData providers_;
 };
 
 class RealBoardNode : public models::BoardNode {
 public:
     RealBoardNode(NodeData data, const mm::build::BoardDefinition& board)
         : data_(std::move(data)), sdk_(board.sdk), cpu_(board.cpu), machine_(board.machine),
-          linker_script_(board.linker_script), sources_(board.sources) {}
+          linker_script_(board.linker_script), sources_(board.sources),
+          providers_(board.providers) {}
 
     [[nodiscard]] std::string_view name() const override { return data_.name(); }
     [[nodiscard]] std::filesystem::path manifest_path() const override { return data_.manifest_path(); }
@@ -285,6 +311,10 @@ public:
     [[nodiscard]] std::string_view machine() const override { return machine_; }
     [[nodiscard]] std::filesystem::path linker_script() const override { return linker_script_; }
     [[nodiscard]] std::vector<std::filesystem::path> sources() const override { return sources_; }
+    [[nodiscard]] std::vector<models::PlatformProviderBinding> platform_providers()
+        const override {
+        return providers_.bindings();
+    }
 
 private:
     NodeData data_;
@@ -293,6 +323,7 @@ private:
     std::string machine_;
     std::filesystem::path linker_script_;
     std::vector<std::filesystem::path> sources_;
+    ProviderData providers_;
 };
 
 class RealLibraryNode : public models::LibraryNode {
@@ -352,7 +383,8 @@ public:
     RealModuleNode(NodeData data, const mm::build::BuildableNode& target, bool buildable_host,
         bool buildable_target)
         : data_(std::move(data)), buildable_(target, buildable_host, buildable_target),
-          exported_module_name_(target.module_name), library_(target.library) {}
+          exported_module_name_(target.module_name), library_(target.library),
+          platform_interface_(target.platform_interface) {}
 
     [[nodiscard]] std::string_view name() const override { return data_.name(); }
     [[nodiscard]] std::filesystem::path manifest_path() const override { return data_.manifest_path(); }
@@ -366,12 +398,14 @@ public:
     [[nodiscard]] bool buildable_target() const override { return buildable_.buildable_target(); }
     [[nodiscard]] std::string_view exported_module_name() const override { return exported_module_name_; }
     [[nodiscard]] std::string_view library() const override { return library_; }
+    [[nodiscard]] bool platform_interface() const override { return platform_interface_; }
 
 private:
     NodeData data_;
     BuildableData buildable_;
     std::string exported_module_name_;
     std::string library_;
+    bool platform_interface_ = false;
 };
 
 // The resolved counterpart to a ModuleNode's declaration: imports() holds
@@ -989,13 +1023,16 @@ models::LinkOwnership model_link_ownership(mm::configure::LinkOwnership ownershi
 
 class RealPlatform final : public models::Platform {
 public:
-    explicit RealPlatform(const mm::build::Platform& source)
+    explicit RealPlatform(const mm::build::Platform& source,
+                          std::vector<mm::build::EffectiveProvider> providers = {})
         : target_(source.target), system_(model_system(source.system)),
           runtime_(model_runtime(source.runtime)),
           link_ownership_(model_link_ownership(source.link_ownership)),
           sdk_(source.sdk),
           sdk_manifest_(source.sdk_manifest), board_(source.board),
-          board_manifest_(source.board_manifest), models_responsibilities_(source.models_responsibilities) {
+          board_manifest_(source.board_manifest),
+          models_responsibilities_(source.models_responsibilities),
+          providers_(std::move(providers)) {
         for (const auto& [responsibility, owner] : source.responsibility_owners)
             owners_.push_back({model_responsibility(responsibility), owner});
         for (const auto responsibility : source.unresolved)
@@ -1027,6 +1064,15 @@ public:
     [[nodiscard]] std::vector<models::PlatformResponsibility> unresolved() const override {
         return unresolved_;
     }
+    [[nodiscard]] std::vector<models::EffectivePlatformProvider> platform_providers()
+        const override {
+        std::vector<models::EffectivePlatformProvider> result;
+        result.reserve(providers_.size());
+        for (const auto& provider : providers_)
+            result.push_back({provider.interface_module, provider.provider_module, provider.owner,
+                              provider.from_board});
+        return result;
+    }
 
 private:
     std::string target_;
@@ -1040,12 +1086,14 @@ private:
     bool models_responsibilities_ = false;
     std::vector<models::ResponsibilityOwner> owners_;
     std::vector<models::PlatformResponsibility> unresolved_;
+    std::vector<mm::build::EffectiveProvider> providers_;
 };
 
 class RealConfiguration final : public models::Configuration {
 public:
     RealConfiguration(std::string name, bool persisted,
-                      const mm::build::BuildConfiguration& configuration)
+                      const mm::build::BuildConfiguration& configuration,
+                      std::vector<mm::build::EffectiveProvider> target_providers)
         : host_toolchain_(configuration.host_toolchain()),
           configured_target_toolchain_(configuration.cross_toolchain()
                                            ? std::make_unique<RealToolchain>(
@@ -1054,7 +1102,8 @@ public:
           host_platform_(configuration.host_platform()),
           configured_target_platform_(configuration.configured_target_platform()
                                           ? std::make_unique<RealPlatform>(
-                                                *configuration.configured_target_platform())
+                                                *configuration.configured_target_platform(),
+                                                std::move(target_providers))
                                           : nullptr),
           name_(std::move(name)),
           persisted_(persisted),
@@ -1354,7 +1403,23 @@ std::unique_ptr<models::Configuration> configuration(const std::filesystem::path
         if (entry != document.metadata.end() && !entry->second.empty()) name = entry->second.front();
     }
     if (name.empty()) name = "default";
-    return std::make_unique<RealConfiguration>(std::move(name), persisted, resolved);
+
+    // The record names the SDK and board; which providers they bind is a fact
+    // about the manifest tree, so the project is loaded to resolve them. A tree
+    // that does not load leaves the bindings empty rather than failing the
+    // configuration report, which is about the record.
+    std::vector<mm::build::EffectiveProvider> target_providers;
+    if (resolved.configured_target_platform() != nullptr) {
+        const auto project = mm::build::load_project(".", {.tool = "model"});
+        if (project.ok) {
+            target_providers = mm::build::platform_providers(
+                                   project, true, resolved.configured_target_platform(), "model")
+                                   .effective;
+        }
+    }
+
+    return std::make_unique<RealConfiguration>(std::move(name), persisted, resolved,
+                                               std::move(target_providers));
 }
 
 std::vector<const models::Operation*> recommended_sequence(

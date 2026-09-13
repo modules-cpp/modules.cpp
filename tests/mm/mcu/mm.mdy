@@ -12,7 +12,8 @@ unit: tests/main.cpp
 # mm.mcu test target
 
 Exercises every entry point of the portable hardware interface against a
-stand-in platform. platform.cpp is that platform: an ordinary translation unit
-defining the extern "C" ABI, which is the same mechanism a board's sources or a
-vendor adapter uses. It is listed first because the interface it satisfies is
-declared, not imported.
+stand-in platform. platform.cpp registers a Platform subclass during static
+initialisation, the same pure C++ seam a selected provider module uses. A host
+test needs no platform-provider binding: mm.mcu's fallback is linkable there and
+the stand-in replaces it before the cases run. The unit is listed first only to
+keep the test's implementation before its cases in declared source order.

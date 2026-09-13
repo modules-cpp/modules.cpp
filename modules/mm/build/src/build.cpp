@@ -147,6 +147,8 @@ const std::vector<ManifestKeyRule> manifest_key_rules = {
     {"link-input", 12, "library"},
     {"library", 12, "sdk module"},
     {"external-build", 12, "library"},
+    {"platform-interface", 12, "module"},
+    {"platform-provider", 12, "sdk board"},
 };
 
 const ManifestKeyRule* manifest_key_rule(std::string_view key) {
@@ -1122,6 +1124,19 @@ void walk_project(const std::filesystem::path& dir, std::size_t parent, Project&
     target.uses = all(doc, "use");
     target.requires_board = first(doc, "requires-board");
 
+    // A marker, not a value: the module: declaration already names the
+    // interface, so repeating it here would only create a mismatch to
+    // diagnose. kind is already restricted to module by the key table.
+    if (const auto* marker = lookup(doc, "platform-interface"); marker != nullptr) {
+        if (marker->size() != 1 || !marker->front().empty()) {
+            std::cerr << state.policy.tool << ": " << manifest.string()
+                      << ": platform-interface is a marker and takes no value\n";
+            project.ok = false;
+            return;
+        }
+        target.platform_interface = true;
+    }
+
     const auto push_source = [&](std::string_view value, bool join_with_dir) {
         auto unit = parse_unit(value);
         const std::filesystem::path raw = unit.path;
@@ -1232,6 +1247,36 @@ bool definition_responsibilities(const mm::mdy::MDYDocument& doc,
             return false;
         }
         result.push_back(*responsibility);
+    }
+    return true;
+}
+
+// Grammar and per-owner uniqueness only. Whether the names resolve is settled
+// once the whole tree is collected, by resolve_platform_providers below.
+bool definition_providers(const mm::mdy::MDYDocument& doc,
+                          const std::filesystem::path& manifest,
+                          std::vector<PlatformProviderBinding>& providers,
+                          std::string_view tool) {
+    for (const auto& value : all(doc, "platform-provider")) {
+        std::istringstream fields(value);
+        PlatformProviderBinding binding;
+        std::string extra;
+        if (!(fields >> binding.interface_module >> binding.provider_module) ||
+            (fields >> extra)) {
+            std::cerr << tool << ": " << manifest.string()
+                      << ": platform-provider takes one interface module and one provider "
+                         "module: "
+                      << value << "\n";
+            return false;
+        }
+        for (const auto& declared : providers) {
+            if (declared.interface_module != binding.interface_module) continue;
+            std::cerr << tool << ": " << manifest.string()
+                      << ": platform-provider declares " << binding.interface_module
+                      << " more than once\n";
+            return false;
+        }
+        providers.push_back(std::move(binding));
     }
     return true;
 }
@@ -1468,7 +1513,8 @@ bool parse_definitions(Project& project, const std::filesystem::path& root,
                 if (pair.first == "sysroot") sdk.sysroot = path;
                 else sdk.runtime_prefix = path;
             }
-            if (!definition_responsibilities(doc, node.manifest, sdk.provides, policy.tool))
+            if (!definition_responsibilities(doc, node.manifest, sdk.provides, policy.tool) ||
+                !definition_providers(doc, node.manifest, sdk.providers, policy.tool))
                 return false;
             const bool hosted = *mm::configure::target_system(sdk.target) ==
                                 mm::configure::PlatformSystem::Linux;
@@ -1541,7 +1587,8 @@ bool parse_definitions(Project& project, const std::filesystem::path& root,
                 if (!definition_path(root, node, source, path, "file", policy.tool)) return false;
                 board.sources.push_back(std::move(path));
             }
-            if (!definition_responsibilities(doc, node.manifest, board.provides, policy.tool))
+            if (!definition_responsibilities(doc, node.manifest, board.provides, policy.tool) ||
+                !definition_providers(doc, node.manifest, board.providers, policy.tool))
                 return false;
             const auto duplicate = board_names.find(board.name);
             if (duplicate != board_names.end()) {
@@ -1748,6 +1795,93 @@ bool parse_definitions(Project& project, const std::filesystem::path& root,
     return true;
 }
 
+
+std::map<std::string, std::size_t, std::less<>> modules_by_module_name(const Project& project) {
+    std::map<std::string, std::size_t, std::less<>> modules;
+    for (std::size_t i = 0; i < project.targets.size(); ++i)
+        if (project.targets[i].kind == "module")
+            modules.emplace(project.targets[i].module_name, i);
+    return modules;
+}
+
+// Walks authored use: edges only. An unresolved name is left to order(), which
+// is where an unknown module is already diagnosed against a built tree.
+bool reaches_module(const Project& project,
+                    const std::map<std::string, std::size_t, std::less<>>& modules,
+                    std::size_t start, std::string_view wanted) {
+    std::vector<std::size_t> pending{start};
+    std::set<std::size_t> seen;
+    while (!pending.empty()) {
+        const auto index = pending.back();
+        pending.pop_back();
+        if (!seen.insert(index).second) continue;
+        for (const auto& used : project.targets[index].uses) {
+            if (used == wanted) return true;
+            const auto entry = modules.find(used);
+            if (entry != modules.end()) pending.push_back(entry->second);
+        }
+    }
+    return false;
+}
+
+// Resolved after the complete manifest tree is collected, so declaration order
+// and folder order are both irrelevant, and after the duplicate module-name
+// check, so one name means one module here.
+bool resolve_platform_providers(const Project& project, const LoadPolicy& policy) {
+    const auto modules = modules_by_module_name(project);
+
+    std::vector<std::string_view> interfaces;
+    for (const auto& target : project.targets)
+        if (target.kind == "module" && target.platform_interface)
+            interfaces.push_back(target.module_name);
+
+    bool ok = true;
+    const auto resolve = [&](const std::filesystem::path& manifest,
+                             const std::vector<PlatformProviderBinding>& providers) {
+        for (const auto& binding : providers) {
+            const auto declared = modules.find(binding.interface_module);
+            if (declared == modules.end() ||
+                !project.targets[declared->second].platform_interface) {
+                std::cerr << policy.tool << ": " << manifest.string()
+                          << ": platform-provider names " << binding.interface_module
+                          << ", which is not a platform interface";
+                if (!interfaces.empty()) {
+                    std::cerr << " (available:";
+                    for (const auto& candidate : interfaces) std::cerr << " " << candidate;
+                    std::cerr << ")";
+                }
+                std::cerr << "\n";
+                ok = false;
+                continue;
+            }
+            const auto provider = modules.find(binding.provider_module);
+            if (provider == modules.end()) {
+                std::cerr << policy.tool << ": " << manifest.string()
+                          << ": platform-provider names unknown provider module: "
+                          << binding.provider_module << "\n";
+                ok = false;
+                continue;
+            }
+            if (provider->second == declared->second) {
+                std::cerr << policy.tool << ": " << manifest.string()
+                          << ": platform-provider binds " << binding.interface_module
+                          << " to itself\n";
+                ok = false;
+                continue;
+            }
+            if (!reaches_module(project, modules, provider->second, binding.interface_module)) {
+                std::cerr << policy.tool << ": " << manifest.string() << ": provider "
+                          << binding.provider_module << " does not use "
+                          << binding.interface_module << "\n";
+                ok = false;
+            }
+        }
+    };
+
+    for (const auto& sdk : project.sdks) resolve(sdk.manifest, sdk.providers);
+    for (const auto& board : project.boards) resolve(board.manifest, board.providers);
+    return ok;
+}
 
 std::size_t index_of_module(const Tree& tree, const std::string& module_name) {
     for (std::size_t i = 0; i < tree.targets.size(); ++i)
@@ -2195,6 +2329,8 @@ Project load_project(const std::filesystem::path& dir, const LoadPolicy& policy)
     for (const auto& target : project.tests) check_dir(target);
     for (const auto& target : project.docs) check_dir(target);
 
+    if (project.ok && !resolve_platform_providers(project, policy)) project.ok = false;
+
     return project;
 }
 
@@ -2414,12 +2550,164 @@ bool library_include_directories(
     return true;
 }
 
+const EffectiveProvider* PlatformProviders::binding(std::string_view interface_module) const {
+    for (const auto& candidate : effective)
+        if (candidate.interface_module == interface_module) return &candidate;
+    return nullptr;
+}
+
+bool PlatformProviders::declares_provider(std::string_view module_name) const {
+    return std::find(declared.begin(), declared.end(), module_name) != declared.end();
+}
+
+bool PlatformProviders::selects_provider(std::string_view module_name) const {
+    for (const auto& candidate : effective)
+        if (candidate.provider_module == module_name) return true;
+    return false;
+}
+
+std::string PlatformProviders::unmet_requirement(std::size_t node) const {
+    if (node >= requirements.size()) return {};
+    for (const auto& interface_module : requirements[node]) {
+        if (binding(interface_module) != nullptr) continue;
+        std::string reason = "requires platform interface " + interface_module + ", but ";
+        if (!selected_board.empty() && !selected_sdk.empty())
+            reason += "board " + selected_board + " and SDK " + selected_sdk +
+                      " provide no binding";
+        else if (!selected_sdk.empty())
+            reason += "SDK " + selected_sdk + " provides no binding";
+        else
+            reason += "no platform is selected";
+        return reason;
+    }
+    return {};
+}
+
+PlatformProviders platform_providers(const Project& project, bool target_lane,
+                                     const Platform* platform, std::string_view) {
+    PlatformProviders providers;
+    providers.requirements.resize(project.nodes.size());
+
+    const auto modules = modules_by_module_name(project);
+    for (const auto& target : project.targets)
+        if (target.kind == "module" && target.platform_interface)
+            providers.interfaces.push_back(target.module_name);
+
+    // Declared, not selected: a provider is never an independent root, so this
+    // set is what keeps an unbound implementation out of a root build even in a
+    // lane that binds nothing.
+    const auto declare = [&](const std::vector<PlatformProviderBinding>& declarations) {
+        for (const auto& binding : declarations)
+            if (!providers.declares_provider(binding.provider_module))
+                providers.declared.push_back(binding.provider_module);
+    };
+    for (const auto& sdk : project.sdks) declare(sdk.providers);
+    for (const auto& board : project.boards) declare(board.providers);
+
+    // Selection. The SDK's defaults are laid down first and the selected
+    // board's bindings overwrite them, which is the whole of board-over-SDK
+    // precedence: structural, and independent of declaration or folder order.
+    const auto bind = [&](const std::string& owner,
+                          const std::vector<PlatformProviderBinding>& declarations,
+                          bool from_board) {
+        for (const auto& binding : declarations) {
+            EffectiveProvider resolved{binding.interface_module, binding.provider_module, owner,
+                                       from_board};
+            bool replaced = false;
+            for (auto& existing : providers.effective) {
+                if (existing.interface_module != binding.interface_module) continue;
+                existing = resolved;
+                replaced = true;
+                break;
+            }
+            if (!replaced) providers.effective.push_back(std::move(resolved));
+        }
+    };
+
+    if (target_lane && platform != nullptr) {
+        if (platform->sdk) {
+            providers.selected_sdk = *platform->sdk;
+            for (const auto& sdk : project.sdks)
+                if (sdk.name == providers.selected_sdk) bind(sdk.name, sdk.providers, false);
+        }
+        if (platform->board) {
+            providers.selected_board = *platform->board;
+            for (const auto& board : project.boards)
+                if (board.name == providers.selected_board)
+                    bind(board.name, board.providers, true);
+        }
+    }
+
+    // Requirements are computed over the complete, unfiltered target
+    // collection. Asking an already filtered tree for them would mean asking it
+    // to discover the dependency that decides whether a node survives
+    // filtering.
+    const auto collect = [&](const BuildableNode& root, std::vector<std::string>& out) {
+        std::vector<std::size_t> pending;
+        std::set<std::size_t> seen;
+        for (const auto& used : root.uses) {
+            const auto entry = modules.find(used);
+            if (entry != modules.end()) pending.push_back(entry->second);
+        }
+        while (!pending.empty()) {
+            const auto index = pending.back();
+            pending.pop_back();
+            if (!seen.insert(index).second) continue;
+            const auto& target = project.targets[index];
+            if (target.platform_interface &&
+                std::find(out.begin(), out.end(), target.module_name) == out.end())
+                out.push_back(target.module_name);
+            for (const auto& used : target.uses) {
+                const auto entry = modules.find(used);
+                if (entry != modules.end()) pending.push_back(entry->second);
+            }
+        }
+    };
+
+    for (std::size_t i = 0; i < project.nodes.size(); ++i) {
+        if (project.target[i] == no_target) continue;
+        const auto& kind = project.nodes[i].kind;
+        if (kind == "test")
+            collect(project.tests[project.target[i]], providers.requirements[i]);
+        else if (kind == "app" || kind == "module")
+            collect(project.targets[project.target[i]], providers.requirements[i]);
+    }
+
+    // A selected provider may itself use another platform interface. Expand
+    // each requirement set to a fixed point so availability catches a missing
+    // nested binding before compilation, and so this answer is independent of
+    // manifest walk order. The provider's required edge back to the interface
+    // it implements is already present and therefore terminates naturally.
+    for (auto& required : providers.requirements) {
+        for (std::size_t next = 0; next < required.size(); ++next) {
+            const std::string interface_module = required[next];
+            const auto* selected = providers.binding(interface_module);
+            if (selected == nullptr) continue;
+            const auto provider = modules.find(selected->provider_module);
+            if (provider == modules.end()) continue;  // rejected during load
+            collect(project.targets[provider->second], required);
+        }
+    }
+
+    return providers;
+}
+
 Availability availability(const Project& project, std::size_t node, bool capability,
-                          bool target_lane, const Platform* platform) {
+                          bool target_lane, const Platform* platform,
+                          const PlatformProviders* providers) {
     if (node >= project.nodes.size()) return {false, "manifest node is not registered"};
     if (!capability) {
         return {false, project.nodes[node].name + " is not buildable-" +
                            (target_lane ? "target" : "host")};
+    }
+    if (providers != nullptr && project.nodes[node].kind == "module" &&
+        project.target[node] != no_target) {
+        const auto& target = project.targets[project.target[node]];
+        if (providers->declares_provider(target.module_name) &&
+            !providers->selects_provider(target.module_name)) {
+            return {false, target.name + " implements platform interface " +
+                               target.module_name + ", which the selected platform does not bind"};
+        }
     }
     if (project.nodes[node].kind == "module" && project.target[node] != no_target) {
         const auto& target = project.targets[project.target[node]];
@@ -2448,6 +2736,9 @@ Availability availability(const Project& project, std::size_t node, bool capabil
             }
         }
     }
+    // The host lane selects no platform at all, and the interface's own
+    // implementation unit answers Unsupported there, so a requirement is only
+    // unmet where a platform is modelled and still binds nothing.
     if (!target_lane || project.target[node] == no_target) return {true, {}};
 
     const BuildableNode* buildable = nullptr;
@@ -2455,7 +2746,15 @@ Availability availability(const Project& project, std::size_t node, bool capabil
         buildable = &project.tests[project.target[node]];
     else if (project.nodes[node].kind == "app" || project.nodes[node].kind == "module")
         buildable = &project.targets[project.target[node]];
-    if (buildable == nullptr || buildable->requires_board.empty()) return {true, {}};
+    if (buildable == nullptr) return {true, {}};
+
+    if (providers != nullptr &&
+        (project.nodes[node].kind == "app" || project.nodes[node].kind == "test")) {
+        const auto unmet = providers->unmet_requirement(node);
+        if (!unmet.empty()) return {false, buildable->name + " " + unmet};
+    }
+
+    if (buildable->requires_board.empty()) return {true, {}};
 
     const std::string selected = platform != nullptr && platform->board
                                      ? *platform->board
@@ -2640,6 +2939,35 @@ std::vector<std::filesystem::path> closure(const Tree& tree, std::size_t index) 
     std::vector<bool> seen(tree.targets.size(), false);
     std::vector<std::filesystem::path> objects;
     closure_visit(index, tree, seen, objects);
+    return objects;
+}
+
+std::vector<std::filesystem::path> augmented_closure(const Tree& tree, std::size_t index,
+                                                     const PlatformProviders& providers,
+                                                     std::vector<std::string>* merged) {
+    std::vector<bool> seen(tree.targets.size(), false);
+    std::vector<std::filesystem::path> objects;
+    closure_visit(index, tree, seen, objects);
+
+    // Provider closures can reach further platform interfaces. Rescan to a
+    // fixed point: a newly reached interface may precede the first interface
+    // in tree order and would be missed by a single forward pass. seen carries
+    // across every pass, so shared objects and providers are still merged once.
+    bool added = true;
+    while (added) {
+        added = false;
+        for (std::size_t i = 0; i < tree.targets.size(); ++i) {
+            if (!seen[i] || !tree.targets[i].platform_interface) continue;
+            const auto* binding = providers.binding(tree.targets[i].module_name);
+            if (binding == nullptr) continue;
+            const auto provider = index_of_module(tree, binding->provider_module);
+            if (provider == tree.targets.size() || seen[provider]) continue;
+            if (merged != nullptr) merged->push_back(binding->provider_module);
+            closure_visit(provider, tree, seen, objects);
+            added = true;
+        }
+    }
+
     return objects;
 }
 

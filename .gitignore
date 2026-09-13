@@ -80,3 +80,6 @@ release-*.sh
 
 # vendored library checkouts, provisioned by each library's vendor.sh
 platforms/pico/sdk/pico-sdk/upstream/
+
+# locally installed Pico SDK tools (compiler, picotool, OpenOCD, and pioasm)
+platforms/pico/pico-sdk/

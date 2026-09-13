@@ -4,7 +4,7 @@ module;
 
 #include "mcu-cxx.h"
 
-export module lib.mcu;
+export module platform.pico.mcu;
 
 import mm.mcu;
 
@@ -15,11 +15,11 @@ namespace {
 // it the adapter uses the same constants.
 mm::mcu::Status from(int code) {
     switch (code) {
-        case 0: return mm::mcu::Status::Ok;
-        case 1: return mm::mcu::Status::BadArgument;
-        case 2: return mm::mcu::Status::Unsupported;
-        case 3: return mm::mcu::Status::Busy;
-        case 4: return mm::mcu::Status::Timeout;
+        case MM_PICO_MCU_OK: return mm::mcu::Status::Ok;
+        case MM_PICO_MCU_BAD_ARGUMENT: return mm::mcu::Status::BadArgument;
+        case MM_PICO_MCU_UNSUPPORTED: return mm::mcu::Status::Unsupported;
+        case MM_PICO_MCU_BUSY: return mm::mcu::Status::Busy;
+        case MM_PICO_MCU_TIMEOUT: return mm::mcu::Status::Timeout;
         default: return mm::mcu::Status::BadArgument;
     }
 }
@@ -63,7 +63,8 @@ PicoPlatform pico_platform;
 
 // Registration at static initialisation. Linking this module's object is what
 // makes mm.mcu answer for this platform; nothing has to reference the object,
-// because objects are linked directly rather than through an archive.
+// because objects are linked directly rather than through an archive, and the
+// external CMake hand-off carries them as EXTERNAL_OBJECT for the same reason.
 struct Register {
     Register() { mm::mcu::set_platform(pico_platform); }
 };

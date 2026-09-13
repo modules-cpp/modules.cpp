@@ -54,8 +54,17 @@ non-conformance section below records an explicit, bounded exception.
   `extern "C"` block so a wrapper's global module fragment contains only its
   `#include`. The adapter and shims remain subject to review because none is a
   manifest-declared source seen by check.
+- A non-core platform-provider module selected by an external SDK MAY use the
+  same narrow pattern for its bridge-private ABI: a colocated C++ linkage shim
+  MAY wrap a plain-C header whose definitions are supplied by the bridge's one
+  adapter. The provider MAY include that shim in its global module fragment but
+  MUST NOT include SDK headers or use the allowance for any dependency other
+  than its selected platform bridge. This does not classify the provider as a
+  lib. wrapper because its public dependency is the project interface module,
+  not a foreign library API.
 - Ordinary classes and structs, with constructors, destructors, and ordinary non-template member functions, MAY be used freely.
-- A single level of virtual dispatch (a base class with a virtual destructor and virtual member functions, and concrete classes that override them) MAY be used where the architecture already relies on it, as with App. New polymorphic hierarchies beyond this pattern SHOULD be justified in review rather than introduced by default.
+- A single level of virtual dispatch (a base class with a virtual destructor and virtual member functions, and concrete classes that override them) MAY be used where the architecture already relies on it, as with App and with mm.mcu's Platform. New polymorphic hierarchies beyond this pattern SHOULD be justified in review rather than introduced by default.
+- A module declaring platform-interface MAY export such a base class as the seam a selected platform implements, and a provider module MAY register one namespace-scope object of its own subclass during static initialisation. The base class MUST be declared in the interface module's purview, because a name attached to that module cannot be defined from outside it, and a module-attached polymorphic class emits its vtable in that module's own object: the registration therefore works only where the executable links the interface as well as the provider, which is exactly what provider injection guarantees. Registration MUST NOT require anything to reference the object, and MUST NOT be used to select an implementation after startup.
 - enum class MUST be used in place of unscoped enum for all new enumerated types.
 - [[nodiscard]] SHOULD be applied to any function whose return value must not be silently discarded.
 - Non-capturing or by-reference lambdas MAY be used for short, local callbacks, such as a closing action passed to a single call site. Lambdas MUST NOT be stored as std::function or otherwise used as a substitute for a named function or for virtual dispatch.

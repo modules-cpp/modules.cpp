@@ -12,4 +12,5 @@ file: vectors.cpp
 provides: reset-vector
 provides: initial-stack
 provides: memory-layout
+platform-provider: mm.mcu platform.rp2040_ram.mcu
 ---

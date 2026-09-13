@@ -74,16 +74,32 @@ For the selected lane build performs these phases:
 - Resolve the project configuration and selected toolchain.
 - Walk and validate the requested manifest tree.
 - Resolve and validate host and target capabilities.
+- Resolve platform providers over the complete, unfiltered manifest tree.
 - Remove roots unavailable in the selected lane.
 - Topologically order modules before their consumers.
 - Resolve the selected board unit and reject a bare-metal executable with an unresolved startup responsibility.
 - Clear module state for the selected build.
 - Compile translation units in declared order.
 - Compile the selected board unit once in this build output tree.
-- Link retained applications from their transitive object closure and the board objects (or delegate linking to the external build bridge when link ownership is external).
+- Compile the providers the retained executables require, each once.
+- Link retained applications from their transitive object closure, the closures of the providers that closure requires, and the board objects (or delegate linking to the external build bridge when link ownership is external).
 - Install eligible host applications.
 
 Unknown modules and dependency cycles are manifest errors. Compile and link failures stop the pipeline immediately.
+
+# Platform providers
+
+docs/modules-platforms.mdy owns which provider a platform supplies. This section owns when build resolves it and what it does with the answer.
+
+Provider resolution runs after the manifest tree is loaded and before the lane's filtered target tree is constructed, over the complete target collection and its globally resolved use names. The ordering is forced: an interface requirement decides whether a node survives lane filtering, so it cannot be discovered from an already filtered tree. build and test share one implementation of this analysis, even though their root selection differs, so the two tools cannot resolve a provider differently.
+
+The analysis answers three things: which modules carry platform-interface, which interface the selected SDK and board bind and to what, and which interfaces each application's and test's own use closure reaches. It then follows selected provider closures and expands their interface requirements to a fixed point, so an interface reached only from a provider cannot be missed because it appeared earlier in manifest order.
+
+For each retained executable build then computes one augmented closure: its ordinary use closure, plus the ordinary closure of every selected provider that closure requires, merged without repeating a target or an object. Objects shared by an executable and its provider are linked once, and a provider required by several executables is compiled once while its objects are added to each of those executables. The board unit is appended as before, and the same final ordered object list goes to the project linker or to external_link, which receives it unchanged.
+
+A provider is never a root of its own. A root build does not compile a provider the lane does not select, and does not compile one the lane does select unless a retained executable requires its interface. A provider required by an in-scope application is compiled even when the provider's own manifest lies outside a requested manifest subtree, for the same reason a dependency reached through use does.
+
+A target executable whose complete closure reaches an interface with no selected provider is unavailable: skipped and counted by a root build, and exit 77 when requested explicitly. A host lane uses the interface fallback instead, permitting host unit tests to register stand-ins. Provider closure traversal uses the same cycle and unknown-module diagnostics as an authored closure.
 
 # External build and link ownership
 
@@ -163,6 +179,11 @@ Build target applications without changing the configured default:
 - A board requirement mismatch or external-wrapper SDK mismatch is skipped in a root build and exits 77 when explicitly requested.
 - Platform compiler arguments reach both compilation and linking; SDK specs and board linker script arguments reach linking only.
 - A selected board unit is compiled once per build output tree and its objects are linked into every retained executable.
+- Platform providers are resolved before the filtered tree is built, by one analysis shared with the test tool.
+- A selected provider is compiled only when a retained executable requires its interface, once however many require it, and is compiled even when its own manifest lies outside the requested manifest subtree.
+- An unselected provider is skipped as unavailable, and an executable that does not reach the interface receives no provider object.
+- A target executable whose complete closure reaches an unbound interface is skipped by a root build and exits 77 when explicitly requested, naming the interface, board, and SDK; nested requirements are found independently of manifest order, while a host unit may use the interface fallback.
+- The interface's objects and the selected provider's appear exactly once in a requiring executable's ordered object list, and external linking receives that same list.
 - A configuration-2 bare-metal executable with an unresolved responsibility exits 65 before linking; modules remain compilable.
 - A descendant invocation cannot bypass capability inherited from an ancestor.
 - A target build never installs an executable over a host command in out/bin.

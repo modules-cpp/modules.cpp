@@ -1,9 +1,9 @@
 // Pawel Wodnicki (C) 2026
 // 32bitmicro LLC (C) 2026
 //
-// The Pico platform's private ABI between lib.mcu and the SDK adapter. It exists
-// because only the adapter may include Pico SDK headers, and the adapter is C.
-// Nothing outside this platform declares or calls these.
+// The Pico platform's private ABI between platform.pico.mcu and the SDK adapter.
+// It exists because only the adapter may include Pico SDK headers, and the
+// adapter is C. Nothing outside this platform declares or calls these.
 //
 // C includes this header directly. C++ includes mcu-cxx.h, which wraps it in
 // extern "C"; including this one from C++ would give the declarations C++ linkage

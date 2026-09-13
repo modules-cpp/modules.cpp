@@ -1,0 +1,19 @@
+---
+mm: 1.2
+kind: test
+name: target-mcu-provider
+option: buildable-host no
+use: mm.mcu
+unit: tests/target/mcu-provider/main.cpp
+---
+
+# target MCU provider
+
+Compile and link proof for platform-provider injection in the test tool. The
+test names only mm.mcu. A selected target platform must supply the provider, and
+external link ownership must carry that provider through the same CMake bridge
+used for applications.
+
+It has no requires-board declaration because the interface binding, rather than
+one board name, determines availability. It is compile-only on platforms with
+no configured runner.

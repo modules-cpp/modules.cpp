@@ -1,5 +1,7 @@
 #include "pico-c.h"
-#include "mcu-c.h"
+// The private ABI beneath platform.pico.mcu, declared beside that module
+// rather than here: this file implements it, and the module calls it.
+#include "../mcu/mcu-c.h"
 #include "pico/stdlib.h"
 #include "pico/time.h"
 #include <stdio.h>
@@ -24,9 +26,11 @@ void mm_pico_gpio_write(unsigned int pin, int high) {
     gpio_put(pin, high);
 }
 
-// The portable surface: the platform's half of mm.mcu. Both live in one adapter
-// because this is the only translation unit permitted to include SDK headers, and
-// a second one would be a second place for that permission to be reviewed.
+// The platform surface: the private ABI beneath platform.pico.mcu. Both live in
+// one adapter because this is the only translation unit permitted to include SDK
+// headers, and a second one would be a second place for that permission to be
+// reviewed. These names are this bridge's own; the portable contract is mm.mcu,
+// and it is pure C++.
 
 static int mm_pico_pin_valid(unsigned int pin) {
     return pin < (unsigned int)NUM_BANK0_GPIOS;

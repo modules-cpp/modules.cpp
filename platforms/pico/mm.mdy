@@ -4,6 +4,7 @@ kind: dir
 name: pico
 folder: apps
 folder: rp2040-ram
+folder: rp2040-ram-mcu
 folder: rp2350-ram
 folder: sdk
 ---

@@ -13,6 +13,7 @@ file: modules-debug.mdy
 file: modules-libraries.mdy
 file: modules-mm.mdy
 file: modules-model.mdy
+file: modules-platform-mcu.mdy
 file: modules-platform-pico.mdy
 file: modules-platforms.mdy
 file: modules-run.mdy
