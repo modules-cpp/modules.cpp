@@ -263,6 +263,7 @@ Unsupported answers for UART and time.
 The platform partition owns:
 
 - Platform with virtual facility operations and Unsupported defaults;
+- a virtual board description supplied on demand by the registered provider;
 - set_platform taking a Platform reference;
 - platform returning the registered object or an unserved fallback.
 
@@ -275,6 +276,38 @@ The provider owns its subclass and registration object. The provider object is
 linked directly, not extracted from an archive, so its namespace-scope
 registration initializer is retained. The existing m68k external-link fixture
 already proves that project object initializers survive the CMake hand-off.
+
+## Board description and future devices
+
+The board partition exports three value types. Gpio carries the unsigned number
+accepted by the GPIO facility and a stable, human-readable name. Led carries a
+name, the number of the GPIO to which it is electrically attached, and whether
+that signal is active high. Board carries the board name, a read-only
+std::span<const Gpio> that enumerates every GPIO the board exposes exactly once,
+and an optional Led. When an LED is present, its GPIO number must identify one
+entry in that sequence.
+
+board() returns the registered provider's description by value, while its span
+views a provider-owned static GPIO table. A std::vector was tested first but its
+heap allocation pulled newlib entropy support into the custom RP2040 RAM image;
+the non-owning span retains vector-like size, indexing, and iteration without
+allocating during provider registration, board discovery, or early bare-metal
+startup. The unserved platform returns an empty name, empty GPIO span, and no
+LED.
+
+This is intentionally a board description rather than another platform-selection
+mechanism. Future board-specific sensors, displays, radios, storage devices, and
+buses belong as typed inventories or optional attachments on Board. Each device
+records the GPIOs, bus, or other resources it consumes by stable identifiers;
+facility operations remain on Platform, and applications continue importing
+only mm.mcu. Adding a device class therefore grows the description without
+creating provider module names in portable application manifests.
+
+The current direct RP2040 provider describes rp2040-ram, GPIOs GP0 through GP29,
+and an active-high LED on GP25. The Pico bridge reports the selected PICO_BOARD,
+NUM_BANK0_GPIOS, and, when the SDK board declares one, its LED pin and polarity
+to platform.pico.mcu; the provider turns those bridge-private values into the
+same pure C++ Board representation.
 
 # Per-executable closure augmentation
 
@@ -414,11 +447,12 @@ adapter. It transports the final object list and generic bridge inputs only.
 
 # Implemented transition
 
-mm.mcu exports its Platform base class, fallback object, set_platform, and typed
-facility dispatch. platform.rp2040_ram.mcu implements GPIO directly against the
-RP2040 register map. platform.pico.mcu implements the same C++ interface and
-delegates beneath it to the bridge-private Pico adapter ABI. The core interface
-contains no C ABI header, and the former lib.mcu identity no longer exists.
+mm.mcu exports its Platform base class, Board/Gpio/Led description, fallback
+object, set_platform, and typed facility dispatch. platform.rp2040_ram.mcu
+implements GPIO and board discovery directly. platform.pico.mcu implements the
+same C++ interface and delegates beneath it to the bridge-private Pico adapter
+ABI. The core interface contains no C ABI header, and the former lib.mcu
+identity no longer exists.
 
 mcu-blink imports only mm.mcu. Provider binding makes it available on
 rp2040-ram and the Pico SDK lanes, and unavailable on target lanes with no
@@ -440,6 +474,11 @@ binding. Unrelated executables retain their ordinary closure.
   point; a missing nested provider makes the target unavailable before
   compilation, independently of manifest order.
 - mcu-blink names only mm.mcu and remains core.
+- mcu-blink discovers its LED GPIO and active level from Board rather than
+  encoding either platform property.
+- Every reported GPIO has a number and name; a reported LED names one GPIO in
+  that inventory. The host stand-in covers an active-low LED, span iteration,
+  and GPIO inventory boundaries.
 - mcu-blink links on rp2040-ram through platform.rp2040_ram.mcu.
 - With the corresponding external tools installed, mcu-blink links on Pico ARM
   and Pico RISC-V through platform.pico.mcu and the real external CMake bridge.

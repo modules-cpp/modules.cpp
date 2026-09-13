@@ -19,6 +19,10 @@ it unavailable in any lane those SDKs do not select.
 One provider module serves both SDKs. Two SDKs binding the same provider is one
 module with one identity, not two implementations that happen to agree.
 
+The bridge reports the selected Pico board name, GPIO count, and LED pin. This
+module turns those private values into mm.mcu's Board, Gpio, and Led values, so
+portable applications neither see SDK macros nor hard-code board properties.
+
 Beneath its pure C++ surface it calls a private, project-owned C ABI implemented
 by the bridge's adapter, the only translation unit permitted to include Pico SDK
 headers. That ABI is specific to this bridge; it is not the portable mm.mcu

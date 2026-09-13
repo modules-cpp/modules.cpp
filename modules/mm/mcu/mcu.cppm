@@ -7,6 +7,7 @@ export module mm.mcu;
 // structure, not a selection a caller makes. :platform is exported too, because
 // a platform module implements Platform and must see it.
 export import :status;
+export import :board;
 export import :platform;
 export import :gpio;
 export import :uart;

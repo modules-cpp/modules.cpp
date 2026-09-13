@@ -3,6 +3,7 @@
 export module mm.mcu:platform;
 
 import :status;
+import :board;
 
 export namespace mm::mcu {
 
@@ -16,6 +17,8 @@ export namespace mm::mcu {
 class Platform {
 public:
     virtual ~Platform() = default;
+
+    [[nodiscard]] virtual Board board() const { return {}; }
 
     [[nodiscard]] virtual Status gpio_configure(unsigned int, Direction, Pull) {
         return Status::Unsupported;

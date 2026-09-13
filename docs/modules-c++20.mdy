@@ -99,6 +99,7 @@ non-conformance section below records an explicit, bounded exception.
 # Standard library usage
 - std::filesystem MUST be used for path and filesystem operations, using the std::error_code overloads wherever an operation can fail. mm.build and the test scaffolding already use this pattern correctly, and it is normative going forward.
 - std::vector MUST be the default sequential container. std::map MAY be used where key lookup is genuinely required. Other standard containers MAY be introduced when a vector or map is a clearly poor fit, with the choice justified in review.
+- A non-owning, contiguous, read-only sequence MAY use std::span<const T>. In particular, static platform descriptions SHOULD prefer a span when constructing an owning container would add allocation or hosted-runtime requirements to a bare-metal image.
 - std::string_view MUST be preferred over std::string for non-owning, read-only string parameters.
 - A plain function-pointer type alias, following mm.test's using fn = void (*)(); pattern, MUST be preferred over std::function for simple, non-capturing callback registration, to avoid the associated type erasure and heap allocation.
 

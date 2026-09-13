@@ -85,3 +85,35 @@ int mm_pico_mcu_ticks_ms(unsigned long* ticks) {
     *ticks = (unsigned long)to_ms_since_boot(get_absolute_time());
     return MM_PICO_MCU_OK;
 }
+
+const char* mm_pico_mcu_board_name(void) {
+    return PICO_BOARD;
+}
+
+unsigned int mm_pico_mcu_gpio_count(void) {
+    return (unsigned int)NUM_BANK0_GPIOS;
+}
+
+int mm_pico_mcu_has_led(void) {
+#ifdef PICO_DEFAULT_LED_PIN
+    return 1;
+#else
+    return 0;
+#endif
+}
+
+unsigned int mm_pico_mcu_led_gpio(void) {
+#ifdef PICO_DEFAULT_LED_PIN
+    return (unsigned int)PICO_DEFAULT_LED_PIN;
+#else
+    return 0;
+#endif
+}
+
+int mm_pico_mcu_led_active_high(void) {
+#if defined(PICO_DEFAULT_LED_PIN_INVERTED) && PICO_DEFAULT_LED_PIN_INVERTED
+    return 0;
+#else
+    return 1;
+#endif
+}

@@ -1,5 +1,9 @@
 // Pawel Wodnicki (C) 2026
 // 32bitmicro LLC (C) 2026
+#include <optional>
+#include <span>
+#include <string_view>
+
 import mm.mcu;
 import mm.test;
 
@@ -16,6 +20,28 @@ using mm::mcu::Direction;
 using mm::mcu::Pull;
 using mm::mcu::Status;
 using mm::test::expect;
+
+void board_describes_gpio_inventory_and_led_attachment() {
+    mm_test_reset();
+    const auto description = mm::mcu::board();
+    expect(description.name == "stand", "the selected platform names its board");
+    expect(description.gpios.size() == 32, "the board enumerates every GPIO");
+    expect(description.gpios.front().number == 0 &&
+               description.gpios.front().name == "GPIO0",
+           "the first GPIO carries its number and name");
+    expect(description.gpios.back().number == 31 &&
+               description.gpios.back().name == "GPIO31",
+           "the last GPIO carries its number and name");
+    expect(description.led && description.led->name == "status" &&
+               description.led->gpio == 25 && !description.led->active_high,
+           "the LED names its attached GPIO and electrical polarity");
+
+    bool attachment_exists = false;
+    for (const auto& gpio : description.gpios)
+        if (description.led && gpio.number == description.led->gpio)
+            attachment_exists = true;
+    expect(attachment_exists, "the LED attachment names a GPIO in the inventory");
+}
 
 void gpio_round_trip() {
     mm_test_reset();
@@ -110,6 +136,9 @@ void every_status_reaches_the_caller() {
 void an_unserved_facility_answers_unsupported() {
     mm_test_reset();
     mm::mcu::Platform bare;
+    const auto description = bare.board();
+    expect(description.name.empty() && description.gpios.empty() && !description.led,
+           "an unserved platform has an empty board description");
     expect(bare.gpio_write(0, true) == Status::Unsupported,
            "an unimplemented facility answers Unsupported rather than failing to link");
     expect(bare.uart_write(0, "x") == Status::Unsupported, "so does an unimplemented uart");
@@ -117,6 +146,7 @@ void an_unserved_facility_answers_unsupported() {
 }
 
 const mm::test::case_ cases[] = {
+    {"board describes GPIOs and LED", &board_describes_gpio_inventory_and_led_attachment},
     {"gpio round trip", &gpio_round_trip},
     {"gpio rejects what the platform rejects", &gpio_rejects_what_the_platform_rejects},
     {"a failed read leaves its output alone", &a_failed_read_leaves_its_output_alone},

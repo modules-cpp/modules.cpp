@@ -26,3 +26,8 @@ int mm_pico_mcu_gpio_read(unsigned int pin, int* high);
 int mm_pico_mcu_uart_write(unsigned int instance, const char* text);
 int mm_pico_mcu_delay_ms(unsigned long milliseconds);
 int mm_pico_mcu_ticks_ms(unsigned long* ticks);
+const char* mm_pico_mcu_board_name(void);
+unsigned int mm_pico_mcu_gpio_count(void);
+int mm_pico_mcu_has_led(void);
+unsigned int mm_pico_mcu_led_gpio(void);
+int mm_pico_mcu_led_active_high(void);

@@ -5,14 +5,33 @@
 // rather than a mock of it: it registers a Platform subclass exactly as a real
 // platform's module does, and nothing here is scaffolding a real platform would
 // not also have to provide.
+#include <optional>
+#include <span>
+#include <string_view>
+
 import mm.mcu;
 
 namespace {
 
 constexpr unsigned int pin_count = 32;
 
+constexpr mm::mcu::Gpio gpios[] = {
+    {0, "GPIO0"},   {1, "GPIO1"},   {2, "GPIO2"},   {3, "GPIO3"},
+    {4, "GPIO4"},   {5, "GPIO5"},   {6, "GPIO6"},   {7, "GPIO7"},
+    {8, "GPIO8"},   {9, "GPIO9"},   {10, "GPIO10"}, {11, "GPIO11"},
+    {12, "GPIO12"}, {13, "GPIO13"}, {14, "GPIO14"}, {15, "GPIO15"},
+    {16, "GPIO16"}, {17, "GPIO17"}, {18, "GPIO18"}, {19, "GPIO19"},
+    {20, "GPIO20"}, {21, "GPIO21"}, {22, "GPIO22"}, {23, "GPIO23"},
+    {24, "GPIO24"}, {25, "GPIO25"}, {26, "GPIO26"}, {27, "GPIO27"},
+    {28, "GPIO28"}, {29, "GPIO29"}, {30, "GPIO30"}, {31, "GPIO31"},
+};
+
 class Stand : public mm::mcu::Platform {
 public:
+    [[nodiscard]] mm::mcu::Board board() const override {
+        return {"stand", gpios, mm::mcu::Led{"status", 25, false}};
+    }
+
     [[nodiscard]] mm::mcu::Status gpio_configure(unsigned int pin, mm::mcu::Direction direction,
                                                  mm::mcu::Pull pull) override {
         if (forced != mm::mcu::Status::Ok) return forced;

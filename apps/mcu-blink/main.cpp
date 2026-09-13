@@ -1,9 +1,17 @@
 // Pawel Wodnicki (C) 2026
 // 32bitmicro LLC (C) 2026
+#include <optional>
+#include <span>
+#include <string_view>
+
 import mm.mcu;
 
 int main() {
-    if (mm::mcu::gpio_configure(25, mm::mcu::Direction::Out, mm::mcu::Pull::None) !=
+    const auto description = mm::mcu::board();
+    if (!description.led) return 1;
+    const auto& led = *description.led;
+
+    if (mm::mcu::gpio_configure(led.gpio, mm::mcu::Direction::Out, mm::mcu::Pull::None) !=
         mm::mcu::Status::Ok)
         return 1;
 
@@ -11,7 +19,9 @@ int main() {
     // still blinks as fast as the board can: an application decides what an
     // unsupported facility means to it.
     for (int i = 0; i < 4; ++i) {
-        if (mm::mcu::gpio_write(25, i % 2 == 0) != mm::mcu::Status::Ok) return 1;
+        const bool on = i % 2 == 0;
+        if (mm::mcu::gpio_write(led.gpio, on == led.active_high) != mm::mcu::Status::Ok)
+            return 1;
         (void)mm::mcu::delay_ms(500);
     }
     return 0;

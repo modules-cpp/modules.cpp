@@ -13,6 +13,10 @@ option: buildable-host no
 rp2040-ram's implementation of mm.mcu. It drives the RP2040 register map
 directly and names no third-party library, so it stays core.
 
+Its board description enumerates GP0 through GP29 and attaches the active-high
+LED to GP25. A read-only span views provider-owned static entries, so board
+discovery and platform registration allocate nothing.
+
 No application names it. The rp2040-ram board manifest binds mm.mcu to it, and
 an executable whose closure reaches mm.mcu is linked against it because of the
 platform it is building for. In any other lane it is an unavailable skipped

@@ -4,6 +4,12 @@
 // GPIO only. The interface's other facilities are left to Platform's defaults,
 // which answer Unsupported, because this board drives no UART and keeps no
 // millisecond clock, and saying so is better than pretending.
+module;
+
+#include <optional>
+#include <span>
+#include <string_view>
+
 export module platform.rp2040_ram.mcu;
 
 import mm.mcu;
@@ -20,6 +26,15 @@ constexpr unsigned long resets_base = 0x4000c000UL;
 
 constexpr unsigned int pin_count = 30;
 constexpr unsigned long function_sio = 5;
+
+constexpr mm::mcu::Gpio gpios[] = {
+    {0, "GP0"},   {1, "GP1"},   {2, "GP2"},   {3, "GP3"},   {4, "GP4"},
+    {5, "GP5"},   {6, "GP6"},   {7, "GP7"},   {8, "GP8"},   {9, "GP9"},
+    {10, "GP10"}, {11, "GP11"}, {12, "GP12"}, {13, "GP13"}, {14, "GP14"},
+    {15, "GP15"}, {16, "GP16"}, {17, "GP17"}, {18, "GP18"}, {19, "GP19"},
+    {20, "GP20"}, {21, "GP21"}, {22, "GP22"}, {23, "GP23"}, {24, "GP24"},
+    {25, "GP25"}, {26, "GP26"}, {27, "GP27"}, {28, "GP28"}, {29, "GP29"},
+};
 
 volatile unsigned long& reg(unsigned long address) {
     return *reinterpret_cast<volatile unsigned long*>(address);
@@ -38,6 +53,10 @@ void release_banks() {
 
 class Rp2040RamPlatform : public mm::mcu::Platform {
 public:
+    [[nodiscard]] mm::mcu::Board board() const override {
+        return {"rp2040-ram", gpios, mm::mcu::Led{"LED", 25, true}};
+    }
+
     [[nodiscard]] mm::mcu::Status gpio_configure(unsigned int pin, mm::mcu::Direction direction,
                                                  mm::mcu::Pull pull) override {
         if (pin >= pin_count) return mm::mcu::Status::BadArgument;
