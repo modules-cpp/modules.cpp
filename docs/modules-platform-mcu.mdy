@@ -50,12 +50,14 @@ mm_mcu C ABI as the portable interface.
 
 - mm.mcu has one meaning in the whole repository.
 - Every provider module has a globally unique module name.
-- One selected platform resolves an interface to exactly one effective
-  provider, with a selected board overriding its selected SDK's default.
+- For each interface it binds, one selected platform resolves exactly one
+  effective provider, with a selected board overriding its selected SDK's
+  default. A target executable requiring an unbound interface is unavailable.
 - An application neither names nor imports its provider.
 - A provider is linked only when the executable closure requires its interface.
 - An executable that does not use mm.mcu receives no mm.mcu provider object.
-- A missing, duplicate, or unavailable provider is diagnosed before linking.
+- A missing, duplicate, or target-unavailable provider is diagnosed before
+  linking.
 - Project and external CMake link paths receive the same augmented object list.
 - The model exposes the binding without collapsing duplicate module names.
 - Core applications remain core because the provider is supplied by the
@@ -303,7 +305,9 @@ The build computes one augmented closure for each executable or test.
 1. Compute the ordinary use closure from the requested application or test.
 2. Collect every module in that closure declaring platform-interface.
 3. Resolve each interface through the selected SDK and board bindings.
-4. Validate that the selected provider is available in the lane.
+4. Validate that the selected provider's structural capability is available in
+   the lane; a provider filtered by buildable-target or buildable-host cannot
+   leave an executable linked silently against the interface fallback.
 5. Compute the provider's ordinary dependency closure.
 6. Repeat from step 2 for interfaces reached only through that provider, until
    no new provider is found.
@@ -384,8 +388,8 @@ modules.
   existing module identity is the interface identity.
 - SdkNode and BoardNode expose their platform-provider bindings.
 - Platform exposes the effective bindings after SDK and board selection.
-- A workflow or artifact query may ask for an application's augmented provider
-  closure separately from its authored use closure.
+- A workflow or artifact query can derive an application's selected provider
+  closure from these bindings without changing its authored use closure.
 
 Authored imports remain authored facts. Provider injection is reported as a
 platform binding, not inserted into ModuleNode::uses, so model clients can tell
@@ -430,6 +434,8 @@ binding. Unrelated executables retain their ordinary closure.
   independently of manifest declaration and folder order.
 - An unknown interface or provider fails at load and names its manifest.
 - A provider whose use closure does not reach its interface is rejected.
+- A selected provider unavailable for the target capability makes its requiring
+  executable unavailable before the filtered target tree is constructed.
 - An interface reached only through a selected provider is resolved to a fixed
   point; a missing nested provider makes the target unavailable before
   compilation, independently of manifest order.
@@ -446,7 +452,9 @@ binding. Unrelated executables retain their ordinary closure.
   conditionally injected provider module.
 - The mm.mcu implementation object and selected provider appear exactly once in
   a requiring executable's ordered object list.
-- Provider static initialization executes in the hosted external-link fixture.
+- The hosted external-link fixture executes a namespace-scope initializer from
+  a directly handed-off project object, proving the retention mechanism on
+  which provider registration relies.
 - Project linking and external linking consume identical augmented closure
   semantics.
 - The target-mcu-provider compile test receives the direct provider under

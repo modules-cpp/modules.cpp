@@ -368,10 +368,14 @@ struct PlatformProviders {
                                                    const Platform* platform,
                                                    std::string_view tool = "build");
 
+// lane_capabilities, when supplied, is parallel to Project::nodes and prevents
+// an executable from surviving after its selected provider was capability-
+// filtered out of the lane.
 [[nodiscard]] Availability availability(const Project& project, std::size_t node,
                                         bool capability, bool target_lane,
                                         const Platform* platform,
-                                        const PlatformProviders* providers = nullptr);
+                                        const PlatformProviders* providers = nullptr,
+                                        const std::vector<bool>* lane_capabilities = nullptr);
 
 [[nodiscard]] bool can_link_executable(const Platform* platform, std::string_view tool,
                                        std::string_view name);

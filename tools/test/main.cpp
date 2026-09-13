@@ -146,7 +146,8 @@ int main(int argc, char** argv) {
     const auto providers = mm::build::platform_providers(project, target_lane, platform, "test");
 
     const auto test_availability = mm::build::availability(
-        project, test_node, buildable[test_node], target_lane, platform, &providers);
+        project, test_node, buildable[test_node], target_lane, platform, &providers,
+        &buildable);
     if (!test_availability.available) {
         std::cerr << "test: " << project.nodes[test_node].manifest.string() << ": "
                   << test_availability.reason << "\n";

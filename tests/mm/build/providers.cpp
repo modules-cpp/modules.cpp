@@ -343,6 +343,33 @@ void an_unmet_requirement_names_the_platform() {
            "the interface module itself stays available with no provider bound");
 }
 
+void an_unbuildable_selected_provider_makes_the_executable_unavailable() {
+    const mm::test::scoped_tree tree{"provider_unbuildable"};
+    write_tree(tree, "platform-provider: mm.iface platform.first.iface\n", "",
+               "platform-interface:\n");
+    const auto project = load(tree);
+    expect(project.ok, "the project with a selected provider loads");
+
+    mm::build::Platform platform;
+    platform.sdk = "demo-sdk";
+    const auto providers = mm::build::platform_providers(project, true, &platform, "test");
+    const auto app = node_named(project, "demo-app");
+    const auto provider = node_named(project, "first");
+    expect(app != mm::build::no_target && provider != mm::build::no_target,
+           "the application and provider nodes are found");
+    if (app == mm::build::no_target || provider == mm::build::no_target) return;
+
+    std::vector<bool> capabilities(project.nodes.size(), true);
+    capabilities[provider] = false;
+    const auto unavailable = mm::build::availability(
+        project, app, capabilities[app], true, &platform, &providers, &capabilities);
+    expect(!unavailable.available,
+           "an executable cannot outlive its selected provider's lane capability");
+    expect(unavailable.reason.find("platform.first.iface") != std::string::npos &&
+               unavailable.reason.find("not buildable-target") != std::string::npos,
+           "the diagnostic names the provider and failed target capability");
+}
+
 void a_provider_is_never_an_independent_root() {
     // Both modules are named by a declaration; only the SDK's is selected,
     // because no board is.
@@ -463,6 +490,8 @@ const mm::test::case_ cases[] = {
     {"interface requirements", &requirements_follow_the_authored_closure},
     {"nested interface requirements", &requirements_follow_selected_provider_closures},
     {"unmet requirement diagnostics", &an_unmet_requirement_names_the_platform},
+    {"unbuildable selected provider",
+     &an_unbuildable_selected_provider_makes_the_executable_unavailable},
     {"providers are not roots", &a_provider_is_never_an_independent_root},
     {"closure augmentation", &augmentation_adds_only_what_is_required},
 };

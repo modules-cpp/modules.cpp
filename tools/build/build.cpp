@@ -180,7 +180,7 @@ int main(int argc, char** argv) {
     available.reserve(project.nodes.size());
     for (std::size_t i = 0; i < project.nodes.size(); ++i)
         available.push_back(mm::build::availability(project, i, buildable[i], target_lane,
-                                                    platform, &providers));
+                                                    platform, &providers, &buildable));
     if ((project.nodes[scope].kind == "app" || project.nodes[scope].kind == "module" ||
          project.nodes[scope].kind == "test") &&
         !available[scope].available) {

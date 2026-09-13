@@ -99,7 +99,7 @@ For each retained executable build then computes one augmented closure: its ordi
 
 A provider is never a root of its own. A root build does not compile a provider the lane does not select, and does not compile one the lane does select unless a retained executable requires its interface. A provider required by an in-scope application is compiled even when the provider's own manifest lies outside a requested manifest subtree, for the same reason a dependency reached through use does.
 
-A target executable whose complete closure reaches an interface with no selected provider is unavailable: skipped and counted by a root build, and exit 77 when requested explicitly. A host lane uses the interface fallback instead, permitting host unit tests to register stand-ins. Provider closure traversal uses the same cycle and unknown-module diagnostics as an authored closure.
+A target executable whose complete closure reaches an interface with no selected provider is unavailable: skipped and counted by a root build, and exit 77 when requested explicitly. The same is true when a binding exists but its selected provider's structural capability excludes the target lane; filtering the provider must not leave the executable silently linked to the interface fallback. A host lane uses that fallback deliberately, permitting host unit tests to register stand-ins. Provider closure traversal uses the same cycle and unknown-module diagnostics as an authored closure.
 
 # External build and link ownership
 

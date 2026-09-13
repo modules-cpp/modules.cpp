@@ -2694,7 +2694,8 @@ PlatformProviders platform_providers(const Project& project, bool target_lane,
 
 Availability availability(const Project& project, std::size_t node, bool capability,
                           bool target_lane, const Platform* platform,
-                          const PlatformProviders* providers) {
+                          const PlatformProviders* providers,
+                          const std::vector<bool>* lane_capabilities) {
     if (node >= project.nodes.size()) return {false, "manifest node is not registered"};
     if (!capability) {
         return {false, project.nodes[node].name + " is not buildable-" +
@@ -2752,6 +2753,35 @@ Availability availability(const Project& project, std::size_t node, bool capabil
         (project.nodes[node].kind == "app" || project.nodes[node].kind == "test")) {
         const auto unmet = providers->unmet_requirement(node);
         if (!unmet.empty()) return {false, buildable->name + " " + unmet};
+
+        // A binding is not usable merely because its name resolves. Structural
+        // capability filtering happens before the Tree is built; without this
+        // check a selected provider carrying buildable-target no would vanish
+        // from that tree while the executable remained available and linked
+        // the interface fallback silently.
+        if (lane_capabilities != nullptr) {
+            for (const auto& interface_module : providers->requirements[node]) {
+                const auto* binding = providers->binding(interface_module);
+                if (binding == nullptr) continue;  // reported by unmet_requirement above
+                for (std::size_t provider_node = 0;
+                     provider_node < project.nodes.size(); ++provider_node) {
+                    if (project.nodes[provider_node].kind != "module" ||
+                        project.target[provider_node] == no_target)
+                        continue;
+                    const auto& provider = project.targets[project.target[provider_node]];
+                    if (provider.module_name != binding->provider_module) continue;
+                    if (provider_node >= lane_capabilities->size() ||
+                        !(*lane_capabilities)[provider_node]) {
+                        return {false, buildable->name + " requires platform provider " +
+                                           binding->provider_module + " for interface " +
+                                           interface_module + ", but " + provider.name +
+                                           " is not buildable-" +
+                                           (target_lane ? "target" : "host")};
+                    }
+                    break;
+                }
+            }
+        }
     }
 
     if (buildable->requires_board.empty()) return {true, {}};
