@@ -243,6 +243,7 @@ struct BoardDefinition {
     std::vector<PlatformProviderBinding> providers;
     std::string derives_from;
     std::vector<std::string> chain;
+    std::filesystem::path declared_linker_script;
     std::vector<std::filesystem::path> declared_sources;
     std::vector<mm::configure::Responsibility> declared_provides;
     std::vector<PlatformProviderBinding> declared_providers;

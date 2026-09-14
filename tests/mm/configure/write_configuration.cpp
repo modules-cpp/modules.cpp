@@ -466,7 +466,8 @@ void writes_cross_link_external_configuration() {
     platform.board_manifest = "platforms/pico/pico/mm.mdy";
     platform.machine = "rp2040";
     platform.linker_script = "should-be-omitted.ld";
-    platform.board_sources = {"should-be-omitted.cpp"};
+    platform.board_sources = {"carried.cpp"};
+    platform.board_derives_from = {"pico-base", "vendor-base"};
     platform.compiler_arguments = {"-mcpu=cortex-m0plus"};
     settings.cross_platform = platform;
 
@@ -482,8 +483,11 @@ void writes_cross_link_external_configuration() {
                      "expected cross-board-machine: rp2040");
     mm::test::expect(first(document, "cross-board-linker-script").empty(),
                      "expected cross-board-linker-script omitted for external link");
-    mm::test::expect(all(document, "cross-board-source").empty(),
-                     "expected cross-board-source omitted for external link");
+    mm::test::expect(all(document, "cross-board-source") == std::vector<std::string>{"carried.cpp"},
+                     "expected cross-board-source carried for external link");
+    const std::vector<std::string> expected_chain = {"pico-base", "vendor-base"};
+    mm::test::expect(all(document, "cross-board-derives-from") == expected_chain,
+                     "expected cross-board-derives-from repeated in derivation order");
 
     // Boardless hosted external lane
     settings.name = "m68k-linux-external";
@@ -499,6 +503,7 @@ void writes_cross_link_external_configuration() {
     platform.sdk_manifest = "platforms/m68k-linux-external/sdk/mm.mdy";
     platform.board.reset();
     platform.board_manifest.reset();
+    platform.board_derives_from.clear();
     platform.machine.clear();
     platform.linker_script.clear();
     platform.board_sources.clear();
@@ -521,6 +526,8 @@ void writes_cross_link_external_configuration() {
                      "expected no cross-board-linker-script in boardless lane");
     mm::test::expect(all(document, "cross-board-source").empty(),
                      "expected no cross-board-source in boardless lane");
+    mm::test::expect(all(document, "cross-board-derives-from").empty(),
+                     "expected no cross-board-derives-from in boardless lane");
 }
 
 const mm::test::case_ cases[] = {

@@ -232,11 +232,16 @@ int resolve_platform(const mm::build::Project& project,
     if (board != nullptr) {
         platform.board = board->name;
         platform.board_manifest = board->manifest;
+        if (board->chain.size() > 1) {
+            for (std::size_t i = 1; i < board->chain.size(); ++i) {
+                platform.board_derives_from.push_back(board->chain[i]);
+            }
+        }
         platform.machine = board->machine;
         if (platform.link_ownership != mm::configure::LinkOwnership::External) {
             platform.linker_script = board->linker_script;
-            platform.board_sources = board->sources;
         }
+        platform.board_sources = board->sources;
         platform.compiler_arguments = board->compiler_arguments;
         for (const auto responsibility : board->provides) {
             const auto found = platform.responsibility_owners.find(responsibility);

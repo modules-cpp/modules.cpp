@@ -387,7 +387,7 @@ Closing fence
 The key is additive to configuration-2. Older binaries reject records carrying cross-link because the key is not in their configuration-2 key registry.
 
 Conditional record validation governs an externally linked lane:
-- If a board is selected: configure omits cross-board-linker-script and cross-board-source, and the record loader requires neither, still requiring the board, the machine, and a matching processor entry. A record carrying cross-link: external with a linker script is rejected.
+- If a board is selected: configure omits cross-board-linker-script and carries cross-board-source, and the record loader requires neither, still requiring the board, the machine, and a matching processor entry. With a derived board, configure records cross-board-derives-from, repeated from the selected board's immediate base outward. A record carrying cross-link: external with a linker script is rejected.
 - If no board is selected (such as a hosted lane): the record carries no board fields at all.
 - In a project-linked lane (cross-link absent or not external): a board record that omits the linker script is rejected.
 
@@ -510,7 +510,7 @@ Every platform diagnostic names the manifest it came from. A mismatch names both
 - A Pico external build accepts a UF2 only when every 512-byte block carries both required leading magic words and its trailing magic word. A fake package that copies the ELF under a `.uf2` name fails before publication; satisfying the UF2 artifact criterion requires a real compatible picotool.
 - A clean bootstrap succeeds with platforms registered in the root manifest.
 - One board runs under an emulator, reaching main, writing observable output, and terminating under control, with no application argument reaching the emulator.
-- An SDK whose library declares external-build configures with cross-link: external; with a board, it omits cross-board-linker-script and cross-board-source; without a board, it carries no board fields.
+- An SDK whose library declares external-build configures with cross-link: external; with a board, it omits cross-board-linker-script and carries cross-board-source; without a board, it carries no board fields.
 - A record carrying cross-link: external with a linker script, or omitting the linker script without cross-link: external, is rejected.
 - Build, test, run, flash, and debug detect a mismatch between the record's link ownership and the library's external-build declaration as a stale configuration record.
 - models::Platform exposes link_ownership() reflecting the lane's link ownership.

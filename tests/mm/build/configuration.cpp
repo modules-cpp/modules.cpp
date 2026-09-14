@@ -5,6 +5,7 @@
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 import mm.build;
 import mm.configure;
@@ -689,6 +690,64 @@ void loads_cross_link_external_configuration() {
     write(bad_link_val_path, bad_link_val);
     mm::test::expect(!mm::build::load_configuration(bad_link_val_path, false, bad_config),
                      "expected invalid cross-link value to be rejected");
+
+    // 6. Accepts cross-board-derives-from repeated and carries board sources in external link
+    const auto derives_path = tree.root() / "out/config-derives.mdy";
+    std::ofstream(tree.root() / "platforms/board/pins.cpp") << "int pin;\n";
+    auto with_derives = bm_config;
+    with_derives += "cross-board-derives-from: pico-base\n";
+    with_derives += "cross-board-derives-from: vendor-base\n";
+    with_derives += "cross-board-source: platforms/board/pins.cpp\n";
+    write(derives_path, with_derives);
+    mm::build::BuildConfiguration derives_config;
+    mm::test::expect(mm::build::load_configuration(derives_path, false, derives_config),
+                     "expected configuration with cross-board-derives-from and sources to load");
+    const auto* derives_platform = derives_config.configured_target_platform();
+    mm::test::expect(derives_platform != nullptr, "derives_platform resolved");
+    if (derives_platform != nullptr) {
+        const std::vector<std::string> expected_chain = {"pico-base", "vendor-base"};
+        mm::test::expect(derives_platform->board_derives_from == expected_chain,
+                         "expected repeated cross-board-derives-from loaded in order");
+        const std::vector<std::filesystem::path> expected_sources = {
+            "platforms/board/pins.cpp"
+        };
+        mm::test::expect(derives_platform->board_sources == expected_sources,
+                         "expected board sources carried in external link");
+    }
+
+    // 7. Rejects cross-board-derives-from without cross-board
+    const auto no_board_derives_path = tree.root() / "out/config-no-board-derives.mdy";
+    auto no_board_derives = bm_config;
+    const auto board_key_pos = no_board_derives.find("cross-board: pico\n");
+    no_board_derives.erase(board_key_pos, std::string_view("cross-board: pico\n").size());
+    const auto board_mf_pos = no_board_derives.find("cross-board-manifest: platforms/board/mm.mdy\n");
+    no_board_derives.erase(board_mf_pos, std::string_view("cross-board-manifest: platforms/board/mm.mdy\n").size());
+    const auto board_mach_pos = no_board_derives.find("cross-board-machine: rp2040\n");
+    no_board_derives.erase(board_mach_pos, std::string_view("cross-board-machine: rp2040\n").size());
+    const auto board_arg_pos = no_board_derives.find("cross-board-argument: -mcpu=cortex-m0plus\n");
+    no_board_derives.erase(board_arg_pos, std::string_view("cross-board-argument: -mcpu=cortex-m0plus\n"
+                                                           "cross-board-argument: -mthumb\n"
+                                                           "cross-board-argument: -mfloat-abi=soft\n").size());
+    no_board_derives += "cross-board-derives-from: pico\n";
+    write(no_board_derives_path, no_board_derives);
+    mm::test::expect(!mm::build::load_configuration(no_board_derives_path, false, bad_config),
+                     "expected cross-board-derives-from without cross-board to be rejected");
+
+    // 8. Rejects empty cross-board-derives-from
+    const auto empty_derives_path = tree.root() / "out/config-empty-derives.mdy";
+    auto empty_derives = bm_config;
+    empty_derives += "cross-board-derives-from: \n";
+    write(empty_derives_path, empty_derives);
+    mm::test::expect(!mm::build::load_configuration(empty_derives_path, false, bad_config),
+                     "expected empty cross-board-derives-from to be rejected");
+
+    // 9. Rejects unsafe cross-board-derives-from name
+    const auto unsafe_derives_path = tree.root() / "out/config-unsafe-derives.mdy";
+    auto unsafe_derives = bm_config;
+    unsafe_derives += "cross-board-derives-from: bad;name\n";
+    write(unsafe_derives_path, unsafe_derives);
+    mm::test::expect(!mm::build::load_configuration(unsafe_derives_path, false, bad_config),
+                     "expected unsafe cross-board-derives-from to be rejected");
 }
 
 void detects_stale_configuration_record() {
@@ -753,7 +812,12 @@ void detects_stale_configuration_record() {
     lib.external_build = "cmake";
     project.libraries.push_back(lib);
 
-    // Both external -> OK
+    mm::build::BoardDefinition board;
+    board.name = "pico";
+    board.chain = {"pico"};
+    project.boards.push_back(board);
+
+    // Both external and board matches -> OK
     mm::test::expect(mm::build::check_configuration_staleness(config, project, true, "build"),
                      "matching external-build and cross-link: external is not stale");
 
@@ -800,6 +864,42 @@ void detects_stale_configuration_record() {
     vanished_lib_project.libraries.clear();
     mm::test::expect(!mm::build::check_configuration_staleness(config, vanished_lib_project, true, "build"),
                      "vanished SDK library makes record stale");
+
+    // Vanished board -> stale!
+    auto vanished_board_project = project;
+    vanished_board_project.boards.clear();
+    mm::test::expect(!mm::build::check_configuration_staleness(config, vanished_board_project, true, "build"),
+                     "vanished board makes record stale");
+
+    // Board chain changed -> stale!
+    auto changed_chain_project = project;
+    changed_chain_project.boards.front().chain = {"pico", "other-base"};
+    mm::test::expect(!mm::build::check_configuration_staleness(config, changed_chain_project, true, "build"),
+                     "board chain change makes record stale");
+
+    // Derived board record matches live project
+    const auto derived_config_path = tree.root() / "out/config-derived.mdy";
+    auto derived_config_str = bm_config;
+    const auto board_pos = derived_config_str.find("cross-board: pico\n");
+    derived_config_str.replace(board_pos, std::string_view("cross-board: pico\n").size(),
+                               "cross-board: widget-pico\ncross-board-derives-from: pico\n");
+    write(derived_config_path, derived_config_str);
+    mm::build::BuildConfiguration config_derived;
+    mm::test::expect(mm::build::load_configuration(derived_config_path, false, config_derived),
+                     "derived board config loads");
+    auto derived_project = project;
+    derived_project.boards.clear();
+    mm::build::BoardDefinition widget_board;
+    widget_board.name = "widget-pico";
+    widget_board.chain = {"widget-pico", "pico"};
+    derived_project.boards.push_back(widget_board);
+    mm::test::expect(mm::build::check_configuration_staleness(config_derived, derived_project, true, "build"),
+                     "matching derived board chain is not stale");
+
+    // Derived board chain changed (live base changed) -> stale!
+    derived_project.boards.front().chain = {"widget-pico", "pico2"};
+    mm::test::expect(!mm::build::check_configuration_staleness(config_derived, derived_project, true, "build"),
+                     "changed derived board chain makes record stale");
 }
 
 void loads_secure_cortex_m33_processor_snapshots() {

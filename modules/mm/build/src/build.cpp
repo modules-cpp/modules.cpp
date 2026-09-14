@@ -577,7 +577,7 @@ bool configuration_2_key(std::string_view key) {
         "cross-system", "cross-runtime", "cross-sdk", "cross-sdk-manifest",
         "cross-sdk-compiler-family", "cross-sdk-sysroot", "cross-sdk-runtime-prefix",
         "cross-sdk-specs-argument", "cross-sdk-provides", "cross-link", "cross-board",
-        "cross-board-manifest", "cross-board-machine", "cross-board-linker-script",
+        "cross-board-manifest", "cross-board-derives-from", "cross-board-machine", "cross-board-linker-script",
         "cross-board-source", "cross-board-provides", "cross-board-argument",
         "cross-unresolved"};
     return keys.contains(key);
@@ -737,12 +737,20 @@ bool load_platform(const mm::mdy::MDYDocument& document,
         if (!configuration_project_file(path, "cross-board-source", source, file)) return false;
         platform.board_sources.push_back(std::move(file));
     }
+    for (const auto& base : all(document, "cross-board-derives-from")) {
+        if (base.empty() || !is_safe_board_name(base)) {
+            std::cerr << "build: invalid cross-board-derives-from in " << path.string() << "\n";
+            return false;
+        }
+        platform.board_derives_from.push_back(base);
+    }
     platform.compiler_arguments = all(document, "cross-board-argument");
 
     const bool has_board_details = !platform.machine.empty() || !platform.linker_script.empty() ||
                                    !platform.board_sources.empty() ||
                                    !platform.compiler_arguments.empty() ||
-                                   lookup(document, "cross-board-provides") != nullptr;
+                                   lookup(document, "cross-board-provides") != nullptr ||
+                                   !platform.board_derives_from.empty();
     if (!platform.board && has_board_details) {
         std::cerr << "build: board details require cross-board in " << path.string() << "\n";
         return false;
@@ -1768,6 +1776,7 @@ bool parse_definitions(Project& project, const std::filesystem::path& root,
                 !definition_providers(doc, node.manifest, board.providers, policy.tool))
                 return false;
 
+            board.declared_linker_script = board.linker_script;
             board.declared_sources = board.sources;
             board.declared_provides = board.provides;
             board.declared_providers = board.providers;
@@ -1944,7 +1953,16 @@ bool parse_definitions(Project& project, const std::filesystem::path& root,
             if (candidate.name == board.sdk) sdk = &candidate;
         if (sdk == nullptr) {
             std::cerr << policy.tool << ": " << board.manifest.string()
-                      << ": board references unknown SDK: " << board.sdk << "\n";
+                      << ": board references unknown SDK: " << board.sdk;
+            if (board.chain.size() > 1) {
+                for (const auto& b : project.boards) {
+                    if (b.name == board.chain.back()) {
+                        std::cerr << " (inherited from " << b.manifest.string() << ")";
+                        break;
+                    }
+                }
+            }
+            std::cerr << "\n";
             return false;
         }
         const auto* processor = find_processor_entry(sdk->family, sdk->target, board.cpu,
@@ -1952,7 +1970,16 @@ bool parse_definitions(Project& project, const std::filesystem::path& root,
                                                      board.security_domain);
         if (processor == nullptr) {
             std::cerr << policy.tool << ": " << board.manifest.string()
-                      << ": unknown processor combination for SDK " << sdk->name << "\n";
+                      << ": unknown processor combination for SDK " << sdk->name;
+            if (board.chain.size() > 1) {
+                for (const auto& b : project.boards) {
+                    if (b.name == board.chain.back()) {
+                        std::cerr << " (inherited from " << b.manifest.string() << ")";
+                        break;
+                    }
+                }
+            }
+            std::cerr << "\n";
             return false;
         }
         for (std::size_t i = 0; i < processor_argument_count(*processor); ++i)
@@ -1963,15 +1990,50 @@ bool parse_definitions(Project& project, const std::filesystem::path& root,
                 if (candidate.name == sdk->library) library = &candidate;
         }
         const bool external = library != nullptr && !library->external_build.empty();
-        if (!external) {
+        if (external) {
+            if (!board.linker_script.empty()) {
+                const BoardDefinition* declaring = &board;
+                for (const auto& ancestor_name : board.chain) {
+                    for (const auto& b : project.boards) {
+                        if (b.name == ancestor_name && !b.declared_linker_script.empty()) {
+                            declaring = &b;
+                            break;
+                        }
+                    }
+                    if (!declaring->declared_linker_script.empty()) break;
+                }
+                std::cerr << policy.tool << ": " << declaring->manifest.string()
+                          << ": board whose SDK \"" << sdk->name
+                          << "\" owns an external link cannot declare linker-script\n";
+                return false;
+            }
+        } else {
             if (board.linker_script.empty()) {
                 std::cerr << policy.tool << ": " << board.manifest.string()
-                          << ": board requires linker-script\n";
+                          << ": board requires linker-script";
+                if (board.chain.size() > 1) {
+                    for (const auto& b : project.boards) {
+                        if (b.name == board.chain[1]) {
+                            std::cerr << " (none inherited from " << b.manifest.string() << ")";
+                            break;
+                        }
+                    }
+                }
+                std::cerr << "\n";
                 return false;
             }
             if (board.sources.empty()) {
                 std::cerr << policy.tool << ": " << board.manifest.string()
-                          << ": board requires at least one file\n";
+                          << ": board requires at least one file";
+                if (board.chain.size() > 1) {
+                    for (const auto& b : project.boards) {
+                        if (b.name == board.chain[1]) {
+                            std::cerr << " (none inherited from " << b.manifest.string() << ")";
+                            break;
+                        }
+                    }
+                }
+                std::cerr << "\n";
                 return false;
             }
         }
@@ -2177,6 +2239,7 @@ bool load_configuration(const std::filesystem::path& path, bool verbose,
             }
             const bool repeated = key == "cross-sdk-provides" ||
                                   key == "cross-board-source" ||
+                                  key == "cross-board-derives-from" ||
                                   key == "cross-board-provides" ||
                                   key == "cross-board-argument" ||
                                   key == "cross-unresolved" ||
@@ -3054,6 +3117,35 @@ bool check_configuration_staleness(const BuildConfiguration& configuration,
                       << "\" names no external library; rerun configure\n";
         }
         return false;
+    }
+
+    if (platform->board) {
+        const BoardDefinition* board = nullptr;
+        for (const auto& entry : project.boards) {
+            if (entry.name == *platform->board) {
+                board = &entry;
+                break;
+            }
+        }
+        if (board == nullptr) {
+            std::cerr << tool << ": stale configuration record: selected board \""
+                      << *platform->board << "\" is not in the project; rerun configure\n";
+            return false;
+        }
+        std::vector<std::string> recorded_chain;
+        recorded_chain.push_back(*platform->board);
+        for (const auto& base : platform->board_derives_from) {
+            recorded_chain.push_back(base);
+        }
+        if (board->chain != recorded_chain) {
+            std::cerr << tool << ": stale configuration record: board \"" << *platform->board
+                      << "\" derivation chain changed (recorded:";
+            for (const auto& name : recorded_chain) std::cerr << " " << name;
+            std::cerr << ", live:";
+            for (const auto& name : board->chain) std::cerr << " " << name;
+            std::cerr << "); rerun configure\n";
+            return false;
+        }
     }
     return true;
 }

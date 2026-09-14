@@ -503,6 +503,210 @@ void rejects_invalid_derivations() {
     }
 }
 
+void rejects_linker_script_on_externally_linked_board() {
+    const mm::test::scoped_tree tree{"board_ext_linker_script"};
+    tree.manifest("", "kind: project\nname: p\nfolder: library\nfolder: sdk\nfolder: boards\n");
+    std::filesystem::create_directories(tree.root() / "library");
+    std::ofstream(tree.root() / "library/LICENSE") << "licence\n";
+    std::filesystem::create_directories(tree.root() / "library/cmake");
+    std::ofstream(tree.root() / "library/cmake/CMakeLists.txt") << "# cmake\n";
+    tree.manifest_raw("library",
+                      "mm: 1.2\nkind: library\nname: pico-sdk\nsource: third_party\n"
+                      "licence: LICENSE\nexternal-build: cmake\n");
+    tree.manifest_raw("sdk",
+                      "mm: 1.2\nkind: sdk\nname: pico-arm\ntarget: arm-none-eabi\n"
+                      "compiler-family: gcc\nruntime: none\nlibrary: pico-sdk\n"
+                      "provides: reset-vector\nprovides: initial-stack\n"
+                      "provides: memory-layout\nprovides: runtime-init\nprovides: syscalls\n");
+
+    // Case 1: Direct board declares linker-script
+    tree.manifest("boards", "kind: dir\nname: boards\nfolder: direct\n");
+    tree.manifest_raw("boards/direct",
+                      "mm: 1.2\nkind: board\nname: direct-board\nsdk: pico-arm\n"
+                      "cpu: cortex-m0plus\ninstruction-set: thumb\nfloat-abi: soft\n"
+                      "linker-script: link.ld\n");
+    std::ofstream(tree.root() / "boards/direct/link.ld") << "SECTIONS {}\n";
+    {
+        std::stringstream captured;
+        auto* prev = std::cerr.rdbuf(captured.rdbuf());
+        const auto project = mm::build::load_project(tree.root());
+        std::cerr.rdbuf(prev);
+        expect(!project.ok, "direct externally linked board declaring linker-script is rejected");
+        const auto diag = captured.str();
+        expect(diag.find("boards/direct/mm.mdy") != std::string::npos,
+               "diagnostic names declaring manifest");
+        expect(diag.find("pico-arm") != std::string::npos,
+               "diagnostic names external SDK");
+        expect(diag.find("cannot declare linker-script") != std::string::npos,
+               "diagnostic indicates cannot declare linker-script");
+    }
+
+    // Case 2: Base board without linker script, derived board declares linker script
+    tree.manifest_raw("boards/direct",
+                      "mm: 1.2\nkind: board\nname: pico-base\nsdk: pico-arm\n"
+                      "cpu: cortex-m0plus\ninstruction-set: thumb\nfloat-abi: soft\n");
+    tree.manifest("boards", "kind: dir\nname: boards\nfolder: direct\nfolder: derived\n");
+    tree.manifest_raw("boards/derived",
+                      "mm: 1.2\nkind: board\nname: custom-pico\n"
+                      "derives-from: pico-base\nlinker-script: link.ld\n");
+    std::ofstream(tree.root() / "boards/derived/link.ld") << "SECTIONS {}\n";
+    {
+        std::stringstream captured;
+        auto* prev = std::cerr.rdbuf(captured.rdbuf());
+        const auto project = mm::build::load_project(tree.root());
+        std::cerr.rdbuf(prev);
+        expect(!project.ok, "derived externally linked board declaring linker-script is rejected");
+        const auto diag = captured.str();
+        expect(diag.find("boards/derived/mm.mdy") != std::string::npos,
+               "diagnostic names derived declaring manifest");
+        expect(diag.find("pico-arm") != std::string::npos,
+               "diagnostic names inherited external SDK");
+        expect(diag.find("cannot declare linker-script") != std::string::npos,
+               "diagnostic indicates cannot declare linker-script");
+    }
+
+    // Case 3: Derived board declaring file (board source) without linker script succeeds
+    tree.manifest_raw("boards/derived",
+                      "mm: 1.2\nkind: board\nname: custom-pico\n"
+                      "derives-from: pico-base\nfile: pins.cpp\n");
+    std::ofstream(tree.root() / "boards/derived/pins.cpp") << "int p;\n";
+    {
+        const auto project = mm::build::load_project(tree.root());
+        expect(project.ok, "derived externally linked board declaring file succeeds");
+        const auto* custom = [&]() -> const mm::build::BoardDefinition* {
+            for (const auto& b : project.boards)
+                if (b.name == "custom-pico") return &b;
+            return nullptr;
+        }();
+        expect(custom != nullptr, "custom-pico board present");
+        if (custom != nullptr) {
+            expect(custom->sources.size() == 1, "custom-pico has 1 source");
+            expect(custom->linker_script.empty(), "custom-pico has no linker script");
+        }
+    }
+}
+
+void diagnostics_name_supplying_manifest() {
+    // 1. Inherited unknown SDK
+    {
+        const mm::test::scoped_tree tree{"board_diag_unknown_sdk"};
+        tree.manifest("", "kind: project\nname: p\nfolder: base\nfolder: derived\n");
+        tree.manifest_raw("base",
+                          "mm: 1.2\nkind: board\nname: base-board\nsdk: nonexistent-sdk\n"
+                          "cpu: cortex-m3\ninstruction-set: thumb\nfloat-abi: soft\n"
+                          "linker-script: link.ld\nfile: v.cpp\n"
+                          "provides: reset-vector\nprovides: initial-stack\nprovides: memory-layout\n"
+                          "provides: runtime-init\nprovides: syscalls\n");
+        std::ofstream(tree.root() / "base/link.ld") << "SECTIONS {}\n";
+        std::ofstream(tree.root() / "base/v.cpp") << "int v;\n";
+        tree.manifest_raw("derived",
+                          "mm: 1.2\nkind: board\nname: derived-board\n"
+                          "derives-from: base-board\n");
+        std::stringstream captured;
+        auto* prev = std::cerr.rdbuf(captured.rdbuf());
+        const auto project = mm::build::load_project(tree.root());
+        std::cerr.rdbuf(prev);
+        expect(!project.ok, "unknown SDK is rejected");
+        const auto diag = captured.str();
+        expect(diag.find("base/mm.mdy") != std::string::npos,
+               "unknown SDK diagnostic names base manifest");
+    }
+
+    // 2. Missing linker script on derived board
+    {
+        const mm::test::scoped_tree tree{"board_diag_missing_ld"};
+        tree.manifest("", "kind: project\nname: p\nfolder: sdk\nfolder: base\nfolder: derived\n");
+        tree.manifest_raw("sdk",
+                          "mm: 1.2\nkind: sdk\nname: test-sdk\ntarget: arm-none-eabi\n"
+                          "compiler-family: gcc\nruntime: newlib\nspecs-profile: rdimon\n");
+        tree.manifest_raw("base",
+                          "mm: 1.2\nkind: board\nname: base-board\nsdk: test-sdk\n"
+                          "cpu: cortex-m3\ninstruction-set: thumb\nfloat-abi: soft\n"
+                          "file: v.cpp\n"
+                          "provides: reset-vector\nprovides: initial-stack\nprovides: memory-layout\n");
+        std::ofstream(tree.root() / "base/v.cpp") << "int v;\n";
+        tree.manifest_raw("derived",
+                          "mm: 1.2\nkind: board\nname: derived-board\n"
+                          "derives-from: base-board\n");
+        std::stringstream captured;
+        auto* prev = std::cerr.rdbuf(captured.rdbuf());
+        const auto project = mm::build::load_project(tree.root());
+        std::cerr.rdbuf(prev);
+        expect(!project.ok, "missing linker script is rejected");
+        const auto diag = captured.str();
+        expect(diag.find("board requires linker-script") != std::string::npos,
+               "diagnostic mentions board requires linker-script");
+    }
+
+    // 3. Missing files on derived board
+    {
+        const mm::test::scoped_tree tree{"board_diag_missing_files"};
+        tree.manifest("", "kind: project\nname: p\nfolder: sdk\nfolder: base\nfolder: derived\n");
+        tree.manifest_raw("sdk",
+                          "mm: 1.2\nkind: sdk\nname: test-sdk\ntarget: arm-none-eabi\n"
+                          "compiler-family: gcc\nruntime: newlib\nspecs-profile: rdimon\n");
+        tree.manifest_raw("base",
+                          "mm: 1.2\nkind: board\nname: base-board\nsdk: test-sdk\n"
+                          "cpu: cortex-m3\ninstruction-set: thumb\nfloat-abi: soft\n"
+                          "linker-script: link.ld\n"
+                          "provides: reset-vector\nprovides: initial-stack\nprovides: memory-layout\n");
+        std::ofstream(tree.root() / "base/link.ld") << "SECTIONS {}\n";
+        tree.manifest_raw("derived",
+                          "mm: 1.2\nkind: board\nname: derived-board\n"
+                          "derives-from: base-board\n");
+        std::stringstream captured;
+        auto* prev = std::cerr.rdbuf(captured.rdbuf());
+        const auto project = mm::build::load_project(tree.root());
+        std::cerr.rdbuf(prev);
+        expect(!project.ok, "missing files is rejected");
+        const auto diag = captured.str();
+        expect(diag.find("board requires at least one file") != std::string::npos,
+               "diagnostic mentions board requires at least one file");
+    }
+}
+
+void requires_board_exact_matching() {
+    const mm::test::scoped_tree tree{"requires_board_exact"};
+    make_base_tree(tree);
+    tree.manifest("boards", "kind: dir\nname: boards\nfolder: custom\n");
+    tree.manifest_raw("boards/custom",
+                      "mm: 1.2\nkind: board\nname: custom-board\n"
+                      "derives-from: mps2-an385\n");
+    tree.manifest_raw("app",
+                      "mm: 1.2\nkind: app\nname: board-app\n"
+                      "file: main.cpp\nrequires-board: mps2-an385\n");
+    std::ofstream(tree.root() / "app/main.cpp") << "int main() {}\n";
+
+    tree.manifest("", "kind: project\nname: p\nfolder: platforms\nfolder: boards\nfolder: app\n");
+
+    const auto project = mm::build::load_project(tree.root());
+    expect(project.ok, "project loads");
+
+    std::size_t app_node = 0;
+    for (std::size_t i = 0; i < project.nodes.size(); ++i) {
+        if (project.nodes[i].name == "board-app") app_node = i;
+    }
+
+    // 1. When base board is selected, app is available
+    mm::build::Platform base_platform;
+    base_platform.board = "mps2-an385";
+    const auto avail_base = mm::build::availability(
+        project, app_node, true, true, &base_platform);
+    expect(avail_base.available, "app is available when matching base board is selected");
+
+    // 2. When derived board is selected, app is NOT available (exact match required)
+    mm::build::Platform derived_platform;
+    derived_platform.board = "custom-board";
+    derived_platform.board_derives_from = {"mps2-an385"};
+    const auto avail_derived = mm::build::availability(
+        project, app_node, true, true, &derived_platform);
+    expect(!avail_derived.available, "app is unavailable when derived board is selected");
+    expect(avail_derived.reason.find("requires board mps2-an385") != std::string::npos,
+           "unavailable reason indicates required board");
+    expect(avail_derived.reason.find("selected board is custom-board") != std::string::npos,
+           "unavailable reason indicates selected board");
+}
+
 const mm::test::case_ cases[] = {
     {"validates board name grammar", &validates_board_name_grammar},
     {"derives-from resolves platform identity", &derives_from_resolves_platform_identity},
@@ -511,6 +715,9 @@ const mm::test::case_ cases[] = {
     {"platform provider precedence", &platform_provider_precedence},
     {"multi-level board chain", &multi_level_board_chain},
     {"rejects invalid derivations", &rejects_invalid_derivations},
+    {"rejects linker script on externally linked board", &rejects_linker_script_on_externally_linked_board},
+    {"diagnostics name supplying manifest", &diagnostics_name_supplying_manifest},
+    {"requires-board exact matching", &requires_board_exact_matching},
 };
 
 const mm::test::registrar reg{"mm.build board", cases};

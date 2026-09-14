@@ -172,6 +172,7 @@ struct PlatformSettings {
     std::string machine;
     std::filesystem::path linker_script;
     std::vector<std::filesystem::path> board_sources;
+    std::vector<std::string> board_derives_from;
     bool models_responsibilities = false;
 };
 

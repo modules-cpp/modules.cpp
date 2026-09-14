@@ -150,6 +150,9 @@ bool valid_platform(const PlatformSettings& platform, bool configured) {
     if (platform.board.has_value() != platform.board_manifest.has_value()) return false;
     for (const auto& argument : platform.compiler_arguments)
         if (!valid_scalar(argument)) return false;
+    for (const auto& base : platform.board_derives_from)
+        if (!valid_scalar(base)) return false;
+    if (!platform.board && !platform.board_derives_from.empty()) return false;
     return true;
 }
 
@@ -250,12 +253,14 @@ void write_platform(std::ostream& out, const PlatformSettings& platform) {
     if (platform.board) {
         out << "cross-board: " << *platform.board << '\n';
         out << "cross-board-manifest: " << platform.board_manifest->generic_string() << '\n';
+        for (const auto& base : platform.board_derives_from)
+            out << "cross-board-derives-from: " << base << '\n';
         if (!platform.machine.empty()) out << "cross-board-machine: " << platform.machine << '\n';
         if (platform.link_ownership != LinkOwnership::External) {
             out << "cross-board-linker-script: " << platform.linker_script.generic_string() << '\n';
-            for (const auto& source : platform.board_sources)
-                out << "cross-board-source: " << source.generic_string() << '\n';
         }
+        for (const auto& source : platform.board_sources)
+            out << "cross-board-source: " << source.generic_string() << '\n';
         for (const auto& [responsibility, owner] : platform.responsibility_owners)
             if (owner == *platform.board)
                 out << "cross-board-provides: " << responsibility_name(responsibility) << '\n';
