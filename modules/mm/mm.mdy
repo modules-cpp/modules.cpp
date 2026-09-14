@@ -10,6 +10,7 @@ folder: display
 folder: epaper
 folder: flash
 folder: imu
+folder: lcd
 folder: imu/qmi8658
 folder: mcu
 folder: mdy

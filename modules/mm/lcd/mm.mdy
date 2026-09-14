@@ -1,0 +1,16 @@
+---
+mm: 1.0
+kind: dir
+name: lcd
+folder: st7789
+---
+
+# LCD controller modules
+
+Project-owned colour display controller implementations built on portable
+mm.mcu transports and the mm.display lifecycle interface, as modules/mm/epaper
+holds the monochrome and tri-colour ones.
+
+The difference that reaches mm.display is the pixel format, not the lifecycle:
+these panels report sixteen bits per pixel and display what is written the
+moment it is written, so refresh has nothing left to do.

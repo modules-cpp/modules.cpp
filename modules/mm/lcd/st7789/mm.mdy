@@ -1,0 +1,37 @@
+---
+mm: 1.2
+kind: module
+name: st7789
+module: mm.lcd.st7789
+use: mm.mcu
+use: mm.display
+file: st7789.cppm
+file: src/st7789.cpp
+---
+
+# mm.lcd.st7789
+
+The Sitronix ST7789 colour TFT controller, over portable mm.mcu SPI and GPIO. It
+contains no vendor header and no board pin number: a board's provider supplies
+the wiring, the panel timings, and the initialisation sequence, and this module
+drives the protocol.
+
+Pixels are RGB565, most significant byte first, which is what the controller
+accepts once its pixel format is set to sixteen bits. geometry reports sixteen
+bits per pixel and mm.display's packed-write contract does the rest: write takes
+the bytes the caller composed and puts them in the window it names.
+
+clear takes mm.display's three named colours and maps them onto their RGB565
+values. Those three are what a portable smoke test can ask of any panel; a
+caller that wants one of the other sixty-five thousand composes pixels and
+writes them.
+
+refresh answers Ok and sends nothing. This panel shows what was written when it
+was written, so a caller asking for the frame to be visible is asking for
+something already true. Answering Unsupported would be wrong, and would make one
+portable sequence impossible to write across an ePaper panel and a TFT.
+
+Modelled on Waveshare's LCD_2in8 driver for the RP2350-Touch-LCD-2.8. Its scan
+direction and its full-framebuffer Display path are absent: mm.display writes
+rectangles, and rotation belongs to the caller for the same reason it does in
+mm.touch.

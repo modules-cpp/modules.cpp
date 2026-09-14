@@ -16,5 +16,6 @@ folder: model
 folder: run
 folder: touch
 folder: imu
+folder: lcd
 folder: rtc
 ---

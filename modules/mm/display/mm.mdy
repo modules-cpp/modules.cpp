@@ -17,10 +17,22 @@ A portable display lifecycle and packed-region interface. Graphics policy,
 fonts, image decoding, and controller commands live above or below this module,
 not inside it.
 
-One-bit pixels are row-major and byte-aligned per row: the most significant bit
-is leftmost, one is white, zero is black, and padding at the visible right edge
-has no portable meaning. write changes controller memory; refresh changes the
-visible panel.
+Pixels are row-major, and geometry's bits_per_pixel says how they are packed.
+Two packings are defined.
+
+One-bit pixels are byte-aligned per row: the most significant bit is leftmost,
+one is white, zero is black, and padding at the visible right edge has no
+portable meaning.
+
+Sixteen-bit pixels are RGB565, most significant byte first, two bytes each and
+no row padding. Colour is the caller's to compose: Color names the three a
+portable smoke test can ask of any panel, and a provider maps them onto whatever
+its panel needs, while anything else is pixels the caller writes.
+
+write changes controller memory; refresh makes it visible. A panel that is
+already showing what was written answers Ok and sends nothing, because the
+caller asked for something already true. That keeps one portable sequence
+working across an ePaper panel and a TFT.
 
 The platform-interface marker makes a selected board display provider part of
 an executable only when its ordinary closure reaches mm.display. Host tests may
