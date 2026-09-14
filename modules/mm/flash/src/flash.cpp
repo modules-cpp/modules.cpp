@@ -12,14 +12,20 @@ module mm.flash;
 
 namespace mm::flash {
 
-bool supports(const mm::build::Platform& platform) {
+bool supports(const mm::build::Platform& platform,
+              const mm::build::BoardDefinition& board) {
     if (!platform.sdk || !platform.board) return false;
-    const auto& board = *platform.board;
-    if (*platform.sdk == "pico-arm")
-        return board == "pico" || board == "pico-w" || board == "pico2-arm" ||
-               board == "pico2-w-arm";
-    if (*platform.sdk == "pico-riscv")
-        return board == "pico2-riscv" || board == "pico2-w-riscv";
+    if (board.name != *platform.board || board.sdk != *platform.sdk) return false;
+
+    for (const auto& candidate : board.chain) {
+        if (*platform.sdk == "pico-arm" &&
+            (candidate == "pico" || candidate == "pico-w" ||
+             candidate == "pico2-arm" || candidate == "pico2-w-arm"))
+            return true;
+        if (*platform.sdk == "pico-riscv" &&
+            (candidate == "pico2-riscv" || candidate == "pico2-w-riscv"))
+            return true;
+    }
     return false;
 }
 

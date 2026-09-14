@@ -11,5 +11,5 @@ unit: tests/main.cpp
 
 # mm.flash test target
 
-Verifies Pico-only platform recognition, UF2 naming, safe picotool command
-construction, and execution without accessing a device.
+Verifies Pico-only platform and derived-board recognition, UF2 naming, safe
+picotool command construction, and execution without accessing a device.

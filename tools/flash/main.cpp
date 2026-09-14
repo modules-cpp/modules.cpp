@@ -57,15 +57,18 @@ int main(int argc, char** argv) {
         std::cerr << "flash: no target lane is configured\n";
         return mm::build::exit_manifest;
     }
-    if (!mm::flash::supports(*platform)) {
-        std::cerr << "flash: configured target is not a supported Pico SDK platform\n";
-        return mm::build::exit_unavailable;
-    }
-
     auto project = mm::build::load_project(".", {.tool = "flash", .warn_options = true});
     if (!project.ok) return mm::build::exit_manifest;
     if (!mm::build::check_configuration_staleness(configuration, project, true, "flash"))
         return mm::build::exit_manifest;
+
+    const mm::build::BoardDefinition* selected_board = nullptr;
+    for (const auto& board : project.boards)
+        if (platform->board && board.name == *platform->board) selected_board = &board;
+    if (selected_board == nullptr || !mm::flash::supports(*platform, *selected_board)) {
+        std::cerr << "flash: configured target is not a supported Pico SDK platform\n";
+        return mm::build::exit_unavailable;
+    }
 
     std::size_t node = mm::build::no_target;
     for (std::size_t i = 0; i < project.nodes.size(); ++i) {

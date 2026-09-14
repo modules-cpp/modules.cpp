@@ -15,9 +15,11 @@ import mm.build;
 
 export namespace mm::flash {
 
-// True only for the Pico SDK/board combinations implemented by the current
-// backend. A different target fails before any external program is started.
-[[nodiscard]] bool supports(const mm::build::Platform& platform);
+// True only when the selected board resolves through a supported Pico SDK
+// board. BoardDefinition::chain lets a derived composite board use the same
+// backend without turning its project name into Pico SDK vocabulary.
+[[nodiscard]] bool supports(const mm::build::Platform& platform,
+                            const mm::build::BoardDefinition& board);
 
 // External Pico builds publish a UF2 supplement beside the ordinary,
 // extensionless application artifact.

@@ -4,6 +4,7 @@
 // 32bitmicro LLC (C) 2026
 #include <string>
 #include <utility>
+#include <vector>
 
 import mm.build;
 import mm.flash;
@@ -18,19 +19,48 @@ mm::build::Platform pico(std::string sdk, std::string board) {
     return platform;
 }
 
+mm::build::BoardDefinition board(std::string sdk, std::string name,
+                                 std::vector<std::string> chain) {
+    mm::build::BoardDefinition definition;
+    definition.sdk = std::move(sdk);
+    definition.name = std::move(name);
+    definition.chain = std::move(chain);
+    return definition;
+}
+
 void recognizes_only_pico_sdk_platforms() {
-    mm::test::expect(mm::flash::supports(pico("pico-arm", "pico")),
+    mm::test::expect(mm::flash::supports(
+                         pico("pico-arm", "pico"),
+                         board("pico-arm", "pico", {"pico"})),
                      "expected the Pico Arm board to be supported");
-    mm::test::expect(mm::flash::supports(pico("pico-arm", "pico-w")),
+    mm::test::expect(mm::flash::supports(
+                         pico("pico-arm", "pico-w"),
+                         board("pico-arm", "pico-w", {"pico-w"})),
                      "expected the Pico W board to be supported");
-    mm::test::expect(mm::flash::supports(pico("pico-riscv", "pico2-w-riscv")),
+    mm::test::expect(mm::flash::supports(
+                         pico("pico-riscv", "pico2-w-riscv"),
+                         board("pico-riscv", "pico2-w-riscv", {"pico2-w-riscv"})),
                      "expected the Pico 2 W RISC-V board to be supported");
-    mm::test::expect(!mm::flash::supports(pico("arm-none-eabi-newlib", "rp2040-ram")),
+    mm::test::expect(mm::flash::supports(
+                         pico("pico-arm", "pico_epaper"),
+                         board("pico-arm", "pico_epaper", {"pico_epaper", "pico"})),
+                     "expected a board derived from Pico to be supported");
+    mm::test::expect(!mm::flash::supports(
+                         pico("arm-none-eabi-newlib", "rp2040-ram"),
+                         board("arm-none-eabi-newlib", "rp2040-ram", {"rp2040-ram"})),
                      "expected a project-linked RP2040 board not to use picotool");
-    mm::test::expect(!mm::flash::supports(pico("pico-arm", "unknown")),
+    mm::test::expect(!mm::flash::supports(
+                         pico("pico-arm", "unknown"),
+                         board("pico-arm", "unknown", {"unknown"})),
                      "expected an unknown Pico board to be rejected");
-    mm::test::expect(!mm::flash::supports(pico("pico-riscv", "pico")),
+    mm::test::expect(!mm::flash::supports(
+                         pico("pico-riscv", "pico"),
+                         board("pico-riscv", "pico", {"pico"})),
                      "expected an incompatible Pico SDK/board pair to be rejected");
+    mm::test::expect(!mm::flash::supports(
+                         pico("pico-arm", "pico_epaper"),
+                         board("pico-arm", "other", {"other", "pico"})),
+                     "expected a mismatched resolved board to be rejected");
 }
 
 void derives_the_uf2_supplement() {

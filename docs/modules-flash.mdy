@@ -47,11 +47,18 @@ Before starting picotool, the tool requires all of the following:
 - picotool_DIR naming an existing directory containing a regular file named
   picotool.
 
-The recognized boards are pico, pico-w, pico2-arm, pico2-riscv, pico2-w-arm,
-and pico2-w-riscv under pico-arm or pico-riscv as appropriate. Project-linked
-rp2040-ram and rp2350-ram do not produce Pico SDK UF2 supplements and are
-rejected. Other platforms remain future backends rather than aliases for the
-Pico behavior.
+The recognized base boards are pico, pico-w, pico2-arm, pico2-riscv,
+pico2-w-arm, and pico2-w-riscv under pico-arm or pico-riscv as appropriate. A
+derived board is also recognized when its resolved board chain contains a base
+compatible with the selected SDK. This is the same distinction the Pico CMake
+bridge makes: the project keeps the selected derived-board identity while the
+base supplies Pico SDK's PICO_BOARD vocabulary. boards/pico_epaper therefore
+uses the Pico backend through its pico base.
+
+Project-linked rp2040-ram and rp2350-ram do not produce Pico SDK UF2 supplements
+and are rejected. A board merely naming a Pico SDK is not sufficient; its
+resolved chain must reach one of the recognized bases. Other platforms remain
+future backends rather than aliases for the Pico behavior.
 
 Configuration staleness, structural properties, platform-provider resolution,
 and target availability are checked with the same shared machinery as build,
@@ -96,9 +103,10 @@ never sends the extensionless ELF by accident.
 
 # Conformance
 
-- mm.flash unit tests cover the six-board allowlist, rejection of a
-  project-linked RP2040 platform, UF2 path derivation, safe quoting, and child
-  status propagation without accessing hardware.
+- mm.flash unit tests cover the six base boards, derived-board ancestry,
+  incompatible and unknown chains, rejection of a project-linked RP2040
+  platform, UF2 path derivation, safe quoting, and child status propagation
+  without accessing hardware.
 - tools/flash validates project membership, target availability, configuration
   freshness, the image, and picotool before executing an external command.
 - flash.sh reports a missing installed tool and supplies only the repository's
