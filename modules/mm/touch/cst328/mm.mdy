@@ -1,0 +1,27 @@
+---
+mm: 1.2
+kind: module
+name: cst328
+module: mm.touch.cst328
+use: mm.mcu
+use: mm.touch
+file: cst328.cppm
+file: src/cst328.cpp
+---
+
+# mm.touch.cst328
+
+The Hynitron CST328 capacitive touch controller, over portable mm.mcu I2C and
+GPIO. It contains no vendor header and no board pin number: a board's provider
+supplies the wiring and this module drives the protocol.
+
+The register map is sixteen-bit and big-endian, which is why every access here
+is an mm.mcu i2c_write_read rather than a write followed by a read: the
+controller's address pointer must not be exposed to another master between the
+two halves.
+
+Modelled on Waveshare's reference driver for the RP2350-Touch-LCD-2.8. Two
+things in that driver are deliberately not reproduced. Its interrupt handler is
+absent, because mm.touch is polled and mm.mcu has no callback registration. Its
+rotation transform is absent, because mm.touch reports the panel's own
+coordinates and rotation belongs to whoever knows how the panel is mounted.

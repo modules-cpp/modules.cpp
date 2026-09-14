@@ -1,0 +1,35 @@
+---
+mm: 1.2
+kind: module
+name: touch
+module: mm.touch
+platform-interface:
+file: status.cppm mm.touch:status
+file: types.cppm mm.touch:types
+file: platform.cppm mm.touch:platform
+file: touch.cppm mm.touch
+file: src/touch.cpp
+---
+
+# mm.touch
+
+A portable touch input interface. It reports where a panel is being touched and
+nothing more: gesture recognition, event queues, and pointer state are policy
+above this module, and controller registers are detail below it.
+
+read fills as many points as the panel currently reports, up to the caller's
+span, and sets count. No contact is Ok with count zero rather than an error:
+nothing being touched is an answer. A caller never learns about points it had no
+room for, so a span of one is a valid single-touch client of a five-point panel.
+
+Coordinates are in the panel's own space, which geometry describes. Rotation and
+calibration belong to the caller, because only the caller knows how the panel is
+mounted relative to what is drawn on it.
+
+The interrupt line a controller may offer is deliberately absent. A caller polls
+read; a provider may use its own interrupt internally to make that cheap.
+Exposing an interrupt would mean exposing a callback registration mm.mcu does
+not have.
+
+The platform-interface marker makes a selected board touch provider part of an
+executable only when its ordinary closure reaches mm.touch.

@@ -1,0 +1,19 @@
+---
+mm: 1.0
+kind: test
+name: touch
+use: mm.test
+use: mm.mcu
+use: mm.touch
+use: mm.touch.cst328
+unit: tests/mm/touch/platform.cpp
+unit: tests/mm/touch/cst328.cpp
+unit: tests/main.cpp
+---
+
+# CST328 controller tests
+
+Exercises the register transcript, the identification handshake, point decoding
+including the gap the flag register leaves between the first and second points,
+span clamping, an unsettled report, and the lifecycle, against a recording MCU
+platform that answers as the controller does. No hardware is involved.
