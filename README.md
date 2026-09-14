@@ -127,13 +127,17 @@ also accepted by `build`, `configure`, `test`, `run`, `check`, `model`, and `she
 ## Layout
 
 - `apps/` — host examples and target acceptance applications.
+- `boards/` — this project's own hardware: custom boards derived from a
+  platform's reference board, and the platform providers they bind.
 - `libraries/` — non-core third-party library definitions and project-authored wrappers.
+- `models/` — the abstract data model the tools report through.
 - `modules/mm/` — the reusable core modules (parsing, build graph, test
-  framework, application base class).
-- `tools/` — command-line front ends (`build`, `configure`, `test`, `run`) that use those
-  modules.
+  framework, application base class, the portable MCU and display interfaces).
+- `tools/` — command-line front ends (`build`, `configure`, `test`, `run`,
+  `check`, `model`, `debug`, `flash`, `shell`) that use those modules.
 - `tests/mm/` — public integration and regression tests.
-- `platforms/` — SDK and board manifests, board sources, and linker scripts.
+- `platforms/` — SDK and board manifests, board sources, linker scripts, and
+  the vendored platform SDKs with their external build bridges.
 - `docs/` — the project's own documentation, written in MDY and rendered by
   the `mdy` app. Start with [docs/modules.mdy](docs/modules.mdy) for the full
   developer guide, and [docs/mdy.mdy](docs/mdy.mdy) for the MDY format itself.

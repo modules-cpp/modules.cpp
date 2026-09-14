@@ -3,6 +3,8 @@ mm: 1.0
 kind: doc
 name: mdy
 file: mdy.mdy
+status: official
+release: v1.2.0
 ---
 # MDY format
 MDY is a line-oriented document and manifest format used by modules.cpp. An MDY file can contain a metadata header followed by a simple prose body.

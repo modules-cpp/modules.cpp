@@ -2,7 +2,122 @@
 
 All notable changes to modules.cpp. Versions follow [semantic versioning](https://semver.org/).
 
-## [v1.1.0] — unreleased
+## [v1.2.0] — 2026-09-14
+
+Targets that are real hardware. v1.1 could cross compile and run a hosted
+target under an emulator; a bare-metal target compiled but could not link.
+v1.2 adds the three things that were missing — a description of the platform,
+a way to consume code the project does not own, and a portable interface to
+the machine — so one manifest tree now produces host tools, emulator targets,
+and firmware that runs on a Raspberry Pi Pico.
+
+51 commits since v1.1.0; 232 files changed, 19373 insertions, 899 deletions.
+
+### Added
+
+- **Platforms.** `kind: sdk` and `kind: board` manifests describe a target:
+  triple, compiler family, runtime, processor properties, linker script, board
+  sources, and machine. `configure --sdk` and `--board` select one. A board
+  implies its SDK, and `target` is not valid on a board because a board's
+  target is its SDK's.
+- **Responsibilities.** Five startup obligations — reset vector, initial stack,
+  memory layout, runtime init, syscalls — declared by `provides:` on an SDK or
+  board. A bare-metal lane must cover all five exactly once; a gap names the
+  missing one and an overlap names both claimants, before the linker runs.
+- **Libraries.** `kind: library` describes a vendored tree, its licence, and
+  its public include interface. `library:` on a module makes it a wrapper and
+  on an SDK names the platform implementation. A checkout may be absent, which
+  is a valid unselected state rather than an error.
+- **External CMake builder.** `external-build: cmake` delegates the final link
+  to a project-owned bridge beside the library manifest. Build generates
+  `mm-toolchain.cmake` and `mm-inputs.cmake`, validates the bridge's ABI
+  projection against the project's own, fingerprints a cache identity over
+  every input, and publishes the artifacts the bridge lists in `mm-result.txt`.
+- **The core boundary.** `option: core` with `read-only: core` marks a branch
+  that may not reach third-party code, machine-checked across `use:` edges and
+  for `library:` declarations.
+- **`requires-board`.** Pins an application or test to one board. A root build
+  skips a mismatch and counts it; an explicit request exits 77.
+- **The Pico platform family.** `pico-arm` and `pico-riscv` SDKs, six boards
+  (pico, pico-w, pico2-arm, pico2-riscv, pico2-w-arm, pico2-w-riscv), the
+  pinned Pico SDK checkout with its CMake bridge and C adapter, the
+  `riscv32-pico-elf` toolchain, UF2 validation through real picotool, and
+  OpenOCD support. `platforms/pico/install-sdk-tools.sh` provisions the
+  prebuilt tools against pinned SHA-256 digests.
+- **`mm.mcu`.** A portable, pure C++ microcontroller interface in partitions by
+  facility: GPIO, SPI, UART, timer, board. `Unsupported` is a first-class
+  answer, so a platform implements what it has.
+- **Platform providers.** `platform-interface:` marks a module as a portable
+  interface; `platform-provider:` on an SDK or board binds it to an
+  implementation. The build injects that provider only into executables whose
+  dependency closure reaches the interface, so an unrelated application
+  receives no provider object and no static initialiser.
+- **`mm.display` and `mm.epaper.ssd1680`.** A portable display boundary and an
+  SSD1680 controller with bounded reset and busy handling, packed writes, full
+  and partial refresh, and deep sleep, exercised against a recording platform
+  without hardware.
+- **`flash` tool.** Installs one built target application on a physical board
+  through picotool's UF2 loader.
+- **Board derivation.** `derives-from:` builds one board on another, inheriting
+  its platform identity and specialising the memory map, sources, machine, and
+  provider bindings. `boards/` holds a project's own hardware, separate from
+  the reference support in `platforms/`.
+- **Specifications.** `docs/modules-mm.mdy`, `modules-platforms.mdy`,
+  `modules-libraries.mdy`, `modules-cmake.mdy`, `modules-platform-pico.mdy`,
+  `modules-platform-mcu.mdy`, `modules-display.mdy`, `modules-epaper.mdy`, and
+  `modules-flash.mdy`, each marked with the release it governs.
+
+### Changed
+
+- **Manifest format version 1.2.** Every platform, library, provider, and
+  derivation key requires `mm: 1.2`. An older binary rejects such a manifest by
+  version rather than assigning a key an older meaning. `mm: 1.3` and `mm: 1.4`
+  are rejected as unsupported.
+- Provider resolution runs once, after the manifest tree is loaded and before
+  either lane tool builds its filtered target tree, because an interface
+  requirement decides whether a node survives filtering. `build` and `test`
+  consume one analysis rather than approximating it separately.
+- Board sources are carried into externally linked lanes, so a board may
+  contribute objects to a bridge-owned link.
+- The Pico adapter reports the selected board rather than `PICO_BOARD`, so
+  `pico2-arm` and `pico2-riscv` are distinguishable at runtime.
+- `models::BoardNode` exposes resolved values, the derivation chain, and the
+  origin of each value; `model --boards` prints them.
+- Generic external-builder code names no library, board, or controller.
+
+### Fixed
+
+- Bare-metal configuration and the Cortex-M33 security domain.
+- Pico coupling removed from the generic external build path.
+- A UF2 is accepted only when every block carries its magic words, so a bridge
+  that copies an ELF under a `.uf2` name fails before publication.
+
+### Known limitations
+
+- **No tool converts a tuning option into a compiler or linker argument.** Only
+  `buildable-host`, `buildable-target` and `core` are consumed; the others are
+  validated, recorded and reported as ignored.
+- Nothing automated asserts that a Pico image ran. Hardware execution is an
+  opt-in script whose result a person reads.
+- RP2350 RISC-V hardware has not been exercised, and no OpenOCD machine value
+  is claimed for it.
+- `requires-board` matches exactly; a derived board does not satisfy a
+  requirement naming its base.
+- A derived board cannot remove one of its base's sources, and multiple bases
+  are not supported.
+- Arbitrary tri-color image composition is not implemented; the B panel
+  initializes and clears its red plane.
+- picotool is required, not vendored.
+- Builds are full rather than incremental.
+
+### Compatibility
+
+- `mm: 1.0` and `mm: 1.1` manifests are unchanged and still valid.
+- The configuration record stays `configuration-2`; its key set is extended,
+  and a reader predating a key rejects it by name rather than ignoring it.
+- A tree using any 1.2 key requires a tool that supports 1.2.
+
+## [v1.1.0] — 2026-09-08
 
 Cross compilation. v1.0 built, tested and documented itself with one compiler.
 v1.1 adds a configuration step that selects a compiler, a build type and a

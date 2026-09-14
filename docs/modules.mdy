@@ -2,6 +2,8 @@
 mm: 1.0
 kind: doc
 name: modules.cpp developer guide
+status: official
+release: v1.2.0
 ---
 
 # Introduction
@@ -105,6 +107,10 @@ The source tree is organized by responsibility.
 |   +-- main/                 minimal application
 |   +-- mdy/                  MDY and documentation application
 |   +-- target-smoke-any/     boardless target acceptance application
++-- boards/                   this project's own hardware; see docs/modules-platforms.mdy
+|   +-- widget-rp2040/        custom board derived from rp2040-ram, with its provider
+|   +-- pico_epaper/          Pico plus Waveshare Pico-ePaper-2.66
+|   +-- pico_epaper_b/        the same carrier with the black/white/red panel
 +-- libraries/                non-core third-party definitions and wrappers
 +-- models/                   the abstract data model; see docs/modules-model.mdy
 |   +-- document/             models.document
@@ -120,6 +126,7 @@ The source tree is organized by responsibility.
 +-- platforms/                target SDK and board manifests
 |   +-- arm-none-eabi/        newlib SDK
 |   +-- mps2-an385/           Cortex-M3 board and acceptance application
+|   +-- pico/                 Pico SDKs, six reference boards, and the CMake bridge
 +-- modules/mm/
 |   +-- app/                  mm.app
 |   +-- build/                mm.build
@@ -170,8 +177,13 @@ The source tree is organized by responsibility.
 |   +-- modules-display.mdy   portable display interface and binding design
 |   +-- modules-epaper.mdy    ePaper transport and controller architecture
 |   +-- modules-flash.mdy     Pico firmware flashing specification
+|   +-- modules-libraries.mdy vendored library and wrapper specification
+|   +-- modules-mm.mdy        manifest schema specification, every mm: version
 |   +-- modules-model.mdy     the abstract data model
+|   +-- modules-platform-mcu.mdy   portable MCU interface and provider injection
+|   +-- modules-platform-pico.mdy  the Pico platform family
 |   +-- modules-platforms.mdy SDK, board, and platform specification
+|   +-- modules-run.mdy       run tool and runner specification
 |   +-- modules-test.mdy      test tool and target execution specification
 |
 +-- out/                      bootstrap output, installed commands, configuration

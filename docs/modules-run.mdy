@@ -1,7 +1,9 @@
 ---
 mm: 1.0
-kind: file
-name: modules.cpp run tool
+kind: doc
+name: modules.cpp run tool specification
+status: official
+release: v1.2.0
 ---
 
 # Run

@@ -1,10 +1,8 @@
 ---
-title: modules.cpp firmware flashing
-description: Pico SDK UF2 flashing through the modules.cpp flash tool
-author: Pawel Wodnicki
-company: 32bitmicro LLC
-date: 2026-09-13
-status: implemented
+mm: 1.0
+kind: doc
+name: modules.cpp firmware flashing specification
+status: official
 release: v1.2.0
 ---
 
