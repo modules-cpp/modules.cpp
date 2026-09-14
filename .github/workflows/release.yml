@@ -45,7 +45,10 @@ jobs:
           # so GCC 15 comes from the toolchain PPA.
           sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
           sudo apt-get update
-          sudo apt-get install -y g++-15
+          # cppcheck is needed by the test suite, not only by ./check.sh:
+          # tests/mm/configure exercises the installed check tool, which
+          # wraps cppcheck and exits 127 without it.
+          sudo apt-get install -y g++-15 cppcheck
           sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-15 100
           sudo update-alternatives --install /usr/bin/c++ c++ /usr/bin/g++-15 100
           # bootstrap uses c++; an unconfigured build uses g++. Mixing versions
