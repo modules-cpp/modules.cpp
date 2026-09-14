@@ -12,10 +12,10 @@ release: v1.2.0
 
 status: official gives the implemented portions of this document the same
 authority as the other v1.2.0 specifications. This document specifies the
-implemented transport and SSD1680 controller plus the first concrete wiring and
-provider beneath mm.display. The pico_epaper profile is implemented from the
-named Waveshare panel and carrier documentation. A successful build is not a
-claim of visual hardware qualification.
+implemented transport and SSD1680 controller plus concrete wiring and providers
+beneath mm.display. The pico_epaper and pico_epaper_b profiles are implemented
+from the named Waveshare panel and carrier documentation. A successful build is
+not a claim of visual hardware qualification.
 
 docs/modules-display.mdy owns the portable display boundary and platform
 binding. docs/modules-platform-mcu.mdy owns the implemented MCU provider model.
@@ -42,9 +42,10 @@ The host provider records those calls, and platform.pico.mcu implements them
 through the Pico SDK hardware_spi target.
 
 mm.epaper.ssd1680 implements bounded reset and busy handling, descriptor-owned
-initialization commands, one-bit packed writes, full refresh, optional partial
-refresh, clear, and deep sleep. Host tests exercise command ordering, invalid
-descriptors and regions, timeout, bounded streaming, and non-byte-aligned
+initialization commands, one-bit packed writes, optional chromatic RAM-plane
+initialization, full refresh, optional partial refresh, clear, and deep sleep.
+Host tests exercise command ordering, invalid descriptors and regions, timeout,
+bounded streaming, monochrome and two-plane operation, and non-byte-aligned
 visible widths. The module contains no Pico SDK header and requires no full
 framebuffer.
 
@@ -190,6 +191,15 @@ The corresponding composite board profile binds mm.display to that provider and
 maps to a real Pico SDK PICO_BOARD value. Standard pico, pico-w, pico2-arm, and
 other bare development-board profiles keep no display binding.
 
+The monochrome and B variants are separate profiles because their initialization
+and refresh protocols differ and the carrier has no readable identity channel.
+pico_epaper writes black/white RAM only. pico_epaper_b writes black/white RAM
+0x24 and explicitly initializes chromatic RAM 0x26 on every packed write, so
+retained or power-on red data cannot leak into a monochrome image. Its clear(red)
+operation drives both planes for a uniform red qualification frame. Arbitrary
+red graphics remain future work until mm.display defines a multi-plane packed
+format.
+
 # Foreign driver alternative
 
 Using a vendor or community driver is allowed but follows the established
@@ -243,8 +253,8 @@ screen refresh.
 2. Implemented: add mm.mcu:spi, host transcript tests, and Pico adapter support.
 3. Implemented: add mm.epaper.ssd1680 with initialization and timeout tests.
 4. Implemented: add mm.display and a host stand-in independent of ePaper.
-5. Implemented: add the pico_epaper composite board and its unique display
-   provider for Waveshare Pico-ePaper-2.66.
+5. Implemented: add the pico_epaper and pico_epaper_b composite boards and their
+   unique display providers for both Waveshare Pico-ePaper-2.66 variants.
 6. Implemented: add apps/epaper-smoke using only mm.display.
 7. Implemented for the profile's inherited Pico ARM platform: build the app
    through the external CMake bridge and publish its ELF and UF2 artifacts.
@@ -261,8 +271,8 @@ screen refresh.
 - No generic external-builder source contains an ePaper controller or panel
   name.
 - A standard Pico board selection does not make epaper-smoke available.
-- The composite profile makes epaper-smoke available and injects exactly one
-  display provider.
+- Either composite profile makes epaper-smoke available and injects exactly one
+  matching display provider.
 - A full refresh displays a deterministic test pattern on the named panel.
 - Disconnecting or holding busy produces a bounded timeout rather than a hang.
 - Sleep and subsequent documented recovery work on hardware.
@@ -271,11 +281,11 @@ screen refresh.
 
 # What this does not settle
 
-- SSD1680 is implemented and the Pico-ePaper-2.66 profile fixes one physical
-  pinout. Its panel-specific partial-refresh LUT remains unselected, and no
+- SSD1680 is implemented and both Pico-ePaper-2.66 profiles fix one physical
+  pinout. Their panel-specific partial-refresh LUTs remain unselected, and no
   physical refresh result is claimed before hardware qualification.
-- Tri-color, grayscale, and partial-refresh behavior are controller capabilities,
-  not promises of the first implementation.
+- The B profile initializes and clears its red plane. Arbitrary tri-color image
+  writes, grayscale, and partial refresh remain future controller capabilities.
 - Temperature compensation and external temperature sensors remain future
   controller policy unless required by the selected panel specification.
 - DMA and interrupt-driven SPI are optimizations after the synchronous contract

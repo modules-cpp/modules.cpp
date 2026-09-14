@@ -1,0 +1,21 @@
+---
+mm: 1.2
+kind: module
+name: pico-epaper-b-display
+module: platform.pico_epaper_b.display
+use: mm.display
+use: mm.epaper.ssd1680
+use: mm.mcu
+file: display.cppm
+option: buildable-host no
+---
+
+# platform.pico_epaper_b.display
+
+The physical display provider for the Waveshare Pico-ePaper-2.66-B carrier.
+It owns the tri-color initialization, both controller RAM planes, geometry,
+and fixed GPIO/SPI wiring, then registers the controller as mm.display.
+
+Packed image writes remain black and white in this stage. They explicitly
+clear the red plane, while clear(red) exercises a uniform red frame. Arbitrary
+three-color image composition requires a future multi-plane display contract.

@@ -36,8 +36,14 @@ struct Panel {
     unsigned int width = 0;
     unsigned int height = 0;
     std::span<const InitializationCommand> initialization;
-    std::byte full_update_control = std::byte{0xf7};
+    // A monochrome SSD1680 profile supplies the 0x22 update-control byte. The
+    // Waveshare B profile starts a full update directly with 0x20.
+    std::optional<std::byte> full_update_control = std::byte{0xf7};
     std::optional<std::byte> partial_update_control;
+    // When present, monochrome writes also clear this raw controller plane.
+    // This keeps a black/white/red panel's chromatic pigment inactive rather
+    // than leaving its power-on RAM visible as random colored pixels.
+    std::optional<std::byte> chromatic_ram_command;
     std::byte deep_sleep_control = std::byte{0x01};
 };
 
@@ -62,6 +68,9 @@ private:
         std::byte value, std::span<const std::byte> data = {});
     [[nodiscard]] mm::display::Status stream(
         std::byte command_value, std::span<const std::byte> data);
+    [[nodiscard]] mm::display::Status fill(
+        mm::display::Rectangle rectangle, std::byte command_value,
+        std::byte value);
     [[nodiscard]] mm::display::Status set_window(mm::display::Rectangle rectangle);
     [[nodiscard]] mm::display::Status wait_until_ready();
     [[nodiscard]] mm::display::Status from_mcu(mm::mcu::Status status) const;

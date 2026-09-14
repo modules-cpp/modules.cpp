@@ -32,12 +32,16 @@ int main() {
     }
 
     if (display.initialize() != mm::display::Status::Ok) return 3;
+    // Establish every physical color plane before the patterned write. On a
+    // tri-color provider this explicitly clears retained or power-on red RAM.
+    if (display.clear(mm::display::Color::White) != mm::display::Status::Ok)
+        return 4;
     if (display.write({0, 0, geometry.width, geometry.height},
                       std::span<const std::byte>{frame.data(), frame_bytes}) !=
         mm::display::Status::Ok)
-        return 4;
-    if (display.refresh(mm::display::Refresh::Full) != mm::display::Status::Ok)
         return 5;
-    if (display.sleep() != mm::display::Status::Ok) return 6;
+    if (display.refresh(mm::display::Refresh::Full) != mm::display::Status::Ok)
+        return 6;
+    if (display.sleep() != mm::display::Status::Ok) return 7;
     return 0;
 }

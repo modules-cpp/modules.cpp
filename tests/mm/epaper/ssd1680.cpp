@@ -64,6 +64,34 @@ mm::epaper::ssd1680::Panel panel() {
     };
 }
 
+// The first payload byte the controller streamed after a command, or no_payload
+// when that command never appeared or carried nothing. Command counts prove a
+// plane was addressed; this proves what was put in it, which is the half a
+// polarity mistake would slip through.
+constexpr unsigned int no_payload = 0x100;
+
+unsigned int first_payload_after(unsigned int command_value) {
+    for (std::size_t i = 0; i < mm_test_epaper_transcript_size(); ++i) {
+        if (mm_test_epaper_transfer_is_data(i)) continue;
+        if (mm_test_epaper_transfer_size(i) != 1) continue;
+        if (mm_test_epaper_transfer_byte(i, 0) != command_value) continue;
+        for (std::size_t j = i + 1; j < mm_test_epaper_transcript_size(); ++j) {
+            if (!mm_test_epaper_transfer_is_data(j)) break;
+            if (mm_test_epaper_transfer_size(j) == 0) continue;
+            return mm_test_epaper_transfer_byte(j, 0);
+        }
+        return no_payload;
+    }
+    return no_payload;
+}
+
+mm::epaper::ssd1680::Panel chromatic_panel() {
+    auto result = panel();
+    result.full_update_control = std::nullopt;
+    result.chromatic_ram_command = std::byte{0x26};
+    return result;
+}
+
 void initializes_from_provider_owned_panel_data() {
     mm_test_epaper_reset();
     mm::epaper::ssd1680::Controller controller{wiring(), panel()};
@@ -161,6 +189,53 @@ void clear_streams_without_a_full_framebuffer() {
            "a monochrome controller does not invent red pixels");
 }
 
+void initializes_both_tri_color_planes() {
+    mm_test_epaper_reset();
+    mm::epaper::ssd1680::Controller controller{wiring(), chromatic_panel()};
+    expect(controller.initialize() == mm::display::Status::Ok,
+           "tri-color controller initializes");
+
+    const std::array pixels{std::byte{0xaa}, std::byte{0x55}};
+    expect(controller.write({0, 0, 16, 1}, pixels) == mm::display::Status::Ok &&
+               mm_test_epaper_command_count(0x24) == 1 &&
+               mm_test_epaper_command_count(0x26) == 1,
+           "a black-white write also initializes the chromatic plane");
+    expect(first_payload_after(0x24) == 0xaa,
+           "the black-white plane carries the caller's pixels");
+    expect(first_payload_after(0x26) == 0x00,
+           "a monochrome write leaves the chromatic plane inactive");
+    expect(controller.refresh(mm::display::Refresh::Full) ==
+                   mm::display::Status::Ok &&
+               mm_test_epaper_command_count(0x22) == 0 &&
+               mm_test_epaper_command_count(0x20) == 1,
+           "the B panel starts its full update without command 0x22");
+
+    mm_test_epaper_reset();
+    mm::epaper::ssd1680::Controller red{wiring(), chromatic_panel()};
+    expect(red.initialize() == mm::display::Status::Ok &&
+               red.clear(mm::display::Color::Red) == mm::display::Status::Ok &&
+               mm_test_epaper_command_count(0x24) == 1 &&
+               mm_test_epaper_command_count(0x26) == 1,
+           "a tri-color panel accepts an all-red clear through both planes");
+    expect(first_payload_after(0x26) == 0xff,
+           "an all-red clear drives the chromatic plane active");
+    expect(first_payload_after(0x24) == 0xff,
+           "an all-red clear leaves the black-white plane white beneath it");
+    expect(mm_test_epaper_largest_transfer() <= 32,
+           "tri-color plane fills remain bounded");
+
+    // Black is the case a wrong polarity would still pass above: both planes
+    // carry 0x00, so only the red clear and the monochrome write distinguish
+    // an inactive chromatic plane from an active one.
+    mm_test_epaper_reset();
+    mm::epaper::ssd1680::Controller black{wiring(), chromatic_panel()};
+    expect(black.initialize() == mm::display::Status::Ok &&
+               black.clear(mm::display::Color::Black) == mm::display::Status::Ok &&
+               first_payload_after(0x24) == 0x00 &&
+               first_payload_after(0x26) == 0x00,
+           "an all-black clear drives neither plane chromatic");
+}
+
 void supports_a_visible_width_with_padded_ram_rows() {
     mm_test_epaper_reset();
     auto narrow = panel();
@@ -202,6 +277,7 @@ const mm::test::case_ cases[] = {
     {"writes and refreshes", &writes_a_packed_region_and_refreshes},
     {"rejects regions and times out", &rejects_bad_regions_and_times_out_busy},
     {"clear streams bounded chunks", &clear_streams_without_a_full_framebuffer},
+    {"initializes both tri-color planes", &initializes_both_tri_color_planes},
     {"supports padded visible rows", &supports_a_visible_width_with_padded_ram_rows},
     {"supports qualified partial refresh", &supports_descriptor_qualified_partial_refresh},
     {"stops after transport error", &stops_after_a_transport_error},

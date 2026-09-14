@@ -210,11 +210,11 @@ docs/modules-platform-pico.mdy specifies all of them, their SDKs, the vendored
 checkout, the CMake bridge, and the wrapper. It also records the processor rows
 those boards select and the measurements they were read from.
 
-boards/pico_epaper is a composite board derived from the SDK-backed pico board.
-It inherits pico-arm and platform.pico.mcu, then adds a board-owned mm.display
-binding for the Waveshare Pico-ePaper-2.66 attached to the Pico headers. Its
-board chain lets the external bridge retain PICO_BOARD=pico while the selected
-project board remains pico_epaper.
+boards/pico_epaper and boards/pico_epaper_b are composite boards derived from
+the SDK-backed pico board. They inherit pico-arm and platform.pico.mcu, then add
+board-owned mm.display bindings for the monochrome and black/white/red Waveshare
+Pico-ePaper-2.66 variants. Their board chains let the external bridge retain
+PICO_BOARD=pico while the selected project board records the exact panel.
 
 A recognized profile name does not mean the installed toolchain ships the file. The compiler answers directly, and returns the query unchanged when it cannot resolve it:
 

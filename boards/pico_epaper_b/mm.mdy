@@ -1,0 +1,12 @@
+---
+mm: 1.0
+kind: dir
+name: pico-epaper-b-platform
+folder: board
+folder: display
+---
+
+# pico-epaper-b-platform
+
+The Raspberry Pi Pico plus Waveshare Pico-ePaper-2.66-B composite board and its
+board-owned black, white, and red display provider.

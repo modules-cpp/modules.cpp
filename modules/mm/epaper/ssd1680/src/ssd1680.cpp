@@ -111,6 +111,34 @@ mm::display::Status Controller::stream(std::byte command_value,
     return command(command_value, data);
 }
 
+mm::display::Status Controller::fill(mm::display::Rectangle rectangle,
+                                     std::byte command_value,
+                                     std::byte value) {
+    auto status = set_window(rectangle);
+    if (status != mm::display::Status::Ok) return status;
+
+    status = command(command_value);
+    if (status != mm::display::Status::Ok) return status;
+    status = from_mcu(mm::mcu::gpio_write(wiring_.data_command_gpio, true));
+    if (status != mm::display::Status::Ok) return fail(status);
+    status = from_mcu(mm::mcu::gpio_write(wiring_.chip_select_gpio, false));
+    if (status != mm::display::Status::Ok) return fail(status);
+
+    std::array<std::byte, 32> chunk;
+    chunk.fill(value);
+    std::size_t remaining =
+        static_cast<std::size_t>((rectangle.width + 7) / 8) * rectangle.height;
+    while (remaining != 0 && status == mm::display::Status::Ok) {
+        const auto count = remaining < chunk.size() ? remaining : chunk.size();
+        status = from_mcu(mm::mcu::spi_write(
+            wiring_.spi.instance, std::span<const std::byte>{chunk.data(), count}));
+        remaining -= count;
+    }
+    const auto deselect = from_mcu(mm::mcu::gpio_write(wiring_.chip_select_gpio, true));
+    if (status != mm::display::Status::Ok) return fail(status);
+    return deselect == mm::display::Status::Ok ? deselect : fail(deselect);
+}
+
 mm::display::Status Controller::wait_until_ready() {
     unsigned long start = 0;
     auto status = from_mcu(mm::mcu::ticks_ms(start));
@@ -204,49 +232,51 @@ mm::display::Status Controller::write(mm::display::Rectangle rectangle,
         bytes.size() != static_cast<std::size_t>((rectangle.width + 7) / 8) * rectangle.height)
         return mm::display::Status::BadArgument;
     auto status = set_window(rectangle);
-    return status == mm::display::Status::Ok ? stream(write_black_white_ram, bytes)
-                                             : status;
+    if (status != mm::display::Status::Ok) return status;
+    status = stream(write_black_white_ram, bytes);
+    if (status != mm::display::Status::Ok || !panel_.chromatic_ram_command)
+        return status;
+    return fill(rectangle, *panel_.chromatic_ram_command, std::byte{0x00});
 }
 
 mm::display::Status Controller::clear(mm::display::Color color) {
     if (state_ != State::Ready) return mm::display::Status::NotInitialized;
-    if (color == mm::display::Color::Red) return mm::display::Status::Unsupported;
-    const auto fill = color == mm::display::Color::White ? std::byte{0xff}
-                                                         : std::byte{0x00};
-    std::array<std::byte, 32> chunk;
-    chunk.fill(fill);
-    const mm::display::Rectangle full{0, 0, panel_.width, panel_.height};
-    auto status = set_window(full);
-    if (status != mm::display::Status::Ok) return status;
+    if (color == mm::display::Color::Red && !panel_.chromatic_ram_command)
+        return mm::display::Status::Unsupported;
 
-    status = command(write_black_white_ram);
-    if (status != mm::display::Status::Ok) return status;
-    status = from_mcu(mm::mcu::gpio_write(wiring_.data_command_gpio, true));
-    if (status != mm::display::Status::Ok) return fail(status);
-    status = from_mcu(mm::mcu::gpio_write(wiring_.chip_select_gpio, false));
-    if (status != mm::display::Status::Ok) return fail(status);
-    std::size_t remaining =
-        static_cast<std::size_t>((panel_.width + 7) / 8) * panel_.height;
-    while (remaining != 0 && status == mm::display::Status::Ok) {
-        const auto count = remaining < chunk.size() ? remaining : chunk.size();
-        status = from_mcu(mm::mcu::spi_write(
-            wiring_.spi.instance, std::span<const std::byte>{chunk.data(), count}));
-        remaining -= count;
-    }
-    const auto deselect = from_mcu(mm::mcu::gpio_write(wiring_.chip_select_gpio, true));
-    if (status != mm::display::Status::Ok) return fail(status);
-    return deselect == mm::display::Status::Ok ? deselect : fail(deselect);
+    const mm::display::Rectangle full{0, 0, panel_.width, panel_.height};
+    const auto black_white = color == mm::display::Color::Black
+                                 ? std::byte{0x00}
+                                 : std::byte{0xff};
+    auto status = fill(full, write_black_white_ram, black_white);
+    if (status != mm::display::Status::Ok || !panel_.chromatic_ram_command)
+        return status;
+
+    // The chromatic plane carries pigment selection directly: a raw 0x00 byte
+    // leaves those pixels to the black-white plane, and 0xff drives red. An
+    // all-red frame therefore holds the black-white plane white beneath it, so
+    // red lands on white rather than on black. Both bytes are pinned by
+    // tests/mm/epaper/ssd1680.cpp; which way round a panel actually renders is
+    // a claim only visual qualification settles.
+    const auto chromatic = color == mm::display::Color::Red
+                               ? std::byte{0xff}
+                               : std::byte{0x00};
+    return fill(full, *panel_.chromatic_ram_command, chromatic);
 }
 
 mm::display::Status Controller::refresh(mm::display::Refresh mode) {
     if (state_ != State::Ready) return mm::display::Status::NotInitialized;
     const auto control = mode == mm::display::Refresh::Full
-                             ? std::optional{panel_.full_update_control}
+                             ? panel_.full_update_control
                              : panel_.partial_update_control;
-    if (!control) return mm::display::Status::Unsupported;
+    if (mode == mm::display::Refresh::Partial && !control)
+        return mm::display::Status::Unsupported;
     state_ = State::Refreshing;
-    const std::array data{*control};
-    auto status = command(display_update_control_2, data);
+    auto status = mm::display::Status::Ok;
+    if (control) {
+        const std::array data{*control};
+        status = command(display_update_control_2, data);
+    }
     if (status == mm::display::Status::Ok) status = command(master_activation);
     if (status == mm::display::Status::Ok) status = wait_until_ready();
     if (status != mm::display::Status::Ok) return status;

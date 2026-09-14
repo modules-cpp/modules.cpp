@@ -13,7 +13,7 @@ unit: tests/main.cpp
 
 # SSD1680 controller tests
 
-Exercises exact command/data transcripts, controller lifecycle, packed-region
-validation, full and descriptor-qualified partial refresh, bounded busy
-timeout, transport failure, and recovery against a recording MCU platform
-without physical hardware.
+Exercises exact command/data transcripts, controller lifecycle, monochrome and
+black/white/red RAM-plane handling, packed-region validation, full and
+descriptor-qualified partial refresh, bounded busy timeout, transport failure,
+and recovery against a recording MCU platform without physical hardware.

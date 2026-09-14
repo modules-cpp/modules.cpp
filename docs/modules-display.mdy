@@ -12,11 +12,11 @@ release: v1.2.0
 
 status: official gives the implemented portions of this document the same
 authority as the other v1.2.0 specifications. This document specifies the
-implemented portable display foundation and its first physical binding.
-mm.display, MCU SPI, the SSD1680 controller, the pico_epaper board profile, and
-the portable smoke application exist. The profile is code-backed and target
-buildable; visual refresh and sleep behavior remain hardware-qualification
-requirements rather than completed claims.
+implemented portable display foundation and its physical bindings. mm.display,
+MCU SPI, the SSD1680 controller, the pico_epaper and pico_epaper_b board
+profiles, and the portable smoke application exist. Both profiles are
+code-backed and target buildable; visual refresh and sleep behavior remain
+hardware-qualification requirements rather than completed claims.
 
 docs/modules-platform-mcu.mdy remains authoritative for the implemented mm.mcu
 interface and provider mechanism. docs/modules-platforms.mdy remains
@@ -202,21 +202,30 @@ portable board binding.
 # Composite board profiles
 
 A fixed carrier, HAT, or documented board-plus-panel assembly is represented by
-a distinct board profile. The first implemented profile is:
+a distinct board profile. The implemented profiles are:
 
 Opening fence
-pico_epaper
+pico_epaper    Pico-ePaper-2.66, black and white
+pico_epaper_b  Pico-ePaper-2.66-B, black, white, and red
 Closing fence
 
-boards/pico_epaper derives from the Pico SDK board pico. It therefore inherits
-pico-arm, the RP2040 processor identity, and platform.pico.mcu, while adding the
-mm.display binding. The generated board chain lets the Pico external bridge map
-the profile to PICO_BOARD=pico without teaching the bridge the composite name.
+Both profiles derive from the Pico SDK board pico. They therefore inherit
+pico-arm, the RP2040 processor identity, and platform.pico.mcu, while each adds
+its own mm.display binding. The generated board chain lets the Pico external
+bridge map either profile to PICO_BOARD=pico without teaching the bridge either
+composite name.
 
-The board documents a Waveshare Pico-ePaper-2.66 attached to the headers, using
-SPI1 at 4 MHz with CLK GP10, DIN GP11, CS GP9, DC GP8, reset GP12, and busy GP13.
-The provider exposes the panel in its native 152 by 296 orientation and does not
-enable partial refresh until its LUT and recovery sequence are qualified.
+The boards document the two Waveshare Pico-ePaper-2.66 variants attached to the
+headers, using SPI1 at 4 MHz with CLK GP10, DIN GP11, CS GP9, DC GP8, reset GP12,
+and busy GP13. Each provider exposes the panel in its native 152 by 296
+orientation and does not enable partial refresh until its LUT and recovery
+sequence are qualified.
+
+Panel selection is configuration, not runtime discovery. The carrier exposes
+DIN but no SPI receive or panel-identification signal, and BUSY reports only
+controller activity. configure --board pico_epaper selects monochrome;
+configure --board pico_epaper_b selects the B panel. A timing guess is not a
+valid substitute for that authored hardware fact.
 
 # Core boundary
 
@@ -251,8 +260,8 @@ profile from a hardware-qualified implementation.
 2. Implemented: add mm.display with a host stand-in and lifecycle tests.
 3. Implemented: add mm.epaper.ssd1680 against fake GPIO, SPI, and timer
    services.
-4. Implemented: add pico_epaper and platform.pico_epaper.display for the
-   Waveshare Pico-ePaper-2.66 wiring.
+4. Implemented: add pico_epaper and pico_epaper_b with distinct providers for
+   the monochrome and black/white/red Waveshare Pico-ePaper-2.66 variants.
 5. Implemented for the Pico external link: add apps/epaper-smoke using only
    mm.display and build it through the selected provider closure.
 6. Pending hardware: qualify initialization, full refresh, supported partial refresh, timeout,
@@ -277,9 +286,10 @@ profile from a hardware-qualified implementation.
 
 # What this does not settle
 
-- SSD1680 is the first implemented controller and Pico-ePaper-2.66 is the first
-  code-backed physical profile. Its full-refresh and sleep behavior are not
-  reported as hardware-qualified until observed on the named assembly.
+- SSD1680 is the first implemented controller and the two Pico-ePaper-2.66
+  variants are the first code-backed physical profiles. Their full-refresh and
+  sleep behavior are not reported as hardware-qualified until observed on each
+  named assembly.
 - Multi-display selection and hot-plug discovery are not specified.
 - A general hardware-profile manifest schema is not added to v1.2.
 - Fonts, drawing primitives, image formats, UI layout, and animation are outside

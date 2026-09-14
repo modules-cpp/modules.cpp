@@ -4,6 +4,7 @@ kind: dir
 name: boards
 folder: widget-rp2040
 folder: pico_epaper
+folder: pico_epaper_b
 ---
 
 # boards

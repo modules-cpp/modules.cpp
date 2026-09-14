@@ -153,11 +153,12 @@ board's SDK names a library declaring external-build, which is why the
 completeness check runs after every SDK and library reference resolves rather
 than while a board is parsed.
 
-boards/pico_epaper is a project-level composite profile derived from pico. It
-does not add a seventh SDK board or change the Pico bridge's vendor vocabulary:
-the persisted board chain contains pico_epaper followed by pico, and the bridge
-selects PICO_BOARD=pico from that chain. The derived board adds only the
-mm.display provider for its attached Waveshare Pico-ePaper-2.66.
+boards/pico_epaper and boards/pico_epaper_b are project-level composite profiles
+derived from pico. They do not add SDK boards or change the Pico bridge's vendor
+vocabulary: each persisted board chain contains its composite name followed by
+pico, and the bridge selects PICO_BOARD=pico from that chain. The derived boards
+add only their matching mm.display providers for the monochrome and
+black/white/red Waveshare Pico-ePaper-2.66 variants.
 
 pico2-arm and pico2-w-arm declare security-domain: secure and select the Arm
 Secure processor row. rp2350-ram omits the key, keeps the non-secure default,
