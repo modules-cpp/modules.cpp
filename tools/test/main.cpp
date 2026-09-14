@@ -84,8 +84,9 @@ int main(int argc, char** argv) {
     const auto units = target.sources.size();
     const auto uses = target.uses.size();
 
-    // TranslationUnit paths are root relative, and the compiler writes gcm.cache into the
-    // working directory, so both want the project root.
+    // TranslationUnit paths are root relative. The project root remains the
+    // compiler working directory, while prepare_module_cache maps GCC CMIs to
+    // this test's private build directory.
     std::filesystem::current_path(root, ec);
     if (ec) {
         std::cerr << "test: cannot enter project root: " << ec.message() << "\n";
@@ -217,13 +218,13 @@ int main(int argc, char** argv) {
         }
     }
 
-    if (!mm::build::clear_module_cache(build_dir)) return mm::build::exit_compile;
-
     std::filesystem::remove_all(build_dir, ec);
     if (ec) {
         std::cerr << "test: cannot clear " << build_dir.string() << ": " << ec.message() << "\n";
         return mm::build::exit_compile;
     }
+    if (!mm::build::prepare_module_cache(toolchain, tree, build_dir))
+        return mm::build::exit_compile;
 
     std::cout << "Compile\n";
     for (const auto position : order) {

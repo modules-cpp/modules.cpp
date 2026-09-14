@@ -22,9 +22,9 @@
 //     build0 and build1 (out/build0, out/build1), which mm.model also
 //     represents as Tools despite having no kind:app manifest of their own.
 //
-// Module cache is reported informationally, not as a violation: gcm.cache
-// has no declaring Tool or manifest, and its absence is legitimate any time
-// nothing has compiled a module yet.
+// Module caches are reported informationally, not as a violation. Bootstrap
+// and each output lane own separate caches, and their absence is legitimate
+// any time nothing has compiled a module yet.
 //
 // --configuration additionally reports the project's build configuration
 // (models.configuration, via mm::model::default_configuration): the live
@@ -404,12 +404,24 @@ int main(int argc, char** argv) {
     violations += missing;
 
     // Informational, not a violation: unlike a Tool's invocation(), nothing
-    // declares gcm.cache, and its absence is legitimate any time nothing
-    // has compiled a module yet, such as right after clean.sh.
-    std::cout << "\nModule cache\n";
-    if (std::filesystem::exists(root / "gcm.cache"))
-        std::cout << "  present: " << (root / "gcm.cache").string() << "\n";
-    else
+    // declares these compiler side effects. Resolve the configuration even
+    // without --configuration so the active and host lane caches are named.
+    std::cout << "\nModule caches\n";
+    std::set<std::filesystem::path> module_caches = {
+        root / "out/bootstrap-bmi",
+    };
+    if (const auto configuration = mm::model::configuration(root, false);
+        configuration != nullptr) {
+        module_caches.insert(root / configuration->build_directory() / "bmi");
+        module_caches.insert(root / configuration->host_build_directory() / "bmi");
+    }
+    bool cache_present = false;
+    for (const auto& cache : module_caches) {
+        if (!std::filesystem::exists(cache)) continue;
+        std::cout << "  present: " << cache.string() << "\n";
+        cache_present = true;
+    }
+    if (!cache_present)
         std::cout << "  absent (nothing has compiled a module yet)\n";
 
     std::cout << "\n";

@@ -36,11 +36,11 @@ echo
 # and then used to build everything else.
 rm -f "${MM_BUILD}/build1"
 
-# Stage zero and the fallback below both compile module interfaces with raw
-# compiler commands, and neither goes through mm::build::clear_module_cache.
-# A gcm.cache left from an earlier build can hold BMIs for interfaces that
-# have since changed, so it is cleared here rather than silently consumed.
-rm -rf gcm.cache
+# Stage zero and the fallback use a private GCC mapper. The default gcm.cache is
+# shared by every process in the project root and another lane can clear it
+# between two bootstrap compiler calls. The private directory is both fresh and
+# isolated from normal builds.
+rm -rf "${MM_BUILD}/bootstrap-bmi"
 
 # Hand the work to build0 rather than repeating the same fixed steps by hand
 # a second time. The status is captured instead of ending the script,
@@ -60,7 +60,7 @@ if [ "${mm_build1_status}" -ne 0 ] || [ ! -x "${MM_BUILD}/build1" ]; then
     mkdir -p "${MM_BUILD}/modules/mm/configure/src"
     mkdir -p "${MM_BUILD}/tools/build"
 
-    MCCP_MODULES="${MCCP} -fmodules-ts"
+    MCCP_MODULES="${MCCP} -fmodules-ts -fmodule-mapper=tools/build/bootstrap.mapper"
     MM_MODULE_FLAGS="${MM_CPPFLAGS} -x c++"
 
     ${MCCP_MODULES} ${MM_MODULE_FLAGS} \

@@ -103,7 +103,8 @@ configured native output goes to `out-host`, regardless of compiler family
 or build. `./clean.sh` removes both.
 
 If something fails partway through, `./clean.sh` removes all generated output
-(the `out/` and `gcm.cache/` directories) so you can start over.
+(`out/`, configured `out-*` trees, and the legacy `gcm.cache/` path) so you can
+start over. Current module caches live inside their owning output tree.
 
 ## Everyday commands
 

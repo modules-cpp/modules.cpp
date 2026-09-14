@@ -271,9 +271,9 @@ int main(int argc, char** argv) {
         }
     }
 
-    std::cout << "Clear module cache\n";
-    if (!mm::build::clear_module_cache(build_dir)) {
-        std::cerr << "build: failed to clear module cache\n";
+    std::cout << "Prepare module cache\n";
+    if (!mm::build::prepare_module_cache(toolchain, tree, build_dir)) {
+        std::cerr << "build: failed to prepare module cache\n";
         return mm::build::exit_compile;
     }
     std::cout << "\n";

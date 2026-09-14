@@ -82,7 +82,12 @@ int build_1()
         {"tools/build/build.cpp",           "out/tools/build/build.o"},
     };
 
-    const std::string module_compiler = "c++ -fmodules-ts";
+    // The default GCC mapper writes project-root gcm.cache. A normal build in
+    // another terminal clears that shared directory, so bootstrap uses its own
+    // fixed mapper and cannot lose an interface between two compiler calls.
+    const std::string module_compiler =
+        "c++ -fmodules-ts -fmodule-mapper=" +
+        shell_quote("tools/build/bootstrap.mapper");
     const std::string module_flags = "-std=c++20 -x c++";
 
     for (const auto& step : steps) {

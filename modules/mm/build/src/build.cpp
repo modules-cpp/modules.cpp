@@ -3375,7 +3375,8 @@ int compile(const Toolchain& toolchain, BuildableNode& target,
         for (const auto& include : include_directories)
             command += " -I " + shell_quote(include);
         if (toolchain.family == CompilerFamily::Gcc) {
-            command += " -fmodules-ts -x c++";
+            command += " -fmodules-ts -fmodule-mapper=" +
+                       shell_quote(bmi_dir / "gcc.mapper") + " -x c++";
         } else {
             command += " -fprebuilt-module-path=" + shell_quote(bmi_dir);
 
@@ -3491,14 +3492,9 @@ int install(const std::filesystem::path& from, const std::filesystem::path& bin_
     return exit_ok;
 }
 
-bool clear_module_cache(const std::filesystem::path& build_dir) {
+bool prepare_module_cache(const Toolchain& toolchain, const Tree& tree,
+                          const std::filesystem::path& build_dir) {
     std::error_code ec;
-    std::filesystem::remove_all("gcm.cache", ec);
-    if (ec) {
-        std::cerr << "build: cannot clear gcm.cache: " << ec.message() << "\n";
-        return false;
-    }
-
     const auto bmi_dir = build_dir / "bmi";
     if (!within_root(bmi_dir)) {
         std::cerr << "build: refusing to clear outside the project: " << bmi_dir.string() << "\n";
@@ -3507,6 +3503,52 @@ bool clear_module_cache(const std::filesystem::path& build_dir) {
     std::filesystem::remove_all(bmi_dir, ec);
     if (ec) {
         std::cerr << "build: cannot clear " << bmi_dir.string() << ": " << ec.message() << "\n";
+        return false;
+    }
+    std::filesystem::create_directories(bmi_dir, ec);
+    if (ec) {
+        std::cerr << "build: cannot create " << bmi_dir.string() << ": " << ec.message()
+                  << "\n";
+        return false;
+    }
+
+    if (toolchain.family != CompilerFamily::Gcc) return true;
+
+    std::map<std::string, std::string, std::less<>> mappings;
+    for (const auto& target : tree.targets) {
+        for (const auto& source : target.sources) {
+            std::string module_name = source.module_name;
+            if (module_name.empty() && target.kind == "module" &&
+                std::filesystem::path(source.path).extension() == ".cppm")
+                module_name = target.module_name;
+            if (module_name.empty()) continue;
+
+            std::string filename = module_name;
+            for (char& c : filename)
+                if (c == ':') c = '-';
+            mappings.emplace(std::move(module_name), std::move(filename) + ".gcm");
+        }
+    }
+
+    const auto root = bmi_dir.generic_string();
+    if (root.find_first_of(" \t\r\n") != std::string::npos) {
+        std::cerr << "build: GCC module cache path contains whitespace: " << root << "\n";
+        return false;
+    }
+    const auto mapper_path = bmi_dir / "gcc.mapper";
+    std::ofstream mapper(mapper_path);
+    if (!mapper) {
+        std::cerr << "build: cannot write GCC module mapper: " << mapper_path.string()
+                  << "\n";
+        return false;
+    }
+    mapper << "$root " << root << '\n';
+    for (const auto& [module_name, filename] : mappings)
+        mapper << module_name << ' ' << filename << '\n';
+    mapper.close();
+    if (!mapper) {
+        std::cerr << "build: cannot finish GCC module mapper: " << mapper_path.string()
+                  << "\n";
         return false;
     }
     return true;

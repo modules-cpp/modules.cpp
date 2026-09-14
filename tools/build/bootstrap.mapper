@@ -1,0 +1,4 @@
+$root out/bootstrap-bmi
+mm.build mm.build.gcm
+mm.configure mm.configure.gcm
+mm.mdy mm.mdy.gcm

@@ -32,12 +32,12 @@ public:
 
     [[nodiscard]] virtual ArtifactKind kind() const = 0;
 
-    // Root relative, e.g. "out/bin/build" or "gcm.cache".
+    // Root relative, e.g. "out/bin/build" or "out-host/bmi".
     [[nodiscard]] virtual std::filesystem::path path() const = 0;
 
     // The operation whose script writes this artifact. nullptr for
-    // ModuleCache: every compiler invocation writes to gcm.cache as a side
-    // effect, so no single operation is the one that produces it.
+    // ModuleCache: bootstrap, build, and test each write their own cache as a
+    // side effect, so no single operation is the one that produces it.
     [[nodiscard]] virtual const Operation* produced_by() const = 0;
 };
 

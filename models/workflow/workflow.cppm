@@ -59,7 +59,7 @@ enum class ArtifactKind {
     InstalledBinary,   // out/bin/<name>
     TestBuild,         // out/tests
     Documentation,     // out/index.html and nested pages
-    ModuleCache,       // gcm.cache
+    ModuleCache,       // <build directory>/bmi or out/bootstrap-bmi
     Configuration,     // out/config.mdy, which names the lane
     ResolvedOptions    // <build directory>/**/resolved-options.mdy
 };

@@ -187,9 +187,10 @@ The source tree is organized by responsibility.
 |   +-- modules-test.mdy      test tool and target execution specification
 |
 +-- out/                      bootstrap output, installed commands, configuration
+|   +-- bootstrap-bmi/       stage-zero GCC compiled-module state
+|   +-- bmi/                 unconfigured build compiled-module state
 +-- out-host/                 configured native build output
 +-- out-target-TARGET/        configured target build output
-+-- gcm.cache/                gcc modules cache
 
 Bootstrap products, installed commands, out/config.mdy, and generated
 documentation live under out. Configured native builds write their objects,
@@ -197,9 +198,12 @@ executables and resolved-options.mdy records to out-host, a sibling of out with
 no compiler-family component, so a configured build never overwrites what
 bootstrap produced. out/config.mdy stays in out because it is the file that
 names the lane, and a tool would have to know the lane already to find it
-inside one. GCC compiled-module
-state lives under gcm.cache; Clang BMIs live under the active output directory's
-bmi/ subdirectory. None of these generated paths is part of the source model.
+inside one. Compiled-module state for a manifest-aware build lives under the
+active output directory's bmi/ subdirectory for both compiler families.
+Bootstrap's raw GCC commands use out/bootstrap-bmi instead. Keeping each cache
+with its output lane prevents concurrent builds from deleting or replacing one
+another's module interfaces. None of these generated paths is part of the
+source model.
 
 # MDY manifests
 MDY is the line-oriented format used for manifests and prose. Every MDY file
@@ -514,9 +518,10 @@ builds. The first installs out/bin/build. The second builds the real modular
 configure application and stages it as out/configure1. Each scoped build loads
 the complete project and follows the selected application's dependency closure,
 but does not build sibling applications, tests, models, or documentation tools.
-Bootstrap clears gcm.cache first: stage zero and its fallback compile module
-interfaces with raw compiler commands, so an older cache could otherwise supply
-BMIs for interfaces that have since changed.
+Bootstrap clears out/bootstrap-bmi first. Stage zero and its fallback compile
+module interfaces with raw GCC commands through tools/build/bootstrap.mapper,
+so they get a fresh cache without sharing GCC's project-root gcm.cache with a
+concurrent configured build.
 
 configure.sh runs out/configure1 until the configured full build installs
 out/bin/configure. build.sh runs the bootstrap-installed out/bin/build to build
@@ -585,9 +590,10 @@ defects and become ordinary regression tests when fixed.
   configured test builds live under the selected out-* lane's tests directory.
 - out-host contains the objects, executables and resolved-options.mdy records of a
   configured native build.
-- out-host/bmi contains Clang BMIs for a configured native build.
+- out/bootstrap-bmi contains GCC compiled-module state for stage zero.
+- the active output directory's bmi contains compiled-module state; GCC also
+  writes its generated module mapper there.
 - out/index.html and nested pages contain generated documentation.
-- gcm.cache contains GCC compiled-module state.
 
 # Current boundaries
 These are the gaps between the Design goals and today's implementation.

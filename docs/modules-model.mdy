@@ -188,14 +188,15 @@ it reports is whatever the abstract model itself would tell a reader:
 - dependency resolution — every use: entry on a module, app, or test names a module: some kind:module manifest actually exports. mm::build::order already rejects an unknown module at build time; this re-derives the same fact independently, through the model, as a check that does not require a full build to run.
 - build completeness — every BuiltIn models::Tool's invocation() exists on disk: what is declared matches what has actually been built. Expressed over Tool rather than AppNode, so it covers out/bin/<name> for every kind:app manifest and the modeled out/build0 and out/build1 stages. out/configure1 is modeled as a staged artifact rather than a second Tool identity because it is built from the same configure app as out/bin/configure. ThirdParty tools such as c++ are skipped: invocation() is a bare command resolved from $PATH for them, not a root relative path, so checking it against root would always fail.
 
-Module cache is reported alongside the two checks, but informationally, not
-as a violation: gcm.cache has no declaring Tool or manifest — every compiler
-invocation writes to it as a side effect — and its absence is legitimate any
-time nothing has compiled a module yet, such as right after clean.sh. This
-is deliberately not the fuller GeneratedArtifact/models.artifacts machinery
-once considered for this: InstalledBinary and Staged are already fully
-covered by the Tool-based check above, so the only remaining fact worth
-stating for ModuleCache is a single existence check.
+Module caches are reported alongside the two checks, but informationally, not
+as a violation. Bootstrap writes out/bootstrap-bmi and each manifest-aware
+build writes bmi beneath its selected output directory; no Tool or manifest
+declares those side effects, and their absence is legitimate any time nothing
+has compiled a module yet, such as right after clean.sh. This is deliberately
+not the fuller GeneratedArtifact/models.artifacts machinery once considered
+for this: InstalledBinary and Staged are already fully covered by the
+Tool-based check above, so the only remaining fact worth stating for
+ModuleCache is whether the bootstrap, active-lane, or host-lane cache exists.
 
 --configuration additionally reports models::Configuration, via
 mm::model::configuration(project_root, verbose): the configuration a build of

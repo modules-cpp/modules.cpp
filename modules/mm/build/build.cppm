@@ -152,11 +152,12 @@ private:
                                          BuildConfiguration& configuration);
 
 // One translation unit. An explicit module name identifies an importable unit
-// and its Clang BMI; the primary .cppm of a kind:module target may instead
-// inherit BuildableNode::module_name. GCC ignores this per-unit name.
+// and its BMI; the primary .cppm of a kind:module target may instead inherit
+// BuildableNode::module_name. GCC uses the names to generate its mapper and
+// Clang uses them to name precompiled module output.
 struct TranslationUnit {
     std::string path;         // root relative
-    std::string module_name;  // optional explicit Clang BMI/module name
+    std::string module_name;  // optional explicit BMI/module name
 };
 
 // Splits a "file:" or "unit:" value: a path, optionally followed by whitespace
@@ -609,9 +610,12 @@ struct ProjectionSchema {
     bool verbose = false);
 
 // A stale module interface silently contradicts the sources being compiled.
-// Clears both compiler families' module artifacts for this output lane and
-// returns false if either cannot be removed. Object paths intentionally do not
-// vary by compiler, and every build recompiles them.
-[[nodiscard]] bool clear_module_cache(const std::filesystem::path& build_dir = "out");
+// Clears this output lane's module artifacts, recreates its private BMI
+// directory, and writes the GCC module mapper for every named unit in tree.
+// Keeping GCC CMIs beneath build_dir prevents concurrent lanes from deleting
+// or replacing one another's default project-root gcm.cache.
+[[nodiscard]] bool prepare_module_cache(
+    const Toolchain& toolchain, const Tree& tree,
+    const std::filesystem::path& build_dir = "out");
 
 }
