@@ -1,0 +1,15 @@
+---
+mm: 1.0
+kind: test
+name: display
+use: mm.test
+use: mm.display
+unit: tests/mm/display/platform.cpp
+unit: tests/mm/display/display.cpp
+unit: tests/main.cpp
+---
+
+# mm.display test target
+
+Exercises the portable display lifecycle and packed region hand-off through the
+same retained-object registration seam used by a real board provider.

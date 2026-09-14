@@ -5,9 +5,11 @@
 // rather than a mock of it: it registers a Platform subclass exactly as a real
 // platform's module does, and nothing here is scaffolding a real platform would
 // not also have to provide.
+#include <cstddef>
 #include <optional>
 #include <span>
 #include <string_view>
+#include <vector>
 
 import mm.mcu;
 
@@ -60,6 +62,46 @@ public:
         return mm::mcu::Status::Ok;
     }
 
+    [[nodiscard]] mm::mcu::Status spi_configure(
+        const mm::mcu::SpiConfiguration& configuration) override {
+        if (forced != mm::mcu::Status::Ok) return forced;
+        if (configuration.instance > 1 || configuration.baud == 0 ||
+            configuration.clock_gpio >= pin_count ||
+            configuration.transmit_gpio >= pin_count ||
+            configuration.clock_gpio == configuration.transmit_gpio ||
+            (configuration.receive_gpio && *configuration.receive_gpio >= pin_count))
+            return mm::mcu::Status::BadArgument;
+        if (configuration.receive_gpio &&
+            (*configuration.receive_gpio == configuration.clock_gpio ||
+             *configuration.receive_gpio == configuration.transmit_gpio))
+            return mm::mcu::Status::BadArgument;
+        spi_configuration = configuration;
+        spi_ready = true;
+        return mm::mcu::Status::Ok;
+    }
+
+    [[nodiscard]] mm::mcu::Status spi_write(
+        unsigned int instance, std::span<const std::byte> data) override {
+        if (forced != mm::mcu::Status::Ok) return forced;
+        if (!spi_ready || instance != spi_configuration.instance)
+            return mm::mcu::Status::BadArgument;
+        spi_written.insert(spi_written.end(), data.begin(), data.end());
+        return mm::mcu::Status::Ok;
+    }
+
+    [[nodiscard]] mm::mcu::Status spi_transfer(
+        unsigned int instance, std::span<const std::byte> transmit,
+        std::span<std::byte> receive) override {
+        if (forced != mm::mcu::Status::Ok) return forced;
+        if (!spi_ready || instance != spi_configuration.instance ||
+            transmit.size() != receive.size())
+            return mm::mcu::Status::BadArgument;
+        spi_written.insert(spi_written.end(), transmit.begin(), transmit.end());
+        for (std::size_t i = 0; i < transmit.size(); ++i)
+            receive[i] = transmit[i];
+        return mm::mcu::Status::Ok;
+    }
+
     [[nodiscard]] mm::mcu::Status uart_write(unsigned int instance, const char* text) override {
         if (forced != mm::mcu::Status::Ok) return forced;
         if (text == nullptr) return mm::mcu::Status::BadArgument;
@@ -91,6 +133,9 @@ public:
         ticks = 0;
         uart_instance = 0;
         uart_text = nullptr;
+        spi_ready = false;
+        spi_configuration = {};
+        spi_written.clear();
     }
 
     bool configured[pin_count] = {};
@@ -100,6 +145,9 @@ public:
     unsigned long ticks = 0;
     unsigned int uart_instance = 0;
     const char* uart_text = nullptr;
+    bool spi_ready = false;
+    mm::mcu::SpiConfiguration spi_configuration;
+    std::vector<std::byte> spi_written;
 };
 
 Stand stand;
@@ -126,3 +174,11 @@ void mm_test_set_level(unsigned int pin, bool high) {
 unsigned long mm_test_ticks() { return stand.ticks; }
 unsigned int mm_test_uart_instance() { return stand.uart_instance; }
 bool mm_test_uart_written() { return stand.uart_text != nullptr; }
+bool mm_test_spi_ready() { return stand.spi_ready; }
+unsigned long mm_test_spi_baud() { return stand.spi_configuration.baud; }
+std::size_t mm_test_spi_size() { return stand.spi_written.size(); }
+unsigned int mm_test_spi_byte(std::size_t index) {
+    return index < stand.spi_written.size()
+               ? static_cast<unsigned int>(stand.spi_written[index])
+               : 0;
+}

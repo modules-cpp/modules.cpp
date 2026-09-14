@@ -1,0 +1,288 @@
+---
+mm: 1.0
+kind: doc
+name: modules.cpp display architecture
+status: official
+release: v1.2.0
+---
+
+# modules.cpp display architecture
+
+# Status and authority
+
+status: official gives the implemented portions of this document the same
+authority as the other v1.2.0 specifications. This document specifies the
+implemented portable display foundation and the
+remaining platform-binding work. mm.display, MCU SPI, and the SSD1680 controller
+exist and have host tests. No physical panel profile is yet claimed, so the
+provider, smoke application, and hardware-qualification sections remain design
+requirements rather than implemented behavior.
+
+docs/modules-platform-mcu.mdy remains authoritative for the implemented mm.mcu
+interface and provider mechanism. docs/modules-platforms.mdy remains
+authoritative for SDK and board selection. docs/modules-mm.mdy remains
+authoritative for the closed v1.2 manifest schema.
+
+The design uses the existing platform-interface and platform-provider keys,
+which already belong to mm: 1.2. It does not add a source-manifest key. A future
+key separating a composite profile from its underlying SDK board would require
+the next manifest version and is not silently assigned to 1.2 here.
+
+# Decision
+
+Display behavior is a device service layered above MCU transports. It is not a
+new group of virtual functions on mm::mcu::Platform.
+
+The intended dependency direction is:
+
+Opening fence
+portable application
+        |
+     mm.display
+        |
+selected board display provider
+        |
+ePaper or other controller module
+        |
+GPIO, SPI, and timer from mm.mcu
+        |
+selected MCU platform provider
+Closing fence
+
+An application using only portable display behavior declares:
+
+Opening fence
+use: mm.display
+Closing fence
+
+It does not name a controller, vendor, SDK, GPIO number, or provider module.
+The selected physical board profile supplies those facts.
+
+# Implemented foundation
+
+mm.display is a platform interface with an allocation-free API for geometry,
+initialization, packed one-bit writes, clear, refresh, and sleep. Its fallback
+object reports Unsupported, and host tests exercise registration and lifecycle
+behavior without selecting a target platform.
+
+mm.epaper.ssd1680 implements the first controller beneath that interface. Its
+panel descriptor deliberately leaves initialization bytes, update controls,
+dimensions, polarities, and timeouts with the eventual physical provider. This
+keeps an unqualified waveform or pinout out of the generic controller.
+
+# Required invariants
+
+- mm.display has one globally unique meaning in the repository.
+- mm.display is a core, project-owned platform interface.
+- A display provider has a globally unique module name and reaches mm.display
+  through its ordinary use closure.
+- A provider is injected only when an executable reaches mm.display.
+- Standard Pico and Pico W declarations do not claim that an external display
+  is attached.
+- A board profile binds mm.display only when its hardware definition guarantees
+  a particular attached display and wiring.
+- Controller protocol code depends on portable MCU facilities, not directly on
+  Pico SDK headers.
+- Project and external CMake link paths receive the same provider closure.
+- An application that does not use mm.display receives no display provider or
+  controller objects.
+- A missing provider makes a display-using application unavailable before
+  compilation or linking.
+
+# Portable interface
+
+The public interface is intentionally smaller than a graphics toolkit. It owns
+display lifecycle, geometry, packed pixel transfer, refresh, and sleep. Text,
+fonts, shapes, image decoding, and UI policy belong in modules layered above it.
+
+The public shape is:
+
+Opening fence
+enum class Color { White, Black, Red };
+enum class Refresh { Full, Partial };
+
+struct Geometry {
+    unsigned int width;
+    unsigned int height;
+    unsigned int bits_per_pixel;
+};
+
+struct Rectangle {
+    unsigned int x;
+    unsigned int y;
+    unsigned int width;
+    unsigned int height;
+};
+
+class Display {
+public:
+    virtual Geometry geometry() const;
+    virtual Status initialize();
+    virtual Status clear(Color);
+    virtual Status write(Rectangle, span<const byte>);
+    virtual Status refresh(Refresh);
+    virtual Status sleep();
+};
+
+void set_display(Display&);
+Display& selected_display();
+Closing fence
+
+The base implementations return empty geometry or Unsupported. A retained
+provider registers its object with set_display; selected_display always returns
+either that object or the linkable fallback.
+
+For a one-bit display, pixels are row-major and each row begins at a byte
+boundary. The most significant bit is the leftmost pixel, one means white, and
+zero means black. The low unused bits of a final partial byte are outside the
+visible rectangle and have no portable meaning. Rectangle coordinates use the
+visible top-left origin. write modifies controller memory but does not refresh the
+panel; refresh is always explicit. A provider for another bits-per-pixel value
+must document its equally complete packing before exposing that geometry. The
+API does not make a per-pixel bus transaction the portable primitive.
+
+A full framebuffer is optional. Small systems may stream packed rows or tiles;
+applications with enough memory may build a framebuffer in a higher layer. The
+display interface must not require every target to reserve the largest panel's
+framebuffer.
+
+Status belongs to the display domain and preserves distinctions useful to a
+caller, including unsupported refresh mode, invalid region, not initialized,
+busy timeout, and transport failure. A provider maps mm.mcu failures into that
+domain without discarding the cause needed for diagnostics.
+
+# Provider binding
+
+mm.display carries the existing marker:
+
+Opening fence
+mm: 1.2
+kind: module
+name: display
+module: mm.display
+platform-interface:
+file: display.cppm
+Closing fence
+
+A concrete hardware profile binds it to one unique provider:
+
+Opening fence
+platform-provider: mm.display platform.pico.waveshare_2in13_v4.display
+Closing fence
+
+The provider imports mm.display, the selected controller module, and mm.mcu. It
+owns the fixed panel descriptor and wiring, constructs the controller, and
+registers the Display implementation from a retained static object. Existing
+provider validation, board-over-SDK precedence, conditional closure injection,
+and core platform-edge rules apply unchanged.
+
+An SDK must not provide a default display binding merely because it can drive
+one. The SDK supplies buses; attachment is a board-profile fact. A board binding
+may override an SDK binding under the existing rule, but the normal design has
+no SDK display binding to override.
+
+# Board and device discovery
+
+The implemented mm::mcu::Board describes GPIOs and an onboard LED. Future board
+metadata may add typed, read-only inventories of attached devices, but metadata
+does not replace the functional mm.display interface.
+
+An optional display inventory may expose facts such as stable name, geometry,
+color capability, and controller identity. It must not expose vendor SDK types
+or pointers whose lifetime is shorter than the provider. Heterogeneous devices
+must not be represented by a growing union of behavior in mm::mcu::Platform.
+
+Standard development boards remain descriptions of the board itself. An ePaper
+module connected by jumper wires is application configuration unless the user
+selects a composite profile that fixes the wiring. An application may directly
+construct a controller with an explicit wiring descriptor for experimentation,
+but that application is intentionally hardware-specific and is not evidence of
+portable board binding.
+
+# Composite board profiles
+
+A fixed carrier, HAT, or documented board-plus-panel assembly is represented by
+a distinct board profile, for example:
+
+Opening fence
+pico-waveshare-epaper-2in13-v4
+pico2-waveshare-epaper-2in13-v4
+Closing fence
+
+These names are illustrative until the first supported panel is selected. Each
+profile names its SDK, processor properties, and display provider. The Pico
+external bridge maps it to the underlying PICO_BOARD value needed by the SDK.
+
+Adding a few explicit mappings to the bridge is acceptable for the first real
+profiles because the bridge already owns Pico board vocabulary. If the set
+grows, the design must introduce an explicit base-board/profile concept rather
+than infer it from names. Such a manifest addition belongs to a version after
+1.2.
+
+# Core boundary
+
+A core application declares only the core interface. A non-core Pico provider
+may enter its link as selected platform implementation under the exact
+platform-edge rule already specified for mm.mcu. That does not permit the
+application or another core module to declare a third-party library dependency.
+
+Project-authored controller modules may remain core when they use only project
+interfaces. A wrapper over a vendored controller library follows the library
+rules, carries a lib. module name, and is non-core. A board provider using that
+wrapper remains platform-supplied implementation; the dependency must still be
+visible in its authored use closure.
+
+# Model and documentation
+
+The abstract model exposes mm.display as a marked interface, each authored
+platform-provider declaration, and the effective binding for a configured
+platform. The application's authored uses remain unchanged. Provider and
+controller closure augmentation is derived platform state rather than an
+invented source declaration.
+
+Board documentation names the physical display, controller, geometry, colors,
+and wiring source. Controller documentation owns command-set and refresh
+limitations. Generated documentation must clearly distinguish an unimplemented
+profile from a hardware-qualified implementation.
+
+# Implementation stages
+
+1. Implemented: add and test the MCU SPI facility described by
+   docs/modules-epaper.mdy.
+2. Implemented: add mm.display with a host stand-in and lifecycle tests.
+3. Implemented: add mm.epaper.ssd1680 against fake GPIO, SPI, and timer
+   services.
+4. Pending a named panel and wiring: add one concrete board profile and globally
+   unique display provider.
+5. Pending: build the same portable smoke application through project and Pico external
+   link ownership where applicable.
+6. Pending hardware: qualify initialization, full refresh, supported partial refresh, timeout,
+   sleep, rebuild, UF2 validation, and physical flashing on hardware.
+
+# Acceptance criteria
+
+- An app importing only mm.display links with exactly one selected display
+  provider and the provider's controller closure.
+- The same app is unavailable on a board with no display binding.
+- An app not importing mm.display contains no display provider or controller
+  registration object.
+- A standard pico or pico-w selection never implies an attached panel.
+- A composite profile reports its underlying MCU board and attached display
+  separately.
+- Model output distinguishes authored imports, selected platform binding, and
+  injected provider closure.
+- Host unit tests require no Pico SDK, cross compiler, picotool, panel, or USB
+  device.
+- Hardware qualification names the exact board, panel revision, controller,
+  wiring, toolchain, and observed refresh modes.
+
+# What this does not settle
+
+- SSD1680 is the first implemented controller; the first supported physical
+  panel and its initialization waveform are not selected here.
+- Multi-display selection and hot-plug discovery are not specified.
+- A general hardware-profile manifest schema is not added to v1.2.
+- Fonts, drawing primitives, image formats, UI layout, and animation are outside
+  mm.display.
+- Color values beyond the panel's discrete pigments are not promised.
+- Partial refresh is a capability, not a requirement of every controller.

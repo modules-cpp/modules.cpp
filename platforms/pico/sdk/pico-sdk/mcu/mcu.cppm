@@ -3,6 +3,7 @@
 module;
 
 #include "mcu-cxx.h"
+#include <cstddef>
 #include <optional>
 #include <span>
 #include <string_view>
@@ -69,6 +70,30 @@ public:
         const auto status = from(mm_pico_mcu_gpio_read(pin, &raw));
         if (status == mm::mcu::Status::Ok) high = raw != 0;
         return status;
+    }
+
+    [[nodiscard]] mm::mcu::Status spi_configure(
+        const mm::mcu::SpiConfiguration& configuration) override {
+        return from(mm_pico_mcu_spi_configure(
+            configuration.instance, configuration.clock_gpio, configuration.transmit_gpio,
+            configuration.receive_gpio.value_or(0), configuration.receive_gpio ? 1 : 0,
+            configuration.baud, static_cast<int>(configuration.mode),
+            configuration.bit_order == mm::mcu::BitOrder::LeastSignificantFirst ? 1 : 0));
+    }
+
+    [[nodiscard]] mm::mcu::Status spi_write(
+        unsigned int instance, std::span<const std::byte> data) override {
+        return from(mm_pico_mcu_spi_write(
+            instance, reinterpret_cast<const unsigned char*>(data.data()), data.size()));
+    }
+
+    [[nodiscard]] mm::mcu::Status spi_transfer(
+        unsigned int instance, std::span<const std::byte> transmit,
+        std::span<std::byte> receive) override {
+        if (transmit.size() != receive.size()) return mm::mcu::Status::BadArgument;
+        return from(mm_pico_mcu_spi_transfer(
+            instance, reinterpret_cast<const unsigned char*>(transmit.data()),
+            reinterpret_cast<unsigned char*>(receive.data()), transmit.size()));
     }
 
     [[nodiscard]] mm::mcu::Status uart_write(unsigned int instance, const char* text) override {

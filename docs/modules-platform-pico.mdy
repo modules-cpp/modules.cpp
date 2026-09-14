@@ -162,14 +162,18 @@ instruction-set names the instruction set, which ARM spells thumb and RISC-V
 spells as an ISA string. float-abi: soft is the soft-float integer ABI, emitted as
 -mabi=ilp32. security-domain has no RISC-V counterpart and keeps its default.
 
-## GPIO, UART, and timer surface
+## GPIO, SPI, UART, and timer surface
 
 All six SDK-backed board declarations select platform.pico.mcu through their
-SDK. The provider exposes the three portable facilities implemented for this
+SDK. The provider exposes the four portable facilities implemented for this
 family:
 
 - GPIO configure, read, and write use Pico SDK's GPIO API and validate against
   the selected chip's Bank 0 GPIO count.
+- SPI instances zero and one use Pico SDK hardware_spi with caller-selected
+  clock, transmit, and optional receive GPIOs. Configuration validates the
+  board inventory, distinct signals, and each RP chip's SPI signal-to-GPIO mux;
+  chip select remains device-driver GPIO policy.
 - portable UART instance zero is the board header's PICO_DEFAULT_UART, using its
   PICO_DEFAULT_UART_TX_PIN, PICO_DEFAULT_UART_RX_PIN, and
   PICO_DEFAULT_UART_BAUD_RATE. It is initialized on first use and writes through
@@ -406,8 +410,8 @@ ext/adapter.c is the only file that includes Pico SDK headers. It is compiled by
 the bridge inside Pico SDK's own target graph, with whatever flags that graph
 selects, so one C source serves all six board declarations and both
 architectures. It implements the wrapper ABI plus platform.pico.mcu's private
-GPIO, hardware-UART, timer, and board-description ABI. The bridge requests GNU
-C11 rather than strict C11 because Pico SDK's public Hazard3 headers use GNU
+GPIO, hardware-SPI, hardware-UART, timer, and board-description ABI. The bridge
+requests GNU C11 rather than strict C11 because Pico SDK's public Hazard3 headers use GNU
 `asm`; the adapter itself uses no language extension, but it must be parsed
 together with the foreign headers it includes.
 
@@ -542,8 +546,9 @@ Three behaviours surprise people and are recorded here rather than rediscovered.
   Their published artifacts appear at the ordinary paths with the documented
   suffixes, their UF2 family IDs match their platforms, and a declared artifact
   missing after the build is an external-build failure.
-- The adapter for each board compiles GPIO, the default hardware UART, and
-  monotonic timer support. W-board builds report no GPIO-backed LED.
+- The adapter for each board compiles GPIO, both hardware SPI instances, the
+  default hardware UART, and monotonic timer support. W-board builds report no
+  GPIO-backed LED.
 
 # Current boundaries
 
@@ -558,7 +563,8 @@ Three behaviours surprise people and are recorded here rather than rediscovered.
 - CYW43 GPIO and firmware, Wi-Fi, lwIP, Bluetooth, TinyUSB policy, flash boot
   policy, and signed images are outside this integration, though their sources
   are present in the recursive checkout. Pico W and Pico 2 W are supported for
-  the same RP GPIO, hardware UART, and timer surface as the non-wireless boards.
+  the same RP GPIO, hardware SPI, hardware UART, and timer surface as the
+  non-wireless boards.
 - picotool is required, not vendored. A hermetic image pipeline would vendor it.
 - Direct project-module use of Pico SDK headers waits for a library interface that
   can carry generated include directories and compile definitions as typed data.

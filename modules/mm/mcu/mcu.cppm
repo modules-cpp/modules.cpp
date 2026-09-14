@@ -8,7 +8,9 @@ export module mm.mcu;
 // a platform module implements Platform and must see it.
 export import :status;
 export import :board;
+export import :spi_types;
 export import :platform;
 export import :gpio;
+export import :spi;
 export import :uart;
 export import :timer;

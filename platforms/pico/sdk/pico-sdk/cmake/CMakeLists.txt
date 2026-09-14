@@ -44,7 +44,7 @@ set_target_properties(mm_external PROPERTIES
   OUTPUT_NAME ${MM_OUTPUT_NAME})
 set_source_files_properties(${MM_ADAPTER} PROPERTIES
   COMPILE_OPTIONS "-std=gnu11;-Wall;-Wextra;-Werror")
-target_link_libraries(mm_external pico_stdlib hardware_uart)
+target_link_libraries(mm_external pico_stdlib hardware_spi hardware_uart)
 pico_enable_stdio_semihosting(mm_external 1)
 pico_add_extra_outputs(mm_external)
 add_custom_command(TARGET mm_external POST_BUILD

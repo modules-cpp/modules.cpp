@@ -1,9 +1,15 @@
 // Pawel Wodnicki (C) 2026
 // 32bitmicro LLC (C) 2026
+module;
+
+#include <cstddef>
+#include <span>
+
 export module mm.mcu:platform;
 
 import :status;
 import :board;
+import :spi_types;
 
 export namespace mm::mcu {
 
@@ -25,6 +31,17 @@ public:
     }
     [[nodiscard]] virtual Status gpio_write(unsigned int, bool) { return Status::Unsupported; }
     [[nodiscard]] virtual Status gpio_read(unsigned int, bool&) { return Status::Unsupported; }
+
+    [[nodiscard]] virtual Status spi_configure(const SpiConfiguration&) {
+        return Status::Unsupported;
+    }
+    [[nodiscard]] virtual Status spi_write(unsigned int, std::span<const std::byte>) {
+        return Status::Unsupported;
+    }
+    [[nodiscard]] virtual Status spi_transfer(unsigned int, std::span<const std::byte>,
+                                              std::span<std::byte>) {
+        return Status::Unsupported;
+    }
 
     [[nodiscard]] virtual Status uart_write(unsigned int, const char*) {
         return Status::Unsupported;

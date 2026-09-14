@@ -134,8 +134,11 @@ name: mcu
 module: mm.mcu
 platform-interface:
 file: status.cppm mm.mcu:status
+file: board.cppm mm.mcu:board
+file: spi-types.cppm mm.mcu:spi_types
 file: platform.cppm mm.mcu:platform
 file: gpio.cppm mm.mcu:gpio
+file: spi.cppm mm.mcu:spi
 file: uart.cppm mm.mcu:uart
 file: timer.cppm mm.mcu:timer
 file: mcu.cppm mm.mcu
@@ -258,7 +261,7 @@ specific to the bridge and is not the portable mm.mcu contract.
 
 mm.mcu exports enum class types and a Platform base class. Unsupported remains a
 first-class result, so one provider may implement GPIO while inheriting honest
-Unsupported answers for UART and time.
+Unsupported answers for SPI, UART, and time.
 
 The platform partition owns:
 
@@ -309,8 +312,9 @@ NUM_BANK0_GPIOS, and, when the SDK board declares one, its LED pin and polarity
 to platform.pico.mcu; the provider turns those bridge-private values into the
 same pure C++ Board representation. Pico W and Pico 2 W therefore have no
 GPIO-backed LED in Board: their onboard LED belongs to the CYW43. The same
-provider supplies GPIO, the selected board's default hardware UART, and the
-monotonic timer for every Pico SDK board declaration.
+provider supplies GPIO, both hardware SPI instances, the selected board's
+default hardware UART, and the monotonic timer for every Pico SDK board
+declaration.
 
 # Per-executable closure augmentation
 
@@ -482,6 +486,9 @@ binding. Unrelated executables retain their ordinary closure.
 - Every reported GPIO has a number and name; a reported LED names one GPIO in
   that inventory. The host stand-in covers an active-low LED, span iteration,
   and GPIO inventory boundaries.
+- SPI configuration carries instance, signal GPIOs, baud, mode, and bit order;
+  writes and full-duplex transfers preserve byte-span boundaries. Invalid
+  instances, pins, and signal combinations are rejected.
 - mcu-blink links on rp2040-ram through platform.rp2040_ram.mcu.
 - With the corresponding external tools installed, mcu-blink links on Pico ARM
   and Pico RISC-V through platform.pico.mcu and the real external CMake bridge.
@@ -527,7 +534,11 @@ record a skipped qualification with the missing prerequisite named.
 - It does not permit duplicate module names per lane.
 - It does not choose individual UART instances, GPIO pin ownership, or clocks.
 - It does not promise that every provider supports every mm.mcu facility;
-  Unsupported remains part of the interface.
+  Unsupported remains part of the interface, including SPI.
+- It does not make attached displays or sensors MCU facilities. SPI is an
+  implemented reusable transport; mm.display and mm.epaper.ssd1680 are layered
+  above it as specified by docs/modules-display.mdy and
+  docs/modules-epaper.mdy. A physical display profile remains pending.
 - It does not require a dynamically replaceable provider after program startup.
 - It does not yet remove private C linkage at a vendor SDK boundary where the
   SDK itself is C. The portable application and provider contract remain pure

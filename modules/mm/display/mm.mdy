@@ -1,0 +1,27 @@
+---
+mm: 1.2
+kind: module
+name: display
+module: mm.display
+platform-interface:
+file: status.cppm mm.display:status
+file: types.cppm mm.display:types
+file: platform.cppm mm.display:platform
+file: display.cppm mm.display
+file: src/display.cpp
+---
+
+# mm.display
+
+A portable display lifecycle and packed-region interface. Graphics policy,
+fonts, image decoding, and controller commands live above or below this module,
+not inside it.
+
+One-bit pixels are row-major and byte-aligned per row: the most significant bit
+is leftmost, one is white, zero is black, and padding at the visible right edge
+has no portable meaning. write changes controller memory; refresh changes the
+visible panel.
+
+The platform-interface marker makes a selected board display provider part of
+an executable only when its ordinary closure reaches mm.display. Host tests may
+replace the linkable Unsupported fallback directly.

@@ -1,0 +1,16 @@
+---
+mm: 1.0
+kind: module
+name: ssd1680
+module: mm.epaper.ssd1680
+use: mm.mcu
+use: mm.display
+file: ssd1680.cppm
+file: src/ssd1680.cpp
+---
+
+# mm.epaper.ssd1680
+
+An allocation-free SSD1680 controller. Panel-specific initialization bytes,
+waveform selection, geometry, refresh controls, polarity, and wiring are
+explicit descriptor data owned by a physical display provider.

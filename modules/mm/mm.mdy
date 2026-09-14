@@ -6,6 +6,8 @@ folder: app
 folder: build
 folder: configure
 folder: debug
+folder: display
+folder: epaper
 folder: flash
 folder: mcu
 folder: mdy

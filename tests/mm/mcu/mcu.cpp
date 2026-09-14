@@ -1,5 +1,7 @@
 // Pawel Wodnicki (C) 2026
 // 32bitmicro LLC (C) 2026
+#include <array>
+#include <cstddef>
 #include <optional>
 #include <span>
 #include <string_view>
@@ -13,6 +15,10 @@ void mm_test_set_level(unsigned int pin, bool high);
 unsigned long mm_test_ticks();
 unsigned int mm_test_uart_instance();
 bool mm_test_uart_written();
+bool mm_test_spi_ready();
+unsigned long mm_test_spi_baud();
+std::size_t mm_test_spi_size();
+unsigned int mm_test_spi_byte(std::size_t index);
 
 namespace {
 
@@ -113,6 +119,54 @@ void timer_advances_and_reads_back() {
            "ticks advance by what was delayed");
 }
 
+void spi_configures_and_transfers_spans() {
+    mm_test_reset();
+    const mm::mcu::SpiConfiguration configuration{
+        .instance = 1,
+        .clock_gpio = 10,
+        .transmit_gpio = 11,
+        .receive_gpio = 12,
+        .baud = 4'000'000,
+        .mode = mm::mcu::SpiMode::Mode0,
+        .bit_order = mm::mcu::BitOrder::MostSignificantFirst,
+    };
+    expect(mm::mcu::spi_configure(configuration) == Status::Ok,
+           "a valid SPI configuration succeeds");
+    expect(mm_test_spi_ready() && mm_test_spi_baud() == 4'000'000,
+           "the platform receives the complete SPI configuration");
+
+    std::array<std::byte, 128> payload;
+    for (std::size_t index = 0; index < payload.size(); ++index)
+        payload[index] = std::byte(index);
+    expect(mm::mcu::spi_write(1, payload) == Status::Ok,
+           "SPI writes one contiguous payload");
+    expect(mm_test_spi_size() == payload.size() && mm_test_spi_byte(0) == 0 &&
+               mm_test_spi_byte(127) == 127,
+           "the platform observes the payload in order");
+
+    std::array received{std::byte{0}, std::byte{0}};
+    const std::array transmitted{std::byte{0xa5}, std::byte{0x5a}};
+    expect(mm::mcu::spi_transfer(1, transmitted, received) == Status::Ok &&
+               received == transmitted,
+           "a full-duplex transfer preserves span boundaries");
+}
+
+void spi_rejects_invalid_configuration_and_transfer() {
+    mm_test_reset();
+    mm::mcu::SpiConfiguration invalid;
+    invalid.baud = 0;
+    expect(mm::mcu::spi_configure(invalid) == Status::BadArgument,
+           "zero baud is rejected by the platform");
+    invalid.baud = 1'000'000;
+    invalid.clock_gpio = 3;
+    invalid.transmit_gpio = 3;
+    expect(mm::mcu::spi_configure(invalid) == Status::BadArgument,
+           "one pin cannot carry two SPI signals");
+    const std::array payload{std::byte{1}};
+    expect(mm::mcu::spi_write(0, payload) == Status::BadArgument,
+           "a transfer before configuration is rejected");
+}
+
 // Every status a platform can answer reaches the caller unchanged. The interface
 // is typed end to end now, so there is no undefined code for it to translate.
 void every_status_reaches_the_caller() {
@@ -142,6 +196,8 @@ void an_unserved_facility_answers_unsupported() {
     expect(bare.gpio_write(0, true) == Status::Unsupported,
            "an unimplemented facility answers Unsupported rather than failing to link");
     expect(bare.uart_write(0, "x") == Status::Unsupported, "so does an unimplemented uart");
+    expect(bare.spi_configure({}) == Status::Unsupported,
+           "so does an unimplemented SPI controller");
     expect(bare.delay_ms(1) == Status::Unsupported, "so does an unimplemented timer");
 }
 
@@ -152,6 +208,8 @@ const mm::test::case_ cases[] = {
     {"a failed read leaves its output alone", &a_failed_read_leaves_its_output_alone},
     {"uart reports an absent instance", &uart_reports_an_absent_instance},
     {"timer advances and reads back", &timer_advances_and_reads_back},
+    {"spi configures and transfers spans", &spi_configures_and_transfers_spans},
+    {"spi rejects invalid use", &spi_rejects_invalid_configuration_and_transfer},
     {"every status reaches the caller", &every_status_reaches_the_caller},
     {"an unserved facility answers Unsupported", &an_unserved_facility_answers_unsupported},
 };

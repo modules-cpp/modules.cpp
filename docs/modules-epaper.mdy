@@ -1,0 +1,283 @@
+---
+mm: 1.0
+kind: doc
+name: modules.cpp ePaper support
+status: official
+release: v1.2.0
+---
+
+# modules.cpp ePaper support
+
+# Status and authority
+
+status: official gives the implemented portions of this document the same
+authority as the other v1.2.0 specifications. This document specifies the
+implemented transport and SSD1680 controller plus
+the remaining wiring, provider, and hardware-verification work beneath
+mm.display. The portable layers are implemented for v1.2.0; no physical panel
+profile is claimed until its exact panel, waveform, and wiring are qualified.
+
+docs/modules-display.mdy owns the portable display boundary and platform
+binding. docs/modules-platform-mcu.mdy owns the implemented MCU provider model.
+docs/modules-platform-pico.mdy owns the Pico SDK bridge. This document must not
+weaken any of those boundaries to make one panel work quickly.
+
+# Separation of responsibilities
+
+Four layers own four different facts:
+
+- mm.mcu owns reusable GPIO, SPI, and monotonic timing operations.
+- A controller module owns the controller command protocol and refresh state.
+- A display provider owns panel parameters and fixed physical wiring.
+- A board profile states that the provider's display is actually attached.
+
+The Pico SDK adapter does not expose ePaper commands. The controller does not
+include Pico SDK headers. The portable application does not know which
+controller or GPIOs were selected.
+
+# Implemented foundation
+
+mm.mcu exports typed SPI configuration, span writes, and full-duplex transfer.
+The host provider records those calls, and platform.pico.mcu implements them
+through the Pico SDK hardware_spi target.
+
+mm.epaper.ssd1680 implements bounded reset and busy handling, descriptor-owned
+initialization commands, one-bit packed writes, full refresh, optional partial
+refresh, clear, and deep sleep. Host tests exercise command ordering, invalid
+descriptors and regions, timeout, bounded streaming, and non-byte-aligned
+visible widths. The module contains no Pico SDK header and requires no full
+framebuffer.
+
+# MCU SPI facility
+
+The reusable mm.mcu:spi partition is exported by mm.mcu. ePaper is its first
+consumer, not part of the transport contract.
+
+The API must support:
+
+- selecting an SPI controller instance;
+- configuring clock, transmit, and optional receive GPIOs;
+- baud rate, clock polarity, clock phase, and bit order;
+- ordered writes of a contiguous byte span;
+- optional full-duplex transfer for other future devices;
+- explicit status for invalid pins, unsupported instances, and transport
+  failure.
+
+Chip select is controlled by the device driver through GPIO because an ePaper
+transaction also coordinates data/command and sometimes reset. The SPI layer
+must not toggle chip select between command and payload spans behind the
+driver's back.
+
+The conceptual configuration is:
+
+Opening fence
+struct SpiConfiguration {
+    unsigned int instance;
+    unsigned int clock_gpio;
+    unsigned int transmit_gpio;
+    optional<unsigned int> receive_gpio;
+    unsigned long baud;
+    SpiMode mode;
+    BitOrder bit_order;
+};
+Closing fence
+
+The final types may differ, but configuration and data transfer remain separate
+operations. Byte spans are preferred to null-terminated or word-sized buffers.
+
+mm::mcu::Platform gains virtual SPI functions whose default answer is
+Unsupported. The host test platform records calls without hardware. The Pico
+provider delegates through its existing private C adapter, whose implementation
+uses the Pico SDK hardware_spi target. A direct-register platform may implement
+SPI later without changing controller modules.
+
+# Controller modules
+
+Each command family is an ordinary globally unique C++ module. Illustrative
+layout and names are:
+
+Opening fence
+modules/mm/epaper/ssd1680/
+    mm.mdy
+    ssd1680.cppm
+    src/ssd1680.cpp
+
+module: mm.epaper.ssd1680
+use: mm.mcu
+Closing fence
+
+The first implemented command family is SSD1680. Selecting a physical panel
+still requires controller evidence rather than a marketing name: panels with
+similar dimensions may use different controller revisions and waveforms.
+
+A controller receives immutable wiring and panel descriptors. The implemented
+SSD1680 subset contains:
+
+- SPI instance and configuration;
+- chip-select, data/command, reset, and busy GPIOs;
+- active levels for reset and busy;
+- visible width and height, with X-then-Y RAM traversal;
+- the one-bit white/black packed format specified by mm.display;
+- reset, busy, and refresh timeouts;
+- provider-owned initialization bytes and update controls required by that
+  controller revision.
+
+SSD1680 memory dimensions beyond its 176 by 296 limit and coordinate transforms
+other than the implemented top-left, X-then-Y traversal require descriptor and
+controller extensions before a provider may claim them.
+
+The descriptor is immutable after construction. A controller must validate pin
+references against the selected board inventory where that inventory is
+available, and must reject duplicate control pins unless the hardware
+explicitly permits them.
+
+# Lifecycle and state
+
+The controller owns a visible state machine rather than sending isolated magic
+command sequences. At minimum it distinguishes uninitialized, ready,
+refreshing, sleeping, and failed states.
+
+Initialization configures SPI and GPIOs, performs the documented hardware reset,
+waits for busy with a bounded timeout, identifies or assumes the exact supported
+controller revision, and loads required panel settings. No busy wait is
+unbounded; delay_ms and ticks_ms provide timeout behavior without controller
+knowledge of a vendor timer.
+
+A packed write updates controller memory. Refresh is a separate operation so an
+application can update several regions before paying the panel refresh cost.
+Full refresh is the baseline. Partial refresh is exposed only when the exact
+controller and panel combination has been qualified for it. Unsupported partial
+refresh returns a precise status rather than silently performing a full refresh.
+
+Sleep leaves control pins and controller state documented. A subsequent call
+either performs a specified wake sequence or requires initialize again. Power
+loss, reset during refresh, and timeout recovery must have defined outcomes.
+
+# Pixel data and memory
+
+The controller consumes mm.display's one-bit format directly. X must be byte
+aligned. Width must be byte aligned unless the rectangle reaches the visible
+right edge; unused low bits in that final byte are outside the visible region.
+Rows advance from top to bottom and bytes from left to right.
+
+No layer requires a whole-screen framebuffer. The driver accepts bounded rows,
+tiles, or rectangles and streams them through SPI. A higher graphics module may
+allocate a framebuffer when the target has enough memory.
+
+Repeated single-byte virtual calls are not an acceptable data path. Command
+transitions may be individual operations, but payload bytes cross the MCU seam
+in spans so Pico SDK and direct-register providers can use efficient transfers.
+
+# Pico SDK implementation
+
+The Pico adapter adds generic MCU SPI entry points and includes Pico SDK SPI
+headers only inside the existing project-owned adapter source. The bridge links
+hardware_spi for executables whose selected provider closure needs it. If the
+first implementation links hardware_spi lane-wide, that temporary cost must be
+recorded and the generic external builder must still contain no ePaper name.
+
+The display provider is a project-owned C++ module with a name such as:
+
+Opening fence
+platform.pico.waveshare_2in13_v4.display
+Closing fence
+
+It imports mm.display and the verified controller module, owns the descriptor,
+and registers the resulting Display object. It does not use the lib. prefix
+unless it is actually a wrapper for a manifest-declared foreign library.
+
+The corresponding composite board profile binds mm.display to that provider and
+maps to a real Pico SDK PICO_BOARD value. Standard pico, pico-w, pico2-arm, and
+other bare development-board profiles keep no display binding.
+
+# Foreign driver alternative
+
+Using a vendor or community driver is allowed but follows the established
+library boundary:
+
+- the checkout is declared as kind: library;
+- the project wrapper module begins with lib.;
+- only the wrapper receives the foreign include interface;
+- project applications import a project interface, not foreign headers;
+- the licence and source containment rules remain enforced;
+- the selected display provider carries the visible dependency on the wrapper.
+
+A foreign driver does not justify leaking Pico SDK types into mm.display or
+adding controller-specific calls to mm::mcu::Platform. A small project-owned
+driver is preferred when it makes the command protocol easier to test and audit.
+
+# Test strategy
+
+Controller tests use a fake MCU Platform that records GPIO, SPI, and timer
+operations. Tests compare semantic command transcripts rather than merely
+checking that a source file compiled.
+
+Required host tests cover:
+
+- SPI configuration and large-span transfer ordering;
+- reset sequence and active levels;
+- command versus data GPIO transitions;
+- initialization transcript for the exact controller revision;
+- busy becoming ready and busy timing out;
+- rectangle and packed-data validation;
+- full refresh;
+- partial refresh accepted only when supported;
+- sleep and the specified reinitialization path;
+- transport errors propagated without continuing the command sequence;
+- no controller or provider objects in an unrelated executable closure.
+
+Target qualification builds one portable app through the real Pico external
+CMake bridge, validates the ELF and UF2, and confirms exactly one display and
+MCU provider registration object. It then flashes through flash.sh.
+
+Hardware verification records the exact development board, carrier or wiring,
+panel model and revision, observed controller marking where available, power
+voltage, toolchain, Pico SDK, picotool version, and whether each refresh mode was
+visually confirmed. A successful link or flash is not reported as a successful
+screen refresh.
+
+# Implementation stages
+
+1. Pending hardware identification: record the first physical panel, its
+   schematic or wiring, and controller evidence.
+2. Implemented: add mm.mcu:spi, host transcript tests, and Pico adapter support.
+3. Implemented: add mm.epaper.ssd1680 with initialization and timeout tests.
+4. Implemented: add mm.display and a host stand-in independent of ePaper.
+5. Pending a named panel: add the composite board profile and unique Pico
+   display provider.
+6. Pending: add apps/epaper-smoke using only mm.display.
+7. Pending: build ARM or RISC-V UF2 according to the selected underlying Pico
+   board.
+8. Pending hardware: flash and perform recorded hardware qualification.
+9. Future: add partial refresh or further panels only after the baseline full-refresh
+   implementation remains covered.
+
+# Acceptance criteria
+
+- Controller host tests pass without Pico SDK or physical hardware.
+- SPI payloads cross the platform boundary as spans, not byte-at-a-time virtual
+  calls.
+- No controller source includes Pico SDK headers.
+- No generic external-builder source contains an ePaper controller or panel
+  name.
+- A standard Pico board selection does not make epaper-smoke available.
+- The composite profile makes epaper-smoke available and injects exactly one
+  display provider.
+- A full refresh displays a deterministic test pattern on the named panel.
+- Disconnecting or holding busy produces a bounded timeout rather than a hang.
+- Sleep and subsequent documented recovery work on hardware.
+- The produced UF2 passes the existing validator and picotool identity check
+  before flashing.
+
+# What this does not settle
+
+- SSD1680 is implemented. No physical panel, pinout, or waveform table is
+  selected by this specification.
+- Tri-color, grayscale, and partial-refresh behavior are controller capabilities,
+  not promises of the first implementation.
+- Temperature compensation and external temperature sensors remain future
+  controller policy unless required by the selected panel specification.
+- DMA and interrupt-driven SPI are optimizations after the synchronous contract
+  is correct.
+- Generic sensor enumeration and arbitrary runtime hardware composition are not
+  introduced here.

@@ -6,8 +6,10 @@ module: mm.mcu
 platform-interface:
 file: status.cppm mm.mcu:status
 file: board.cppm mm.mcu:board
+file: spi-types.cppm mm.mcu:spi_types
 file: platform.cppm mm.mcu:platform
 file: gpio.cppm mm.mcu:gpio
+file: spi.cppm mm.mcu:spi
 file: uart.cppm mm.mcu:uart
 file: timer.cppm mm.mcu:timer
 file: mcu.cppm mm.mcu
@@ -26,6 +28,10 @@ those GPIO numbers with its active level. Provider-owned static storage makes
 that vector-like view allocation-free. Future board-specific sensors and devices
 extend this description as typed inventories; they do not change how the
 platform provider is selected or how an application finds the board.
+
+SPI configuration and span transfers are portable MCU facilities. Device
+drivers own chip select and any data/command, reset, or busy GPIOs; the SPI
+facility never changes those pins behind a driver's back.
 
 A platform supplies an object rather than functions. A name declared in this
 module's purview is attached to it and cannot be defined from outside, so the seam

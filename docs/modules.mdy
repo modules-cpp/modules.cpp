@@ -131,6 +131,9 @@ The source tree is organized by responsibility.
 |   +-- run/                  mm.run execution orchestration
 |   +-- shell/                mm.shell
 |   +-- test/                 mm.test
+|   +-- display/              mm.display portable display interface
+|   +-- epaper/               ePaper controller modules
+|   +-- mcu/                  mm.mcu portable MCU interface
 +-- tools/
 |   +-- build/                bootstrap and build front ends
 |   +-- configure/            compiler, lane, and runner configuration
@@ -145,7 +148,10 @@ The source tree is organized by responsibility.
 |   +-- build/                mm.build tests
 |   +-- configure/            mm.configure tests
 |   +-- debug/                mm.debug tests
+|   +-- display/              mm.display tests
+|   +-- epaper/               ePaper controller tests
 |   +-- flash/                mm.flash tests
+|   +-- mcu/                  mm.mcu tests
 |   +-- mdy/                  mm.mdy public and regression tests
 |   +-- model/                mm.model tests
 |   +-- run/                  mm.run tests
@@ -161,6 +167,8 @@ The source tree is organized by responsibility.
 |   +-- modules-cmake.mdy     external CMake builder specification
 |   +-- modules-configure.mdy official configure specification for release v1.2.0
 |   +-- modules-debug.mdy     debug tool and debugger specification
+|   +-- modules-display.mdy   portable display interface and binding design
+|   +-- modules-epaper.mdy    ePaper transport and controller architecture
 |   +-- modules-flash.mdy     Pico firmware flashing specification
 |   +-- modules-model.mdy     the abstract data model
 |   +-- modules-platforms.mdy SDK, board, and platform specification
@@ -575,6 +583,11 @@ These are the gaps between the Design goals and today's implementation.
 docs/modules-configure.mdy is the official configure and manifest-option specification for release v1.2.0. configure implements typed options, branch-local resets and read-only settings, lanes, platforms, runners, debuggers, library definitions, and records beneath out. All nine manifest-reading tools accept 1.0, 1.1, and 1.2 through the shared gate. Build, test, run, debug, and flash resolve buildable-host, buildable-target, and core, enforce the selected lane and core dependency boundary, and apply requires-board availability; other tuning declarations remain warning-only and are not yet applied to compilation.
 
 docs/modules-build.mdy, docs/modules-cmake.mdy, docs/modules-test.mdy, docs/modules-run.mdy, docs/modules-flash.mdy, docs/modules-debug.mdy, docs/modules-platforms.mdy, docs/modules-platform-pico.mdy, and docs/modules-libraries.mdy specify the implemented lane, external CMake builder, compile-only, platform, Raspberry Pi Pico, runner-backed execution, flashing, debugging, and third-party library interfaces.
+
+docs/modules-display.mdy and docs/modules-epaper.mdy specify the implemented
+portable display interface, MCU SPI transport, Pico SPI adapter, and SSD1680
+controller. Their physical display profile, portable smoke application, and
+hardware qualification stages remain pending a named panel and wiring.
 
 - App defines the application boundary but stores no state; shared lifecycle, context, logging, or argument services can be added there without coupling them to build policy.
 - Bootstrap follows GCC modules-ts conventions; the self-hosted compiler driver

@@ -1,0 +1,19 @@
+---
+mm: 1.0
+kind: test
+name: epaper
+use: mm.test
+use: mm.mcu
+use: mm.display
+use: mm.epaper.ssd1680
+unit: tests/mm/epaper/platform.cpp
+unit: tests/mm/epaper/ssd1680.cpp
+unit: tests/main.cpp
+---
+
+# SSD1680 controller tests
+
+Exercises exact command/data transcripts, controller lifecycle, packed-region
+validation, full and descriptor-qualified partial refresh, bounded busy
+timeout, transport failure, and recovery against a recording MCU platform
+without physical hardware.

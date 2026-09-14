@@ -8,6 +8,8 @@ folder: mdy
 folder: build
 folder: configure
 folder: debug
+folder: display
+folder: epaper
 folder: flash
 folder: shell
 folder: model

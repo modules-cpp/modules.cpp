@@ -1,0 +1,11 @@
+---
+mm: 1.0
+kind: dir
+name: epaper
+folder: ssd1680
+---
+
+# ePaper controller modules
+
+Project-owned display controller implementations built on portable mm.mcu
+transports and the mm.display lifecycle interface.
