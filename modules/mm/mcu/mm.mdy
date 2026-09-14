@@ -7,9 +7,11 @@ platform-interface:
 file: status.cppm mm.mcu:status
 file: board.cppm mm.mcu:board
 file: spi-types.cppm mm.mcu:spi_types
+file: i2c-types.cppm mm.mcu:i2c_types
 file: platform.cppm mm.mcu:platform
 file: gpio.cppm mm.mcu:gpio
 file: spi.cppm mm.mcu:spi
+file: i2c.cppm mm.mcu:i2c
 file: uart.cppm mm.mcu:uart
 file: timer.cppm mm.mcu:timer
 file: mcu.cppm mm.mcu
@@ -32,6 +34,12 @@ platform provider is selected or how an application finds the board.
 SPI configuration and span transfers are portable MCU facilities. Device
 drivers own chip select and any data/command, reset, or busy GPIOs; the SPI
 facility never changes those pins behind a driver's back.
+
+I2C is the same kind of facility with a different selection mechanism: the
+address selects the device, so every operation carries one and the configuration
+does not. Addresses are seven-bit. i2c_write_read is one operation rather than a
+write followed by a read, because a register read must not release the bus
+between the two halves.
 
 A platform supplies an object rather than functions. A name declared in this
 module's purview is attached to it and cannot be defined from outside, so the seam

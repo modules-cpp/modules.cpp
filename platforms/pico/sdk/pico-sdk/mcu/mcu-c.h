@@ -32,6 +32,15 @@ int mm_pico_mcu_spi_configure(unsigned int instance, unsigned int clock_pin,
 int mm_pico_mcu_spi_write(unsigned int instance, const unsigned char* data, size_t size);
 int mm_pico_mcu_spi_transfer(unsigned int instance, const unsigned char* transmit,
                              unsigned char* receive, size_t size);
+int mm_pico_mcu_i2c_configure(unsigned int instance, unsigned int data_pin,
+                              unsigned int clock_pin, unsigned long baud);
+int mm_pico_mcu_i2c_write(unsigned int instance, unsigned int address,
+                          const unsigned char* data, size_t size);
+int mm_pico_mcu_i2c_read(unsigned int instance, unsigned int address,
+                         unsigned char* data, size_t size);
+int mm_pico_mcu_i2c_write_read(unsigned int instance, unsigned int address,
+                               const unsigned char* command, size_t command_size,
+                               unsigned char* data, size_t size);
 int mm_pico_mcu_uart_write(unsigned int instance, const char* text);
 int mm_pico_mcu_delay_ms(unsigned long milliseconds);
 int mm_pico_mcu_ticks_ms(unsigned long* ticks);

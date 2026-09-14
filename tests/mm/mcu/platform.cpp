@@ -102,6 +102,52 @@ public:
         return mm::mcu::Status::Ok;
     }
 
+    [[nodiscard]] mm::mcu::Status i2c_configure(
+        const mm::mcu::I2cConfiguration& configuration) override {
+        if (forced != mm::mcu::Status::Ok) return forced;
+        if (configuration.instance > 1 || configuration.baud == 0 ||
+            configuration.data_gpio >= pin_count ||
+            configuration.clock_gpio >= pin_count ||
+            configuration.data_gpio == configuration.clock_gpio)
+            return mm::mcu::Status::BadArgument;
+        i2c_configuration = configuration;
+        i2c_ready = true;
+        return mm::mcu::Status::Ok;
+    }
+
+    [[nodiscard]] mm::mcu::Status i2c_write(unsigned int instance, unsigned int address,
+                                            std::span<const std::byte> data) override {
+        if (forced != mm::mcu::Status::Ok) return forced;
+        if (!i2c_bus_ready(instance, address) || data.empty())
+            return mm::mcu::Status::BadArgument;
+        i2c_written.insert(i2c_written.end(), data.begin(), data.end());
+        return mm::mcu::Status::Ok;
+    }
+
+    [[nodiscard]] mm::mcu::Status i2c_read(unsigned int instance, unsigned int address,
+                                           std::span<std::byte> data) override {
+        if (forced != mm::mcu::Status::Ok) return forced;
+        if (!i2c_bus_ready(instance, address) || data.empty())
+            return mm::mcu::Status::BadArgument;
+        for (std::size_t i = 0; i < data.size(); ++i) data[i] = i2c_next_byte();
+        return mm::mcu::Status::Ok;
+    }
+
+    // Recorded as one transaction: the command bytes land in the same
+    // transcript as a write, and the read that follows is not separable from
+    // it, which is what the interface promises.
+    [[nodiscard]] mm::mcu::Status i2c_write_read(unsigned int instance, unsigned int address,
+                                                 std::span<const std::byte> command,
+                                                 std::span<std::byte> data) override {
+        if (forced != mm::mcu::Status::Ok) return forced;
+        if (!i2c_bus_ready(instance, address) || command.empty() || data.empty())
+            return mm::mcu::Status::BadArgument;
+        i2c_written.insert(i2c_written.end(), command.begin(), command.end());
+        ++i2c_write_reads;
+        for (std::size_t i = 0; i < data.size(); ++i) data[i] = i2c_next_byte();
+        return mm::mcu::Status::Ok;
+    }
+
     [[nodiscard]] mm::mcu::Status uart_write(unsigned int instance, const char* text) override {
         if (forced != mm::mcu::Status::Ok) return forced;
         if (text == nullptr) return mm::mcu::Status::BadArgument;
@@ -136,6 +182,23 @@ public:
         spi_ready = false;
         spi_configuration = {};
         spi_written.clear();
+        i2c_ready = false;
+        i2c_configuration = {};
+        i2c_written.clear();
+        i2c_write_reads = 0;
+        i2c_reply = 0;
+    }
+
+    // Seven-bit addressing, and one device on the bus. A driver aimed at any
+    // other address gets the same BadArgument a real bus reports as a missing
+    // acknowledgement.
+    [[nodiscard]] bool i2c_bus_ready(unsigned int instance, unsigned int address) const {
+        return i2c_ready && instance == i2c_configuration.instance &&
+               address == i2c_device_address;
+    }
+
+    [[nodiscard]] std::byte i2c_next_byte() {
+        return static_cast<std::byte>(i2c_reply++);
     }
 
     bool configured[pin_count] = {};
@@ -148,6 +211,12 @@ public:
     bool spi_ready = false;
     mm::mcu::SpiConfiguration spi_configuration;
     std::vector<std::byte> spi_written;
+    static constexpr unsigned int i2c_device_address = 0x1a;
+    bool i2c_ready = false;
+    mm::mcu::I2cConfiguration i2c_configuration;
+    std::vector<std::byte> i2c_written;
+    std::size_t i2c_write_reads = 0;
+    unsigned int i2c_reply = 0;
 };
 
 Stand stand;
@@ -182,3 +251,13 @@ unsigned int mm_test_spi_byte(std::size_t index) {
                ? static_cast<unsigned int>(stand.spi_written[index])
                : 0;
 }
+bool mm_test_i2c_ready() { return stand.i2c_ready; }
+unsigned long mm_test_i2c_baud() { return stand.i2c_configuration.baud; }
+unsigned int mm_test_i2c_address() { return Stand::i2c_device_address; }
+std::size_t mm_test_i2c_size() { return stand.i2c_written.size(); }
+unsigned int mm_test_i2c_byte(std::size_t index) {
+    return index < stand.i2c_written.size()
+               ? static_cast<unsigned int>(stand.i2c_written[index])
+               : 0;
+}
+std::size_t mm_test_i2c_write_reads() { return stand.i2c_write_reads; }

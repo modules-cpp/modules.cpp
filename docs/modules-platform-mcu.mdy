@@ -138,9 +138,11 @@ platform-interface:
 file: status.cppm mm.mcu:status
 file: board.cppm mm.mcu:board
 file: spi-types.cppm mm.mcu:spi_types
+file: i2c-types.cppm mm.mcu:i2c_types
 file: platform.cppm mm.mcu:platform
 file: gpio.cppm mm.mcu:gpio
 file: spi.cppm mm.mcu:spi
+file: i2c.cppm mm.mcu:i2c
 file: uart.cppm mm.mcu:uart
 file: timer.cppm mm.mcu:timer
 file: mcu.cppm mm.mcu
@@ -263,7 +265,7 @@ specific to the bridge and is not the portable mm.mcu contract.
 
 mm.mcu exports enum class types and a Platform base class. Unsupported remains a
 first-class result, so one provider may implement GPIO while inheriting honest
-Unsupported answers for SPI, UART, and time.
+Unsupported answers for SPI, I2C, UART, and time.
 
 The platform partition owns:
 
@@ -314,9 +316,44 @@ NUM_BANK0_GPIOS, and, when the SDK board declares one, its LED pin and polarity
 to platform.pico.mcu; the provider turns those bridge-private values into the
 same pure C++ Board representation. Pico W and Pico 2 W therefore have no
 GPIO-backed LED in Board: their onboard LED belongs to the CYW43. The same
-provider supplies GPIO, both hardware SPI instances, the selected board's
-default hardware UART, and the monotonic timer for every Pico SDK board
-declaration.
+provider supplies GPIO, both hardware SPI instances, both hardware I2C
+instances, the selected board's default hardware UART, and the monotonic timer
+for every Pico SDK board declaration. Each hardware facility the adapter reaches
+is its own Pico SDK library: the bridge names hardware_spi, hardware_i2c, and
+hardware_uart explicitly, because pico_stdlib carries none of them.
+
+## Bus facilities
+
+SPI and I2C are the two bus facilities, and they differ in exactly one way that
+reaches the interface: how a device is selected.
+
+SPI configuration carries the instance, the clock and transmit GPIOs, an
+optional receive GPIO, baud, mode, and bit order. It does not carry chip select.
+Chip select belongs to the device transaction along with any data/command,
+reset, and busy GPIOs, so a driver owns those pins and the facility never
+changes them behind it.
+
+I2C configuration carries the instance, the data and clock GPIOs, and baud,
+which defaults to 400 kHz because that is the bus's common speed and a caller
+that says nothing about it should still get a working bus. There is no mode or
+bit order: the bus fixes both. There is no chip select either, because the
+address is the selection, which is why every I2C operation takes an address and
+the configuration does not.
+
+Addresses are seven-bit. Ten-bit addressing is a real feature of the bus that no
+device this interface has met uses, and inventing an encoding for it before one
+appears would be guessing at the shape of the answer.
+
+i2c_write_read is one operation rather than a write followed by a read. A
+register read is a write of the register number and then a read, and the bus
+must not be released between them: another master may take it, and a device that
+tracks its own address pointer would answer from the wrong place. Offering the
+two halves separately would leave that gap open for a later refactor to walk
+through, so the interface does not offer them.
+
+A provider that implements the operation must hold the bus across it. The Pico
+provider does so through the SDK's nostop argument, which makes the read a
+repeated start rather than a second transaction.
 
 # Per-executable closure augmentation
 
@@ -491,6 +528,14 @@ binding. Unrelated executables retain their ordinary closure.
 - SPI configuration carries instance, signal GPIOs, baud, mode, and bit order;
   writes and full-duplex transfers preserve byte-span boundaries. Invalid
   instances, pins, and signal combinations are rejected.
+- I2C configuration carries instance, data and clock GPIOs, and a baud that
+  defaults to 400 kHz. An address no device answers, an unconfigured instance,
+  and an empty transfer are each rejected, and a rejected call puts nothing on
+  the bus.
+- i2c_write_read reaches the provider as one operation, and a host stand-in
+  observes one transaction rather than a write followed by a read.
+- An unserved platform answers Unsupported for every I2C operation rather than
+  failing to link.
 - mcu-blink links on rp2040-ram through platform.rp2040_ram.mcu.
 - With the corresponding external tools installed, mcu-blink links on Pico ARM
   and Pico RISC-V through platform.pico.mcu and the real external CMake bridge.
@@ -536,7 +581,7 @@ record a skipped qualification with the missing prerequisite named.
 - It does not permit duplicate module names per lane.
 - It does not choose individual UART instances, GPIO pin ownership, or clocks.
 - It does not promise that every provider supports every mm.mcu facility;
-  Unsupported remains part of the interface, including SPI.
+  Unsupported remains part of the interface, including SPI and I2C.
 - It does not make attached displays or sensors MCU facilities. SPI is an
   implemented reusable transport; mm.display and mm.epaper.ssd1680 are layered
   above it as specified by docs/modules-display.mdy and

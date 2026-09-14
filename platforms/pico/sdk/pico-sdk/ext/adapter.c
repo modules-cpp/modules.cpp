@@ -3,6 +3,7 @@
 // rather than here: this file implements it, and the module calls it.
 #include "../mcu/mcu-c.h"
 #include "hardware/spi.h"
+#include "hardware/i2c.h"
 #include "hardware/uart.h"
 #include "pico/stdlib.h"
 #include "pico/time.h"
@@ -133,6 +134,94 @@ int mm_pico_mcu_spi_transfer(unsigned int instance, const unsigned char* transmi
     return spi_write_read_blocking(spi, transmit, receive, size) == (int)size
                ? MM_PICO_MCU_OK
                : MM_PICO_MCU_BUSY;
+}
+
+static i2c_inst_t* mm_pico_i2c(unsigned int instance) {
+    if (instance == 0) return i2c0;
+    if (instance == 1) return i2c1;
+    return NULL;
+}
+
+static int mm_pico_i2c_ready[2];
+
+// On RP2040 and RP2350 the I2C signal pattern repeats every four GPIOs: an even
+// pin is SDA and the odd pin above it is SCL, and the instance alternates with
+// each pair. Checking it here keeps a wrong pin a BadArgument rather than a
+// silent bus that never acknowledges.
+static int mm_pico_i2c_pin_matches(unsigned int instance, unsigned int pin,
+                                   unsigned int signal) {
+    return ((pin / 2u) % 2u) == instance && pin % 2u == signal;
+}
+
+// Seven-bit addresses only, matching the portable interface. The reserved
+// ranges below 0x08 and above 0x77 are refused rather than sent.
+static int mm_pico_i2c_address_valid(unsigned int address) {
+    return address >= 0x08u && address <= 0x77u;
+}
+
+int mm_pico_mcu_i2c_configure(unsigned int instance, unsigned int data_pin,
+                              unsigned int clock_pin, unsigned long baud) {
+    i2c_inst_t* i2c = mm_pico_i2c(instance);
+    if (i2c == NULL || baud == 0 || !mm_pico_pin_valid(data_pin) ||
+        !mm_pico_pin_valid(clock_pin) || data_pin == clock_pin ||
+        !mm_pico_i2c_pin_matches(instance, data_pin, 0u) ||
+        !mm_pico_i2c_pin_matches(instance, clock_pin, 1u))
+        return MM_PICO_MCU_BAD_ARGUMENT;
+
+    i2c_init(i2c, (uint)baud);
+    gpio_set_function(data_pin, GPIO_FUNC_I2C);
+    gpio_set_function(clock_pin, GPIO_FUNC_I2C);
+    gpio_pull_up(data_pin);
+    gpio_pull_up(clock_pin);
+    mm_pico_i2c_ready[instance] = 1;
+    return MM_PICO_MCU_OK;
+}
+
+// A zero-length write is the bus's device-presence probe, and the SDK rejects
+// it, so it is refused here rather than turned into a transfer that means
+// something else.
+int mm_pico_mcu_i2c_write(unsigned int instance, unsigned int address,
+                          const unsigned char* data, size_t size) {
+    i2c_inst_t* i2c = mm_pico_i2c(instance);
+    if (i2c == NULL || !mm_pico_i2c_ready[instance] ||
+        !mm_pico_i2c_address_valid(address) || size == 0 || size > INT_MAX ||
+        data == NULL)
+        return MM_PICO_MCU_BAD_ARGUMENT;
+    const int written = i2c_write_blocking(i2c, (uint8_t)address, data, size, false);
+    if (written == (int)size) return MM_PICO_MCU_OK;
+    return written < 0 ? MM_PICO_MCU_UNSUPPORTED : MM_PICO_MCU_BUSY;
+}
+
+int mm_pico_mcu_i2c_read(unsigned int instance, unsigned int address,
+                         unsigned char* data, size_t size) {
+    i2c_inst_t* i2c = mm_pico_i2c(instance);
+    if (i2c == NULL || !mm_pico_i2c_ready[instance] ||
+        !mm_pico_i2c_address_valid(address) || size == 0 || size > INT_MAX ||
+        data == NULL)
+        return MM_PICO_MCU_BAD_ARGUMENT;
+    const int read = i2c_read_blocking(i2c, (uint8_t)address, data, size, false);
+    if (read == (int)size) return MM_PICO_MCU_OK;
+    return read < 0 ? MM_PICO_MCU_UNSUPPORTED : MM_PICO_MCU_BUSY;
+}
+
+// The nostop argument on the write is the whole point: it holds the bus so the
+// read below is a repeated start rather than a second transaction.
+int mm_pico_mcu_i2c_write_read(unsigned int instance, unsigned int address,
+                               const unsigned char* command, size_t command_size,
+                               unsigned char* data, size_t size) {
+    i2c_inst_t* i2c = mm_pico_i2c(instance);
+    if (i2c == NULL || !mm_pico_i2c_ready[instance] ||
+        !mm_pico_i2c_address_valid(address) || command_size == 0 || size == 0 ||
+        command_size > INT_MAX || size > INT_MAX || command == NULL || data == NULL)
+        return MM_PICO_MCU_BAD_ARGUMENT;
+
+    const int written =
+        i2c_write_blocking(i2c, (uint8_t)address, command, command_size, true);
+    if (written != (int)command_size)
+        return written < 0 ? MM_PICO_MCU_UNSUPPORTED : MM_PICO_MCU_BUSY;
+    const int read = i2c_read_blocking(i2c, (uint8_t)address, data, size, false);
+    if (read == (int)size) return MM_PICO_MCU_OK;
+    return read < 0 ? MM_PICO_MCU_UNSUPPORTED : MM_PICO_MCU_BUSY;
 }
 
 // Portable instance zero means the selected SDK board's default hardware UART.

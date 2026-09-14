@@ -10,6 +10,7 @@ export module mm.mcu:platform;
 import :status;
 import :board;
 import :spi_types;
+import :i2c_types;
 
 export namespace mm::mcu {
 
@@ -40,6 +41,22 @@ public:
     }
     [[nodiscard]] virtual Status spi_transfer(unsigned int, std::span<const std::byte>,
                                               std::span<std::byte>) {
+        return Status::Unsupported;
+    }
+
+    [[nodiscard]] virtual Status i2c_configure(const I2cConfiguration&) {
+        return Status::Unsupported;
+    }
+    [[nodiscard]] virtual Status i2c_write(unsigned int, unsigned int,
+                                           std::span<const std::byte>) {
+        return Status::Unsupported;
+    }
+    [[nodiscard]] virtual Status i2c_read(unsigned int, unsigned int, std::span<std::byte>) {
+        return Status::Unsupported;
+    }
+    [[nodiscard]] virtual Status i2c_write_read(unsigned int, unsigned int,
+                                                std::span<const std::byte>,
+                                                std::span<std::byte>) {
         return Status::Unsupported;
     }
 

@@ -96,6 +96,35 @@ public:
             reinterpret_cast<unsigned char*>(receive.data()), transmit.size()));
     }
 
+    [[nodiscard]] mm::mcu::Status i2c_configure(
+        const mm::mcu::I2cConfiguration& configuration) override {
+        return from(mm_pico_mcu_i2c_configure(configuration.instance,
+                                              configuration.data_gpio,
+                                              configuration.clock_gpio,
+                                              configuration.baud));
+    }
+
+    [[nodiscard]] mm::mcu::Status i2c_write(unsigned int instance, unsigned int address,
+                                            std::span<const std::byte> data) override {
+        return from(mm_pico_mcu_i2c_write(
+            instance, address, reinterpret_cast<const unsigned char*>(data.data()),
+            data.size()));
+    }
+
+    [[nodiscard]] mm::mcu::Status i2c_read(unsigned int instance, unsigned int address,
+                                           std::span<std::byte> data) override {
+        return from(mm_pico_mcu_i2c_read(
+            instance, address, reinterpret_cast<unsigned char*>(data.data()), data.size()));
+    }
+
+    [[nodiscard]] mm::mcu::Status i2c_write_read(unsigned int instance, unsigned int address,
+                                                 std::span<const std::byte> command,
+                                                 std::span<std::byte> data) override {
+        return from(mm_pico_mcu_i2c_write_read(
+            instance, address, reinterpret_cast<const unsigned char*>(command.data()),
+            command.size(), reinterpret_cast<unsigned char*>(data.data()), data.size()));
+    }
+
     [[nodiscard]] mm::mcu::Status uart_write(unsigned int instance, const char* text) override {
         return from(mm_pico_mcu_uart_write(instance, text));
     }
