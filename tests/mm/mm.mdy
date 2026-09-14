@@ -15,4 +15,5 @@ folder: shell
 folder: model
 folder: run
 folder: touch
+folder: imu
 ---

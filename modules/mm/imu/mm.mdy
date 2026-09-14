@@ -1,0 +1,37 @@
+---
+mm: 1.2
+kind: module
+name: imu
+module: mm.imu
+platform-interface:
+file: status.cppm mm.imu:status
+file: types.cppm mm.imu:types
+file: platform.cppm mm.imu:platform
+file: imu.cppm mm.imu
+file: src/imu.cpp
+---
+
+# mm.imu
+
+A portable inertial measurement interface. It reports what the sensor measured
+and what those numbers mean, and nothing else: orientation fusion, filtering,
+gesture detection, and calibration are policy above this module, and controller
+registers are detail below it.
+
+Readings are signed counts in the sensor's own axes, exactly as mm.touch reports
+coordinates in the panel's own space. scale says what a count is worth, so a
+caller converts to whatever units it wants and no caller pays for units it does
+not. Doing the conversion here would force floating point on every executable
+that reaches this module, including bare-metal lanes with no hardware for it,
+to produce one of the several unit systems callers actually want. The reference
+drivers this interface was modelled on make that choice with a compile-time
+switch, which is evidence that the choice belongs to the caller.
+
+Temperature is hundredths of a degree Celsius for the same reason: it is the
+sensor's precision expressed without a floating-point type.
+
+The data-ready interrupt a sensor may offer is deliberately absent, as it is in
+mm.touch: a caller polls read, and mm.mcu has no callback registration.
+
+The platform-interface marker makes a selected board IMU provider part of an
+executable only when its ordinary closure reaches mm.imu.

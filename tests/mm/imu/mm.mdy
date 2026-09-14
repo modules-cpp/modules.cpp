@@ -1,0 +1,19 @@
+---
+mm: 1.0
+kind: test
+name: imu
+use: mm.test
+use: mm.mcu
+use: mm.imu
+use: mm.imu.qmi8658
+unit: tests/mm/imu/platform.cpp
+unit: tests/mm/imu/qmi8658.cpp
+unit: tests/main.cpp
+---
+
+# QMI8658 sensor tests
+
+Exercises identification at both strapped addresses, the control-register
+sequence, one-read six-axis sampling including negative two's complement values,
+temperature scaling, the lifecycle, and transport failure, against a recording
+MCU platform that answers as the part does. No hardware is involved.
