@@ -12,10 +12,10 @@ release: v1.2.0
 
 status: official gives the implemented portions of this document the same
 authority as the other v1.2.0 specifications. This document specifies the
-implemented transport and SSD1680 controller plus
-the remaining wiring, provider, and hardware-verification work beneath
-mm.display. The portable layers are implemented for v1.2.0; no physical panel
-profile is claimed until its exact panel, waveform, and wiring are qualified.
+implemented transport and SSD1680 controller plus the first concrete wiring and
+provider beneath mm.display. The pico_epaper profile is implemented from the
+named Waveshare panel and carrier documentation. A successful build is not a
+claim of visual hardware qualification.
 
 docs/modules-display.mdy owns the portable display boundary and platform
 binding. docs/modules-platform-mcu.mdy owns the implemented MCU provider model.
@@ -179,7 +179,7 @@ recorded and the generic external builder must still contain no ePaper name.
 The display provider is a project-owned C++ module with a name such as:
 
 Opening fence
-platform.pico.waveshare_2in13_v4.display
+platform.pico_epaper.display
 Closing fence
 
 It imports mm.display and the verified controller module, owns the descriptor,
@@ -243,11 +243,11 @@ screen refresh.
 2. Implemented: add mm.mcu:spi, host transcript tests, and Pico adapter support.
 3. Implemented: add mm.epaper.ssd1680 with initialization and timeout tests.
 4. Implemented: add mm.display and a host stand-in independent of ePaper.
-5. Pending a named panel: add the composite board profile and unique Pico
-   display provider.
-6. Pending: add apps/epaper-smoke using only mm.display.
-7. Pending: build ARM or RISC-V UF2 according to the selected underlying Pico
-   board.
+5. Implemented: add the pico_epaper composite board and its unique display
+   provider for Waveshare Pico-ePaper-2.66.
+6. Implemented: add apps/epaper-smoke using only mm.display.
+7. Implemented for the profile's inherited Pico ARM platform: build the app
+   through the external CMake bridge and publish its ELF and UF2 artifacts.
 8. Pending hardware: flash and perform recorded hardware qualification.
 9. Future: add partial refresh or further panels only after the baseline full-refresh
    implementation remains covered.
@@ -271,8 +271,9 @@ screen refresh.
 
 # What this does not settle
 
-- SSD1680 is implemented. No physical panel, pinout, or waveform table is
-  selected by this specification.
+- SSD1680 is implemented and the Pico-ePaper-2.66 profile fixes one physical
+  pinout. Its panel-specific partial-refresh LUT remains unselected, and no
+  physical refresh result is claimed before hardware qualification.
 - Tri-color, grayscale, and partial-refresh behavior are controller capabilities,
   not promises of the first implementation.
 - Temperature compensation and external temperature sensors remain future

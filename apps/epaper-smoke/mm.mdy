@@ -1,0 +1,14 @@
+---
+mm: 1.2
+kind: app
+name: epaper-smoke
+option: buildable-host no
+use: mm.display
+file: main.cpp
+---
+
+# epaper-smoke
+
+A portable display smoke application. It names only mm.display, builds only
+when the selected platform supplies that interface, and writes a deterministic
+checkerboard before performing one full refresh and entering deep sleep.

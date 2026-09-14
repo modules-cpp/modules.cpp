@@ -61,8 +61,8 @@ void repository_exposes_platform_definitions() {
     const auto boards = loaded.repository().boards();
     mm::test::expect(ok && sdks.size() == 7,
                      "expected all seven SDK definitions from the manifest walk");
-    mm::test::expect(boards.size() == 10,
-                     "expected all ten board definitions from the manifest walk");
+    mm::test::expect(boards.size() == 11,
+                     "expected all eleven board definitions from the manifest walk");
     const models::BoardNode* mps2 = nullptr;
     const models::BoardNode* rp2040 = nullptr;
     const models::BoardNode* rp2350 = nullptr;
@@ -73,6 +73,7 @@ void repository_exposes_platform_definitions() {
     const models::BoardNode* pico2_w_arm = nullptr;
     const models::BoardNode* pico2_w_riscv = nullptr;
     const models::BoardNode* widget = nullptr;
+    const models::BoardNode* pico_epaper = nullptr;
     for (const auto* b : boards) {
         if (b->name() == "mps2-an385") mps2 = b;
         if (b->name() == "rp2040-ram") rp2040 = b;
@@ -84,6 +85,7 @@ void repository_exposes_platform_definitions() {
         if (b->name() == "pico2-w-arm") pico2_w_arm = b;
         if (b->name() == "pico2-w-riscv") pico2_w_riscv = b;
         if (b->name() == "widget-rp2040") widget = b;
+        if (b->name() == "pico_epaper") pico_epaper = b;
     }
     mm::test::expect(mps2 != nullptr && mps2->kind() == models::Kind::Board &&
                          mps2->sdk() == "arm-none-eabi-newlib" &&
@@ -127,6 +129,13 @@ void repository_exposes_platform_definitions() {
                          widget->sources().size() == 1 &&
                          widget->linker_script() == "boards/widget-rp2040/board/link.ld",
                      "expected widget-rp2040 derived board definition");
+    mm::test::expect(pico_epaper != nullptr &&
+                         pico_epaper->kind() == models::Kind::Board &&
+                         pico_epaper->sdk() == "pico-arm" &&
+                         pico_epaper->cpu() == "cortex-m0plus" &&
+                         pico_epaper->sources().empty() &&
+                         pico_epaper->derives_from() == pico,
+                     "expected pico_epaper to derive from the Pico ARM board");
 }
 
 void repository_exposes_provider_declarations() {
@@ -169,8 +178,10 @@ void repository_exposes_provider_declarations() {
     }
 
     const models::BoardNode* widget_board = nullptr;
+    const models::BoardNode* pico_epaper_board = nullptr;
     for (const auto* board : boards)
         if (board->name() == "widget-rp2040") widget_board = board;
+        else if (board->name() == "pico_epaper") pico_epaper_board = board;
     mm::test::expect(widget_board != nullptr,
                      "expected widget-rp2040 board definition");
     if (widget_board != nullptr) {
@@ -180,6 +191,17 @@ void repository_exposes_provider_declarations() {
                              bindings.front().provider_module ==
                                  "platform.widget_rp2040.mcu",
                          "expected widget-rp2040 board's provider binding");
+    }
+
+    mm::test::expect(pico_epaper_board != nullptr,
+                     "expected pico_epaper board definition");
+    if (pico_epaper_board != nullptr) {
+        const auto bindings = pico_epaper_board->platform_providers();
+        mm::test::expect(bindings.size() == 1 &&
+                             bindings.front().interface_module == "mm.display" &&
+                             bindings.front().provider_module ==
+                                 "platform.pico_epaper.display",
+                         "expected pico_epaper to bind its display provider");
     }
 }
 

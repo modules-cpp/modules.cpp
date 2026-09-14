@@ -11,7 +11,7 @@ release: v1.2.0
 # Status and authority
 
 This document specifies every Raspberry Pi Pico platform in this repository: the
-two project-linked RAM platforms, the two Pico SDK-backed SDKs and their three
+two project-linked RAM platforms, the two Pico SDK-backed SDKs and their six
 boards, the vendored Pico SDK checkout and how it is provisioned, the CMake
 bridge that links against it, the C adapter and C++ wrapper that expose it, and
 the smoke applications that prove it. It describes implemented behaviour. Its
@@ -152,6 +152,12 @@ Those keys become optional only after reference resolution establishes that the
 board's SDK names a library declaring external-build, which is why the
 completeness check runs after every SDK and library reference resolves rather
 than while a board is parsed.
+
+boards/pico_epaper is a project-level composite profile derived from pico. It
+does not add a seventh SDK board or change the Pico bridge's vendor vocabulary:
+the persisted board chain contains pico_epaper followed by pico, and the bridge
+selects PICO_BOARD=pico from that chain. The derived board adds only the
+mm.display provider for its attached Waveshare Pico-ePaper-2.66.
 
 pico2-arm and pico2-w-arm declare security-domain: secure and select the Arm
 Secure processor row. rp2350-ram omits the key, keeps the non-secure default,

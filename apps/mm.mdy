@@ -4,6 +4,7 @@ kind: dir
 name: apps
 folder: main
 folder: mcu-blink
+folder: epaper-smoke
 folder: mdy
 folder: target-smoke-any
 ---

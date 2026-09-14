@@ -1,0 +1,20 @@
+---
+mm: 1.2
+kind: module
+name: pico-epaper-display
+module: platform.pico_epaper.display
+use: mm.display
+use: mm.epaper.ssd1680
+use: mm.mcu
+file: display.cppm
+option: buildable-host no
+---
+
+# platform.pico_epaper.display
+
+The physical display provider for the Waveshare Pico-ePaper-2.66 carrier. It
+owns the panel geometry, controller settings, and fixed GPIO/SPI wiring, then
+registers the resulting SSD1680-family controller as mm.display.
+
+Partial refresh remains disabled until its panel-specific LUT and recovery
+sequence are qualified on hardware.
