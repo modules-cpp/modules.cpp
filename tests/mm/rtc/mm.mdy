@@ -1,0 +1,20 @@
+---
+mm: 1.0
+kind: test
+name: rtc
+use: mm.test
+use: mm.mcu
+use: mm.rtc
+use: mm.rtc.pcf85063
+unit: tests/mm/rtc/platform.cpp
+unit: tests/mm/rtc/pcf85063.cpp
+unit: tests/main.cpp
+---
+
+# PCF85063 clock tests
+
+Exercises BCD decoding and encoding across every calendar field, the
+oscillator-stop flag that decides whether a reading is trusted, the century
+boundary the part's two year digits impose, one-transaction reads and writes,
+the lifecycle, and transport failure, against a recording MCU platform that
+answers as the part does. No hardware is involved.

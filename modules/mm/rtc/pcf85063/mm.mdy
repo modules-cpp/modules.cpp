@@ -1,0 +1,29 @@
+---
+mm: 1.2
+kind: module
+name: pcf85063
+module: mm.rtc.pcf85063
+use: mm.mcu
+use: mm.rtc
+file: pcf85063.cppm
+file: src/pcf85063.cpp
+---
+
+# mm.rtc.pcf85063
+
+The NXP PCF85063 real-time clock, over portable mm.mcu I2C. It contains no
+vendor header and no board pin number: a board's provider supplies the wiring
+and this module drives the protocol.
+
+Registers are eight-bit and the calendar is packed binary-coded decimal, so
+every field crosses this boundary twice: once as BCD on the wire and once as an
+ordinary number in mm.rtc's DateTime. The part stores two year digits, so this
+driver fixes the century at 2000 and refuses a year outside it rather than
+wrapping one silently.
+
+Modelled on Waveshare's reference driver for the RP2350-Touch-LCD-2.8. Two
+things differ. The reference reports oscillator stop by printing; here it is the
+trusted flag mm.rtc requires, read from the same seconds byte the time came from
+rather than from a second transaction. The reference converts through struct tm
+and mktime; mm.rtc has its own calendar so that a freestanding lane needs no
+<ctime>, and the month and year offsets tm imposes are gone with it.

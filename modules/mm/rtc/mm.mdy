@@ -1,0 +1,36 @@
+---
+mm: 1.2
+kind: module
+name: rtc
+module: mm.rtc
+platform-interface:
+file: status.cppm mm.rtc:status
+file: types.cppm mm.rtc:types
+file: platform.cppm mm.rtc:platform
+file: rtc.cppm mm.rtc
+file: src/rtc.cpp
+---
+
+# mm.rtc
+
+A portable real-time clock interface. It reads and sets a calendar date and time
+and says whether that reading can be trusted, and nothing else: time zones,
+daylight saving, formatting, epoch conversion, and alarms are policy above this
+module, and controller registers are detail below it.
+
+DateTime is a plain calendar, not a count of seconds since an epoch. A
+battery-backed clock counts calendar fields in hardware, and converting them to
+an epoch here would pick a representation, an epoch, and an integer width on
+behalf of callers that mostly want to print the fields back out. Nothing in this
+interface needs <ctime>, which a freestanding lane may not have.
+
+read reports trust alongside the time because a clock that lost power still
+answers: its registers hold whatever they held, and the reading is well formed
+and wrong. A caller must decide what to do about that, so the interface makes it
+say so rather than hiding it behind a status a caller might treat as fatal.
+
+The interrupt and alarm outputs a part may offer are deliberately absent, as in
+mm.touch and mm.imu: mm.mcu has no callback registration.
+
+The platform-interface marker makes a selected board clock provider part of an
+executable only when its ordinary closure reaches mm.rtc.
