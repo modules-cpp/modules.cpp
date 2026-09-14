@@ -10,7 +10,7 @@ release: v1.2.0
 
 # Status and authority
 
-This document specifies the implemented platforms directory, the sdk and board manifest kinds, platform selection at configure time, and the platform block of the configuration record for release v1.2.0. Its drafting history is in drafts/plan-platform-and-sdk-2 and drafts/plan-platforms-directory through 10, which it supersedes.
+This document specifies the implemented platforms directory, the sdk and board manifest kinds, platform selection at configure time, and the platform block of the configuration record for release v1.2.0. Its drafting history is in drafts/plan-platform-and-sdk-2 and drafts/plan-platforms-directory through 10, which it supersedes. Board derivation's drafting history is in drafts/plan-custom-boards through 5, which it also supersedes; where a draft and this document disagree, this document governs.
 
 status: official gives this document the same authority as the other implemented specifications in docs.
 
@@ -109,11 +109,52 @@ Closing fence
 - provides names a responsibility this board supplies. Repeatable. Responsibilities are accumulated across the derivation chain; a responsibility declared twice anywhere in the chain is rejected naming both manifests.
 - platform-provider binds an interface the way an SDK does, and overrides its SDK's binding for the same interface. On a derived board, platform-provider overrides a base board's binding for the same interface. See Platform providers below.
 
-Board names may contain alphanumeric characters, hyphens, and underscores, and must not contain quotes, backslashes, spaces, semicolons, or bracket sequences.
+A board name is restricted beyond the rules every manifest name follows. It begins with a letter or a digit, and every character after that is a letter, a digit, or one of `.`, `_`, `+`, and `-`. Anything else is rejected at walk time naming the manifest.
+
+The restriction exists because a board name is the one manifest name that leaves the project in two encodings at once: it is written into a CMake list element in mm-inputs.cmake and into a C string literal reaching the bridge's adapter. One grammar makes it safe in both, and on a command line, by construction. Escaping would have to be correct at each boundary separately. A name containing a quote, a backslash, a space, a semicolon, or a bracket sequence therefore never reaches either encoding.
 
 target is not valid on a board manifest. A board's target is its SDK's. Declaring it as well would place a second copy of one value one hop from the first, and the only thing a check between them buys is catching a wrong copy.
 
 Board sources are C++ in this release, because compile forces -x c++. A vector table and reset handler are expressible in C++ with extern "C" linkage and no runtime dependencies.
+
+# Board derivation
+
+A derived board is a board in its own right. It has its own name, is selected by --board with that name, and appears in the model beside every other board. What it inherits is its base's platform identity; what it declares is its own specialisation. A base does not know it has been derived from: it stays selectable, and deriving from it changes nothing about it.
+
+Derivation is resolved after the complete manifest tree is collected, like every other cross-manifest reference, so folder order and declaration order are both irrelevant and a board may derive from one declared later or elsewhere in the tree. Resolution runs before the processor registry lookup, so a derived board is validated against the registry using the properties it inherited.
+
+Every consumer sees a flattened board and its chain. The chain is the selected board followed by its bases, most derived first, and is a single-element list for a board that derives from nothing. Nothing downstream of the loader re-walks a derivation: configure, build, test, the model, and the external bridge all read resolved values.
+
+Chains may be any length. A cycle is rejected in the format the walk uses for a folder: cycle, listing every manifest and marking the repeat:
+
+Opening fence
+<tool>: derives-from: cycle in the board chain:
+    boards/a/board/mm.mdy
+    boards/b/board/mm.mdy
+    boards/a/board/mm.mdy  <- repeats
+Closing fence
+
+A board deriving from itself is the one-element case, and prints one line and the repeat.
+
+## Resolution precedes merging
+
+A base and a derived board sit in different directories, and every path a board declares is resolved against the manifest that declared it, before any merging happens. A flattened board therefore holds no raw value and no directory of its own to resolve against.
+
+This is what makes a merged source list mean the same thing as the separate lists it came from. Two manifests may use the same relative spelling:
+
+Opening fence
+platforms/pico/rp2040-ram/mm.mdy      file: vectors.cpp   linker-script: link.ld
+boards/widget-rp2040/board/mm.mdy     file: pins.cpp      linker-script: link.ld
+Closing fence
+
+The derived board's link.ld is boards/widget-rp2040/board/link.ld and overrides the base's; vectors.cpp stays the base's. Merging raw values and resolving afterwards would look for the base's vectors.cpp beside pins.cpp, and would report a missing project file naming a manifest that never mentioned it. A diagnostic about a genuinely missing inherited file names the manifest that declared it.
+
+## What derivation does not do
+
+- It does not let a derived board remove one of its base's sources. Merging is addition only, so a derived board that defines the same symbol as its base gets two definitions and a link error. A board may supplement its base, or specialise it through a seam the base deliberately left; a board that must replace its base's vector table is a sibling, not a specialisation. Replacing behaviour wholesale is what rebinding platform-provider is for: injection selects exactly one provider, and the base's is not linked at all.
+- It does not make a derived board substitutable for its base. requires-board matches the selected board's name exactly; see Board requirement.
+- It does not admit multiple bases. One base keeps precedence a chain rather than a lattice.
+- It does not apply to any other kind. A board cannot derive from an SDK, and an SDK cannot derive from anything.
 
 # Names, references and lane compatibility
 
@@ -302,6 +343,8 @@ It refines target availability and nothing else.
 - Resolution yields an availability carrying a reason and, on a mismatch, the required and the selected board names. The diagnostic has to name both, which a boolean cannot supply.
 - A root build skips a mismatch, counts it among the unavailable, and reports it as unavailable for the target lane rather than as not buildable-target, because a skipped board mismatch has buildable-target yes.
 - An explicit request through build, test, run, or debug exits 77, which is the code these tools already return for a node unavailable in the selected lane.
+
+Matching is exact, and a derived board does not satisfy a requirement naming its base. Derivation cannot change the SDK, the chip, or the ABI, but it can change the linker script, the machine, the sources, and the platform provider, and those are the properties an application pinned to a board is most likely to depend on. An unchanged ABI does not imply compatible hardware, so substitutability is not inferred from how a board was written. An application that depends on one board names that board, derived or not; an application that does not should be using a platform interface and its provider instead.
 
 requires-sdk does not exist. A board implies its SDK, and an application that needs a runtime without caring which board has not appeared.
 

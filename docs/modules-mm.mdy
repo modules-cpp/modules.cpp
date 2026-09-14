@@ -186,7 +186,7 @@ manifest declaring target on a module reports the version requirement rather tha
 the placement. That is deliberate: raising the version is what makes the key legal
 to write at all.
 
-# Two value grammars this gate does not check
+# Three value grammars this gate does not check
 
 platform-interface is a marker: it occurs at most once and its value must be
 empty. The module key on the same manifest already names the interface, so a
@@ -196,6 +196,12 @@ interface, then its provider. A third field is rejected. Both grammars are the
 owning specification's rules rather than this gate's, and are reported by the
 code that reads them; they are stated here because the keys are otherwise
 indistinguishable from the free-form ones above.
+
+derives-from is the third. It occurs at most once, and its value is one board
+name, which is itself restricted beyond the rules every manifest name follows:
+docs/modules-platforms.mdy owns that grammar, because a board name reaches a
+CMake list element and a C string literal and this gate knows nothing about
+either.
 
 # Names
 
