@@ -32,6 +32,8 @@ extern "C" int pclose(std::FILE*);
 
 namespace mm::build {
 
+bool is_safe_board_name(std::string_view name);
+
 namespace {
 
 std::optional<mm::configure::Responsibility> parse_responsibility(std::string_view value);
@@ -149,6 +151,7 @@ const std::vector<ManifestKeyRule> manifest_key_rules = {
     {"external-build", 12, "library"},
     {"platform-interface", 12, "module"},
     {"platform-provider", 12, "sdk board"},
+    {"derives-from", 12, "board"},
 };
 
 const ManifestKeyRule* manifest_key_rule(std::string_view key) {
@@ -1008,6 +1011,10 @@ bool valid_manifest(const mm::mdy::MDYDocument& doc, std::string_view kind, std:
         std::cerr << policy.tool << ": unsafe name \"" << name << "\" in " << manifest.string() << "\n";
         return false;
     }
+    if (kind == "board" && !is_safe_board_name(name)) {
+        std::cerr << policy.tool << ": unsafe board name \"" << name << "\" in " << manifest.string() << "\n";
+        return false;
+    }
     return true;
 }
 
@@ -1438,6 +1445,150 @@ bool library_interface_paths(const std::filesystem::path& root, const ManifestNo
     return true;
 }
 
+bool resolve_board_chains(Project& project, const LoadPolicy& policy) {
+    std::map<std::string_view, std::size_t> board_indices;
+    for (std::size_t i = 0; i < project.boards.size(); ++i) {
+        board_indices[project.boards[i].name] = i;
+    }
+
+    std::vector<std::vector<std::size_t>> chains(project.boards.size());
+    for (std::size_t i = 0; i < project.boards.size(); ++i) {
+        std::vector<std::size_t> chain{i};
+        std::set<std::size_t> in_chain{i};
+        std::size_t current = i;
+        while (!project.boards[current].derives_from.empty()) {
+            const auto& base_name = project.boards[current].derives_from;
+            const auto it = board_indices.find(base_name);
+            if (it == board_indices.end()) {
+                std::cerr << policy.tool << ": " << project.boards[current].manifest.string()
+                          << ": derives-from references unknown board: " << base_name;
+                if (!project.boards.empty()) {
+                    std::cerr << " (available:";
+                    for (const auto& b : project.boards) std::cerr << " " << b.name;
+                    std::cerr << ")";
+                }
+                std::cerr << "\n";
+                return false;
+            }
+            const std::size_t base_idx = it->second;
+            if (in_chain.contains(base_idx)) {
+                std::cerr << policy.tool << ": derives-from: cycle in the board chain:\n";
+                auto start_it = std::find(chain.begin(), chain.end(), base_idx);
+                for (auto pit = start_it; pit != chain.end(); ++pit) {
+                    std::cerr << "    " << project.boards[*pit].manifest.string() << "\n";
+                }
+                std::cerr << "    " << project.boards[base_idx].manifest.string() << "  <- repeats\n";
+                return false;
+            }
+            chain.push_back(base_idx);
+            in_chain.insert(base_idx);
+            current = base_idx;
+        }
+        chains[i] = std::move(chain);
+    }
+
+    const char* const immutable_keys[] = {
+        "sdk", "cpu", "instruction-set", "float-abi", "security-domain"
+    };
+    for (std::size_t i = 0; i < project.boards.size(); ++i) {
+        if (chains[i].size() <= 1) continue;
+        const auto& derived = project.boards[i];
+        const auto& supplier = project.boards[chains[i].back()];
+        const auto& doc = project.documents[derived.node];
+        for (const char* key : immutable_keys) {
+            if (lookup(doc, key) != nullptr) {
+                std::cerr << policy.tool << ": " << derived.manifest.string()
+                          << ": cannot redeclare " << key << " inherited from "
+                          << supplier.manifest.string() << "\n";
+                return false;
+            }
+        }
+    }
+
+    for (std::size_t i = 0; i < project.boards.size(); ++i) {
+        if (chains[i].size() <= 1) continue;
+        std::map<mm::configure::Responsibility, std::size_t> seen_responsibilities;
+        for (auto it = chains[i].rbegin(); it != chains[i].rend(); ++it) {
+            const std::size_t board_idx = *it;
+            for (const auto r : project.boards[board_idx].declared_provides) {
+                const auto prev = seen_responsibilities.find(r);
+                if (prev != seen_responsibilities.end()) {
+                    const auto& first_manifest = project.boards[prev->second].manifest;
+                    const auto& second_manifest = project.boards[board_idx].manifest;
+                    std::cerr << policy.tool << ": responsibility "
+                              << mm::configure::responsibility_name(r)
+                              << " is provided by both " << first_manifest.string()
+                              << " and " << second_manifest.string() << "\n";
+                    return false;
+                }
+                seen_responsibilities[r] = board_idx;
+            }
+        }
+    }
+
+    for (std::size_t i = 0; i < project.boards.size(); ++i) {
+        auto& board = project.boards[i];
+        const auto& chain_indices = chains[i];
+        board.chain.clear();
+        for (std::size_t idx : chain_indices) {
+            board.chain.push_back(project.boards[idx].name);
+        }
+
+        if (chain_indices.size() <= 1) continue;
+
+        const auto& root_base = project.boards[chain_indices.back()];
+        board.sdk = root_base.sdk;
+        board.cpu = root_base.cpu;
+        board.instruction_set = root_base.instruction_set;
+        board.float_abi = root_base.float_abi;
+        board.security_domain = root_base.security_domain;
+
+        std::string effective_machine;
+        for (auto it = chain_indices.rbegin(); it != chain_indices.rend(); ++it) {
+            if (!project.boards[*it].machine.empty()) {
+                effective_machine = project.boards[*it].machine;
+            }
+        }
+        board.machine = effective_machine;
+
+        std::filesystem::path effective_linker_script;
+        for (auto it = chain_indices.rbegin(); it != chain_indices.rend(); ++it) {
+            if (!project.boards[*it].linker_script.empty()) {
+                effective_linker_script = project.boards[*it].linker_script;
+            }
+        }
+        board.linker_script = effective_linker_script;
+
+        board.sources.clear();
+        for (auto it = chain_indices.rbegin(); it != chain_indices.rend(); ++it) {
+            const auto& src_list = project.boards[*it].declared_sources;
+            board.sources.insert(board.sources.end(), src_list.begin(), src_list.end());
+        }
+
+        board.provides.clear();
+        for (auto it = chain_indices.rbegin(); it != chain_indices.rend(); ++it) {
+            const auto& prov_list = project.boards[*it].declared_provides;
+            board.provides.insert(board.provides.end(), prov_list.begin(), prov_list.end());
+        }
+
+        board.providers.clear();
+        for (auto it = chain_indices.rbegin(); it != chain_indices.rend(); ++it) {
+            for (const auto& binding : project.boards[*it].declared_providers) {
+                auto pit = std::find_if(board.providers.begin(), board.providers.end(),
+                                        [&](const PlatformProviderBinding& existing) {
+                                            return existing.interface_module == binding.interface_module;
+                                        });
+                if (pit != board.providers.end()) {
+                    *pit = binding;
+                } else {
+                    board.providers.push_back(binding);
+                }
+            }
+        }
+    }
+    return true;
+}
+
 bool parse_definitions(Project& project, const std::filesystem::path& root,
                        const LoadPolicy& policy) {
     std::map<std::string, std::filesystem::path, std::less<>> sdk_names;
@@ -1558,25 +1709,51 @@ bool parse_definitions(Project& project, const std::filesystem::path& root,
             board.node = i;
             board.name = node.name;
             board.manifest = node.manifest;
-            std::string linker;
-            if (!definition_scalar(doc, "sdk", node.manifest, board.sdk, policy.tool) ||
-                !definition_scalar(doc, "cpu", node.manifest, board.cpu, policy.tool) ||
-                !definition_scalar(doc, "instruction-set", node.manifest,
-                                   board.instruction_set, policy.tool) ||
-                !definition_scalar(doc, "float-abi", node.manifest, board.float_abi,
-                                   policy.tool) ||
-                !definition_scalar(doc, "security-domain", node.manifest,
-                                   board.security_domain, policy.tool, false) ||
-                !definition_scalar(doc, "machine", node.manifest, board.machine,
-                                   policy.tool, false) ||
-                !definition_scalar(doc, "linker-script", node.manifest, linker,
+            if (!definition_scalar(doc, "derives-from", node.manifest, board.derives_from,
                                    policy.tool, false))
                 return false;
-            if (board.security_domain.empty()) board.security_domain = "non-secure";
-            if (board.security_domain != "secure" && board.security_domain != "non-secure") {
-                std::cerr << policy.tool << ": " << node.manifest.string()
-                          << ": security-domain must be secure or non-secure\n";
-                return false;
+
+            std::string linker;
+            if (board.derives_from.empty()) {
+                if (!definition_scalar(doc, "sdk", node.manifest, board.sdk, policy.tool) ||
+                    !definition_scalar(doc, "cpu", node.manifest, board.cpu, policy.tool) ||
+                    !definition_scalar(doc, "instruction-set", node.manifest,
+                                       board.instruction_set, policy.tool) ||
+                    !definition_scalar(doc, "float-abi", node.manifest, board.float_abi,
+                                       policy.tool) ||
+                    !definition_scalar(doc, "security-domain", node.manifest,
+                                       board.security_domain, policy.tool, false) ||
+                    !definition_scalar(doc, "machine", node.manifest, board.machine,
+                                       policy.tool, false) ||
+                    !definition_scalar(doc, "linker-script", node.manifest, linker,
+                                       policy.tool, false))
+                    return false;
+                if (board.security_domain.empty()) board.security_domain = "non-secure";
+                if (board.security_domain != "secure" && board.security_domain != "non-secure") {
+                    std::cerr << policy.tool << ": " << node.manifest.string()
+                              << ": security-domain must be secure or non-secure\n";
+                    return false;
+                }
+            } else {
+                if (!definition_scalar(doc, "sdk", node.manifest, board.sdk, policy.tool, false) ||
+                    !definition_scalar(doc, "cpu", node.manifest, board.cpu, policy.tool, false) ||
+                    !definition_scalar(doc, "instruction-set", node.manifest,
+                                       board.instruction_set, policy.tool, false) ||
+                    !definition_scalar(doc, "float-abi", node.manifest, board.float_abi,
+                                       policy.tool, false) ||
+                    !definition_scalar(doc, "security-domain", node.manifest,
+                                       board.security_domain, policy.tool, false) ||
+                    !definition_scalar(doc, "machine", node.manifest, board.machine,
+                                       policy.tool, false) ||
+                    !definition_scalar(doc, "linker-script", node.manifest, linker,
+                                       policy.tool, false))
+                    return false;
+                if (!board.security_domain.empty() &&
+                    board.security_domain != "secure" && board.security_domain != "non-secure") {
+                    std::cerr << policy.tool << ": " << node.manifest.string()
+                              << ": security-domain must be secure or non-secure\n";
+                    return false;
+                }
             }
             if (!linker.empty() &&
                 !definition_path(root, node, linker, board.linker_script,
@@ -1590,6 +1767,11 @@ bool parse_definitions(Project& project, const std::filesystem::path& root,
             if (!definition_responsibilities(doc, node.manifest, board.provides, policy.tool) ||
                 !definition_providers(doc, node.manifest, board.providers, policy.tool))
                 return false;
+
+            board.declared_sources = board.sources;
+            board.declared_provides = board.provides;
+            board.declared_providers = board.providers;
+
             const auto duplicate = board_names.find(board.name);
             if (duplicate != board_names.end()) {
                 std::cerr << policy.tool << ": board name \"" << board.name
@@ -1753,6 +1935,8 @@ bool parse_definitions(Project& project, const std::filesystem::path& root,
         std::cerr << "\n";
         return false;
     }
+
+    if (!resolve_board_chains(project, policy)) return false;
 
     for (auto& board : project.boards) {
         const SdkDefinition* sdk = nullptr;
@@ -1928,6 +2112,22 @@ void closure_visit(std::size_t index, const Tree& tree,
     }
 }
 
+}
+
+bool is_safe_board_name(std::string_view name) {
+    if (name.empty()) return false;
+    const auto is_lead = [](char c) {
+        return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9');
+    };
+    const auto is_rest = [](char c) {
+        return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
+               c == '.' || c == '_' || c == '+' || c == '-';
+    };
+    if (!is_lead(name.front())) return false;
+    for (std::size_t i = 1; i < name.size(); ++i) {
+        if (!is_rest(name[i])) return false;
+    }
+    return true;
 }
 
 Toolchain default_toolchain(bool verbose) {

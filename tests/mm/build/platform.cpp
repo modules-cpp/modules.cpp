@@ -71,6 +71,17 @@ void validates_platform_keys_by_version_and_kind() {
                       "mm: 1.1\nkind: board\nname: old\nsecurity-domain: secure\n");
     expect(!mm::build::load_project(tree.root()).ok,
            "security-domain requires manifest version 1.2");
+
+    tree.manifest_raw("",
+                      "mm: 1.1\nkind: board\nname: old\nderives-from: mps2-an385\n");
+    expect(!mm::build::load_project(tree.root()).ok,
+           "derives-from requires manifest version 1.2");
+
+    tree.manifest_raw("",
+                      "mm: 1.2\nkind: module\nname: bad\nmodule: bad\n"
+                      "file: source.cpp\nderives-from: mps2-an385\n");
+    expect(!mm::build::load_project(tree.root()).ok,
+           "derives-from is not valid on a module");
 }
 
 void rejects_bad_references_and_registry_values() {

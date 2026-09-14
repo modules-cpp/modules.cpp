@@ -241,6 +241,11 @@ struct BoardDefinition {
     std::vector<mm::configure::Responsibility> provides;
     std::vector<std::string> compiler_arguments;
     std::vector<PlatformProviderBinding> providers;
+    std::string derives_from;
+    std::vector<std::string> chain;
+    std::vector<std::filesystem::path> declared_sources;
+    std::vector<mm::configure::Responsibility> declared_provides;
+    std::vector<PlatformProviderBinding> declared_providers;
 };
 
 struct Tree {
@@ -274,6 +279,8 @@ struct LoadPolicy {
 [[nodiscard]] bool validate_manifest_schema(const mm::mdy::MDYDocument& document,
                                             const std::filesystem::path& manifest,
                                             const LoadPolicy& policy = {});
+
+[[nodiscard]] bool is_safe_board_name(std::string_view name);
 
 // Every reachable manifest, parents before children. Sets ok on failure.
 std::vector<ManifestNode> load_nodes(const std::filesystem::path& dir, bool& ok,

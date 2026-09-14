@@ -13,6 +13,7 @@ unit: tests/mm/build/platform.cpp
 unit: tests/mm/build/library.cpp
 unit: tests/mm/build/providers.cpp
 unit: tests/mm/build/external.cpp
+unit: tests/mm/build/board.cpp
 unit: tests/main.cpp
 ---
 

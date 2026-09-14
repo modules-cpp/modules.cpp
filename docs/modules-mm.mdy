@@ -129,6 +129,7 @@ Opening fence
 1.2  external-build      library
 1.2  platform-interface  module
 1.2  platform-provider   sdk board
+1.2  derives-from        board
 Closing fence
 
 Three placements are worth stating because their absence is load-bearing rather
