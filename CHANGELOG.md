@@ -116,6 +116,10 @@ and firmware that runs on a Raspberry Pi Pico.
 - The configuration record stays `configuration-2`; its key set is extended,
   and a reader predating a key rejects it by name rather than ignoring it.
 - A tree using any 1.2 key requires a tool that supports 1.2.
+- **GCC 15 or newer is required.** GCC 14 fails with an internal compiler error
+  in `simplify_aggr_init_expr` (`cp/semantics.cc`) compiling `tools/configure`,
+  and no source-level workaround avoids it. Continuous integration builds with
+  GCC 15 from the Ubuntu toolchain PPA.
 
 ## [v1.1.0] — 2026-09-08
 

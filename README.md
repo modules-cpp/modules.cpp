@@ -34,7 +34,9 @@ see [docs/modules.mdy](docs/modules.mdy) for the full architecture.
 
 - A C++20 compiler with module support. Self-hosted builds support GCC and
   Clang; bootstrap remains the fixed GCC-oriented recovery path through `c++`.
-  GCC 14+ or a recent Clang release is recommended.
+  GCC 15+ or a recent Clang release is recommended. GCC 14 is not usable: it
+  fails with an internal compiler error in `simplify_aggr_init_expr` while
+  compiling this project's own tools.
 - A POSIX shell (Linux or macOS; on Windows use WSL). The build and bootstrap
   scripts are plain `sh` scripts that shell out to the compiler directly —
   there is no CMake, Make, or other build system underneath them.

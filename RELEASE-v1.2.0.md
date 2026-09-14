@@ -53,7 +53,7 @@ builds remain full rather than incremental.
 library, provider, and derivation key requires `mm: 1.2`, so a tool that predates
 this release rejects such a manifest by version rather than misreading a key.
 
-Requires a C++20 compiler with module support, GCC 14 or newer recommended, and a
+Requires a C++20 compiler with module support, GCC 15 or newer, and a
 POSIX shell. Cross targets additionally require their toolchain; the Pico
 platforms require the prebuilt tools that
 `platforms/pico/install-sdk-tools.sh` provisions. See

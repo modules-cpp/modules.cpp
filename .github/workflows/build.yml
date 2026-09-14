@@ -24,14 +24,18 @@ jobs:
       - uses: actions/checkout@v4
 
       # bootstrap.sh deliberately invokes the literal command c++, so the
-      # default must be a compiler with C++20 module support. Ubuntu 24.04
-      # ships GCC 13 as c++, which is not enough for this project.
+      # default must be a compiler with C++20 module support.
       - name: Install a modules-capable GCC
         run: |
+          # ubuntu-24.04 carries GCC 13 as c++ and GCC 14 as its newest
+          # archive compiler. GCC 13 has no usable module support, and GCC 14
+          # ICEs on this codebase (simplify_aggr_init_expr, cp/semantics.cc),
+          # so GCC 15 comes from the toolchain PPA.
+          sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
           sudo apt-get update
-          sudo apt-get install -y g++-14
-          sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-14 100
-          sudo update-alternatives --install /usr/bin/c++ c++ /usr/bin/g++-14 100
+          sudo apt-get install -y g++-15
+          sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-15 100
+          sudo update-alternatives --install /usr/bin/c++ c++ /usr/bin/g++-15 100
           # bootstrap uses c++; an unconfigured build uses g++. Mixing versions
           # across that boundary is what broke this workflow before.
           c++ --version | head -1
@@ -42,7 +46,7 @@ jobs:
         run: ./bootstrap.sh
 
       - name: Configure
-        run: ./configure --compiler gcc-14 --build ${{ matrix.build }}
+        run: ./configure --compiler gcc-15 --build ${{ matrix.build }}
 
       - name: Build
         run: ./build.sh
@@ -91,11 +95,12 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install dependencies
         run: |
+          sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
           sudo apt-get update
-          sudo apt-get install -y g++-14 cppcheck
-          sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-14 100
-          sudo update-alternatives --install /usr/bin/c++ c++ /usr/bin/g++-14 100
+          sudo apt-get install -y g++-15 cppcheck
+          sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-15 100
+          sudo update-alternatives --install /usr/bin/c++ c++ /usr/bin/g++-15 100
       - run: ./bootstrap.sh
-      - run: ./configure --compiler gcc-14 --build debug
+      - run: ./configure --compiler gcc-15 --build debug
       - run: ./build.sh
       - run: ./check.sh
