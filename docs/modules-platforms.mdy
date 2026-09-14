@@ -144,10 +144,10 @@ This is what makes a merged source list mean the same thing as the separate list
 
 Opening fence
 platforms/pico/rp2040-ram/mm.mdy      file: vectors.cpp   linker-script: link.ld
-boards/widget-rp2040/board/mm.mdy     file: pins.cpp      linker-script: link.ld
+boards/example/board/mm.mdy           file: vectors.cpp   linker-script: link.ld
 Closing fence
 
-The derived board's link.ld is boards/widget-rp2040/board/link.ld and overrides the base's; vectors.cpp stays the base's. Merging raw values and resolving afterwards would look for the base's vectors.cpp beside pins.cpp, and would report a missing project file naming a manifest that never mentioned it. A diagnostic about a genuinely missing inherited file names the manifest that declared it.
+The derived board's link.ld and vectors.cpp are the files below boards/example/board/, while the inherited vectors.cpp stays the file below platforms/pico/rp2040-ram/. Merging raw values and resolving afterwards would collapse the two source spellings onto one directory. A diagnostic about a genuinely missing inherited file names the manifest that declared it.
 
 ## What derivation does not do
 

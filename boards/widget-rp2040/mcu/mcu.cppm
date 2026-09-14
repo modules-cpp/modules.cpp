@@ -14,7 +14,7 @@ export module platform.widget_rp2040.mcu;
 
 import mm.mcu;
 
-extern "C" unsigned int widget_rp2040_status_led_pin(void);
+unsigned int widget_rp2040_status_led_pin();
 
 namespace {
 

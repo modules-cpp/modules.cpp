@@ -4,11 +4,10 @@ kind: board
 name: widget-rp2040
 derives-from: rp2040-ram
 linker-script: link.ld
-file: pins.cpp
 platform-provider: mm.mcu platform.widget_rp2040.mcu
 ---
 
 # widget-rp2040
 
-A custom board derived from rp2040-ram. It overrides the linker script,
-adds pins.cpp, and binds its own mm.mcu provider.
+A custom board derived from rp2040-ram. It overrides the linker script and
+binds its own mm.mcu provider.

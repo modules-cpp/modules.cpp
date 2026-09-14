@@ -124,7 +124,7 @@ void repository_exposes_platform_definitions() {
     mm::test::expect(widget != nullptr && widget->kind() == models::Kind::Board &&
                          widget->sdk() == "arm-none-eabi-newlib" &&
                          widget->cpu() == "cortex-m0plus" &&
-                         widget->sources().size() == 2 &&
+                         widget->sources().size() == 1 &&
                          widget->linker_script() == "boards/widget-rp2040/board/link.ld",
                      "expected widget-rp2040 derived board definition");
 }
@@ -448,18 +448,14 @@ void board_derivation_provenance_and_sequence_entries() {
                 "boards/widget-rp2040/board/mm.mdy",
             "expected widget-rp2040 linker-script manifest");
         mm::test::expect(
-            widget->sources().size() == 2 &&
-                widget->source_entries().size() == 2,
-            "expected 2 source entries for widget-rp2040");
-        if (widget->source_entries().size() == 2) {
+            widget->sources().size() == 1 &&
+                widget->source_entries().size() == 1,
+            "expected inherited source entry for widget-rp2040");
+        if (widget->source_entries().size() == 1) {
             mm::test::expect(
                 widget->source_entries()[0].manifest ==
                     "platforms/pico/rp2040-ram/mm.mdy",
                 "expected base source manifest for first source");
-            mm::test::expect(
-                widget->source_entries()[1].manifest ==
-                    "boards/widget-rp2040/board/mm.mdy",
-                "expected derived source manifest for second source");
         }
         mm::test::expect(
             widget->provides().size() == 3 &&
