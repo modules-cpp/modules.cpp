@@ -1,9 +1,11 @@
+#include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <map>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 import mm.build;
@@ -28,7 +30,7 @@ void inputs_cmake_escaping_and_validation() {
     // Valid inputs
     expect(mm::build::write_inputs_cmake(
                inputs_file, objects, "smoke", tree.root() / "lib", "pico",
-               toolchain_file, c_compiler, cxx_compiler),
+               {"pico"}, toolchain_file, c_compiler, cxx_compiler),
            "valid inputs succeed");
 
     std::ifstream in(inputs_file);
@@ -36,8 +38,8 @@ void inputs_cmake_escaping_and_validation() {
                         std::istreambuf_iterator<char>());
     expect(content.find("set(MM_OUTPUT_NAME [==[smoke]==])") != std::string::npos,
            "output name uses bracket syntax");
-    expect(content.find("set(MM_BOARD [==[pico]==])") != std::string::npos,
-           "board name uses bracket syntax");
+    expect(content.find("set(MM_BOARD [==[pico]==])\nset(MM_BOARD_CHAIN\n  [==[pico]==]\n)\n") != std::string::npos,
+           "board name and chain emitted byte-for-byte");
     expect(content.find("set(MM_TOOLCHAIN_FILE [==[") != std::string::npos &&
                content.find("mm-toolchain.cmake]==])") != std::string::npos,
            "generated toolchain path is a generic bridge input");
@@ -50,17 +52,51 @@ void inputs_cmake_escaping_and_validation() {
            content.find("obj2.o]==]") != std::string::npos,
            "objects use bracket syntax");
 
+    // Multi-element board chain asserted byte-for-byte
+    expect(mm::build::write_inputs_cmake(
+               inputs_file, objects, "smoke", tree.root() / "lib", "widget-pico",
+               {"widget-pico", "pico"}, toolchain_file, c_compiler, cxx_compiler),
+           "multi-element board chain succeeds");
+    std::ifstream in_chain(inputs_file);
+    std::string content_chain((std::istreambuf_iterator<char>(in_chain)),
+                              std::istreambuf_iterator<char>());
+    expect(content_chain.find("set(MM_BOARD [==[widget-pico]==])\nset(MM_BOARD_CHAIN\n  [==[widget-pico]==]\n  [==[pico]==]\n)\n") != std::string::npos,
+           "multi-element board chain emitted byte-for-byte");
+
+    // Boardless lane asserted byte-for-byte
+    expect(mm::build::write_inputs_cmake(
+               inputs_file, objects, "smoke", tree.root() / "lib", "",
+               {}, toolchain_file, c_compiler, cxx_compiler),
+           "boardless lane succeeds");
+    std::ifstream in_empty(inputs_file);
+    std::string content_empty((std::istreambuf_iterator<char>(in_empty)),
+                              std::istreambuf_iterator<char>());
+    expect(content_empty.find("set(MM_BOARD [==[]==])\nset(MM_BOARD_CHAIN)\n") != std::string::npos,
+           "boardless lane emits empty board and empty chain list byte-for-byte");
+
     // Semicolon in output_name
     expect(!mm::build::write_inputs_cmake(
                inputs_file, objects, "bad;name", tree.root() / "lib", "pico",
-               toolchain_file, c_compiler, cxx_compiler),
+               {"pico"}, toolchain_file, c_compiler, cxx_compiler),
            "semicolon in output name is rejected");
 
     // Semicolon in board_name
     expect(!mm::build::write_inputs_cmake(
                inputs_file, objects, "smoke", tree.root() / "lib", "bad;board",
-               toolchain_file, c_compiler, cxx_compiler),
+               {"bad;board"}, toolchain_file, c_compiler, cxx_compiler),
            "semicolon in board name is rejected");
+
+    // Semicolon in board_chain entry
+    expect(!mm::build::write_inputs_cmake(
+               inputs_file, objects, "smoke", tree.root() / "lib", "widget-pico",
+               {"widget-pico", "bad;entry"}, toolchain_file, c_compiler, cxx_compiler),
+           "semicolon in board chain entry is rejected");
+
+    // Newline in board_chain entry
+    expect(!mm::build::write_inputs_cmake(
+               inputs_file, objects, "smoke", tree.root() / "lib", "widget-pico",
+               {"widget-pico", "bad\nentry"}, toolchain_file, c_compiler, cxx_compiler),
+           "newline in board chain entry is rejected");
 
     // Semicolon in object path
     std::vector<std::filesystem::path> bad_objects = {
@@ -68,19 +104,19 @@ void inputs_cmake_escaping_and_validation() {
     };
     expect(!mm::build::write_inputs_cmake(
                inputs_file, bad_objects, "smoke", tree.root() / "lib", "pico",
-               toolchain_file, c_compiler, cxx_compiler),
+               {"pico"}, toolchain_file, c_compiler, cxx_compiler),
            "semicolon in object path is rejected");
 
     // Semicolon in library source
     expect(!mm::build::write_inputs_cmake(
                inputs_file, objects, "smoke", tree.root() / "bad;lib", "pico",
-               toolchain_file, c_compiler, cxx_compiler),
+               {"pico"}, toolchain_file, c_compiler, cxx_compiler),
            "semicolon in library source path is rejected");
 
     // Newline in output_name
     expect(!mm::build::write_inputs_cmake(
                inputs_file, objects, "bad\nname", tree.root() / "lib", "pico",
-               toolchain_file, c_compiler, cxx_compiler),
+               {"pico"}, toolchain_file, c_compiler, cxx_compiler),
            "newline in output name is rejected");
 }
 
@@ -342,8 +378,85 @@ void publish_results_validation() {
            "supplemental published at target_output parent / app.uf2");
 }
 
+void bridge_board_chain_resolution() {
+    const mm::test::scoped_tree tree{"chain_resolution_test"};
+    const auto script = tree.root() / "resolve.cmake";
+    const auto run_resolve = [&](const std::string& cmake_inputs) -> std::pair<int, std::string> {
+        std::ofstream out(script);
+        out << cmake_inputs << "\n";
+        out << "set(MM_VENDOR_BOARD \"\")\n"
+            << "foreach(MM_CANDIDATE IN LISTS MM_BOARD_CHAIN)\n"
+            << "  if(MM_CANDIDATE STREQUAL \"pico\" OR\n"
+            << "     MM_CANDIDATE STREQUAL \"pico-w\" OR\n"
+            << "     MM_CANDIDATE STREQUAL \"pico2-arm\" OR\n"
+            << "     MM_CANDIDATE STREQUAL \"pico2-riscv\" OR\n"
+            << "     MM_CANDIDATE STREQUAL \"pico2-w-arm\" OR\n"
+            << "     MM_CANDIDATE STREQUAL \"pico2-w-riscv\")\n"
+            << "    set(MM_VENDOR_BOARD ${MM_CANDIDATE})\n"
+            << "    break()\n"
+            << "  endif()\n"
+            << "endforeach()\n"
+            << "if(NOT MM_VENDOR_BOARD)\n"
+            << "  message(FATAL_ERROR \"pico-sdk bridge recognises no board in chain: ${MM_BOARD_CHAIN}\")\n"
+            << "endif()\n"
+            << "message(STATUS \"RESOLVED: ${MM_VENDOR_BOARD}\")\n";
+        out.close();
+
+        const std::string command = "cmake -P " + script.string() + " 2>&1";
+        FILE* pipe = ::popen(command.c_str(), "r");
+        if (!pipe) return {-1, ""};
+        std::string output;
+        char buffer[256];
+        while (std::fgets(buffer, sizeof(buffer), pipe) != nullptr) output += buffer;
+        const int status = ::pclose(pipe);
+        return {status, output};
+    };
+
+    // 1. Direct vendor board
+    {
+        const auto [status, output] = run_resolve("set(MM_BOARD_CHAIN [=[pico]=])");
+        expect(status == 0, "direct vendor board succeeds");
+        expect(output.find("RESOLVED: pico") != std::string::npos, "resolves to pico");
+    }
+
+    // 2. Custom board derived from pico
+    {
+        const auto [status, output] = run_resolve(
+            "set(MM_BOARD_CHAIN\n  [=[widget-pico]=]\n  [=[pico]=]\n)\n");
+        expect(status == 0, "derived board succeeds");
+        expect(output.find("RESOLVED: pico") != std::string::npos, "resolves to pico");
+    }
+
+    // 3. Multi-level derivation: nearest vendor base wins
+    {
+        const auto [status, output] = run_resolve(
+            "set(MM_BOARD_CHAIN\n  [=[leaf]=]\n  [=[custom]=]\n  [=[pico2-arm]=]\n  [=[pico]=]\n)\n");
+        expect(status == 0, "multi-level derivation succeeds");
+        expect(output.find("RESOLVED: pico2-arm") != std::string::npos,
+               "nearest vendor base wins over distant ancestor");
+    }
+
+    // 4. Unrecognised board chain raises fatal error naming the chain
+    {
+        const auto [status, output] = run_resolve(
+            "set(MM_BOARD_CHAIN\n  [=[custom-board]=]\n  [=[unknown-base]=]\n)\n");
+        expect(status != 0, "unrecognised chain fails");
+        expect(output.find("pico-sdk bridge recognises no board in chain: custom-board;unknown-base") != std::string::npos,
+               "fatal error names the chain");
+    }
+
+    // 5. Boardless lane (empty chain) raises fatal error
+    {
+        const auto [status, output] = run_resolve("set(MM_BOARD_CHAIN)\n");
+        expect(status != 0, "boardless empty chain fails");
+        expect(output.find("pico-sdk bridge recognises no board in chain:") != std::string::npos,
+               "empty chain raises fatal error");
+    }
+}
+
 const mm::test::case_ cases[] = {
     {"inputs cmake escaping and validation", &inputs_cmake_escaping_and_validation},
+    {"bridge board chain resolution", &bridge_board_chain_resolution},
     {"cmake package requirements", &cmake_package_requirements},
     {"projection schemas", &projection_schemas},
     {"query driver projection live", &query_driver_projection_live},

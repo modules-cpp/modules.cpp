@@ -3,28 +3,42 @@ include(${CMAKE_CURRENT_BINARY_DIR}/mm-inputs.cmake)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-if(MM_BOARD STREQUAL "pico")
+set(MM_VENDOR_BOARD "")
+foreach(MM_CANDIDATE IN LISTS MM_BOARD_CHAIN)
+  if(MM_CANDIDATE STREQUAL "pico" OR
+     MM_CANDIDATE STREQUAL "pico-w" OR
+     MM_CANDIDATE STREQUAL "pico2-arm" OR
+     MM_CANDIDATE STREQUAL "pico2-riscv" OR
+     MM_CANDIDATE STREQUAL "pico2-w-arm" OR
+     MM_CANDIDATE STREQUAL "pico2-w-riscv")
+    set(MM_VENDOR_BOARD ${MM_CANDIDATE})
+    break()
+  endif()
+endforeach()
+if(NOT MM_VENDOR_BOARD)
+  message(FATAL_ERROR "pico-sdk bridge recognises no board in chain: ${MM_BOARD_CHAIN}")
+endif()
+
+if(MM_VENDOR_BOARD STREQUAL "pico")
   set(PICO_BOARD pico CACHE STRING "" FORCE)
   set(PICO_PLATFORM rp2040 CACHE STRING "" FORCE)
-elseif(MM_BOARD STREQUAL "pico-w")
+elseif(MM_VENDOR_BOARD STREQUAL "pico-w")
   set(PICO_BOARD pico_w CACHE STRING "" FORCE)
   set(PICO_PLATFORM rp2040 CACHE STRING "" FORCE)
-elseif(MM_BOARD STREQUAL "pico2-arm")
+elseif(MM_VENDOR_BOARD STREQUAL "pico2-arm")
   set(PICO_BOARD pico2 CACHE STRING "" FORCE)
   set(PICO_PLATFORM rp2350-arm-s CACHE STRING "" FORCE)
-elseif(MM_BOARD STREQUAL "pico2-riscv")
+elseif(MM_VENDOR_BOARD STREQUAL "pico2-riscv")
   # Same hardware as pico2-arm, so PICO_BOARD is the same; PICO_PLATFORM is what
   # selects the Hazard3 cores.
   set(PICO_BOARD pico2 CACHE STRING "" FORCE)
   set(PICO_PLATFORM rp2350-riscv CACHE STRING "" FORCE)
-elseif(MM_BOARD STREQUAL "pico2-w-arm")
+elseif(MM_VENDOR_BOARD STREQUAL "pico2-w-arm")
   set(PICO_BOARD pico2_w CACHE STRING "" FORCE)
   set(PICO_PLATFORM rp2350-arm-s CACHE STRING "" FORCE)
-elseif(MM_BOARD STREQUAL "pico2-w-riscv")
+elseif(MM_VENDOR_BOARD STREQUAL "pico2-w-riscv")
   set(PICO_BOARD pico2_w CACHE STRING "" FORCE)
   set(PICO_PLATFORM rp2350-riscv CACHE STRING "" FORCE)
-else()
-  message(FATAL_ERROR "pico-sdk bridge requires a selected board")
 endif()
 
 get_filename_component(MM_COMPILER_DIRECTORY ${MM_C_COMPILER} DIRECTORY)
@@ -44,6 +58,7 @@ set_target_properties(mm_external PROPERTIES
   OUTPUT_NAME ${MM_OUTPUT_NAME})
 set_source_files_properties(${MM_ADAPTER} PROPERTIES
   COMPILE_OPTIONS "-std=gnu11;-Wall;-Wextra;-Werror")
+target_compile_definitions(mm_external PRIVATE MM_SELECTED_BOARD="${MM_BOARD}")
 target_link_libraries(mm_external pico_stdlib hardware_spi hardware_uart)
 pico_enable_stdio_semihosting(mm_external 1)
 pico_add_extra_outputs(mm_external)

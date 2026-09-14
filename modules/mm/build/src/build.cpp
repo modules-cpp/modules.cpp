@@ -3603,6 +3603,7 @@ bool write_inputs_cmake(const std::filesystem::path& destination,
                         const std::string& output_name,
                         const std::filesystem::path& library_source,
                         const std::string& board_name,
+                        const std::vector<std::string>& board_chain,
                         const std::filesystem::path& toolchain_file,
                         const std::filesystem::path& c_compiler,
                         const std::filesystem::path& cxx_compiler) {
@@ -3638,6 +3639,17 @@ bool write_inputs_cmake(const std::filesystem::path& destination,
         return false;
     }
 
+    std::string chain_text;
+    for (const auto& entry : board_chain) {
+        const auto bracket = cmake_bracket_argument(entry);
+        if (!bracket) {
+            std::cerr << "build: invalid board chain entry for external build: "
+                      << entry << "\n";
+            return false;
+        }
+        chain_text += "  " + *bracket + "\n";
+    }
+
     const auto toolchain_bracket = cmake_bracket_argument(toolchain_file.generic_string());
     if (!toolchain_bracket) {
         std::cerr << "build: invalid toolchain path for external build: "
@@ -3662,6 +3674,11 @@ bool write_inputs_cmake(const std::filesystem::path& destination,
     out << "set(MM_OUTPUT_NAME " << *name_bracket << ")\n";
     out << "set(MM_LIBRARY_SOURCE " << *source_bracket << ")\n";
     out << "set(MM_BOARD " << *board_bracket << ")\n";
+    if (board_chain.empty()) {
+        out << "set(MM_BOARD_CHAIN)\n";
+    } else {
+        out << "set(MM_BOARD_CHAIN\n" << chain_text << ")\n";
+    }
     out << "set(MM_TOOLCHAIN_FILE " << *toolchain_bracket << ")\n";
     out << "set(MM_C_COMPILER " << *c_bracket << ")\n";
     out << "set(MM_CXX_COMPILER " << *cxx_bracket << ")\n";
@@ -4681,8 +4698,15 @@ int external_link(
     const auto abs_lib_source = std::filesystem::absolute(library->source);
     const auto inputs_file = external_dir / "mm-inputs.cmake";
     const std::string bridge_board = (platform.board && !platform.board->empty()) ? *platform.board : "";
+    std::vector<std::string> board_chain;
+    if (platform.board && !platform.board->empty()) {
+        board_chain.push_back(*platform.board);
+        for (const auto& base : platform.board_derives_from) {
+            board_chain.push_back(base);
+        }
+    }
     if (!write_inputs_cmake(inputs_file, abs_objects, app_name, abs_lib_source, bridge_board,
-                            toolchain_file, c_driver, cxx_driver)) {
+                            board_chain, toolchain_file, c_driver, cxx_driver)) {
         return exit_manifest;
     }
 
@@ -4749,7 +4773,7 @@ int external_link(
         }
         if (!write_toolchain_cmake(toolchain_file, toolchain, platform)) return exit_compile;
         if (!write_inputs_cmake(inputs_file, abs_objects, app_name, abs_lib_source, bridge_board,
-                                toolchain_file, c_driver, cxx_driver))
+                                board_chain, toolchain_file, c_driver, cxx_driver))
             return exit_manifest;
     }
 

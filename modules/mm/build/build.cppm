@@ -549,6 +549,7 @@ int install(const std::filesystem::path& from, const std::filesystem::path& bin_
     const std::string& output_name,
     const std::filesystem::path& library_source,
     const std::string& board_name,
+    const std::vector<std::string>& board_chain,
     const std::filesystem::path& toolchain_file,
     const std::filesystem::path& c_compiler,
     const std::filesystem::path& cxx_compiler);

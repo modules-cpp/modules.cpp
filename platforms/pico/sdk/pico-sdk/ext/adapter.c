@@ -166,7 +166,11 @@ int mm_pico_mcu_ticks_ms(unsigned long* ticks) {
 }
 
 const char* mm_pico_mcu_board_name(void) {
+#ifdef MM_SELECTED_BOARD
+    return MM_SELECTED_BOARD;
+#else
     return PICO_BOARD;
+#endif
 }
 
 unsigned int mm_pico_mcu_gpio_count(void) {

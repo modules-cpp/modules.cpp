@@ -326,13 +326,14 @@ then does Pico SDK see either.
 
 Opening fence
 include(${CMAKE_CURRENT_BINARY_DIR}/mm-inputs.cmake)
-map MM_BOARD -> PICO_BOARD, PICO_PLATFORM
+walk MM_BOARD_CHAIN -> MM_VENDOR_BOARD -> PICO_BOARD, PICO_PLATFORM
 include(${MM_LIBRARY_SOURCE}/pico_sdk_init.cmake)
 project(... C CXX ASM)
 pico_sdk_init()
 Closing fence
 
-The board mapping lives only here, because only CMake needs it:
+The board mapping walks MM_BOARD_CHAIN, takes the first recognised vendor board,
+and lives only here because only CMake needs it:
 
 Opening fence
 pico          PICO_BOARD=pico    PICO_PLATFORM=rp2040
@@ -344,9 +345,12 @@ pico2-w-riscv PICO_BOARD=pico2_w PICO_PLATFORM=rp2350-riscv
 Closing fence
 
 PICO_BOARD is the same within each RP2350 hardware pair because it names the
-board; PICO_PLATFORM is what selects the architecture. An unrecognised board
-name is a fatal error: this bridge requires one, even though generic external
-linking does not.
+board; PICO_PLATFORM is what selects the architecture. A chain containing no
+recognised board is a fatal error naming the entire chain: this bridge requires
+one, even though generic external linking does not. The bridge passes
+`MM_SELECTED_BOARD="${MM_BOARD}"` via compile definitions to the C adapter so
+runtime board identification (`mm::mcu::board().name`) reports the selected
+board rather than `PICO_BOARD`.
 
 The target is the fixed internal name mm_external, so no manifest-derived name
 reaches a CMake identifier; the requested name arrives only as OUTPUT_NAME. Project

@@ -123,6 +123,7 @@ mm-inputs.cmake defines exactly these generic values:
 - MM_OUTPUT_NAME is the application name.
 - MM_LIBRARY_SOURCE is the absolute foreign source checkout path.
 - MM_BOARD is the selected board name, or an empty string for a boardless lane.
+- MM_BOARD_CHAIN is the list of board names starting with the selected board and followed by its derivation ancestry (most derived first), or an empty list (`set(MM_BOARD_CHAIN)`) for a boardless lane.
 - MM_TOOLCHAIN_FILE is the absolute generated toolchain-file path.
 - MM_C_COMPILER is the canonical configured C driver.
 - MM_CXX_COMPILER is the canonical configured C++ driver.
@@ -135,7 +136,7 @@ to collide with the value. Newlines, carriage returns, and semicolons are
 rejected because a bracket argument cannot prevent a semicolon from splitting a
 CMake list. Failure to find a delimiter within the implementation's bound is
 also an error. These rules apply to object paths, names, source and toolchain
-paths, board names, and compiler paths.
+paths, board names, board chain entries, and compiler paths.
 
 mm-toolchain.cmake defines:
 
