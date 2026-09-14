@@ -381,25 +381,13 @@ void publish_results_validation() {
 void bridge_board_chain_resolution() {
     const mm::test::scoped_tree tree{"chain_resolution_test"};
     const auto script = tree.root() / "resolve.cmake";
+    const auto resolve_cmake =
+        std::filesystem::current_path() / "platforms/pico/sdk/pico-sdk/cmake/resolve-board.cmake";
     const auto run_resolve = [&](const std::string& cmake_inputs) -> std::pair<int, std::string> {
         std::ofstream out(script);
         out << cmake_inputs << "\n";
-        out << "set(MM_VENDOR_BOARD \"\")\n"
-            << "foreach(MM_CANDIDATE IN LISTS MM_BOARD_CHAIN)\n"
-            << "  if(MM_CANDIDATE STREQUAL \"pico\" OR\n"
-            << "     MM_CANDIDATE STREQUAL \"pico-w\" OR\n"
-            << "     MM_CANDIDATE STREQUAL \"pico2-arm\" OR\n"
-            << "     MM_CANDIDATE STREQUAL \"pico2-riscv\" OR\n"
-            << "     MM_CANDIDATE STREQUAL \"pico2-w-arm\" OR\n"
-            << "     MM_CANDIDATE STREQUAL \"pico2-w-riscv\")\n"
-            << "    set(MM_VENDOR_BOARD ${MM_CANDIDATE})\n"
-            << "    break()\n"
-            << "  endif()\n"
-            << "endforeach()\n"
-            << "if(NOT MM_VENDOR_BOARD)\n"
-            << "  message(FATAL_ERROR \"pico-sdk bridge recognises no board in chain: ${MM_BOARD_CHAIN}\")\n"
-            << "endif()\n"
-            << "message(STATUS \"RESOLVED: ${MM_VENDOR_BOARD}\")\n";
+        out << "include(\"" << resolve_cmake.generic_string() << "\")\n";
+        out << "message(STATUS \"RESOLVED: ${MM_VENDOR_BOARD}\")\n";
         out.close();
 
         const std::string command = "cmake -P " + script.string() + " 2>&1";

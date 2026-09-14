@@ -1,0 +1,10 @@
+---
+mm: 1.0
+kind: dir
+name: boards
+folder: widget-rp2040
+---
+
+# boards
+
+Custom and product-specific board definitions.

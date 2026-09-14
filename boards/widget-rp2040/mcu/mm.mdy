@@ -1,0 +1,13 @@
+---
+mm: 1.2
+kind: module
+name: widget-rp2040-mcu
+module: platform.widget_rp2040.mcu
+use: mm.mcu
+file: mcu.cppm
+option: buildable-host no
+---
+
+# platform.widget_rp2040.mcu
+
+widget-rp2040's implementation of mm.mcu.

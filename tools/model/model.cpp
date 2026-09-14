@@ -1,7 +1,7 @@
 // modules.cpp model tool
 //
 // Usage: model [-v|--verbose] [-h|--help] [--configuration] [--tools]
-//              [<path to mm.mdy>]
+//              [--boards] [<path to mm.mdy>]
 //        (default: mm.mdy in the current dir)
 //
 // Checks the real project against itself, through the models.* abstract
@@ -37,6 +37,10 @@
 // Unlike --configuration this needs the tree loaded, so it is reported
 // after that succeeds, alongside the two checks rather than independent of
 // them.
+//
+// --boards additionally lists every models::BoardNode from the loaded tree:
+// for a derived board, its chain and resolved values with origin annotations
+// when not authored locally, and supplying manifests for sequence entries.
 //
 // All the work lives in mm.model; this file is the front end.
 //
@@ -101,13 +105,112 @@ void collect_uses(const std::vector<const models::BuildableNode*>& nodes,
         for (const auto used : node->uses()) out.push_back({node->name(), used});
 }
 
+std::string_view responsibility_name(models::PlatformResponsibility r) {
+    switch (r) {
+        case models::PlatformResponsibility::ResetVector:
+            return "reset-vector";
+        case models::PlatformResponsibility::InitialStack:
+            return "initial-stack";
+        case models::PlatformResponsibility::MemoryLayout:
+            return "memory-layout";
+        case models::PlatformResponsibility::RuntimeInit:
+            return "runtime-init";
+        case models::PlatformResponsibility::Syscalls:
+            return "syscalls";
+    }
+    return {};
+}
+
+void print_scalar(std::string_view key, std::string_view value,
+                  models::ValueProvenance prov) {
+    std::cout << "    " << key << ": ";
+    if (prov.origin == models::ValueOrigin::Absent) {
+        std::cout << "(none) [absent]\n";
+        return;
+    }
+    std::cout << value;
+    if (prov.origin == models::ValueOrigin::Inherited) {
+        std::cout << " [inherited from " << prov.manifest.string() << "]";
+    } else if (prov.origin == models::ValueOrigin::SchemaDefault) {
+        std::cout << " [schema default]";
+    }
+    std::cout << "\n";
+}
+
+void report_board(const models::BoardNode* board) {
+    std::cout << "  " << board->name() << "\n";
+    if (board->derives_from() != nullptr) {
+        std::cout << "    chain: ";
+        const models::BoardNode* curr = board;
+        bool first = true;
+        while (curr != nullptr) {
+            if (!first) std::cout << " -> ";
+            std::cout << curr->name();
+            first = false;
+            curr = curr->derives_from();
+        }
+        std::cout << "\n";
+    }
+    print_scalar("sdk", board->sdk(), board->sdk_provenance());
+    print_scalar("cpu", board->cpu(), board->cpu_provenance());
+    print_scalar("instruction-set", board->instruction_set(),
+                 board->instruction_set_provenance());
+    print_scalar("float-abi", board->float_abi(),
+                 board->float_abi_provenance());
+    print_scalar("security-domain", board->security_domain(),
+                 board->security_domain_provenance());
+    print_scalar("machine", board->machine(), board->machine_provenance());
+    print_scalar("linker-script", board->linker_script().string(),
+                 board->linker_script_provenance());
+
+    const auto sources = board->source_entries();
+    if (!sources.empty()) {
+        std::cout << "    sources:\n";
+        for (const auto& s : sources) {
+            std::cout << "      " << s.path.string() << " [from "
+                      << s.manifest.string() << "]\n";
+        }
+    }
+
+    const auto provides = board->provides_entries();
+    if (!provides.empty()) {
+        std::cout << "    provides:\n";
+        for (const auto& p : provides) {
+            std::cout << "      " << responsibility_name(p.responsibility)
+                      << " [from " << p.manifest.string() << "]\n";
+        }
+    }
+
+    const auto platform_providers = board->platform_provider_entries();
+    if (!platform_providers.empty()) {
+        std::cout << "    platform-providers:\n";
+        for (const auto& p : platform_providers) {
+            std::cout << "      " << p.binding.interface_module << " -> "
+                      << p.binding.provider_module << " [from "
+                      << p.manifest.string() << "]\n";
+        }
+    }
+
+    const auto declared_providers = board->declared_platform_provider_entries();
+    if (!declared_providers.empty()) {
+        std::cout << "    declared platform-providers:\n";
+        for (const auto& p : declared_providers) {
+            std::cout << "      " << p.binding.interface_module << " -> "
+                      << p.binding.provider_module << " [from "
+                      << p.manifest.string() << "]\n";
+        }
+    }
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
     mm::app::Options options("model");
     options.flag("--configuration");
     options.flag("--tools");
-    options.help("model [-v|--verbose] [-h|--help] [--configuration] [--tools] [manifest]");
+    options.flag("--boards");
+    options.help("model [-v|--verbose] [-h|--help] [--configuration] "
+                 "[--tools] [--boards] [manifest]");
     const auto cli = options.parse(argc, argv);
     if (cli == mm::app::Cli::help) return mm::build::exit_ok;
     if (cli != mm::app::Cli::ok) return mm::build::exit_usage;
@@ -115,6 +218,7 @@ int main(int argc, char** argv) {
     const bool verbose = options.verbose();
     const bool report_configuration = options.seen("--configuration");
     const bool report_tools = options.seen("--tools");
+    const bool report_boards = options.seen("--boards");
     auto manifest_path = options.positional().empty()
                              ? std::filesystem::path("mm.mdy")
                              : std::filesystem::path(options.positional().front());
@@ -199,12 +303,27 @@ int main(int argc, char** argv) {
     const auto apps = repository.apps();
     const auto tests = repository.tests();
     const auto libraries = repository.libraries();
+    const auto boards = repository.boards();
 
     if (!libraries.empty()) {
         std::cout << "Libraries\n";
         for (const auto* library : libraries)
             std::cout << "  " << library->name() << " checkout "
-                      << (library->checkout_present() ? "present" : "absent") << "\n";
+                      << (library->checkout_present() ? "present" : "absent")
+                      << "\n";
+        std::cout << "\n";
+    }
+
+    std::vector<const models::BoardNode*> boards_to_report;
+    for (const auto* b : boards) {
+        if (report_boards || b->derives_from() != nullptr)
+            boards_to_report.push_back(b);
+    }
+    if (!boards_to_report.empty()) {
+        std::cout << (report_boards ? "Boards\n" : "Derived boards\n");
+        for (const auto* board : boards_to_report) {
+            report_board(board);
+        }
         std::cout << "\n";
     }
 
@@ -214,11 +333,16 @@ int main(int argc, char** argv) {
         for (const auto* tool : tools_list) {
             std::cout << "  " << tool->name() << "\n";
             std::cout << "    provenance  "
-                      << (tool->provenance() == models::Provenance::BuiltIn ? "BuiltIn" : "ThirdParty")
+                      << (tool->provenance() == models::Provenance::BuiltIn
+                              ? "BuiltIn"
+                              : "ThirdParty")
                       << "\n";
-            std::cout << "    invocation  " << tool->invocation().string() << "\n";
+            std::cout << "    invocation  " << tool->invocation().string()
+                      << "\n";
             std::cout << "    declared by "
-                      << (tool->declared_by() != nullptr ? tool->declared_by()->name() : "(none)")
+                      << (tool->declared_by() != nullptr
+                              ? tool->declared_by()->name()
+                              : "(none)")
                       << "\n";
         }
         std::cout << "\n";
@@ -228,7 +352,8 @@ int main(int argc, char** argv) {
         std::cout << "  modules " << modules.size() << "\n";
         std::cout << "  apps    " << apps.size() << "\n";
         std::cout << "  tests     " << tests.size() << "\n";
-        std::cout << "  libraries " << libraries.size() << "\n\n";
+        std::cout << "  libraries " << libraries.size() << "\n";
+        std::cout << "  boards    " << boards.size() << "\n\n";
     }
 
     std::set<std::string_view> known_modules;

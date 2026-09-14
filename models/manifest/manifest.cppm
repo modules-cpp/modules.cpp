@@ -29,6 +29,7 @@ module;
 export module models.manifest;
 
 import models.document;
+import models.platform;
 
 export namespace models {
 
@@ -137,6 +138,28 @@ struct PlatformProviderBinding {
     std::string_view provider_module;
 };
 
+enum class ValueOrigin { Authored, Inherited, SchemaDefault, Absent };
+
+struct ValueProvenance {
+    ValueOrigin origin = ValueOrigin::Absent;
+    std::filesystem::path manifest;  // empty unless Authored or Inherited
+};
+
+struct BoardSource {
+    std::filesystem::path path;
+    std::filesystem::path manifest;
+};
+
+struct BoardResponsibilityEntry {
+    PlatformResponsibility responsibility;
+    std::filesystem::path manifest;
+};
+
+struct BoardProviderEntry {
+    PlatformProviderBinding binding;
+    std::filesystem::path manifest;
+};
+
 // A module target, such as modules/mm/build/mm.mdy. Compiled by the build
 // tool; consumed by other targets through use:.
 class ModuleNode : public BuildableNode {
@@ -204,12 +227,37 @@ public:
 class BoardNode : public ManifestNode {
 public:
     [[nodiscard]] Kind kind() const override { return Kind::Board; }
+    [[nodiscard]] virtual const BoardNode* derives_from() const = 0;
     [[nodiscard]] virtual std::string_view sdk() const = 0;
+    [[nodiscard]] virtual ValueProvenance sdk_provenance() const = 0;
     [[nodiscard]] virtual std::string_view cpu() const = 0;
+    [[nodiscard]] virtual ValueProvenance cpu_provenance() const = 0;
+    [[nodiscard]] virtual std::string_view instruction_set() const = 0;
+    [[nodiscard]] virtual ValueProvenance
+    instruction_set_provenance() const = 0;
+    [[nodiscard]] virtual std::string_view float_abi() const = 0;
+    [[nodiscard]] virtual ValueProvenance float_abi_provenance() const = 0;
+    [[nodiscard]] virtual std::string_view security_domain() const = 0;
+    [[nodiscard]] virtual ValueProvenance
+    security_domain_provenance() const = 0;
     [[nodiscard]] virtual std::string_view machine() const = 0;
+    [[nodiscard]] virtual ValueProvenance machine_provenance() const = 0;
     [[nodiscard]] virtual std::filesystem::path linker_script() const = 0;
+    [[nodiscard]] virtual ValueProvenance
+    linker_script_provenance() const = 0;
     [[nodiscard]] virtual std::vector<std::filesystem::path> sources() const = 0;
-    [[nodiscard]] virtual std::vector<PlatformProviderBinding> platform_providers() const = 0;
+    [[nodiscard]] virtual std::vector<BoardSource> source_entries() const = 0;
+    [[nodiscard]] virtual std::vector<PlatformResponsibility> provides() const = 0;
+    [[nodiscard]] virtual std::vector<BoardResponsibilityEntry>
+    provides_entries() const = 0;
+    [[nodiscard]] virtual std::vector<PlatformProviderBinding>
+    platform_providers() const = 0;
+    [[nodiscard]] virtual std::vector<BoardProviderEntry>
+    platform_provider_entries() const = 0;
+    [[nodiscard]] virtual std::vector<PlatformProviderBinding>
+    declared_platform_providers() const = 0;
+    [[nodiscard]] virtual std::vector<BoardProviderEntry>
+    declared_platform_provider_entries() const = 0;
 };
 
 // A vendored source tree and its declared public interface. Paths are root

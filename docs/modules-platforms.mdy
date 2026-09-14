@@ -99,13 +99,17 @@ provides: initial-stack
 provides: memory-layout
 Closing fence
 
-- sdk names the SDK this board belongs to. Exactly one. Required.
-- cpu, instruction-set, and float-abi are the required processor properties. security-domain is an optional mm: 1.2 processor discriminator whose values are secure and non-secure; omission means non-secure. Their spellings are registry values, not compiler arguments.
-- machine names the target machine or chip family (e.g. mps2-an385 for QEMU, rp2040 or rp2350 for OpenOCD). Optional, and required only when a runner profile that resolves a machine is selected.
-- linker-script is a path relative to the manifest.
-- file entries are the board's own sources: vector table, reset handler, and any syscall implementation the runtime leaves to the machine. Paths are relative to the manifest, as on a module manifest.
-- provides names a responsibility this board supplies. Repeatable.
-- platform-provider binds an interface the way an SDK does, and overrides its SDK's binding for the same interface. See Platform providers below.
+- A board manifest describes either a base board (declaring `sdk`) or a derived board (declaring `derives-from`), never both.
+- sdk names the SDK this board belongs to. Required on a base board; forbidden on a derived board.
+- derives-from names the immediate base board this board derives from. Required on a derived board; forbidden on a base board. A derived board inherits its base's SDK, processor properties, machine, linker script, sources, responsibilities, and platform provider bindings.
+- cpu, instruction-set, and float-abi are the required processor properties on a base board. security-domain is an optional mm: 1.2 processor discriminator whose values are secure and non-secure; omission means non-secure. Their spellings are registry values, not compiler arguments. These keys are inherited by a derived board and may not be redeclared; redeclaring any of them is an error naming both manifests, even if the value is identical.
+- machine names the target machine or chip family (e.g. mps2-an385 for QEMU, rp2040 or rp2350 for OpenOCD). Optional, and required only when a runner profile that resolves a machine is selected. On a derived board, declaring machine overrides the base's value; omitting it keeps the inherited machine.
+- linker-script is a path relative to the manifest. On a derived board, declaring linker-script overrides the base's value; omitting it keeps the inherited script. A board whose inherited SDK owns an external link may not declare a linker-script.
+- file entries are the board's own sources: vector table, reset handler, and any syscall implementation the runtime leaves to the machine. Paths are relative to the manifest, as on a module manifest. On a derived board, sources are merged base-first with the derived board's own sources.
+- provides names a responsibility this board supplies. Repeatable. Responsibilities are accumulated across the derivation chain; a responsibility declared twice anywhere in the chain is rejected naming both manifests.
+- platform-provider binds an interface the way an SDK does, and overrides its SDK's binding for the same interface. On a derived board, platform-provider overrides a base board's binding for the same interface. See Platform providers below.
+
+Board names may contain alphanumeric characters, hyphens, and underscores, and must not contain quotes, backslashes, spaces, semicolons, or bracket sequences.
 
 target is not valid on a board manifest. A board's target is its SDK's. Declaring it as well would place a second copy of one value one hop from the first, and the only thing a check between them buys is catching a wrong copy.
 
@@ -115,10 +119,11 @@ Board sources are C++ in this release, because compile forces -x c++. A vector t
 
 Names are unique within a kind. Two SDKs sharing a name, or two boards, is an error naming both manifests. An SDK and a board may share a name; they are selected by different options.
 
-Two board reference rules are checked at walk time, for every board in the tree:
+Board reference rules are checked at walk time, for every board in the tree:
 
-- A board references exactly one SDK. Zero is an error and so is more than one.
-- The referenced SDK exists.
+- A board declares either sdk or derives-from, never neither or both.
+- A base board references exactly one SDK, and the referenced SDK exists.
+- A derived board references an existing base board; unknown bases, repeated derives-from, and cycles of any length are rejected naming the manifests involved.
 
 One compatibility rule is checked at configure time, for the selection only:
 
@@ -514,6 +519,31 @@ Every platform diagnostic names the manifest it came from. A mismatch names both
 - A record carrying cross-link: external with a linker script, or omitting the linker script without cross-link: external, is rejected.
 - Build, test, run, flash, and debug detect a mismatch between the record's link ownership and the library's external-build declaration as a stale configuration record.
 - models::Platform exposes link_ownership() reflecting the lane's link ownership.
+- A board declaring derives-from resolves its base's SDK, processor properties, machine, linker script, sources, responsibilities, and provider bindings.
+- Redeclaring sdk, cpu, instruction-set, float-abi, or security-domain is rejected, naming both manifests, including when the value is identical.
+- Redeclaring machine or linker-script replaces the inherited value; omitting it keeps it.
+- file entries appear base first, and the linked board unit contains both.
+- A responsibility declared twice anywhere in a chain is rejected naming both manifests; the union of the selected SDK's and the resolved chain's covers the five exactly once for a bare-metal lane, and a Pico board declaring none remains valid because its SDK declares all five.
+- A derived board's platform-provider overrides its base's for the same interface, the base's provider is not linked, and a base's binding survives where the derived board declares none.
+- An unknown base, a repeated derives-from, and a cycle of any length are each rejected, naming the manifests involved.
+- A board name containing a quote, backslash, space, semicolon, or bracket sequence is rejected at load naming the manifest; every existing name in the tree passes the grammar unchanged.
+- linker-script on a board whose inherited SDK owns an external link is rejected at load, naming the manifest and the SDK.
+- file entries on an externally linked board are compiled and reach the bridge in MM_OBJECTS, and the resulting executable contains their symbols.
+- requires-board continues to match the selected board's name exactly, and a derived board does not satisfy a requirement naming its base.
+- The record carries cross-board-derives-from, repeated for a chain of two bases without being rejected as duplicated, and an unknown-key reader rejects it by name rather than ignoring it.
+- Changing a board's base without reconfiguring is reported as a stale record naming both chains rather than silently changing what the bridge builds.
+- MM_BOARD_CHAIN is emitted as separate bracket-argument elements, each passing the existing escaping contract, and is emitted unconditionally: a selected board yields the board followed by its ancestry, and a boardless lane yields set(MM_BOARD_CHAIN) with no value. Both forms are asserted byte for byte.
+- A bridge resolving the chain takes the first element it recognises, so a board derived from another custom board resolves to the nearest vendor base; a chain with no recognised element is a fatal error naming the whole chain.
+- A derives-from cycle is reported in the format the walk uses for a folder: cycle, listing every manifest and marking the repeat.
+- A board derived from pico builds through the real Pico bridge, produces a UF2 real picotool accepts, and mm::mcu::board().name reports the selected board rather than PICO_BOARD.
+- The worked example loads, configures, builds, and links, and its kind:dir wrapper, board, and provider are all reached by the walk from the root manifest.
+- A derived board needs no new processor registry row, and neither did a copy.
+- Every stage and its conformance checks land before v1.2.0 is tagged, or the key moves to the next source-manifest version. No subset of the stages is released.
+- model reports the chain, the four added resolved fields, the origin of every scalar including a schema default and an absent optional, and the supplying manifest for every sequence entry.
+- Every project-linked reference board's compile and link commands are byte-identical and its artifacts are unchanged.
+- Every externally linked reference board's project C++ compile commands are byte-identical, and the differences in its bridge inputs and its binary are exactly these: MM_BOARD_CHAIN in mm-inputs.cmake; MM_SELECTED_BOARD on the adapter's compile command; both in the bridge cache identity, which forces one reconfiguration of each externally linked lane; and the board identity embedded in the adapter, which becomes the selected board's name in place of PICO_BOARD. Nothing else in those binaries changes.
+- mm::mcu::board().name reports the selected board for all six Pico boards, so pico2-arm and pico2-riscv are distinguishable where they currently both report pico2. This is an intended behaviour change and a conformance item, not a regression in artifact stability.
+- Every reference board that has a runner still runs unchanged. Hardware execution is environment-gated release qualification; an environment without the hardware records a skipped qualification naming what was missing.
 
 # Current boundaries
 

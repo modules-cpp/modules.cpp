@@ -1,0 +1,12 @@
+---
+mm: 1.0
+kind: dir
+name: widget-rp2040-platform
+folder: board
+folder: mcu
+---
+
+# widget-rp2040-platform
+
+Platform wrapper grouping the widget-rp2040 custom board and its platform
+provider module.

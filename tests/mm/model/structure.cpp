@@ -11,6 +11,7 @@
 import mm.model;
 import mm.test;
 import models.manifest;
+import models.platform;
 import models.repository;
 import models.tool;
 
@@ -60,8 +61,8 @@ void repository_exposes_platform_definitions() {
     const auto boards = loaded.repository().boards();
     mm::test::expect(ok && sdks.size() == 7,
                      "expected all seven SDK definitions from the manifest walk");
-    mm::test::expect(boards.size() == 9,
-                     "expected all nine board definitions from the manifest walk");
+    mm::test::expect(boards.size() == 10,
+                     "expected all ten board definitions from the manifest walk");
     const models::BoardNode* mps2 = nullptr;
     const models::BoardNode* rp2040 = nullptr;
     const models::BoardNode* rp2350 = nullptr;
@@ -71,6 +72,7 @@ void repository_exposes_platform_definitions() {
     const models::BoardNode* pico2_riscv = nullptr;
     const models::BoardNode* pico2_w_arm = nullptr;
     const models::BoardNode* pico2_w_riscv = nullptr;
+    const models::BoardNode* widget = nullptr;
     for (const auto* b : boards) {
         if (b->name() == "mps2-an385") mps2 = b;
         if (b->name() == "rp2040-ram") rp2040 = b;
@@ -81,6 +83,7 @@ void repository_exposes_platform_definitions() {
         if (b->name() == "pico2-riscv") pico2_riscv = b;
         if (b->name() == "pico2-w-arm") pico2_w_arm = b;
         if (b->name() == "pico2-w-riscv") pico2_w_riscv = b;
+        if (b->name() == "widget-rp2040") widget = b;
     }
     mm::test::expect(mps2 != nullptr && mps2->kind() == models::Kind::Board &&
                          mps2->sdk() == "arm-none-eabi-newlib" &&
@@ -118,6 +121,12 @@ void repository_exposes_platform_definitions() {
                          pico2_w_riscv->cpu() == "hazard3" &&
                          pico2_w_riscv->sources().empty(),
                      "expected Pico 2 W SDK RP2350 RISC-V board definition");
+    mm::test::expect(widget != nullptr && widget->kind() == models::Kind::Board &&
+                         widget->sdk() == "arm-none-eabi-newlib" &&
+                         widget->cpu() == "cortex-m0plus" &&
+                         widget->sources().size() == 2 &&
+                         widget->linker_script() == "boards/widget-rp2040/board/link.ld",
+                     "expected widget-rp2040 derived board definition");
 }
 
 void repository_exposes_provider_declarations() {
@@ -158,6 +167,20 @@ void repository_exposes_provider_declarations() {
                                  "platform.rp2040_ram.mcu",
                          "expected the board's authored provider binding");
     }
+
+    const models::BoardNode* widget_board = nullptr;
+    for (const auto* board : boards)
+        if (board->name() == "widget-rp2040") widget_board = board;
+    mm::test::expect(widget_board != nullptr,
+                     "expected widget-rp2040 board definition");
+    if (widget_board != nullptr) {
+        const auto bindings = widget_board->platform_providers();
+        mm::test::expect(bindings.size() == 1 &&
+                             bindings.front().interface_module == "mm.mcu" &&
+                             bindings.front().provider_module ==
+                                 "platform.widget_rp2040.mcu",
+                         "expected widget-rp2040 board's provider binding");
+    }
 }
 
 void child_and_parent_agree_with_each_other() {
@@ -176,6 +199,30 @@ void child_and_parent_agree_with_each_other() {
     mm::test::expect(main_app->parent() == apps,
                      "expected apps/main's parent() to be the same object as apps/'s child entry for it");
     mm::test::expect(main_app->kind() == models::Kind::App, "expected apps/main to be Kind::App");
+
+    const auto* boards_dir = find_child(root, "boards");
+    mm::test::expect(boards_dir != nullptr, "expected boards/ to be a child of the root");
+    if (boards_dir != nullptr) {
+        const auto* platform = find_child(*boards_dir, "widget-rp2040-platform");
+        mm::test::expect(platform != nullptr,
+                         "expected widget-rp2040-platform to be a child of boards/");
+        if (platform != nullptr) {
+            mm::test::expect(platform->parent() == boards_dir,
+                             "expected widget-rp2040-platform's parent() to be boards/");
+            const auto* board_node = find_child(*platform, "widget-rp2040");
+            const auto* mcu_node = find_child(*platform, "widget-rp2040-mcu");
+            mm::test::expect(board_node != nullptr,
+                             "expected widget-rp2040 board child");
+            mm::test::expect(mcu_node != nullptr,
+                             "expected widget-rp2040-mcu module child");
+            if (board_node != nullptr)
+                mm::test::expect(board_node->parent() == platform,
+                                 "expected board node's parent() to be platform");
+            if (mcu_node != nullptr)
+                mm::test::expect(mcu_node->parent() == platform,
+                                 "expected mcu node's parent() to be platform");
+        }
+    }
 }
 
 void every_app_reaches_the_root_by_walking_parent() {
@@ -247,12 +294,201 @@ void build0_and_build1_are_tools_without_and_with_a_declared_app() {
                      "expected build1 to share its declaring app with out/bin/build");
 }
 
+void board_derivation_provenance_and_sequence_entries() {
+    bool ok = false;
+    auto loaded = mm::model::Loaded::load(".", ok);
+    mm::test::expect(ok, "expected load to succeed");
+    const auto boards = loaded.repository().boards();
+
+    const models::BoardNode* rp2040 = nullptr;
+    const models::BoardNode* pico = nullptr;
+    const models::BoardNode* pico2 = nullptr;
+    const models::BoardNode* widget = nullptr;
+    for (const auto* b : boards) {
+        if (b->name() == "rp2040-ram") rp2040 = b;
+        if (b->name() == "pico") pico = b;
+        if (b->name() == "pico2-arm") pico2 = b;
+        if (b->name() == "widget-rp2040") widget = b;
+    }
+
+    mm::test::expect(rp2040 != nullptr, "expected rp2040-ram board");
+    if (rp2040 != nullptr) {
+        mm::test::expect(rp2040->derives_from() == nullptr,
+                         "expected rp2040-ram to derive from nothing");
+        mm::test::expect(rp2040->sdk() == "arm-none-eabi-newlib",
+                         "expected rp2040 SDK");
+        mm::test::expect(
+            rp2040->sdk_provenance().origin == models::ValueOrigin::Authored,
+            "expected rp2040 SDK to be authored");
+        mm::test::expect(
+            rp2040->sdk_provenance().manifest ==
+                "platforms/pico/rp2040-ram/mm.mdy",
+            "expected rp2040 SDK manifest");
+        mm::test::expect(
+            rp2040->cpu_provenance().origin == models::ValueOrigin::Authored,
+            "expected rp2040 CPU to be authored");
+        mm::test::expect(
+            rp2040->instruction_set_provenance().origin ==
+                models::ValueOrigin::Authored,
+            "expected rp2040 instruction-set to be authored");
+        mm::test::expect(
+            rp2040->float_abi_provenance().origin ==
+                models::ValueOrigin::Authored,
+            "expected rp2040 float-abi to be authored");
+        mm::test::expect(
+            rp2040->security_domain_provenance().origin ==
+                models::ValueOrigin::SchemaDefault,
+            "expected rp2040 security-domain to be schema default");
+        mm::test::expect(
+            rp2040->security_domain_provenance().manifest.empty(),
+            "expected empty manifest for schema default");
+        mm::test::expect(
+            rp2040->machine_provenance().origin ==
+                models::ValueOrigin::Authored,
+            "expected rp2040 machine to be authored");
+        mm::test::expect(
+            rp2040->linker_script_provenance().origin ==
+                models::ValueOrigin::Authored,
+            "expected rp2040 linker-script to be authored");
+        mm::test::expect(
+            rp2040->sources().size() == 1 &&
+                rp2040->source_entries().size() == 1,
+            "expected 1 source entry for rp2040");
+        if (!rp2040->source_entries().empty()) {
+            mm::test::expect(
+                rp2040->source_entries().front().manifest ==
+                    "platforms/pico/rp2040-ram/mm.mdy",
+                "expected rp2040 source supplying manifest");
+        }
+        mm::test::expect(
+            rp2040->provides().size() == 3 &&
+                rp2040->provides_entries().size() == 3,
+            "expected 3 provides entries for rp2040");
+        mm::test::expect(
+            rp2040->platform_providers().size() == 1 &&
+                rp2040->platform_provider_entries().size() == 1,
+            "expected 1 platform-provider entry for rp2040");
+        mm::test::expect(
+            rp2040->declared_platform_providers().size() == 1 &&
+                rp2040->declared_platform_provider_entries().size() == 1,
+            "expected 1 declared platform-provider for rp2040");
+    }
+
+    mm::test::expect(pico != nullptr, "expected pico board");
+    if (pico != nullptr) {
+        mm::test::expect(
+            pico->linker_script().empty() &&
+                pico->linker_script_provenance().origin ==
+                    models::ValueOrigin::Absent,
+            "expected pico linker-script to be absent");
+        mm::test::expect(
+            pico->linker_script_provenance().manifest.empty(),
+            "expected empty manifest for absent linker-script");
+    }
+
+    mm::test::expect(pico2 != nullptr, "expected pico2-arm board");
+    if (pico2 != nullptr) {
+        mm::test::expect(
+            pico2->security_domain() == "secure" &&
+                pico2->security_domain_provenance().origin ==
+                    models::ValueOrigin::Authored,
+            "expected pico2-arm security-domain to be authored");
+    }
+
+    mm::test::expect(widget != nullptr, "expected widget-rp2040 board");
+    if (widget != nullptr) {
+        mm::test::expect(widget->derives_from() == rp2040,
+                         "expected widget-rp2040 to derive from rp2040-ram");
+        if (widget->derives_from() != nullptr) {
+            mm::test::expect(
+                widget->derives_from()->derives_from() == nullptr,
+                "expected widget-rp2040 base to have no base");
+        }
+        mm::test::expect(widget->sdk() == "arm-none-eabi-newlib",
+                         "expected widget-rp2040 resolved SDK");
+        mm::test::expect(
+            widget->sdk_provenance().origin == models::ValueOrigin::Inherited,
+            "expected widget-rp2040 SDK to be inherited");
+        mm::test::expect(
+            widget->sdk_provenance().manifest ==
+                "platforms/pico/rp2040-ram/mm.mdy",
+            "expected widget-rp2040 SDK inherited manifest");
+        mm::test::expect(
+            widget->cpu_provenance().origin == models::ValueOrigin::Inherited,
+            "expected widget-rp2040 CPU to be inherited");
+        mm::test::expect(
+            widget->instruction_set_provenance().origin ==
+                models::ValueOrigin::Inherited,
+            "expected widget-rp2040 instruction-set to be inherited");
+        mm::test::expect(
+            widget->float_abi_provenance().origin ==
+                models::ValueOrigin::Inherited,
+            "expected widget-rp2040 float-abi to be inherited");
+        mm::test::expect(
+            widget->security_domain_provenance().origin ==
+                models::ValueOrigin::SchemaDefault,
+            "expected widget-rp2040 security-domain to be schema default");
+        mm::test::expect(
+            widget->machine() == "rp2040" &&
+                widget->machine_provenance().origin ==
+                    models::ValueOrigin::Inherited,
+            "expected widget-rp2040 machine to be inherited");
+        mm::test::expect(
+            widget->machine_provenance().manifest ==
+                "platforms/pico/rp2040-ram/mm.mdy",
+            "expected widget-rp2040 machine inherited manifest");
+        mm::test::expect(
+            widget->linker_script() ==
+                "boards/widget-rp2040/board/link.ld" &&
+                widget->linker_script_provenance().origin ==
+                    models::ValueOrigin::Authored,
+            "expected widget-rp2040 linker-script to be authored locally");
+        mm::test::expect(
+            widget->linker_script_provenance().manifest ==
+                "boards/widget-rp2040/board/mm.mdy",
+            "expected widget-rp2040 linker-script manifest");
+        mm::test::expect(
+            widget->sources().size() == 2 &&
+                widget->source_entries().size() == 2,
+            "expected 2 source entries for widget-rp2040");
+        if (widget->source_entries().size() == 2) {
+            mm::test::expect(
+                widget->source_entries()[0].manifest ==
+                    "platforms/pico/rp2040-ram/mm.mdy",
+                "expected base source manifest for first source");
+            mm::test::expect(
+                widget->source_entries()[1].manifest ==
+                    "boards/widget-rp2040/board/mm.mdy",
+                "expected derived source manifest for second source");
+        }
+        mm::test::expect(
+            widget->provides().size() == 3 &&
+                widget->provides_entries().size() == 3,
+            "expected 3 provides entries for widget-rp2040");
+        mm::test::expect(
+            widget->platform_providers().size() == 1 &&
+                widget->platform_provider_entries().size() == 1,
+            "expected 1 effective provider binding for widget-rp2040");
+        if (!widget->platform_provider_entries().empty()) {
+            mm::test::expect(
+                widget->platform_provider_entries().front().manifest ==
+                    "boards/widget-rp2040/board/mm.mdy",
+                "expected widget-rp2040 overridden provider manifest");
+        }
+        mm::test::expect(
+            widget->declared_platform_providers().size() == 1 &&
+                widget->declared_platform_provider_entries().size() == 1,
+            "expected 1 declared provider for widget-rp2040");
+    }
+}
+
 const mm::test::case_ cases[] = {
     { "load of the real root succeeds",                &load_of_the_real_root_succeeds },
     { "root reflects the real project manifest",       &root_reflects_the_real_project_manifest },
     { "root children include a real directory node",   &root_children_include_a_real_directory_node },
     { "repository exposes platform definitions",       &repository_exposes_platform_definitions },
     { "repository exposes provider declarations",      &repository_exposes_provider_declarations },
+    { "board derivation, provenance, and entries",      &board_derivation_provenance_and_sequence_entries },
     { "child and parent agree with each other",        &child_and_parent_agree_with_each_other },
     { "every app reaches the root by walking parent",  &every_app_reaches_the_root_by_walking_parent },
     { "load of a nonexistent directory fails",         &load_of_a_nonexistent_directory_fails },

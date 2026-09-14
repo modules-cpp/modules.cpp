@@ -3,6 +3,7 @@ mm: 1.2
 kind: project
 name: modules.cpp
 folder: apps
+folder: boards
 folder: docs
 folder: libraries
 folder: models

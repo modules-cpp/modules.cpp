@@ -2,6 +2,7 @@
 // 32bitmicro LLC (C) 2026
 module;
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <filesystem>
@@ -293,37 +294,306 @@ private:
     ProviderData providers_;
 };
 
+models::PlatformResponsibility model_responsibility(
+    mm::configure::Responsibility value) {
+    using Source = mm::configure::Responsibility;
+    using Target = models::PlatformResponsibility;
+    switch (value) {
+        case Source::ResetVector: return Target::ResetVector;
+        case Source::InitialStack: return Target::InitialStack;
+        case Source::MemoryLayout: return Target::MemoryLayout;
+        case Source::RuntimeInit: return Target::RuntimeInit;
+        case Source::Syscalls: return Target::Syscalls;
+    }
+    return Target::Syscalls;
+}
+
 class RealBoardNode : public models::BoardNode {
 public:
     RealBoardNode(NodeData data, const mm::build::BoardDefinition& board)
-        : data_(std::move(data)), sdk_(board.sdk), cpu_(board.cpu), machine_(board.machine),
+        : data_(std::move(data)), sdk_(board.sdk), cpu_(board.cpu),
+          instruction_set_(board.instruction_set), float_abi_(board.float_abi),
+          security_domain_(board.security_domain), machine_(board.machine),
           linker_script_(board.linker_script), sources_(board.sources),
-          providers_(board.providers) {}
+          derives_from_name_(board.derives_from),
+          declared_sources_(board.declared_sources),
+          declared_linker_script_(board.declared_linker_script),
+          declared_providers_raw_(board.declared_providers) {
+        for (const auto r : board.provides)
+            provides_.push_back(model_responsibility(r));
+        for (const auto r : board.declared_provides)
+            declared_provides_.push_back(model_responsibility(r));
+    }
 
-    [[nodiscard]] std::string_view name() const override { return data_.name(); }
-    [[nodiscard]] std::filesystem::path manifest_path() const override { return data_.manifest_path(); }
-    [[nodiscard]] std::filesystem::path directory() const override { return data_.directory(); }
-    [[nodiscard]] const models::ManifestNode* parent() const override { return data_.parent(); }
-    [[nodiscard]] std::vector<const models::ManifestNode*> children() const override { return data_.children(); }
-    [[nodiscard]] const models::Document& document() const override { return data_.document(); }
-    [[nodiscard]] std::string_view sdk() const override { return sdk_; }
-    [[nodiscard]] std::string_view cpu() const override { return cpu_; }
-    [[nodiscard]] std::string_view machine() const override { return machine_; }
-    [[nodiscard]] std::filesystem::path linker_script() const override { return linker_script_; }
-    [[nodiscard]] std::vector<std::filesystem::path> sources() const override { return sources_; }
-    [[nodiscard]] std::vector<models::PlatformProviderBinding> platform_providers()
+    void resolve(const std::map<std::string_view, RealBoardNode*>& boards) {
+        if (!derives_from_name_.empty()) {
+            const auto it = boards.find(derives_from_name_);
+            if (it != boards.end()) base_ = it->second;
+        }
+
+        std::vector<const RealBoardNode*> ancestry;
+        for (const RealBoardNode* curr = this; curr != nullptr;
+             curr = curr->base_) {
+            ancestry.push_back(curr);
+        }
+
+        if (base_ == nullptr) {
+            sdk_provenance_ = {models::ValueOrigin::Authored, manifest_path()};
+            cpu_provenance_ = {models::ValueOrigin::Authored, manifest_path()};
+            instruction_set_provenance_ = {models::ValueOrigin::Authored,
+                                           manifest_path()};
+            float_abi_provenance_ = {models::ValueOrigin::Authored,
+                                     manifest_path()};
+        } else {
+            const auto& root_manifest = ancestry.back()->manifest_path();
+            sdk_provenance_ = {models::ValueOrigin::Inherited, root_manifest};
+            cpu_provenance_ = {models::ValueOrigin::Inherited, root_manifest};
+            instruction_set_provenance_ = {models::ValueOrigin::Inherited,
+                                           root_manifest};
+            float_abi_provenance_ = {models::ValueOrigin::Inherited,
+                                     root_manifest};
+        }
+
+        const bool root_authored_sec =
+            !ancestry.back()->document().values("security-domain").empty();
+        if (root_authored_sec) {
+            if (base_ == nullptr) {
+                security_domain_provenance_ = {models::ValueOrigin::Authored,
+                                               manifest_path()};
+            } else {
+                security_domain_provenance_ = {
+                    models::ValueOrigin::Inherited,
+                    ancestry.back()->manifest_path()};
+            }
+        } else {
+            security_domain_provenance_ = {models::ValueOrigin::SchemaDefault,
+                                           {}};
+        }
+
+        if (!document().values("machine").empty()) {
+            machine_provenance_ = {models::ValueOrigin::Authored,
+                                   manifest_path()};
+        } else {
+            const RealBoardNode* supplier = nullptr;
+            for (std::size_t k = 1; k < ancestry.size(); ++k) {
+                if (!ancestry[k]->document().values("machine").empty()) {
+                    supplier = ancestry[k];
+                    break;
+                }
+            }
+            if (supplier != nullptr) {
+                machine_provenance_ = {models::ValueOrigin::Inherited,
+                                       supplier->manifest_path()};
+            } else {
+                machine_provenance_ = {models::ValueOrigin::Absent, {}};
+            }
+        }
+
+        if (!declared_linker_script_.empty()) {
+            linker_script_provenance_ = {models::ValueOrigin::Authored,
+                                         manifest_path()};
+        } else {
+            const RealBoardNode* supplier = nullptr;
+            for (std::size_t k = 1; k < ancestry.size(); ++k) {
+                if (!ancestry[k]->declared_linker_script_.empty()) {
+                    supplier = ancestry[k];
+                    break;
+                }
+            }
+            if (supplier != nullptr) {
+                linker_script_provenance_ = {models::ValueOrigin::Inherited,
+                                             supplier->manifest_path()};
+            } else {
+                linker_script_provenance_ = {models::ValueOrigin::Absent, {}};
+            }
+        }
+
+        source_entries_.clear();
+        for (auto it = ancestry.rbegin(); it != ancestry.rend(); ++it) {
+            const auto* node = *it;
+            for (const auto& src : node->declared_sources_) {
+                source_entries_.push_back({src, node->manifest_path()});
+            }
+        }
+        sources_.clear();
+        for (const auto& entry : source_entries_) {
+            sources_.push_back(entry.path);
+        }
+
+        provides_entries_.clear();
+        for (auto it = ancestry.rbegin(); it != ancestry.rend(); ++it) {
+            const auto* node = *it;
+            for (const auto r : node->declared_provides_) {
+                provides_entries_.push_back({r, node->manifest_path()});
+            }
+        }
+        provides_.clear();
+        for (const auto& entry : provides_entries_) {
+            provides_.push_back(entry.responsibility);
+        }
+
+        declared_platform_providers_.clear();
+        declared_platform_provider_entries_.clear();
+        for (const auto& binding : declared_providers_raw_) {
+            models::PlatformProviderBinding b{binding.interface_module,
+                                              binding.provider_module};
+            declared_platform_providers_.push_back(b);
+            declared_platform_provider_entries_.push_back(
+                {b, manifest_path()});
+        }
+
+        platform_provider_entries_.clear();
+        for (auto it = ancestry.rbegin(); it != ancestry.rend(); ++it) {
+            const auto* node = *it;
+            for (const auto& binding : node->declared_providers_raw_) {
+                models::PlatformProviderBinding b{binding.interface_module,
+                                                  binding.provider_module};
+                auto pit = std::find_if(
+                    platform_provider_entries_.begin(),
+                    platform_provider_entries_.end(),
+                    [&](const models::BoardProviderEntry& existing) {
+                        return existing.binding.interface_module ==
+                               b.interface_module;
+                    });
+                if (pit != platform_provider_entries_.end()) {
+                    *pit = {b, node->manifest_path()};
+                } else {
+                    platform_provider_entries_.push_back(
+                        {b, node->manifest_path()});
+                }
+            }
+        }
+        platform_providers_.clear();
+        for (const auto& entry : platform_provider_entries_) {
+            platform_providers_.push_back(entry.binding);
+        }
+    }
+
+    [[nodiscard]] std::string_view name() const override {
+        return data_.name();
+    }
+    [[nodiscard]] std::filesystem::path manifest_path() const override {
+        return data_.manifest_path();
+    }
+    [[nodiscard]] std::filesystem::path directory() const override {
+        return data_.directory();
+    }
+    [[nodiscard]] const models::ManifestNode* parent() const override {
+        return data_.parent();
+    }
+    [[nodiscard]] std::vector<const models::ManifestNode*> children()
         const override {
-        return providers_.bindings();
+        return data_.children();
+    }
+    [[nodiscard]] const models::Document& document() const override {
+        return data_.document();
+    }
+
+    [[nodiscard]] const models::BoardNode* derives_from() const override {
+        return base_;
+    }
+    [[nodiscard]] std::string_view sdk() const override { return sdk_; }
+    [[nodiscard]] models::ValueProvenance sdk_provenance() const override {
+        return sdk_provenance_;
+    }
+    [[nodiscard]] std::string_view cpu() const override { return cpu_; }
+    [[nodiscard]] models::ValueProvenance cpu_provenance() const override {
+        return cpu_provenance_;
+    }
+    [[nodiscard]] std::string_view instruction_set() const override {
+        return instruction_set_;
+    }
+    [[nodiscard]] models::ValueProvenance instruction_set_provenance()
+        const override {
+        return instruction_set_provenance_;
+    }
+    [[nodiscard]] std::string_view float_abi() const override {
+        return float_abi_;
+    }
+    [[nodiscard]] models::ValueProvenance
+    float_abi_provenance() const override {
+        return float_abi_provenance_;
+    }
+    [[nodiscard]] std::string_view security_domain() const override {
+        return security_domain_;
+    }
+    [[nodiscard]] models::ValueProvenance security_domain_provenance()
+        const override {
+        return security_domain_provenance_;
+    }
+    [[nodiscard]] std::string_view machine() const override { return machine_; }
+    [[nodiscard]] models::ValueProvenance machine_provenance() const override {
+        return machine_provenance_;
+    }
+    [[nodiscard]] std::filesystem::path linker_script() const override {
+        return linker_script_;
+    }
+    [[nodiscard]] models::ValueProvenance linker_script_provenance()
+        const override {
+        return linker_script_provenance_;
+    }
+    [[nodiscard]] std::vector<std::filesystem::path> sources() const override {
+        return sources_;
+    }
+    [[nodiscard]] std::vector<models::BoardSource> source_entries()
+        const override {
+        return source_entries_;
+    }
+    [[nodiscard]] std::vector<models::PlatformResponsibility> provides()
+        const override {
+        return provides_;
+    }
+    [[nodiscard]] std::vector<models::BoardResponsibilityEntry>
+    provides_entries() const override {
+        return provides_entries_;
+    }
+    [[nodiscard]] std::vector<models::PlatformProviderBinding>
+    platform_providers() const override {
+        return platform_providers_;
+    }
+    [[nodiscard]] std::vector<models::BoardProviderEntry>
+    platform_provider_entries() const override {
+        return platform_provider_entries_;
+    }
+    [[nodiscard]] std::vector<models::PlatformProviderBinding>
+    declared_platform_providers() const override {
+        return declared_platform_providers_;
+    }
+    [[nodiscard]] std::vector<models::BoardProviderEntry>
+    declared_platform_provider_entries() const override {
+        return declared_platform_provider_entries_;
     }
 
 private:
     NodeData data_;
     std::string sdk_;
     std::string cpu_;
+    std::string instruction_set_;
+    std::string float_abi_;
+    std::string security_domain_;
     std::string machine_;
     std::filesystem::path linker_script_;
     std::vector<std::filesystem::path> sources_;
-    ProviderData providers_;
+    std::vector<models::PlatformResponsibility> provides_;
+    std::vector<models::PlatformProviderBinding> platform_providers_;
+    std::string derives_from_name_;
+    const RealBoardNode* base_ = nullptr;
+    models::ValueProvenance sdk_provenance_;
+    models::ValueProvenance cpu_provenance_;
+    models::ValueProvenance instruction_set_provenance_;
+    models::ValueProvenance float_abi_provenance_;
+    models::ValueProvenance security_domain_provenance_;
+    models::ValueProvenance machine_provenance_;
+    models::ValueProvenance linker_script_provenance_;
+    std::vector<std::filesystem::path> declared_sources_;
+    std::filesystem::path declared_linker_script_;
+    std::vector<models::PlatformResponsibility> declared_provides_;
+    std::vector<mm::build::PlatformProviderBinding> declared_providers_raw_;
+    std::vector<models::BoardSource> source_entries_;
+    std::vector<models::BoardResponsibilityEntry> provides_entries_;
+    std::vector<models::BoardProviderEntry> platform_provider_entries_;
+    std::vector<models::PlatformProviderBinding> declared_platform_providers_;
+    std::vector<models::BoardProviderEntry> declared_platform_provider_entries_;
 };
 
 class RealLibraryNode : public models::LibraryNode {
@@ -1014,19 +1284,6 @@ models::PlatformRuntime model_runtime(mm::configure::PlatformRuntime value) {
     return Target::Unknown;
 }
 
-models::PlatformResponsibility model_responsibility(mm::configure::Responsibility value) {
-    using Source = mm::configure::Responsibility;
-    using Target = models::PlatformResponsibility;
-    switch (value) {
-        case Source::ResetVector: return Target::ResetVector;
-        case Source::InitialStack: return Target::InitialStack;
-        case Source::MemoryLayout: return Target::MemoryLayout;
-        case Source::RuntimeInit: return Target::RuntimeInit;
-        case Source::Syscalls: return Target::Syscalls;
-    }
-    return Target::Syscalls;
-}
-
 models::LinkOwnership model_link_ownership(mm::configure::LinkOwnership ownership) {
     return ownership == mm::configure::LinkOwnership::External ? models::LinkOwnership::External
                                                                : models::LinkOwnership::Project;
@@ -1339,6 +1596,10 @@ Loaded Loaded::load(const std::filesystem::path& root_dir, bool& ok) {
             impl->index[i] = impl->libraries.back().get();
         }
     }
+
+    std::map<std::string_view, RealBoardNode*> board_by_name;
+    for (const auto& b : impl->boards) board_by_name[b->name()] = b.get();
+    for (auto& b : impl->boards) b->resolve(board_by_name);
 
     std::vector<const models::ModuleNode*> module_ptrs;
     for (const auto& m : impl->modules) module_ptrs.push_back(m.get());

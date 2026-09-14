@@ -4,6 +4,7 @@ kind: module
 name: manifest
 module: models.manifest
 use: models.document
+use: models.platform
 file: manifest.cppm
 ---
 
