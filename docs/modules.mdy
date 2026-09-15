@@ -184,6 +184,7 @@ The source tree is organized by responsibility.
 |   +-- modules-platform-pico.mdy  the Pico platform family
 |   +-- modules-platforms.mdy SDK, board, and platform specification
 |   +-- modules-run.mdy       run tool and runner specification
+|   +-- modules-stdio.mdy     portable console and Pico USB CDC provider
 |   +-- modules-test.mdy      test tool and target execution specification
 |
 +-- out/                      bootstrap output, installed commands, configuration

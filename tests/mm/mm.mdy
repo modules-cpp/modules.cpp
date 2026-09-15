@@ -12,6 +12,7 @@ folder: display
 folder: epaper
 folder: flash
 folder: shell
+folder: stdio
 folder: model
 folder: run
 folder: touch

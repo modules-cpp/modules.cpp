@@ -1,0 +1,15 @@
+---
+mm: 1.2
+kind: app
+name: stdio-smoke
+use: mm.stdio
+file: main.cpp
+---
+
+# stdio-smoke
+
+A portable console smoke application. It names no board, SDK, USB library, or
+provider. On a platform with a console it polls connection with a fixed bound,
+writes one byte message without retrying an accepted prefix, and flushes. On an
+unserved host it exits successfully after receiving Unsupported from the
+linkable fallback.

@@ -12,8 +12,11 @@ provides: memory-layout
 provides: runtime-init
 provides: syscalls
 platform-provider: mm.mcu platform.pico.mcu
+platform-provider: mm.stdio platform.pico.stdio
 ---
 
 # Pico SDK Arm platform
 
-The external Pico SDK build owns the complete bare-metal platform and the final link.
+The external Pico SDK build owns the complete bare-metal platform and the final
+link. It supplies GPIO, buses, UART, and time through platform.pico.mcu and a
+USB CDC console through platform.pico.stdio.

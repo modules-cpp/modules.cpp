@@ -7,8 +7,10 @@ licence: LICENSE.TXT
 external-build: cmake
 folder: ext
 folder: mcu
+folder: stdio
 ---
 
 # Raspberry Pi Pico SDK
 
-The pinned Pico SDK checkout and its project-owned bridge and wrapper.
+The pinned Pico SDK checkout and its project-owned bridge, wrapper, MCU
+provider, and USB console provider.

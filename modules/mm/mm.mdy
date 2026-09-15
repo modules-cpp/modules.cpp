@@ -19,6 +19,7 @@ folder: rtc
 folder: rtc/pcf85063
 folder: run
 folder: shell
+folder: stdio
 folder: test
 folder: touch
 folder: touch/cst328

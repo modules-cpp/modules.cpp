@@ -7,5 +7,6 @@ folder: main
 folder: mcu-blink
 folder: epaper-smoke
 folder: mdy
+folder: stdio-smoke
 folder: target-smoke-any
 ---

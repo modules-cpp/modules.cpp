@@ -283,7 +283,7 @@ A host reconfiguration preserves the target lane's SDK, board, arguments, respon
 
 A responsibility is something a platform must supply for any executable to link at all. A platform provider is narrower: an implementation of one portable interface, supplied only to the executables that use it.
 
-A kind:module manifest declares platform-interface, a marker with no value, to say that it is a portable interface whose implementation the selected platform supplies. Its module name is the interface identity; the marker names nothing. The interface module compiles, checks, models, and documents with no platform selected. mm.mcu is the one interface in this release.
+A kind:module manifest declares platform-interface, a marker with no value, to say that it is a portable interface whose implementation the selected platform supplies. Its module name is the interface identity; the marker names nothing. The interface module compiles, checks, models, and documents with no platform selected. The current interfaces are mm.mcu, mm.display, mm.touch, mm.imu, mm.rtc, and mm.stdio; their own specifications define their contracts.
 
 A selected SDK or board declares which module implements it:
 

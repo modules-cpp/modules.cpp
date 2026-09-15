@@ -2,18 +2,30 @@
 // The private ABI beneath platform.pico.mcu, declared beside that module
 // rather than here: this file implements it, and the module calls it.
 #include "../mcu/mcu-c.h"
+#include "../stdio/stdio-c.h"
 #include "hardware/spi.h"
 #include "hardware/i2c.h"
 #include "hardware/uart.h"
+#include "pico/stdio/driver.h"
 #include "pico/stdlib.h"
+#include "pico/stdio_usb.h"
 #include "pico/time.h"
 #include <limits.h>
 #include <stdio.h>
 
 // The vendor surface: ext.pico, for code that wants Pico SDK specifically.
 
+static int mm_pico_stdio_ready;
+
+static int mm_pico_initialize_stdio(void) {
+    if (mm_pico_stdio_ready) return 1;
+    if (!stdio_init_all()) return 0;
+    mm_pico_stdio_ready = 1;
+    return 1;
+}
+
 void mm_pico_initialize(void) {
-    stdio_init_all();
+    (void)mm_pico_initialize_stdio();
 }
 
 void mm_pico_write(const char* text) {
@@ -28,6 +40,65 @@ void mm_pico_gpio_write(unsigned int pin, int high) {
     gpio_init(pin);
     gpio_set_dir(pin, 1);
     gpio_put(pin, high);
+}
+
+// The platform surface beneath platform.pico.stdio. It addresses the USB
+// driver directly: stdio_put_string multiplexes every enabled driver and
+// always returns its requested length, so it cannot describe what USB
+// accepted. The SDK's USB output callback also returns void; this adapter can
+// therefore report zero when USB is disconnected and the full request when a
+// connected call returns, but cannot observe a mid-call timeout after only
+// part of the transfer reached the host.
+
+int mm_pico_stdio_initialize(void) {
+    return mm_pico_initialize_stdio() ? MM_PICO_STDIO_OK
+                                      : MM_PICO_STDIO_TRANSPORT_ERROR;
+}
+
+int mm_pico_stdio_write(const unsigned char* data, size_t size, size_t* written) {
+    if (!mm_pico_stdio_ready) return MM_PICO_STDIO_NOT_INITIALIZED;
+    if (written == NULL || size > INT_MAX || (size != 0 && data == NULL))
+        return MM_PICO_STDIO_BAD_ARGUMENT;
+
+    *written = 0;
+    if (size == 0 || !stdio_usb_connected()) return MM_PICO_STDIO_OK;
+    if (stdio_usb.out_chars == NULL) return MM_PICO_STDIO_UNSUPPORTED;
+
+    stdio_usb.out_chars((const char*)data, (int)size);
+    *written = size;
+    return MM_PICO_STDIO_OK;
+}
+
+int mm_pico_stdio_read(unsigned char* data, size_t size, size_t* count) {
+    if (!mm_pico_stdio_ready) return MM_PICO_STDIO_NOT_INITIALIZED;
+    if (count == NULL || size > INT_MAX || (size != 0 && data == NULL))
+        return MM_PICO_STDIO_BAD_ARGUMENT;
+
+    *count = 0;
+    if (size == 0 || !stdio_usb_connected()) return MM_PICO_STDIO_OK;
+    if (stdio_usb.in_chars == NULL) return MM_PICO_STDIO_UNSUPPORTED;
+
+    const int result = stdio_usb.in_chars((char*)data, (int)size);
+    if (result > 0) {
+        *count = (size_t)result;
+        return MM_PICO_STDIO_OK;
+    }
+    if (result == PICO_ERROR_NO_DATA) return MM_PICO_STDIO_OK;
+    return MM_PICO_STDIO_TRANSPORT_ERROR;
+}
+
+int mm_pico_stdio_flush(void) {
+    if (!mm_pico_stdio_ready) return MM_PICO_STDIO_NOT_INITIALIZED;
+    if (stdio_usb.out_flush == NULL) return MM_PICO_STDIO_UNSUPPORTED;
+    stdio_usb.out_flush();
+    return MM_PICO_STDIO_OK;
+}
+
+int mm_pico_stdio_connected(int* connected) {
+    if (!mm_pico_stdio_ready) return MM_PICO_STDIO_NOT_INITIALIZED;
+    if (connected == NULL) return MM_PICO_STDIO_BAD_ARGUMENT;
+    *connected = stdio_usb_connected() ? 1 : 0;
+    return MM_PICO_STDIO_OK;
 }
 
 // The platform surface: the private ABI beneath platform.pico.mcu. Both live in

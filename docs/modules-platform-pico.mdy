@@ -14,8 +14,9 @@ This document specifies every Raspberry Pi Pico platform in this repository: the
 two project-linked RAM platforms, the two Pico SDK-backed SDKs and their six
 boards, the vendored Pico SDK checkout and how it is provisioned, the CMake
 bridge that links against it, the C adapter and C++ wrapper that expose it, and
-the smoke applications that prove it. It describes implemented behaviour. Its
-manifests require mm: 1.2.
+the MCU and USB-console providers layered over that adapter, and the smoke
+applications that prove them. It describes implemented behaviour. Its manifests
+require mm: 1.2.
 
 status: official gives this document the same authority as the other implemented
 specifications in docs.
@@ -75,6 +76,7 @@ platforms/pico/sdk/pico-sdk/vendor.sh        provisions and pins the checkout
 platforms/pico/sdk/pico-sdk/upstream/        the checkout, cloned and ignored
 platforms/pico/sdk/pico-sdk/cmake/           bridge, mm-requires.txt, UF2 validation
 platforms/pico/sdk/pico-sdk/ext/             adapter, shims, wrapper
+platforms/pico/sdk/pico-sdk/stdio/           mm.stdio USB CDC provider
 
 platforms/pico/apps/pico-smoke/              requires-board: pico
 platforms/pico/apps/pico2-arm-smoke/         requires-board: pico2-arm
@@ -195,6 +197,28 @@ Pico 2 report their GPIO-backed LED and polarity. Pico W and Pico 2 W report no
 LED: their onboard LED is attached to the CYW43 wireless device and pretending
 it were an RP GPIO would violate the board-description contract. CYW43 GPIO,
 Wi-Fi, and Bluetooth are not enabled merely by recognizing the W board.
+
+## USB CDC console
+
+Both SDKs bind mm.stdio to platform.pico.stdio at the SDK tier, so every Pico
+SDK-backed board receives the USB CDC console by default and a board may replace
+it through the ordinary, more-specific board-provider tier. A program that does
+not use mm.stdio receives no console-provider object.
+
+The bridge enables pico_stdio_usb and keeps semihosting enabled. The provider
+initializes the Pico stdio subsystem once, then addresses the USB driver directly
+for reads, writes, flushing, and connection state; it does not redirect mm.stdio
+through the aggregate stdio multiplexer. The compile definition
+PICO_STDIO_USB_CONNECTION_WITHOUT_DTR=1 makes connected mean that USB CDC is
+enumerated and ready, rather than requiring a terminal to assert DTR. Pico SDK's
+default background IRQ task services TinyUSB, so applications do not call
+tud_task or another transport pump.
+
+Pico SDK's public USB output callback does not return a byte count. Consequently
+the provider reports zero bytes while disconnected and the complete size after a
+connected callback returns, but cannot observe a timeout partway through that
+callback. docs/modules-stdio.mdy owns the portable console contract and records
+this provider-specific limitation.
 
 # Processor arguments, and where they come from
 
@@ -421,7 +445,8 @@ ext/adapter.c is the only file that includes Pico SDK headers. It is compiled by
 the bridge inside Pico SDK's own target graph, with whatever flags that graph
 selects, so one C source serves all six board declarations and both
 architectures. It implements the wrapper ABI plus platform.pico.mcu's private
-GPIO, hardware-SPI, hardware-UART, timer, and board-description ABI. The bridge
+GPIO, hardware-SPI, hardware-UART, timer, and board-description ABI, and
+platform.pico.stdio's private USB-console ABI. The bridge
 requests GNU C11 rather than strict C11 because Pico SDK's public Hazard3 headers use GNU
 `asm`; the adapter itself uses no language extension, but it must be parsed
 together with the foreign headers it includes.
@@ -560,6 +585,11 @@ Three behaviours surprise people and are recorded here rather than rediscovered.
 - The adapter for each board compiles GPIO, both hardware SPI instances, the
   default hardware UART, and monotonic timer support. W-board builds report no
   GPIO-backed LED.
+- A program using mm.stdio receives exactly one platform.pico.stdio provider in
+  either Pico SDK lane. A program that does not use mm.stdio receives none.
+- The Pico console initializes the SDK stdio subsystem without an application
+  task loop, uses USB CDC connection state without requiring DTR, and leaves
+  semihosting enabled beside USB.
 
 # Current boundaries
 
@@ -571,8 +601,9 @@ Three behaviours surprise people and are recorded here rather than rediscovered.
   Their RISC-V debug path is not the ARM one, and no runner profile is claimed
   for it.
 - RP2350 RISC-V hardware has not been exercised at all.
-- CYW43 GPIO and firmware, Wi-Fi, lwIP, Bluetooth, TinyUSB policy, flash boot
-  policy, and signed images are outside this integration, though their sources
+- CYW43 GPIO and firmware, Wi-Fi, lwIP, Bluetooth, TinyUSB classes beyond the
+  USB CDC console, flash boot policy, and signed images are outside this
+  integration, though their sources
   are present in the recursive checkout. Pico W and Pico 2 W are supported for
   the same RP GPIO, hardware SPI, hardware UART, and timer surface as the
   non-wireless boards.

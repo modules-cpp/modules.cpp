@@ -1,0 +1,20 @@
+---
+mm: 1.0
+kind: test
+name: stdio
+use: mm.test
+use: mm.stdio
+unit: tests/mm/stdio/platform.cpp
+unit: tests/mm/stdio/stdio.cpp
+unit: tests/main.cpp
+---
+
+# mm.stdio test target
+
+Exercises the portable console through a host stand-in: partial writes when the
+far end will not take everything, a read with nothing waiting, connection
+reporting, the lifecycle, and the linkable fallback an unserved lane gets.
+
+platform.cpp is that stand-in. It is a console with a bounded far end rather
+than a mock of one, which is what lets a test ask what a caller sees when the
+other side stops reading.

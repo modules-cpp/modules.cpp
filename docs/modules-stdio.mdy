@@ -1,0 +1,166 @@
+---
+mm: 1.0
+kind: doc
+name: modules.cpp portable console specification
+status: official
+release: v1.2.0
+---
+
+# Portable console specification
+
+# Status and authority
+
+This document specifies mm.stdio and its Pico SDK USB CDC provider for release
+v1.2.0. It describes implemented behavior. docs/modules-platforms.mdy owns the
+platform-interface and platform-provider mechanism; docs/modules-platform-pico.mdy
+owns the Pico platform instance; docs/modules-c++20.mdy owns the adapter and
+linkage-shim allowances.
+
+# Role
+
+mm.stdio is one platform-selected console. It moves bytes to and from wherever
+the selected platform assigns that role. It is not formatting, a line
+discipline, or a hardware UART.
+
+mm.mcu:uart answers “write to this UART peripheral.” mm.stdio answers “write to
+this platform's console.” USB CDC, a debugger's semihosting channel, and a UART
+may each carry a console, but that does not make them the same peripheral.
+
+# Interface
+
+Opening fence
+enum class Status {
+    Ok,
+    BadArgument,
+    Unsupported,
+    NotInitialized,
+    Busy,
+    Timeout,
+    TransportError
+};
+
+class Console {
+    virtual Status initialize();
+    virtual Status write(std::span<const std::byte> data,
+                         std::size_t& written);
+    virtual Status read(std::span<std::byte> data, std::size_t& count);
+    virtual Status flush();
+    virtual Status connected(bool& value);
+};
+
+void set_console(Console& console);
+Console& selected_console();
+Closing fence
+
+Output parameters change only when the operation returns Ok. write may report
+fewer bytes than the input span, including zero; the caller resumes at that
+offset and must bound its retries. read returns Ok with count zero when no byte
+is waiting. connected is a query, never a wait. A caller that waits polls it and
+owns the stopping condition.
+
+The linkable fallback answers Unsupported. It lets the module and host tests
+exist without a selected target platform and never guesses that a listener is
+present.
+
+The interface moves bytes. It provides no printf, iostream, locale, number
+format, newline translation, echo, editing, baud, parity, or flow-control
+policy.
+
+# Pico USB CDC provider
+
+platform.pico.stdio implements Console over Pico SDK's pico_stdio_usb driver.
+Both pico-arm and pico-riscv bind it at SDK level:
+
+Opening fence
+platform-provider: mm.stdio platform.pico.stdio
+Closing fence
+
+Every SDK-backed board therefore receives the default. The ordinary provider
+precedence rule still applies: a board binding mm.stdio replaces the SDK
+default for that board. The generic board-over-SDK fixture in the mm.build
+provider suite proves this rule independently of USB hardware.
+
+The bridge enables USB and keeps semihosting enabled. Existing lib.pico output
+continues through Pico's aggregate stdio path; mm.stdio addresses USB directly,
+so its connected and byte-count answers are about CDC rather than an ambiguous
+union of enabled outputs.
+
+The bridge defines PICO_STDIO_USB_CONNECTION_WITHOUT_DTR=1. connected therefore
+reports USB enumeration through tud_ready(), not the host's DTR line. A terminal
+that does not assert DTR cannot leave a bounded caller waiting forever for a
+signal unrelated to enumeration. Enumeration does not prove that the host is
+draining output.
+
+Pico SDK performs USB work from its default timer and low-priority IRQ. A caller
+does not call tud_task and mm.stdio exposes no pump operation.
+
+# Delivery limits
+
+The SDK defaults its initial connection wait to zero, so output offered before
+enumeration is discarded. The Pico provider makes that visible as Ok with
+written equal to zero. A program that needs its first message observed polls
+connected before writing and bounds that poll.
+
+Pico SDK also gives up when a connected host stops draining output for its
+configured stdout timeout. Its public USB output callback returns void, and
+stdio_put_string always returns the requested length. The provider can therefore
+report disconnected zero-versus-connected acceptance, but cannot observe a
+mid-call timeout after only part of a connected transfer physically reached the
+host. written in that case is the size accepted by the SDK call, not a receipt
+from the host. Portable callers must already handle short writes and must not
+treat a full count as end-to-end delivery acknowledgement.
+
+The SDK's post-connect delay remains its configured default. The provider does
+not add another delay. A terminal may still lose bytes sent immediately after
+enumeration, so hardware protocols needing acknowledgement must define one
+above this byte transport.
+
+# Private boundary
+
+The provider includes only its colocated stdio-cxx.h linkage shim and imports
+mm.stdio. The shim wraps stdio-c.h in C language linkage. The bridge's existing
+adapter.c implements the five private mm_pico_stdio_* functions and remains the
+only project-authored translation unit that includes Pico SDK headers.
+
+The private ABI validates null pointers and lengths before converting size_t to
+the SDK's int lengths. Integer status values cross only that C boundary; the
+provider maps every value back to mm::stdio::Status.
+
+# Application and qualification
+
+apps/stdio-smoke imports only mm.stdio. It treats an unserved host fallback as a
+valid no-console host run. With a provider it polls connected with a fixed
+iteration bound, writes without resending an accepted prefix, flushes, and
+returns rather than waiting forever.
+
+scripts/build-stdio-smoke-pico-sdk.sh builds one selected Pico SDK board,
+checks its ELF and UF2, verifies exactly one platform.pico.stdio initializer,
+and builds target-smoke-any to prove an unrelated executable contains none. It
+does not claim that a person saw bytes. Hardware qualification flashes the UF2,
+opens its CDC terminal, resets the board, and observes:
+
+Opening fence
+modules.cpp mm.stdio over USB CDC
+Closing fence
+
+# Conformance
+
+- mm.stdio builds and its host stand-in passes without Pico SDK or hardware.
+- A disconnected stand-in reports Ok with a zero written count; a bounded
+  connected stand-in reports accepted bytes without hanging.
+- Both Pico SDK manifests bind platform.pico.stdio, while a board binding the
+  same interface overrides that default through the shared precedence rule.
+- A Pico image reaching mm.stdio contains exactly one provider initializer; an
+  image not reaching it contains none.
+- USB connection testing ignores DTR, USB background service needs no caller
+  task loop, and semihosting remains enabled for existing wrapper applications.
+- Host build, all unit suites, check, model, and document pass with no board.
+
+# Current boundaries
+
+- No automated test asserts that bytes appeared at a host terminal.
+- A connected full write count is not an end-to-end delivery acknowledgement,
+  because Pico SDK exposes no byte count from its timeout-capable USB callback.
+- No console provider exists yet for project-linked boards or hosted targets.
+- USB classes other than CDC, USB host mode, and reset-to-BOOTSEL are outside
+  mm.stdio.

@@ -21,6 +21,8 @@ docs/modules-platforms.mdy remains authoritative for SDK and board selection,
 responsibilities, and link ownership. docs/modules-build.mdy remains
 authoritative for the implemented dependency closure and link pipeline.
 docs/modules-c++20.mdy remains authoritative for permitted project code.
+docs/modules-stdio.mdy owns the separate platform console role; USB CDC and
+semihosting are not UART instances and do not change mm.mcu's UART contract.
 
 # Decision
 

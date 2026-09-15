@@ -20,6 +20,7 @@ file: modules-platform-mcu.mdy
 file: modules-platform-pico.mdy
 file: modules-platforms.mdy
 file: modules-run.mdy
+file: modules-stdio.mdy
 file: modules-test.mdy
 ---
 

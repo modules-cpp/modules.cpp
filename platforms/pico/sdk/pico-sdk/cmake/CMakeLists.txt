@@ -44,8 +44,16 @@ set_target_properties(mm_external PROPERTIES
   OUTPUT_NAME ${MM_OUTPUT_NAME})
 set_source_files_properties(${MM_ADAPTER} PROPERTIES
   COMPILE_OPTIONS "-std=gnu11;-Wall;-Wextra;-Werror")
-target_compile_definitions(mm_external PRIVATE MM_SELECTED_BOARD="${MM_BOARD}")
-target_link_libraries(mm_external pico_stdlib hardware_spi hardware_i2c hardware_uart)
+target_compile_definitions(mm_external PRIVATE
+  MM_SELECTED_BOARD="${MM_BOARD}"
+  PICO_STDIO_USB_CONNECTION_WITHOUT_DTR=1)
+target_link_libraries(mm_external
+  pico_stdlib
+  pico_stdio_usb
+  hardware_spi
+  hardware_i2c
+  hardware_uart)
+pico_enable_stdio_usb(mm_external 1)
 pico_enable_stdio_semihosting(mm_external 1)
 pico_add_extra_outputs(mm_external)
 add_custom_command(TARGET mm_external POST_BUILD

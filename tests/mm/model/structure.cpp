@@ -155,10 +155,15 @@ void repository_exposes_provider_declarations() {
     const auto boards = loaded.repository().boards();
 
     const models::ModuleNode* interface = nullptr;
-    for (const auto* module : modules)
+    const models::ModuleNode* stdio_interface = nullptr;
+    for (const auto* module : modules) {
         if (module->exported_module_name() == "mm.mcu") interface = module;
+        if (module->exported_module_name() == "mm.stdio") stdio_interface = module;
+    }
     mm::test::expect(ok && interface != nullptr && interface->platform_interface(),
                      "expected mm.mcu to expose its platform-interface marker");
+    mm::test::expect(stdio_interface != nullptr && stdio_interface->platform_interface(),
+                     "expected mm.stdio to expose its platform-interface marker");
 
     const models::SdkNode* pico_arm = nullptr;
     for (const auto* sdk : sdks)
@@ -166,10 +171,12 @@ void repository_exposes_provider_declarations() {
     mm::test::expect(pico_arm != nullptr, "expected the Pico ARM SDK definition");
     if (pico_arm != nullptr) {
         const auto bindings = pico_arm->platform_providers();
-        mm::test::expect(bindings.size() == 1 &&
-                             bindings.front().interface_module == "mm.mcu" &&
-                             bindings.front().provider_module == "platform.pico.mcu",
-                         "expected the SDK's authored provider binding");
+        mm::test::expect(bindings.size() == 2 &&
+                             bindings[0].interface_module == "mm.mcu" &&
+                             bindings[0].provider_module == "platform.pico.mcu" &&
+                             bindings[1].interface_module == "mm.stdio" &&
+                             bindings[1].provider_module == "platform.pico.stdio",
+                         "expected the SDK's authored MCU and console bindings");
     }
 
     const models::BoardNode* rp2040 = nullptr;

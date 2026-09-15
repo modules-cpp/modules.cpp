@@ -1,0 +1,44 @@
+---
+mm: 1.2
+kind: module
+name: stdio
+module: mm.stdio
+platform-interface:
+file: status.cppm mm.stdio:status
+file: platform.cppm mm.stdio:platform
+file: stdio.cppm mm.stdio
+file: src/stdio.cpp
+---
+
+# mm.stdio
+
+A portable console. It moves bytes to and from wherever the selected platform's
+console goes, which on one board is a UART, on another a USB CDC endpoint, and
+under a debugger a semihosting call.
+
+This is a different question from mm.mcu's UART facility. uart_write names a
+peripheral; this names a role, and the platform decides what carries it. A board
+with both binds one here and reaches the other through mm.mcu.
+
+write reports how much it accepted. That is the whole design rather than a
+detail: a console whose far end is absent or not reading cannot deliver
+everything, and an interface that returned only a status would have to either
+block until it could, or claim a delivery it did not make. Neither is an honest
+answer for a transport that may have nobody on the other end.
+
+read with nothing available is Ok with a count of zero, as no contact is in
+mm.touch. Nothing waiting is an answer.
+
+connected is a query rather than a wait. A caller that wants to wait polls it
+and bounds the loop itself; putting a timeout here would push one policy onto
+every platform. A console that cannot tell whether anything is listening answers
+Unsupported rather than guessing.
+
+There is no formatting. No printf, no iostreams, no <cstdio>: formatting picks a
+locale, a float representation, and a buffer, and none of those belong in a
+transport. A caller that wants text writes the bytes of the text it composed.
+There is no line discipline and no baud, parity, or flow control either; the
+first is policy and the others are meaningless on a packet transport.
+
+The platform-interface marker makes a selected platform's console provider part
+of an executable only when its ordinary closure reaches mm.stdio.

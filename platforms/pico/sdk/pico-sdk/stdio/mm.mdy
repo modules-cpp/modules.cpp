@@ -1,0 +1,18 @@
+---
+mm: 1.2
+kind: module
+name: pico-stdio
+module: platform.pico.stdio
+use: mm.stdio
+file: stdio.cppm
+option: buildable-host no
+---
+
+# platform.pico.stdio
+
+The Pico SDK platform's USB CDC implementation of mm.stdio. Both Pico SDKs
+bind it as their default console provider, so every SDK-backed Pico board gets
+it unless that board declares a more specific binding.
+
+The provider calls a private C ABI implemented by the bridge's one adapter.
+It includes no Pico SDK header and exposes no SDK type to portable code.

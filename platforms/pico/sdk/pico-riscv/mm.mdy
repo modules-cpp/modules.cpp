@@ -12,6 +12,7 @@ provides: memory-layout
 provides: runtime-init
 provides: syscalls
 platform-provider: mm.mcu platform.pico.mcu
+platform-provider: mm.stdio platform.pico.stdio
 ---
 
 # Pico SDK, RP2350 RISC-V
@@ -20,3 +21,4 @@ Selects RP2350's Hazard3 cores. riscv32-pico-elf is the first triple Pico SDK
 itself prefers, ahead of riscv32-unknown-elf, riscv32-corev-elf, and
 riscv-none-elf. The external SDK build owns the link, so this SDK declares
 neither a specs profile nor a specs file and owns all five responsibilities.
+It supplies the same USB CDC console as the Arm SDK.
