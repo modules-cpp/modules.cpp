@@ -3,6 +3,7 @@ mm: 1.0
 kind: dir
 name: apps
 folder: board-smoke
+folder: display-demo
 folder: main
 folder: mcu-blink
 folder: epaper-smoke

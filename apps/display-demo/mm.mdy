@@ -1,0 +1,26 @@
+---
+mm: 1.2
+kind: app
+name: display-demo
+option: buildable-host no
+use: mm.display
+use: mm.mcu
+file: main.cpp
+---
+
+# display-demo
+
+A portable application whose output is a picture rather than an exit code. It
+draws three RGB565 colour bars, holds them, and rotates them twice, so that a
+person can tell a working panel from a still one.
+
+It names mm.display for the frame and mm.mcu for the delay, and no board, SDK,
+or vendor. mm.mcu is not decoration: a provider that owns the display releases
+it when the process ends, so an application that draws and returns shows
+nothing. Holding the frame is what makes this visible, and holding requires a
+clock.
+
+The bars are the three colours whose RGB565 encoding is worth checking by eye.
+Red is 0xf800, which is the bytes 0xf8 and 0x00 in that order; a provider that
+swaps them draws blue instead, which is exactly the mistake this catches
+without a test harness.
