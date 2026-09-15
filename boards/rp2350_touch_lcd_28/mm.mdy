@@ -1,0 +1,20 @@
+---
+mm: 1.0
+kind: dir
+name: rp2350-touch-lcd-28-platform
+folder: board
+folder: display
+folder: touch
+folder: imu
+folder: rtc
+---
+
+# rp2350-touch-lcd-28-platform
+
+The Waveshare RP2350-Touch-LCD-2.8 composite board and the four board-owned
+providers it binds: an ST7789 colour panel, a CST328 touch controller, a
+QMI8658 inertial sensor, and a PCF85063 clock.
+
+Each provider owns its own wiring and nothing else. The device drivers are
+portable modules under modules/mm, and the board is the only place that knows
+which pin is which.

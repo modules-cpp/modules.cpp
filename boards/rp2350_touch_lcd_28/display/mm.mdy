@@ -1,0 +1,17 @@
+---
+mm: 1.2
+kind: module
+name: rp2350-touch-lcd-28-display
+module: platform.rp2350_touch_lcd_28.display
+use: mm.display
+use: mm.lcd.st7789
+use: mm.mcu
+file: display.cppm
+option: buildable-host no
+---
+
+# platform.rp2350_touch_lcd_28.display
+
+The board's ST7789 panel: 240 by 320, RGB565, on SPI1 with the backlight on
+GP16. It owns the wiring and the panel's porch, power, and gamma settings, and
+registers the controller as mm.display.

@@ -1,0 +1,19 @@
+---
+mm: 1.2
+kind: module
+name: rp2350-touch-lcd-28-imu
+module: platform.rp2350_touch_lcd_28.imu
+use: mm.imu
+use: mm.imu.qmi8658
+use: mm.mcu
+file: imu.cppm
+option: buildable-host no
+---
+
+# platform.rp2350_touch_lcd_28.imu
+
+The board's QMI8658 inertial sensor at address 0x6b, with 0x6a as the alternate its SA0 strap may select.
+
+It shares I2C1 with the board's other two devices: SDA on GP6 and SCL on GP7.
+Each provider configures that bus before its first transfer, which is idempotent
+and means no provider depends on another having been initialised first.

@@ -1,0 +1,32 @@
+---
+mm: 1.2
+kind: board
+name: rp2350_touch_lcd_28
+derives-from: pico2-arm
+platform-provider: mm.display platform.rp2350_touch_lcd_28.display
+platform-provider: mm.touch platform.rp2350_touch_lcd_28.touch
+platform-provider: mm.imu platform.rp2350_touch_lcd_28.imu
+platform-provider: mm.rtc platform.rp2350_touch_lcd_28.rtc
+---
+
+# rp2350_touch_lcd_28
+
+A Waveshare RP2350-Touch-LCD-2.8: an RP2350A with 16MB of flash carrying a 240
+by 320 IPS panel on an ST7789, a five-point CST328 capacitive touch controller,
+a QMI8658 inertial sensor, and a PCF85063 clock.
+
+It derives from pico2-arm because that is what it is: the same RP2350A the Pico
+SDK configures as pico2. The SDK publishes no board header for this product, and
+Waveshare's own firmware for it selects PICO_BOARD pico2 and drives every
+peripheral by explicit GPIO number, which is exactly what deriving does here.
+The chip, the SDK, and the ABI come from the base; the four bindings above and
+the pin maps in the providers are what this board adds.
+
+The panel is wired to SPI1 and the three I2C devices share I2C1.
+
+**The pin assignments in the providers are taken from a third-party board
+support package for this product, not from Waveshare's schematic, because the
+wiki refuses automated requests. They must be confirmed against the schematic
+before this board is trusted with hardware.**
+
+https://www.waveshare.com/wiki/RP2350-Touch-LCD-2.8

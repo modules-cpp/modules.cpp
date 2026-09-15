@@ -1,0 +1,19 @@
+---
+mm: 1.2
+kind: module
+name: rp2350-touch-lcd-28-touch
+module: platform.rp2350_touch_lcd_28.touch
+use: mm.touch
+use: mm.touch.cst328
+use: mm.mcu
+file: touch.cppm
+option: buildable-host no
+---
+
+# platform.rp2350_touch_lcd_28.touch
+
+The board's CST328 capacitive touch controller: five points, reset on GP17 and interrupt on GP18, at address 0x1a.
+
+It shares I2C1 with the board's other two devices: SDA on GP6 and SCL on GP7.
+Each provider configures that bus before its first transfer, which is idempotent
+and means no provider depends on another having been initialised first.

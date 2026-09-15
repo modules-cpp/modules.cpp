@@ -61,8 +61,8 @@ void repository_exposes_platform_definitions() {
     const auto boards = loaded.repository().boards();
     mm::test::expect(ok && sdks.size() == 7,
                      "expected all seven SDK definitions from the manifest walk");
-    mm::test::expect(boards.size() == 12,
-                     "expected all twelve board definitions from the manifest walk");
+    mm::test::expect(boards.size() == 13,
+                     "expected all thirteen board definitions from the manifest walk");
     const models::BoardNode* mps2 = nullptr;
     const models::BoardNode* rp2040 = nullptr;
     const models::BoardNode* rp2350 = nullptr;
@@ -213,6 +213,28 @@ void repository_exposes_provider_declarations() {
                              bindings.front().provider_module ==
                                  "platform.pico_epaper.display",
                          "expected pico_epaper to bind its display provider");
+    }
+
+    const models::BoardNode* touch_lcd = nullptr;
+    for (const auto* board : boards)
+        if (board->name() == "rp2350_touch_lcd_28") touch_lcd = board;
+    mm::test::expect(touch_lcd != nullptr, "expected the RP2350 touch LCD board");
+    if (touch_lcd != nullptr) {
+        const auto bindings = touch_lcd->platform_providers();
+        mm::test::expect(bindings.size() == 4,
+                         "expected a board to bind four interfaces at once");
+        bool display = false;
+        bool touch = false;
+        bool imu = false;
+        bool rtc = false;
+        for (const auto& binding : bindings) {
+            if (binding.interface_module == "mm.display") display = true;
+            if (binding.interface_module == "mm.touch") touch = true;
+            if (binding.interface_module == "mm.imu") imu = true;
+            if (binding.interface_module == "mm.rtc") rtc = true;
+        }
+        mm::test::expect(display && touch && imu && rtc,
+                         "expected each interface bound exactly once");
     }
 
     mm::test::expect(pico_epaper_b_board != nullptr,

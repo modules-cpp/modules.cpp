@@ -1,0 +1,21 @@
+---
+mm: 1.2
+kind: app
+name: board-smoke
+option: buildable-host no
+use: mm.display
+use: mm.touch
+use: mm.imu
+use: mm.rtc
+file: main.cpp
+---
+
+# board-smoke
+
+A portable application for a board that carries a panel, a touch controller, an
+inertial sensor, and a clock. It names those four interfaces and no board, no
+SDK, and no vendor: whichever providers the selected platform binds are the ones
+it talks to.
+
+It exists to prove that a board binding four interfaces links all four, which no
+single-interface application can show.

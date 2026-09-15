@@ -5,6 +5,7 @@ name: boards
 folder: widget-rp2040
 folder: pico_epaper
 folder: pico_epaper_b
+folder: rp2350_touch_lcd_28
 ---
 
 # boards
