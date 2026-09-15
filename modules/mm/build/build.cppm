@@ -499,9 +499,24 @@ std::vector<std::filesystem::path> closure(const Tree& tree, std::size_t index);
 // own closure requires. Objects are never repeated: a provider required by two
 // applications is compiled once and appears once in each link. extra names the
 // provider modules that were merged in, for diagnostics.
+// reached, when given, receives every target index the closure visited, a
+// consumer ahead of the modules it uses. library_link_inputs wants it reversed.
 std::vector<std::filesystem::path> augmented_closure(const Tree& tree, std::size_t index,
                                                      const PlatformProviders& providers,
-                                                     std::vector<std::string>* merged = nullptr);
+                                                     std::vector<std::string>* merged = nullptr,
+                                                     std::vector<std::size_t>* reached = nullptr);
+
+// The library segment for a closure: the link-input names of every library a
+// reached wrapper declares, once each, a dependency's library after the module
+// that needed it. A library whose checkout is absent is reported here rather
+// than discovered as an undefined symbol.
+[[nodiscard]] bool library_link_inputs(
+    const std::filesystem::path& project_root,
+    const std::vector<LibraryDefinition>& libraries,
+    const Tree& tree,
+    const std::vector<std::size_t>& reached,
+    std::vector<std::string>& inputs,
+    std::string_view tool = "build");
 
 // Quotes a path for /bin/sh. Uses single quotes: $(), backticks and $NAME all
 // still expand inside double quotes, so a path is not safe merely for being
@@ -523,7 +538,8 @@ int compile(const Toolchain& toolchain, BuildableNode& target,
 // static initialisers and an archive would discard them.
 int link(const Toolchain& toolchain,
          const std::vector<std::filesystem::path>& objects,
-         const std::filesystem::path& output);
+         const std::filesystem::path& output,
+         const std::vector<std::string>& link_inputs = {});
 
 // Copies a built binary into bin_dir, unlinking first so a tool can replace the
 // binary it is running from.

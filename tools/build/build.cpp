@@ -317,7 +317,10 @@ int main(int argc, char** argv) {
         if (!mm::build::can_link_executable(platform, "build", target.name))
             return mm::build::exit_manifest;
         std::vector<std::string> merged;
-        auto objects = mm::build::augmented_closure(tree, index, providers, &merged);
+        std::vector<std::size_t> reached;
+        auto objects =
+            mm::build::augmented_closure(tree, index, providers, &merged, &reached);
+        std::vector<std::string> link_inputs;
         for (const auto& provider : merged)
             std::cout << "    platform provider " << provider << "\n";
         if (board) objects.insert(objects.end(), board->objects.begin(), board->objects.end());
@@ -330,7 +333,12 @@ int main(int argc, char** argv) {
                 status != 0)
                 return status;
         } else {
-            if (const int status = mm::build::link(toolchain, objects, output); status != 0)
+            if (!mm::build::library_link_inputs(".", project.libraries, tree, reached,
+                                                link_inputs, "build"))
+                return mm::build::exit_manifest;
+            if (const int status =
+                    mm::build::link(toolchain, objects, output, link_inputs);
+                status != 0)
                 return status;
         }
 

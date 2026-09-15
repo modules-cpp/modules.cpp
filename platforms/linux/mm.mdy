@@ -14,11 +14,16 @@ folder: rtc
 folder: drm
 folder: evdev
 folder: iio
+folder: sdl2
 folder: apps
 folder: generic-aarch64
+folder: sdl-aarch64
 ---
 
 # Linux platform
 
 Native hosted Linux SDKs and providers implemented directly over libc and the
-Linux userspace kernel ABI. No optional package or project link input is used.
+Linux userspace kernel ABI. No optional package or project link input is used,
+with one exception: platforms/linux/sdl2 is an alternative display and touch
+backend over SDL2, selected by a board rather than by the SDK, so nothing pays
+for it unless a board binds it.

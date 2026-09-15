@@ -1,0 +1,30 @@
+---
+mm: 1.2
+kind: module
+name: linux-sdl
+module: platform.linux.sdl
+library: sdl2
+use: mm.display
+use: mm.touch
+use: platform.linux.map
+file: sdl.cppm
+option: buildable-host no
+---
+
+# platform.linux.sdl
+
+mm.display and mm.touch over SDL2, in one module and bound twice. SDL has one
+video subsystem, one window, one event queue, and shared state between drawing
+and input; two modules could not own that between them.
+
+It exists for one thing the DRM provider cannot do: run in a window beside the
+editor. DRM needs DRM master and a compositor holds it, so anything visual there
+means leaving the session for a virtual terminal.
+
+It names a library and is still not a lib. wrapper. Its public dependency is the
+project interface module, not a foreign library API, which is the same ground on
+which docs/modules-c++20.mdy already exempts a provider over a bridge ABI.
+
+The window is the display provider's. Touch reports the pointer while the left
+button is held, and answers Unsupported when no window exists, rather than
+opening a second one.

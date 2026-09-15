@@ -1937,9 +1937,17 @@ bool parse_definitions(Project& project, const std::filesystem::path& root,
             return false;
         if (target.library.empty()) continue;
 
-        if (!target.module_name.starts_with("lib.")) {
+        // A wrapper takes lib., and a platform provider takes platform. A
+        // provider that names a library is still not a wrapper:
+        // docs/modules-c++20.mdy already draws that line for a provider over a
+        // bridge ABI, on the grounds that its public dependency is the project
+        // interface module rather than a foreign library API. The same is true
+        // of one that reaches its library directly.
+        if (!target.module_name.starts_with("lib.") &&
+            !target.module_name.starts_with("platform.")) {
             std::cerr << policy.tool << ": " << node.manifest.string()
-                      << ": library wrapper module must use the lib. prefix: "
+                      << ": module naming a library must use the lib. or "
+                         "platform. prefix: "
                       << target.module_name << "\n";
             return false;
         }
@@ -2190,15 +2198,20 @@ bool order_visit(std::size_t index, const Tree& tree,
 }
 
 void closure_visit(std::size_t index, const Tree& tree,
-                   std::vector<bool>& seen, std::vector<std::filesystem::path>& out) {
+                   std::vector<bool>& seen, std::vector<std::filesystem::path>& out,
+                   std::vector<std::size_t>* reached) {
     if (seen[index]) return;
     seen[index] = true;
 
     for (const auto& object : tree.targets[index].objects) out.push_back(object);
+    // Recorded before the dependencies, so the caller sees consumers ahead of
+    // what they consume. A library segment wants the reverse of that.
+    if (reached != nullptr) reached->push_back(index);
 
     for (const auto& used : tree.targets[index].uses) {
         const auto dependency = index_of_module(tree, used);
-        if (dependency != tree.targets.size()) closure_visit(dependency, tree, seen, out);
+        if (dependency != tree.targets.size())
+            closure_visit(dependency, tree, seen, out, reached);
     }
 }
 
@@ -3288,16 +3301,64 @@ bool order_from(const Tree& tree, std::size_t index, std::vector<std::size_t>& o
 std::vector<std::filesystem::path> closure(const Tree& tree, std::size_t index) {
     std::vector<bool> seen(tree.targets.size(), false);
     std::vector<std::filesystem::path> objects;
-    closure_visit(index, tree, seen, objects);
+    closure_visit(index, tree, seen, objects, nullptr);
     return objects;
+}
+
+bool library_link_inputs(const std::filesystem::path& project_root,
+                         const std::vector<LibraryDefinition>& libraries,
+                         const Tree& tree,
+                         const std::vector<std::size_t>& reached,
+                         std::vector<std::string>& inputs,
+                         std::string_view tool) {
+    inputs.clear();
+
+    std::error_code ec;
+    const auto root = std::filesystem::absolute(project_root, ec).lexically_normal();
+    if (ec) {
+        std::cerr << tool << ": cannot resolve project root " << project_root.string()
+                  << ": " << ec.message() << "\n";
+        return false;
+    }
+
+    // Reverse visit order: closure_visit records a consumer before the modules
+    // it uses, and a linker wants the dependency after the thing that needs it.
+    for (auto position = reached.rbegin(); position != reached.rend(); ++position) {
+        const auto& target = tree.targets[*position];
+        if (target.library.empty()) continue;
+
+        const LibraryDefinition* definition = nullptr;
+        for (const auto& library : libraries)
+            if (library.name == target.library) definition = &library;
+        if (definition == nullptr) {
+            std::cerr << tool << ": " << (target.dir / "mm.mdy").string()
+                      << ": module references unknown library: " << target.library << "\n";
+            return false;
+        }
+        if (!validate_library_checkout(root, *definition, tool)) {
+            std::cerr << tool << ": " << (target.dir / "mm.mdy").string()
+                      << ": module " << target.name << " cannot use library "
+                      << definition->name << "\n";
+            return false;
+        }
+
+        // One contribution per library however many wrappers reach it: an
+        // archive named twice is not the same harmless repetition an include
+        // directory is.
+        for (const auto& value : definition->link_inputs)
+            if (std::find(inputs.begin(), inputs.end(), value) == inputs.end())
+                inputs.push_back(value);
+    }
+    return true;
 }
 
 std::vector<std::filesystem::path> augmented_closure(const Tree& tree, std::size_t index,
                                                      const PlatformProviders& providers,
-                                                     std::vector<std::string>* merged) {
+                                                     std::vector<std::string>* merged,
+                                                     std::vector<std::size_t>* reached) {
     std::vector<bool> seen(tree.targets.size(), false);
     std::vector<std::filesystem::path> objects;
-    closure_visit(index, tree, seen, objects);
+    closure_visit(index, tree, seen, objects, reached);
 
     // Provider closures can reach further platform interfaces. Rescan to a
     // fixed point: a newly reached interface may precede the first interface
@@ -3313,7 +3374,7 @@ std::vector<std::filesystem::path> augmented_closure(const Tree& tree, std::size
             const auto provider = index_of_module(tree, binding->provider_module);
             if (provider == tree.targets.size() || seen[provider]) continue;
             if (merged != nullptr) merged->push_back(binding->provider_module);
-            closure_visit(provider, tree, seen, objects);
+            closure_visit(provider, tree, seen, objects, reached);
             added = true;
         }
     }
@@ -3439,7 +3500,8 @@ int compile(const Toolchain& toolchain, BuildableNode& target,
 
 int link(const Toolchain& toolchain,
          const std::vector<std::filesystem::path>& objects,
-         const std::filesystem::path& output) {
+         const std::filesystem::path& output,
+         const std::vector<std::string>& link_inputs) {
     if (!within_root(output)) {
         std::cerr << "build: refusing to link outside the project: " << output.string() << "\n";
         return exit_link;
@@ -3459,6 +3521,10 @@ int link(const Toolchain& toolchain,
 
     std::string command = toolchain.linker.invocation + " " + toolchain.linker.arguments;
     for (const auto& object : objects) command += " " + shell_quote(object);
+    // After the objects, because a linker resolves left to right and a library
+    // only answers references it has already seen. The grammar for a link-input
+    // is checked at manifest load, so no value here needs quoting to be safe.
+    for (const auto& input : link_inputs) command += " -l" + input;
     command += " -o " + shell_quote(temp);
 
     if (run(toolchain, command) != 0) {

@@ -1,0 +1,20 @@
+---
+mm: 1.0
+kind: doc
+name: sdl2-observed
+---
+
+# Observed SDL2 installation
+
+What this library was verified against. It is a record of an installed package
+rather than a vendored tree: SDL2 comes from the system, and nothing here is a
+copy of its source.
+
+pkg-config --modversion sdl2   2.32.10
+pkg-config --libs sdl2         -lSDL2
+header                         /usr/include/SDL2/SDL.h
+
+The include path pkg-config reports is not used. SDL2's headers also sit at
+their package-qualified path under a default search directory, so a wrapper
+including <SDL2/SDL.h> needs no include directory, which is what lets this
+library declare an interface of one link input and nothing else.

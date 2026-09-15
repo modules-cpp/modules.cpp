@@ -61,8 +61,34 @@ void repository_exposes_platform_definitions() {
     const auto boards = loaded.repository().boards();
     mm::test::expect(ok && sdks.size() == 9,
                      "expected all nine SDK definitions from the manifest walk");
-    mm::test::expect(boards.size() == 14,
-                     "expected all fourteen board definitions from the manifest walk");
+    mm::test::expect(boards.size() == 15,
+                     "expected all fifteen board definitions from the manifest walk");
+
+    // The SDL board binds one provider module to two interfaces. Two bindings
+    // naming one module is the shape a board takes when a single provider
+    // serves both roles, and nothing else in the tree exercises it.
+    const models::BoardNode* sdl_linux = nullptr;
+    for (const auto* board : boards)
+        if (board->name() == "sdl-linux-aarch64") sdl_linux = board;
+    mm::test::expect(sdl_linux != nullptr, "expected the SDL Linux board definition");
+    if (sdl_linux != nullptr) {
+        const auto bindings = sdl_linux->platform_providers();
+        std::size_t named_sdl = 0;
+        bool display_bound = false;
+        bool touch_bound = false;
+        for (const auto& binding : bindings) {
+            if (binding.provider_module != "platform.linux.sdl") continue;
+            ++named_sdl;
+            if (binding.interface_module == "mm.display") display_bound = true;
+            if (binding.interface_module == "mm.touch") touch_bound = true;
+        }
+        mm::test::expect(named_sdl == 2 && display_bound && touch_bound,
+                         "expected both SDL bindings to name one provider module");
+        // The base board's map binding survives derivation untouched, which is
+        // what says the derived board replaced two interfaces and not the set.
+        mm::test::expect(bindings.size() == 3,
+                         "expected the inherited map binding beside the two SDL ones");
+    }
     const models::BoardNode* mps2 = nullptr;
     const models::BoardNode* rp2040 = nullptr;
     const models::BoardNode* rp2350 = nullptr;

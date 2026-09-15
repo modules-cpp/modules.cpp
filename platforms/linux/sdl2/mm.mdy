@@ -1,0 +1,31 @@
+---
+mm: 1.2
+kind: library
+name: sdl2
+source: system
+licence: LICENSE
+link-input: SDL2
+folder: provider
+---
+
+# SDL2
+
+It lives here rather than under libraries/ because
+docs/modules-libraries.mdy says so: "A library that implements one platform
+lives with that platform rather than here." Pico SDK is the other instance.
+platforms/linux/mm.mdy carries the option: core no and read-only: core that a
+library branch needs, which is the condition that rule attaches.
+
+An installed system package rather than a vendored tree. source names a
+directory that records what was observed rather than a copy of SDL's source,
+because SDL2 here comes from the distribution and copying it would be a
+pretence. The checkout rules still apply to that directory, so an absent record
+is reported the way any absent checkout is.
+
+Its whole declared interface is one link input. No include-directory is needed:
+SDL2's headers sit at their package-qualified path under a default search
+directory, so a wrapper including <SDL2/SDL.h> compiles with no -I, which was
+measured rather than assumed.
+
+The licence is the distribution's copyright file for the package this names.
+SDL2 is zlib-licensed.

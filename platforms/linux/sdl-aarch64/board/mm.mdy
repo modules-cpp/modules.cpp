@@ -1,0 +1,23 @@
+---
+mm: 1.2
+kind: board
+name: sdl-linux-aarch64
+derives-from: generic-linux-aarch64
+platform-provider: mm.display platform.linux.sdl
+platform-provider: mm.touch platform.linux.sdl
+---
+
+# sdl-linux-aarch64
+
+The generic hosted AArch64 board with its screen and pointer moved into a
+window. Everything else is inherited: the same SDK, the same MCU, RTC and IMU
+providers, and the same named device map.
+
+Two bindings naming one provider module is deliberate rather than a shortcut.
+SDL has one video subsystem and one event queue, so one module implements both
+interfaces and registers both objects, and binding it twice is how a board says
+that both roles are served by the same thing.
+
+Selecting this board is the only way anything pays for SDL2. The SDK binds the
+DRM and evdev providers, and a lane that does not name this board needs no
+SDL2 installation at all.
