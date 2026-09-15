@@ -35,6 +35,7 @@ both_app=board-smoke
 both_path=apps/board-smoke
 control_app=target-smoke-any
 run_app=no
+run_must_succeed=yes
 arch=
 
 while [ "$#" -gt 0 ]; do
@@ -141,6 +142,34 @@ trap restore_host 0
 binary="out-target-$target/$app_path/$app"
 both_binary="out-target-$target/$both_path/$both_app"
 control_binary="out-target-$target/apps/$control_app/$control_app"
+
+explain_run() {
+    case "$1" in
+        0) echo "  three colour bars were drawn and held, in a window" ;;
+        *) echo "  a window was expected: a headless session or an" ;
+           echo "  SDL_VIDEODRIVER override would explain this" ;;
+    esac
+}
+
+# --run is reported rather than gated on a DRM-backed lane: an ordinary desktop
+# session refuses DRM master to anything but the compositor and refuses
+# /dev/input to anyone outside the input group, so a non-zero exit there
+# describes the machine and not the build. A lane that is expected to succeed
+# sets run_must_succeed and says why.
+run_application() {
+    echo
+    echo "Run"
+    set +e
+    "./$binary"
+    run_status=$?
+    set -e
+    echo "  $app exited $run_status"
+    explain_run "$run_status"
+    if [ "$run_must_succeed" = yes ] && [ "$run_status" -ne 0 ]; then
+        echo "$test_name: $app was expected to succeed on this lane" >&2
+        exit 1
+    fi
+}
 
 echo "Native Linux lane, SDL2 backend"
 echo "  target   $target"
@@ -288,20 +317,7 @@ verify_library "$control_binary" no
 echo "  no provider objects and no SDL2 in $control_app"
 
 if [ "$run_app" = yes ]; then
-    echo
-    echo "Run"
-    # Unlike the DRM lane this is expected to succeed in an ordinary session.
-    # A window opens for about five seconds.
-    set +e
-    "./$binary"
-    run_status=$?
-    set -e
-    echo "  $app exited $run_status"
-    if [ "$run_status" -ne 0 ]; then
-        echo "  a window was expected here; SDL_VIDEODRIVER or a headless" >&2
-        echo "  session would explain a failure" >&2
-        exit 1
-    fi
+    run_application
 fi
 
 ./configure

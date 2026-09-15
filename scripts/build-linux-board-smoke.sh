@@ -37,6 +37,7 @@ app=board-smoke
 app_path=apps/board-smoke
 control_app=target-smoke-any
 run_app=no
+run_must_succeed=no
 arch=
 
 while [ "$#" -gt 0 ]; do
@@ -56,6 +57,7 @@ while [ "$#" -gt 0 ]; do
         -h|--help)
             echo "usage: $0 [-a|--arch aarch64|x86_64] [--run]"
             echo "architectures: aarch64, x86_64 (default: this machine's)"
+            echo "--run needs all four devices; a desktop session has none of them"
             exit 0
             ;;
         *)
@@ -136,6 +138,37 @@ trap restore_host 0
 
 binary="out-target-$target/$app_path/$app"
 control_binary="out-target-$target/apps/$control_app/$control_app"
+
+explain_run() {
+    case "$1" in
+        0) echo "  all four interfaces initialised and answered;" ;
+           echo "  board-smoke has no console, so a white frame is its only output" ;;
+        2) echo "  2 is display.initialize: a compositor holds DRM master" ;;
+        4) echo "  4 is touch.initialize: /dev/input needs the input group" ;;
+        5) echo "  5 is imu.initialize: this machine exposes no IIO device" ;;
+        *) echo "  see apps/board-smoke/main.cpp for that step" ;;
+    esac
+}
+
+# --run is reported rather than gated on a DRM-backed lane: an ordinary desktop
+# session refuses DRM master to anything but the compositor and refuses
+# /dev/input to anyone outside the input group, so a non-zero exit there
+# describes the machine and not the build. A lane that is expected to succeed
+# sets run_must_succeed and says why.
+run_application() {
+    echo
+    echo "Run"
+    set +e
+    "./$binary"
+    run_status=$?
+    set -e
+    echo "  $app exited $run_status"
+    explain_run "$run_status"
+    if [ "$run_must_succeed" = yes ] && [ "$run_status" -ne 0 ]; then
+        echo "$test_name: $app was expected to succeed on this lane" >&2
+        exit 1
+    fi
+}
 
 echo "Native Linux lane"
 echo "  target   $target"
@@ -274,17 +307,7 @@ done
 echo "  no provider objects in $control_app"
 
 if [ "$run_app" = yes ]; then
-    echo
-    echo "Run"
-    # Reported, never gated. board-smoke returns at the first interface that is
-    # present and fails, and an ordinary desktop session refuses DRM master to
-    # anything but the compositor, so a non-zero exit here is a statement about
-    # this machine rather than about the build.
-    set +e
-    "./$binary"
-    run_status=$?
-    set -e
-    echo "  board-smoke exited $run_status"
+    run_application
 fi
 
 ./configure
@@ -297,10 +320,3 @@ echo "scripts/build-board-smoke-rp2350_touch_lcd_28.sh, with four entirely"
 echo "different providers behind the same four interfaces."
 echo "Full qualification: run from a virtual terminal, with membership of the"
 echo "video and input groups, where DRM master is available."
-echo
-echo "Run it"
-set +e
-./run --target "$app_path/"
-run_status=$?
-set -e
-echo "  board-smoke exited $run_status (it has no console; 0 means a white frame)"

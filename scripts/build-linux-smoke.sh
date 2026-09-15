@@ -29,6 +29,7 @@ app=linux-smoke
 app_path=platforms/linux/apps/linux-smoke
 control_app=target-smoke-any
 run_app=no
+run_must_succeed=no
 arch=
 
 while [ "$#" -gt 0 ]; do
@@ -48,6 +49,7 @@ while [ "$#" -gt 0 ]; do
         -h|--help)
             echo "usage: $0 [-a|--arch aarch64|x86_64] [--run]"
             echo "architectures: aarch64, x86_64 (default: this machine's)"
+            echo "--run reports each facility; a desktop session refuses display and touch"
             exit 0
             ;;
         *)
@@ -128,6 +130,35 @@ trap restore_host 0
 
 binary="out-target-$target/$app_path/$app"
 control_binary="out-target-$target/apps/$control_app/$control_app"
+
+explain_run() {
+    case "$1" in
+        0) echo "  every facility this machine has initialised and answered" ;;
+        6) echo "  6 is display.initialize: a compositor holds DRM master" ;;
+        8) echo "  8 is touch.initialize: /dev/input needs the input group" ;;
+        *) echo "  see platforms/linux/apps/linux-smoke/main.cpp for that step" ;;
+    esac
+}
+
+# --run is reported rather than gated on a DRM-backed lane: an ordinary desktop
+# session refuses DRM master to anything but the compositor and refuses
+# /dev/input to anyone outside the input group, so a non-zero exit there
+# describes the machine and not the build. A lane that is expected to succeed
+# sets run_must_succeed and says why.
+run_application() {
+    echo
+    echo "Run"
+    set +e
+    "./$binary"
+    run_status=$?
+    set -e
+    echo "  $app exited $run_status"
+    explain_run "$run_status"
+    if [ "$run_must_succeed" = yes ] && [ "$run_status" -ne 0 ]; then
+        echo "$test_name: $app was expected to succeed on this lane" >&2
+        exit 1
+    fi
+}
 
 echo "Native Linux lane"
 echo "  target   $target"
@@ -263,17 +294,7 @@ done
 echo "  no provider objects in $control_app"
 
 if [ "$run_app" = yes ]; then
-    echo
-    echo "Run"
-    # Reported, never gated. An ordinary desktop session refuses DRM master to
-    # anything but the compositor and refuses /dev/input to anyone outside the
-    # input group, so a non-zero exit here is a statement about this machine
-    # rather than about the build.
-    set +e
-    "./$binary"
-    run_status=$?
-    set -e
-    echo "  linux-smoke exited $run_status"
+    run_application
 fi
 
 ./configure
@@ -283,6 +304,3 @@ echo
 echo "PASS: $test_name"
 echo "Full qualification: run from a virtual terminal, with membership of the"
 echo "video and input groups, where DRM master is available."
-echo
-echo "Run it"
-./run --target "$app_path/"

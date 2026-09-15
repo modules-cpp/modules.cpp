@@ -31,6 +31,7 @@ app=display-demo
 app_path=apps/display-demo
 control_app=target-smoke-any
 run_app=no
+run_must_succeed=no
 arch=
 
 while [ "$#" -gt 0 ]; do
@@ -131,6 +132,36 @@ trap restore_host 0
 
 binary="out-target-$target/$app_path/$app"
 control_binary="out-target-$target/apps/$control_app/$control_app"
+
+explain_run() {
+    case "$1" in
+        0) echo "  three colour bars were drawn and held" ;;
+        1) echo "  1 is display.initialize: a compositor holds DRM master," ;
+           echo "  so run this from a virtual terminal" ;;
+        2) echo "  2 is the geometry check: the provider reported none" ;;
+        *) echo "  see apps/display-demo/main.cpp for that step" ;;
+    esac
+}
+
+# --run is reported rather than gated on a DRM-backed lane: an ordinary desktop
+# session refuses DRM master to anything but the compositor and refuses
+# /dev/input to anyone outside the input group, so a non-zero exit there
+# describes the machine and not the build. A lane that is expected to succeed
+# sets run_must_succeed and says why.
+run_application() {
+    echo
+    echo "Run"
+    set +e
+    "./$binary"
+    run_status=$?
+    set -e
+    echo "  $app exited $run_status"
+    explain_run "$run_status"
+    if [ "$run_must_succeed" = yes ] && [ "$run_status" -ne 0 ]; then
+        echo "$test_name: $app was expected to succeed on this lane" >&2
+        exit 1
+    fi
+}
 
 echo "Native Linux lane"
 echo "  target   $target"
@@ -265,19 +296,7 @@ done
 echo "  no provider objects in $control_app"
 
 if [ "$run_app" = yes ]; then
-    echo
-    echo "Run"
-    # Reported, never gated. Exit 1 is display.initialize, which is what a
-    # compositor holding DRM master produces; the build is not at fault.
-    set +e
-    "./$binary"
-    run_status=$?
-    set -e
-    echo "  display-demo exited $run_status"
-    if [ "$run_status" -eq 1 ]; then
-        echo "  (display.initialize refused: run this from a virtual terminal,"
-        echo "   where no compositor holds DRM master)"
-    fi
+    run_application
 fi
 
 ./configure
