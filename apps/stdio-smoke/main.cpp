@@ -1,3 +1,5 @@
+// Pawel Wodnicki (C) 2026
+// 32bitmicro LLC (C) 2026
 #include <cstddef>
 #include <span>
 
@@ -15,7 +17,7 @@ int main() {
         const auto status = console.connected(connected);
         if (status != mm::stdio::Status::Ok) return 2;
     }
-    if (!connected) return 0;
+    if (!connected) return 3;
 
     constexpr char message[] = "modules.cpp mm.stdio over USB CDC\n";
     const auto bytes = std::as_bytes(std::span{message}).first(sizeof(message) - 1);
@@ -25,11 +27,11 @@ int main() {
          attempt < write_limit && offset < bytes.size(); ++attempt) {
         std::size_t written = 0;
         const auto status = console.write(bytes.subspan(offset), written);
-        if (status != mm::stdio::Status::Ok) return 3;
+        if (status != mm::stdio::Status::Ok) return 4;
         if (written == 0) break;
         offset += written;
     }
 
-    if (console.flush() != mm::stdio::Status::Ok) return 4;
-    return offset == bytes.size() ? 0 : 5;
+    if (console.flush() != mm::stdio::Status::Ok) return 5;
+    return offset == bytes.size() ? 0 : 6;
 }

@@ -8,6 +8,8 @@
 #include "hardware/uart.h"
 #include "pico/stdio/driver.h"
 #include "pico/stdlib.h"
+#include "pico/stdio_semihosting.h"
+#include "pico/stdio_uart.h"
 #include "pico/stdio_usb.h"
 #include "pico/time.h"
 #include <limits.h>
@@ -15,17 +17,31 @@
 
 // The vendor surface: ext.pico, for code that wants Pico SDK specifically.
 
+static int mm_pico_stdio_attempted;
 static int mm_pico_stdio_ready;
 
-static int mm_pico_initialize_stdio(void) {
-    if (mm_pico_stdio_ready) return 1;
-    if (!stdio_init_all()) return 0;
-    mm_pico_stdio_ready = 1;
-    return 1;
+static void mm_pico_initialize_stdio(void) {
+    if (mm_pico_stdio_attempted) return;
+    mm_pico_stdio_attempted = 1;
+
+    // stdio_init_all reports whether any enabled driver initialized. With
+    // semihosting present that cannot tell mm.stdio whether USB succeeded, and
+    // following it with stdio_usb_init would initialize TinyUSB and its IRQ
+    // machinery twice. Initialize each bridge-enabled driver once instead and
+    // retain the USB result separately.
+#if LIB_PICO_STDIO_UART
+    stdio_uart_init();
+#endif
+#if LIB_PICO_STDIO_SEMIHOSTING
+    stdio_semihosting_init();
+#endif
+#if LIB_PICO_STDIO_USB
+    mm_pico_stdio_ready = stdio_usb_init() ? 1 : 0;
+#endif
 }
 
 void mm_pico_initialize(void) {
-    (void)mm_pico_initialize_stdio();
+    mm_pico_initialize_stdio();
 }
 
 void mm_pico_write(const char* text) {
@@ -51,8 +67,9 @@ void mm_pico_gpio_write(unsigned int pin, int high) {
 // part of the transfer reached the host.
 
 int mm_pico_stdio_initialize(void) {
-    return mm_pico_initialize_stdio() ? MM_PICO_STDIO_OK
-                                      : MM_PICO_STDIO_TRANSPORT_ERROR;
+    mm_pico_initialize_stdio();
+    return mm_pico_stdio_ready ? MM_PICO_STDIO_OK
+                               : MM_PICO_STDIO_TRANSPORT_ERROR;
 }
 
 int mm_pico_stdio_write(const unsigned char* data, size_t size, size_t* written) {

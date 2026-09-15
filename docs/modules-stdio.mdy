@@ -110,15 +110,16 @@ host. written in that case is the size accepted by the SDK call, not a receipt
 from the host. Portable callers must already handle short writes and must not
 treat a full count as end-to-end delivery acknowledgement.
 
-The SDK's post-connect delay remains its configured default. The provider does
-not add another delay. A terminal may still lose bytes sent immediately after
-enumeration, so hardware protocols needing acknowledgement must define one
-above this byte transport.
+The SDK's connect-wait timeout is zero, so the conditional wait block containing
+its post-connect delay is compiled out. The provider adds no delay of its own. A
+terminal may therefore lose bytes sent immediately after enumeration; hardware
+protocols needing acknowledgement must define one above this byte transport.
 
 # Private boundary
 
-The provider includes only its colocated stdio-cxx.h linkage shim and imports
-mm.stdio. The shim wraps stdio-c.h in C language linkage. The bridge's existing
+The provider includes its colocated stdio-cxx.h linkage shim plus the standard
+<cstddef> and <span> headers, and imports mm.stdio. It includes no Pico SDK
+header. The shim wraps stdio-c.h in C language linkage. The bridge's existing
 adapter.c implements the five private mm_pico_stdio_* functions and remains the
 only project-authored translation unit that includes Pico SDK headers.
 
@@ -130,8 +131,10 @@ provider maps every value back to mm::stdio::Status.
 
 apps/stdio-smoke imports only mm.stdio. It treats an unserved host fallback as a
 valid no-console host run. With a provider it polls connected with a fixed
-iteration bound, writes without resending an accepted prefix, flushes, and
-returns rather than waiting forever.
+iteration bound, reports failure if that bound expires, writes without resending
+an accepted prefix, and flushes. The bound guarantees termination but is not a
+wall-clock duration; adding mm.mcu only to measure this smoke test would defeat
+the proof that an application naming only mm.stdio receives its provider.
 
 scripts/build-stdio-smoke-pico-sdk.sh builds one selected Pico SDK board,
 checks its ELF and UF2, verifies exactly one platform.pico.stdio initializer,
