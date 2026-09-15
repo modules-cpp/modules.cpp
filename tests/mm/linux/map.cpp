@@ -52,12 +52,16 @@ void duplicate_and_unknown_keys_are_errors() {
                error.line == 2 && error.previous_line == 1,
            "a duplicate names both source lines");
     const mm::test::scoped_file unknown{
-        "mm_linux_map_unknown.mdy", "linux.magic = yes\n"};
+        "mm_linux_map_unknown.mdy",
+        "board.name = \"must-not-commit\"\nlinux.magic = yes\n"};
+    map.board_name = "unchanged";
     error = {};
     expect(platform::linux::apply_override(map, unknown.path().string(), error) ==
-               platform::linux::MapStatus::SyntaxError && error.line == 1 &&
+               platform::linux::MapStatus::SyntaxError && error.line == 2 &&
                error.key == "linux.magic",
            "an unknown key names its line and spelling");
+    expect(map.board_name == "unchanged",
+           "a failed override commits none of its earlier assignments");
 }
 
 void a_named_missing_file_is_an_error() {

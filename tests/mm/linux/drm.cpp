@@ -7,220 +7,196 @@
 #include <cstring>
 #include <drm/drm.h>
 #include <drm/drm_mode.h>
-#include <span>
+#include <fcntl.h>
+#include <sys/mman.h>
+#include <string>
 #include <vector>
 
+import mm.display;
 import mm.test;
+import platform.linux.display;
 
 namespace {
 
 using mm::test::expect;
 
-inline std::uint32_t rgb565_to_xrgb8888(std::uint8_t high, std::uint8_t low) {
-    const std::uint16_t pixel = (static_cast<std::uint16_t>(high) << 8) | low;
-    const std::uint32_t r = (pixel >> 11) & 0x1f;
-    const std::uint32_t g = (pixel >> 5) & 0x3f;
-    const std::uint32_t b = pixel & 0x1f;
-    const std::uint32_t r8 = (r * 255 + 15) / 31;
-    const std::uint32_t g8 = (g * 255 + 31) / 63;
-    const std::uint32_t b8 = (b * 255 + 15) / 31;
-    return (r8 << 16) | (g8 << 8) | b8;
-}
-
-void rgb565_pixel_conversion_and_byte_order() {
-    // Pure Red in big-endian RGB565: 0xF800 (high: 0xF8, low: 0x00)
-    const auto red = rgb565_to_xrgb8888(0xf8, 0x00);
-    expect(red == 0x00ff0000, "pure red converts to 0x00FF0000");
-
-    // Byte-flipped red (0x00, 0xF8) must NOT match pure red
-    const auto flipped_red = rgb565_to_xrgb8888(0x00, 0xf8);
-    expect(flipped_red != 0x00ff0000,
-           "byte-flipping the RGB565 conversion fails the color assertion");
-
-    // Pure Green: 0x07E0 (high: 0x07, low: 0xE0)
-    const auto green = rgb565_to_xrgb8888(0x07, 0xe0);
-    expect(green == 0x0000ff00, "pure green converts to 0x0000FF00");
-
-    // Pure Blue: 0x001F (high: 0x00, low: 0x1F)
-    const auto blue = rgb565_to_xrgb8888(0x00, 0x1f);
-    expect(blue == 0x000000ff, "pure blue converts to 0x000000FF");
-
-    // White: 0xFFFF (high: 0xFF, low: 0xFF)
-    const auto white = rgb565_to_xrgb8888(0xff, 0xff);
-    expect(white == 0x00ffffff, "white converts to 0x00FFFFFF");
-
-    // Black: 0x0000 (high: 0x00, low: 0x00)
-    const auto black = rgb565_to_xrgb8888(0x00, 0x00);
-    expect(black == 0x00000000, "black converts to 0x00000000");
-}
-
-struct MockDrmState {
-    bool open = false;
+struct FakeDrm {
+    int call = 0;
+    int fail_at = -1;
+    int failure = EIO;
     bool closed = false;
     bool master = false;
-    bool master_dropped = false;
-    bool dumb_created = false;
-    bool dumb_destroyed = false;
-    bool fb_added = false;
-    bool fb_removed = false;
+    bool handle = false;
+    bool framebuffer = false;
     bool mapped = false;
-    bool unmapped = false;
-    bool crtc_saved = false;
-    bool crtc_restored = false;
-    int fail_at_step = -1;
-    int step = 0;
+    bool restored = false;
+    std::vector<std::byte> memory;
 };
 
-enum class MockStatus { Ok, Busy, TransportError, BadArgument, Unsupported };
+FakeDrm fake;
 
-MockStatus mock_initialize(MockDrmState& state, int set_master_errno = 0) {
-    state.step = 0;
-    // Step 0: Open
-    if (state.fail_at_step == state.step++) return MockStatus::TransportError;
-    state.open = true;
-
-    // Step 1: Set master
-    if (state.fail_at_step == state.step++) {
-        state.closed = true;
-        state.open = false;
-        if (set_master_errno == EBUSY) return MockStatus::Busy;
-        if (set_master_errno == EACCES) return MockStatus::TransportError;
-        return MockStatus::TransportError;
-    }
-    state.master = true;
-
-    // Step 2: Get resources / mode selection
-    if (state.fail_at_step == state.step++) {
-        state.master_dropped = true;
-        state.master = false;
-        state.closed = true;
-        state.open = false;
-        return MockStatus::Unsupported;
-    }
-
-    // Step 3: Get CRTC (save CRTC)
-    state.crtc_saved = true;
-    if (state.fail_at_step == state.step++) {
-        state.crtc_restored = true;
-        state.master_dropped = true;
-        state.master = false;
-        state.closed = true;
-        state.open = false;
-        return MockStatus::TransportError;
-    }
-
-    // Step 4: Create dumb buffer
-    if (state.fail_at_step == state.step++) {
-        state.crtc_restored = true;
-        state.master_dropped = true;
-        state.master = false;
-        state.closed = true;
-        state.open = false;
-        return MockStatus::TransportError;
-    }
-    state.dumb_created = true;
-
-    // Step 5: Add FB
-    if (state.fail_at_step == state.step++) {
-        state.dumb_destroyed = true;
-        state.dumb_created = false;
-        state.crtc_restored = true;
-        state.master_dropped = true;
-        state.master = false;
-        state.closed = true;
-        state.open = false;
-        return MockStatus::TransportError;
-    }
-    state.fb_added = true;
-
-    // Step 6: Map dumb buffer
-    if (state.fail_at_step == state.step++) {
-        state.fb_removed = true;
-        state.fb_added = false;
-        state.dumb_destroyed = true;
-        state.dumb_created = false;
-        state.crtc_restored = true;
-        state.master_dropped = true;
-        state.master = false;
-        state.closed = true;
-        state.open = false;
-        return MockStatus::TransportError;
-    }
-    state.mapped = true;
-
-    return MockStatus::Ok;
+bool fails() {
+    if (fake.call++ != fake.fail_at) return false;
+    errno = fake.failure;
+    return true;
 }
 
-void drm_rollback_and_error_classification() {
-    // Test EBUSY on SET_MASTER yields Busy
-    {
-        MockDrmState state{};
-        state.fail_at_step = 1;
-        expect(mock_initialize(state, EBUSY) == MockStatus::Busy,
-               "injected EBUSY on SET_MASTER yields Busy");
-        expect(state.closed && !state.master, "fd is closed and master not held");
+int fake_open(const char*, int) {
+    if (fake.fail_at == 0) {
+        ++fake.call;
+        errno = fake.failure;
+        return -1;
     }
-
-    // Test EACCES on SET_MASTER yields TransportError
-    {
-        MockDrmState state{};
-        state.fail_at_step = 1;
-        expect(mock_initialize(state, EACCES) == MockStatus::TransportError,
-               "injected EACCES on SET_MASTER yields TransportError");
-        expect(state.closed && !state.master, "fd is closed and master not held");
-    }
-
-    // Test step failure after dumb buffer created restores CRTC and releases dumb
-    {
-        MockDrmState state{};
-        state.fail_at_step = 5;  // fail at Add FB
-        expect(mock_initialize(state) == MockStatus::TransportError,
-               "step 5 failure returns TransportError");
-        expect(state.dumb_destroyed, "dumb buffer destroyed on rollback");
-        expect(state.crtc_restored, "saved CRTC restored on rollback");
-        expect(state.master_dropped, "DRM master dropped on rollback");
-        expect(state.closed, "descriptor closed on rollback");
-    }
-
-    // Test step failure after mmap cleans up everything in order
-    {
-        MockDrmState state{};
-        state.fail_at_step = 6;  // fail at Map dumb
-        expect(mock_initialize(state) == MockStatus::TransportError,
-               "step 6 failure returns TransportError");
-        expect(state.fb_removed, "framebuffer removed on rollback");
-        expect(state.dumb_destroyed, "dumb buffer destroyed on rollback");
-        expect(state.crtc_restored, "saved CRTC restored on rollback");
-        expect(state.master_dropped, "DRM master dropped on rollback");
-        expect(state.closed, "descriptor closed on rollback");
-    }
+    if (fails()) return -1;
+    return 9;
 }
 
-void shadow_buffer_refresh_contracts() {
-    std::vector<std::byte> shadow(4 * 4 * 2, std::byte{});
-    std::vector<std::uint32_t> scanout(4 * 4, 0);
+int fake_ioctl(int, unsigned long request, void* argument) {
+    if (fails()) return -1;
+    if (request == DRM_IOCTL_SET_MASTER) fake.master = true;
+    else if (request == DRM_IOCTL_DROP_MASTER) fake.master = false;
+    else if (request == DRM_IOCTL_MODE_GETRESOURCES) {
+        auto& value = *static_cast<drm_mode_card_res*>(argument);
+        value.count_connectors = value.count_encoders = value.count_crtcs = 1;
+        if (value.connector_id_ptr)
+            *reinterpret_cast<std::uint32_t*>(value.connector_id_ptr) = 10;
+        if (value.encoder_id_ptr)
+            *reinterpret_cast<std::uint32_t*>(value.encoder_id_ptr) = 20;
+        if (value.crtc_id_ptr)
+            *reinterpret_cast<std::uint32_t*>(value.crtc_id_ptr) = 30;
+    } else if (request == DRM_IOCTL_MODE_GETCONNECTOR) {
+        auto& value = *static_cast<drm_mode_get_connector*>(argument);
+        value.connection = 1;
+        value.connector_type = DRM_MODE_CONNECTOR_HDMIA;
+        value.connector_type_id = 1;
+        value.encoder_id = 20;
+        value.count_modes = 1;
+        value.count_encoders = 1;
+        if (value.modes_ptr) {
+            auto& mode = *reinterpret_cast<drm_mode_modeinfo*>(value.modes_ptr);
+            mode.hdisplay = 640;
+            mode.vdisplay = 480;
+            mode.type = DRM_MODE_TYPE_PREFERRED;
+            std::strncpy(mode.name, "640x480", sizeof(mode.name) - 1);
+        }
+        if (value.encoders_ptr)
+            *reinterpret_cast<std::uint32_t*>(value.encoders_ptr) = 20;
+    } else if (request == DRM_IOCTL_MODE_GETENCODER) {
+        auto& value = *static_cast<drm_mode_get_encoder*>(argument);
+        value.crtc_id = 30;
+        value.possible_crtcs = 1;
+    } else if (request == DRM_IOCTL_MODE_GETCRTC) {
+        auto& value = *static_cast<drm_mode_crtc*>(argument);
+        value.fb_id = 88;
+        value.mode_valid = 1;
+        value.mode.hdisplay = 640;
+        value.mode.vdisplay = 480;
+    } else if (request == DRM_IOCTL_MODE_CREATE_DUMB) {
+        auto& value = *static_cast<drm_mode_create_dumb*>(argument);
+        value.handle = 40;
+        value.pitch = 640 * 4;
+        value.size = 640 * 480 * 4;
+        fake.handle = true;
+    } else if (request == DRM_IOCTL_MODE_ADDFB) {
+        static_cast<drm_mode_fb_cmd*>(argument)->fb_id = 50;
+        fake.framebuffer = true;
+    } else if (request == DRM_IOCTL_MODE_MAP_DUMB) {
+        static_cast<drm_mode_map_dumb*>(argument)->offset = 0;
+    } else if (request == DRM_IOCTL_MODE_RMFB) {
+        fake.framebuffer = false;
+    } else if (request == DRM_IOCTL_MODE_DESTROY_DUMB) {
+        fake.handle = false;
+    } else if (request == DRM_IOCTL_MODE_SETCRTC) {
+        const auto& value = *static_cast<drm_mode_crtc*>(argument);
+        if (value.fb_id == 88) fake.restored = true;
+    }
+    return 0;
+}
 
-    // Initial write to shadow
-    // Red pixel in RGB565: 0xF800
-    shadow[0] = std::byte{0xf8};
-    shadow[1] = std::byte{0x00};
+void* fake_map(void*, std::size_t size, int, int, int, std::int64_t) {
+    if (fails()) return MAP_FAILED;
+    fake.memory.assign(size, std::byte{});
+    fake.mapped = true;
+    return fake.memory.data();
+}
 
-    // Scanout still holds 0 prior to refresh
-    expect(scanout[0] == 0, "write modifies shadow buffer only, not scanout");
+int fake_unmap(void*, std::size_t) {
+    fake.mapped = false;
+    return 0;
+}
 
-    // Full refresh transfers and converts
-    scanout[0] = rgb565_to_xrgb8888(static_cast<std::uint8_t>(shadow[0]),
-                                    static_cast<std::uint8_t>(shadow[1]));
-    expect(scanout[0] == 0x00ff0000, "refresh converts shadow to XRGB8888 scanout");
+int fake_close(int) {
+    fake.closed = true;
+    return 0;
+}
+
+const platform::linux::drm_detail::Operations operations{
+    &fake_open, &fake_ioctl, &fake_map, &fake_unmap, &fake_close};
+
+void reset(int fail_at = -1, int failure = EIO) {
+    fake = {};
+    fake.fail_at = fail_at;
+    fake.failure = failure;
+    platform::linux::drm_detail::set_operations_for_testing(&operations);
+}
+
+void conversion_and_shadow_refresh() {
+    expect(platform::linux::drm_detail::rgb565_to_xrgb8888(0xf8, 0) ==
+               0x00ff0000,
+           "production RGB565 conversion preserves red byte order");
+    expect(platform::linux::drm_detail::rgb565_to_xrgb8888(0, 0xf8) !=
+               0x00ff0000,
+           "byte-flipping fails the production conversion assertion");
+
+    reset();
+    auto& display = mm::display::selected_display();
+    expect(display.initialize() == mm::display::Status::Ok,
+           "the production DRM provider initializes through the fake kernel");
+    const std::array red{std::byte{0xf8}, std::byte{0}};
+    expect(display.write({0, 0, 1, 1}, red) == mm::display::Status::Ok,
+           "write updates the production shadow buffer");
+    expect(fake.memory[0] == std::byte{},
+           "write does not update scanout before refresh");
+    expect(display.refresh(mm::display::Refresh::Partial) ==
+               mm::display::Status::Unsupported,
+           "partial refresh is refused");
+    expect(display.refresh(mm::display::Refresh::Full) ==
+               mm::display::Status::Ok && fake.memory[2] == std::byte{0xff},
+           "full refresh publishes converted red to XRGB8888 scanout");
+    expect(display.sleep() == mm::display::Status::Ok && fake.restored &&
+               !fake.master,
+           "sleep restores the original CRTC and drops master");
+    reset(0);
+    (void)display.initialize();
+    platform::linux::drm_detail::set_operations_for_testing(nullptr);
+}
+
+void rollback_and_error_classification() {
+    auto& display = mm::display::selected_display();
+    for (int step = 0; step <= 13; ++step) {
+        if (step == 6) continue;  // current encoder may fall back compatibly
+        reset(step);
+        const auto status = display.initialize();
+        expect(status != mm::display::Status::Ok,
+               "injected initialization failure " + std::to_string(step) +
+                   " is reported");
+        expect(!fake.master && !fake.handle && !fake.framebuffer &&
+                   !fake.mapped && (fake.closed || step == 0),
+               "production rollback releases every acquired resource");
+    }
+
+    reset(1, EBUSY);
+    expect(display.initialize() == mm::display::Status::Busy,
+           "SET_MASTER EBUSY is Busy");
+    reset(1, EACCES);
+    expect(display.initialize() == mm::display::Status::TransportError,
+           "SET_MASTER EACCES is TransportError");
+    platform::linux::drm_detail::set_operations_for_testing(nullptr);
 }
 
 const mm::test::case_ cases[]{
-    {"RGB565 pixel conversion and byte order",
-     &rgb565_pixel_conversion_and_byte_order},
-    {"DRM rollback and error classification",
-     &drm_rollback_and_error_classification},
-    {"shadow buffer write and refresh contracts",
-     &shadow_buffer_refresh_contracts},
+    {"production DRM rollback and errors", &rollback_and_error_classification},
+    {"production conversion and shadow refresh", &conversion_and_shadow_refresh},
 };
 const mm::test::registrar reg{"platform.linux.drm", cases};
 

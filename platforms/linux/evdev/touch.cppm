@@ -18,13 +18,36 @@ export module platform.linux.touch;
 import mm.touch;
 import platform.linux.map;
 
-namespace platform::linux::evdev_detail {
+export namespace platform::linux::evdev_detail {
 
 struct Contact {
     int x = 0;
     int y = 0;
     bool active = false;
 };
+
+enum class Kind { None, TypeB, Single, Relative };
+enum class SyncAction { Consume, Publish, Discard, Resync };
+
+void consume(Kind kind, int& slot, std::span<Contact> contacts,
+             const input_event& event, unsigned int width,
+             unsigned int height);
+[[nodiscard]] unsigned int coordinate(int value, int minimum, int maximum,
+                                      unsigned int extent);
+[[nodiscard]] bool apply_type_b_snapshot(
+    std::span<Contact> contacts, std::span<const int> tracking,
+    std::span<const int> x, std::span<const int> y, int current_slot,
+    int& slot);
+[[nodiscard]] bool apply_single_snapshot(std::span<Contact> contacts,
+                                         int x, int y, bool active);
+[[nodiscard]] bool apply_relative_snapshot(std::span<Contact> contacts,
+                                           bool active);
+[[nodiscard]] SyncAction synchronization(bool& dropped,
+                                         const input_event& event);
+[[nodiscard]] std::size_t publish_contacts(
+    std::span<const Contact> contacts, std::span<mm::touch::Point> output,
+    int x_min, int x_max, int y_min, int y_max, unsigned int width,
+    unsigned int height, bool invert_x, bool invert_y, bool swap_axes);
 
 }
 
@@ -62,6 +85,9 @@ public:
 
     [[nodiscard]] Status initialize() override {
         if (fd_ >= 0) { ::close(fd_); fd_ = -1; }
+        initialized_ = false;
+        kind_ = Kind::None;
+        points_.clear();
         const auto& resolved = platform::linux::resolve();
         if (resolved.status != platform::linux::MapStatus::Ok ||
             !resolved.map)
@@ -83,17 +109,26 @@ public:
         if (explicit_path) {
             fd_ = ::open(path.c_str(), O_RDONLY | O_NONBLOCK | O_CLOEXEC);
             if (fd_ < 0) return failure(errno, true);
-            if (!classify()) return Status::Unsupported;
+            if (!classify()) {
+                ::close(fd_);
+                fd_ = -1;
+                return Status::Unsupported;
+            }
         } else {
+            Status discovery_error = Status::Unsupported;
             for (unsigned int i = 0; i < 64; ++i) {
                 path = "/dev/input/event" + std::to_string(i);
                 fd_ = ::open(path.c_str(), O_RDONLY | O_NONBLOCK | O_CLOEXEC);
-                if (fd_ < 0) continue;
+                if (fd_ < 0) {
+                    const auto status = failure(errno, false);
+                    if (status != Status::Unsupported) discovery_error = status;
+                    continue;
+                }
                 if (classify()) break;
                 ::close(fd_);
                 fd_ = -1;
             }
-            if (fd_ < 0) return Status::Unsupported;
+            if (fd_ < 0) return discovery_error;
         }
         initialized_ = true;
         return Status::Ok;
@@ -117,19 +152,21 @@ public:
                 static_cast<std::size_t>(bytes) / sizeof(input_event);
             for (std::size_t i = 0; i < num_events; ++i) {
                 const auto& event = events[i];
-                if (event.type == EV_SYN && event.code == SYN_DROPPED) {
-                    dropped_ = true;
+                const auto action =
+                    platform::linux::evdev_detail::synchronization(
+                        dropped_, event);
+                if (action == platform::linux::evdev_detail::
+                                  SyncAction::Discard)
                     continue;
-                }
-                if (dropped_) {
-                    if (event.type == EV_SYN && event.code == SYN_REPORT) {
-                        dropped_ = false;
-                        resync();
-                    }
-                    continue;
+                if (action == platform::linux::evdev_detail::
+                                  SyncAction::Resync) {
+                    resync();
+                    publish(output, count);
+                    return Status::Ok;
                 }
                 consume(event);
-                if (event.type == EV_SYN && event.code == SYN_REPORT) {
+                if (action == platform::linux::evdev_detail::
+                                  SyncAction::Publish) {
                     publish(output, count);
                     return Status::Ok;
                 }
@@ -146,7 +183,7 @@ public:
     }
 
 private:
-    enum class Kind { None, TypeB, Single, Relative };
+    using Kind = platform::linux::evdev_detail::Kind;
     using Contact = platform::linux::evdev_detail::Contact;
 
     bool classify() {
@@ -210,57 +247,20 @@ private:
     }
 
     void consume(const input_event& e) {
-        if (kind_ == Kind::TypeB) {
-            if (e.type == EV_ABS && e.code == ABS_MT_SLOT &&
-                e.value >= 0 && static_cast<std::size_t>(e.value) < points_.size())
-                slot_ = e.value;
-            else if (e.type == EV_ABS && e.code == ABS_MT_TRACKING_ID)
-                points_[slot_].active = (e.value != -1);
-            else if (e.type == EV_ABS && e.code == ABS_MT_POSITION_X)
-                points_[slot_].x = e.value;
-            else if (e.type == EV_ABS && e.code == ABS_MT_POSITION_Y)
-                points_[slot_].y = e.value;
-        } else if (kind_ == Kind::Single) {
-            if (e.type == EV_ABS && e.code == ABS_X)
-                points_[0].x = e.value;
-            else if (e.type == EV_ABS && e.code == ABS_Y)
-                points_[0].y = e.value;
-            else if (e.type == EV_KEY && e.code == BTN_TOUCH)
-                points_[0].active = (e.value != 0);
-        } else if (kind_ == Kind::Relative) {
-            if (e.type == EV_REL && e.code == REL_X)
-                points_[0].x = std::clamp(points_[0].x + e.value, 0,
-                                          static_cast<int>(width_ - 1));
-            else if (e.type == EV_REL && e.code == REL_Y)
-                points_[0].y = std::clamp(points_[0].y + e.value, 0,
-                                          static_cast<int>(height_ - 1));
-            else if (e.type == EV_KEY && e.code == BTN_LEFT)
-                points_[0].active = (e.value != 0);
-        }
+        platform::linux::evdev_detail::consume(kind_, slot_, points_, e,
+                                                width_, height_);
     }
 
     unsigned int coordinate(int value, int minimum, int maximum,
                             unsigned int extent) const {
-        if (maximum <= minimum || extent == 0) return 0;
-        const auto clipped = std::clamp(value, minimum, maximum);
-        return static_cast<unsigned int>(
-            (static_cast<long long>(clipped - minimum) * (extent - 1)) /
-            (maximum - minimum));
+        return platform::linux::evdev_detail::coordinate(
+            value, minimum, maximum, extent);
     }
 
     void publish(std::span<mm::touch::Point> output, std::size_t& count) {
-        count = 0;
-        for (const auto& contact : points_) {
-            if (!contact.active) continue;
-            auto x = coordinate(contact.x, x_min_, x_max_, width_);
-            auto y = coordinate(contact.y, y_min_, y_max_, height_);
-            if (entry_->invert_x) x = width_ - 1 - x;
-            if (entry_->invert_y) y = height_ - 1 - y;
-            if (entry_->swap_axes) std::swap(x, y);
-            if (count < output.size()) output[count] = {x, y};
-            ++count;
-        }
-        if (count > output.size()) count = output.size();
+        count = platform::linux::evdev_detail::publish_contacts(
+            points_, output, x_min_, x_max_, y_min_, y_max_, width_, height_,
+            entry_->invert_x, entry_->invert_y, entry_->swap_axes);
     }
 
     void resync() {
@@ -269,21 +269,44 @@ private:
                 (KEY_MAX + bits_per_word) / bits_per_word);
             if (::ioctl(fd_, EVIOCGKEY(keys.size() * sizeof(unsigned long)),
                         keys.data()) >= 0)
-                points_[0].active = bit(keys, BTN_LEFT);
+                (void)platform::linux::evdev_detail::apply_relative_snapshot(
+                    points_, bit(keys, BTN_LEFT));
             return;
         }
         if (kind_ == Kind::Single) {
             input_absinfo x{}, y{};
-            if (::ioctl(fd_, EVIOCGABS(ABS_X), &x) == 0) points_[0].x = x.value;
-            if (::ioctl(fd_, EVIOCGABS(ABS_Y), &y) == 0) points_[0].y = y.value;
+            x.value = points_[0].x;
+            y.value = points_[0].y;
+            (void)::ioctl(fd_, EVIOCGABS(ABS_X), &x);
+            (void)::ioctl(fd_, EVIOCGABS(ABS_Y), &y);
             std::vector<unsigned long> keys(
                 (KEY_MAX + bits_per_word) / bits_per_word);
             if (::ioctl(fd_, EVIOCGKEY(keys.size() * sizeof(unsigned long)),
                         keys.data()) >= 0)
-                points_[0].active = bit(keys, BTN_TOUCH);
+                (void)platform::linux::evdev_detail::apply_single_snapshot(
+                    points_, x.value, y.value, bit(keys, BTN_TOUCH));
             return;
         }
-        for (auto& point : points_) point.active = false;
+        if (kind_ == Kind::TypeB) {
+            auto slots = [&](unsigned int code, std::vector<int>& values) {
+                values.assign(points_.size() + 1, 0);
+                values[0] = static_cast<int>(code);
+                return ::ioctl(fd_, EVIOCGMTSLOTS(
+                    values.size() * sizeof(int)), values.data()) >= 0;
+            };
+            std::vector<int> tracking, x, y;
+            const bool complete = slots(ABS_MT_TRACKING_ID, tracking) &&
+                                  slots(ABS_MT_POSITION_X, x) &&
+                                  slots(ABS_MT_POSITION_Y, y);
+            input_absinfo current{};
+            if (!complete ||
+                ::ioctl(fd_, EVIOCGABS(ABS_MT_SLOT), &current) < 0 ||
+                !platform::linux::evdev_detail::apply_type_b_snapshot(
+                    points_, std::span{tracking}.subspan(1),
+                    std::span{x}.subspan(1), std::span{y}.subspan(1),
+                    current.value, slot_))
+                for (auto& point : points_) point.active = false;
+        }
     }
 
     const platform::linux::TouchEntry* entry_ = nullptr;
@@ -304,5 +327,116 @@ private:
 LinuxTouch touch;
 struct Register { Register() { mm::touch::set_touch(touch); } };
 const Register registered;
+
+}
+
+namespace platform::linux::evdev_detail {
+
+void consume(Kind kind, int& slot, std::span<Contact> contacts,
+             const input_event& event, unsigned int width,
+             unsigned int height) {
+    if (contacts.empty()) return;
+    if (kind == Kind::TypeB) {
+        if (event.type == EV_ABS && event.code == ABS_MT_SLOT &&
+            event.value >= 0 &&
+            static_cast<std::size_t>(event.value) < contacts.size())
+            slot = event.value;
+        else if (event.type == EV_ABS && event.code == ABS_MT_TRACKING_ID)
+            contacts[slot].active = event.value != -1;
+        else if (event.type == EV_ABS && event.code == ABS_MT_POSITION_X)
+            contacts[slot].x = event.value;
+        else if (event.type == EV_ABS && event.code == ABS_MT_POSITION_Y)
+            contacts[slot].y = event.value;
+    } else if (kind == Kind::Single) {
+        if (event.type == EV_ABS && event.code == ABS_X)
+            contacts[0].x = event.value;
+        else if (event.type == EV_ABS && event.code == ABS_Y)
+            contacts[0].y = event.value;
+        else if (event.type == EV_KEY && event.code == BTN_TOUCH)
+            contacts[0].active = event.value != 0;
+    } else if (kind == Kind::Relative) {
+        if (event.type == EV_REL && event.code == REL_X)
+            contacts[0].x = std::clamp(contacts[0].x + event.value, 0,
+                                       static_cast<int>(width - 1));
+        else if (event.type == EV_REL && event.code == REL_Y)
+            contacts[0].y = std::clamp(contacts[0].y + event.value, 0,
+                                       static_cast<int>(height - 1));
+        else if (event.type == EV_KEY && event.code == BTN_LEFT)
+            contacts[0].active = event.value != 0;
+    }
+}
+
+unsigned int coordinate(int value, int minimum, int maximum,
+                        unsigned int extent) {
+    if (maximum <= minimum || extent == 0) return 0;
+    const auto clipped = std::clamp(value, minimum, maximum);
+    return static_cast<unsigned int>(
+        (static_cast<long long>(clipped - minimum) * (extent - 1)) /
+        (maximum - minimum));
+}
+
+bool apply_type_b_snapshot(std::span<Contact> contacts,
+                           std::span<const int> tracking,
+                           std::span<const int> x,
+                           std::span<const int> y, int current_slot,
+                           int& slot) {
+    if (contacts.size() != tracking.size() || contacts.size() != x.size() ||
+        contacts.size() != y.size() || current_slot < 0 ||
+        static_cast<std::size_t>(current_slot) >= contacts.size())
+        return false;
+    for (std::size_t i = 0; i < contacts.size(); ++i) {
+        contacts[i].active = tracking[i] != -1;
+        contacts[i].x = x[i];
+        contacts[i].y = y[i];
+    }
+    slot = current_slot;
+    return true;
+}
+
+bool apply_single_snapshot(std::span<Contact> contacts, int x, int y,
+                           bool active) {
+    if (contacts.size() != 1) return false;
+    contacts[0] = {x, y, active};
+    return true;
+}
+
+bool apply_relative_snapshot(std::span<Contact> contacts, bool active) {
+    if (contacts.size() != 1) return false;
+    contacts[0].active = active;
+    return true;
+}
+
+SyncAction synchronization(bool& dropped, const input_event& event) {
+    if (event.type == EV_SYN && event.code == SYN_DROPPED) {
+        dropped = true;
+        return SyncAction::Discard;
+    }
+    if (!dropped)
+        return event.type == EV_SYN && event.code == SYN_REPORT
+                   ? SyncAction::Publish
+                   : SyncAction::Consume;
+    if (event.type != EV_SYN || event.code != SYN_REPORT)
+        return SyncAction::Discard;
+    dropped = false;
+    return SyncAction::Resync;
+}
+
+std::size_t publish_contacts(
+    std::span<const Contact> contacts, std::span<mm::touch::Point> output,
+    int x_min, int x_max, int y_min, int y_max, unsigned int width,
+    unsigned int height, bool invert_x, bool invert_y, bool swap_axes) {
+    std::size_t count = 0;
+    for (const auto& contact : contacts) {
+        if (!contact.active) continue;
+        auto x = coordinate(contact.x, x_min, x_max, width);
+        auto y = coordinate(contact.y, y_min, y_max, height);
+        if (invert_x) x = width - 1 - x;
+        if (invert_y) y = height - 1 - y;
+        if (swap_axes) std::swap(x, y);
+        if (count < output.size()) output[count] = {x, y};
+        ++count;
+    }
+    return std::min(count, output.size());
+}
 
 }

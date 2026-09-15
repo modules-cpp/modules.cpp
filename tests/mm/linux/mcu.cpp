@@ -1,190 +1,115 @@
 // Pawel Wodnicki (C) 2026
 // 32bitmicro LLC (C) 2026
 #include <cerrno>
+#include <chrono>
+#include <csignal>
 #include <cstdint>
-#include <limits>
 #include <linux/spi/spi.h>
 #include <optional>
-#include <time.h>
+#include <sys/time.h>
 
+import mm.mcu;
 import mm.test;
+import platform.linux.map;
+import platform.linux.mcu;
 
 namespace {
 
+using mm::mcu::Status;
 using mm::test::expect;
 
-enum class Status { Ok, BadArgument, Unsupported, Busy, Timeout, TransportError };
-
-Status error_status(int value, bool explicit_path = true, bool caller_field = false) {
-    if ((value == ENOENT || value == ENODEV) && !explicit_path) return Status::Unsupported;
-    if ((value == ENOENT || value == ENODEV) && explicit_path) return Status::BadArgument;
-    if (value == EACCES || value == EPERM) return Status::TransportError;
-    if (value == EBUSY) return Status::Busy;
-    if (value == ETIMEDOUT) return Status::Timeout;
-    if (value == EINVAL && caller_field) return Status::BadArgument;
-    return Status::TransportError;
-}
-
-void test_errno_mapping_per_operation() {
+void errno_mapping() {
+    using platform::linux::mcu_detail::error_status;
     expect(error_status(ENOENT, false) == Status::Unsupported,
-           "open auto-discovery ENOENT is Unsupported");
+           "auto-discovery ENOENT is Unsupported");
     expect(error_status(ENOENT, true) == Status::BadArgument,
-           "open explicit path ENOENT is BadArgument");
-    expect(error_status(ENODEV, false) == Status::Unsupported,
-           "open auto-discovery ENODEV is Unsupported");
-    expect(error_status(ENODEV, true) == Status::BadArgument,
-           "open explicit path ENODEV is BadArgument");
-    expect(error_status(EACCES) == Status::TransportError,
-           "EACCES is TransportError");
-    expect(error_status(EPERM) == Status::TransportError,
-           "EPERM is TransportError");
-    expect(error_status(EBUSY) == Status::Busy,
-           "EBUSY is Busy");
-    expect(error_status(ETIMEDOUT) == Status::Timeout,
-           "ETIMEDOUT is Timeout");
-    expect(error_status(EINVAL, true, true) == Status::BadArgument,
-           "configure ioctl rejecting caller field EINVAL is BadArgument");
-    expect(error_status(EINVAL, true, false) == Status::TransportError,
-           "internal ioctl returning EINVAL is TransportError");
-    expect(error_status(EIO) == Status::TransportError,
-           "general I/O error is TransportError");
+           "explicit ENOENT is BadArgument");
+    expect(error_status(EACCES) == Status::TransportError &&
+               error_status(EPERM) == Status::TransportError,
+           "permission errors are TransportError");
+    expect(error_status(EBUSY) == Status::Busy &&
+               error_status(ETIMEDOUT) == Status::Timeout,
+           "busy and timeout retain their meanings");
+    expect(error_status(EINVAL, true, true) == Status::BadArgument &&
+               error_status(EINVAL) == Status::TransportError,
+           "EINVAL is contextual to caller-controlled fields");
 }
 
-struct SpiMapEntry {
-    unsigned int clock_gpio = 10;
-    unsigned int transmit_gpio = 11;
-    std::optional<unsigned int> receive_gpio = 12;
-    unsigned long max_speed = 10'000'000;
-    bool speed_fixed = false;
-};
+void spi_validation() {
+    platform::linux::SpiEntry entry{};
+    entry.clock_gpio = 10;
+    entry.transmit_gpio = 11;
+    entry.receive_gpio = 12;
+    entry.max_speed = 10'000'000;
+    mm::mcu::SpiConfiguration configuration{
+        0, 10, 11, 12, 1'000'000, mm::mcu::SpiMode::Mode0,
+        mm::mcu::BitOrder::MostSignificantFirst};
 
-struct SpiConfig {
-    unsigned int clock_gpio = 10;
-    unsigned int transmit_gpio = 11;
-    std::optional<unsigned int> receive_gpio = 12;
-    unsigned long baud = 1'000'000;
-    bool lsb_first = false;
-};
+    using platform::linux::mcu_detail::spi_configuration_status;
+    using platform::linux::mcu_detail::spi_readback_status;
+    expect(spi_configuration_status(entry, configuration) == Status::Ok,
+           "production SPI validation accepts matching pins and speed");
+    configuration.clock_gpio = 9;
+    expect(spi_configuration_status(entry, configuration) ==
+               Status::BadArgument,
+           "production SPI validation rejects a pin mismatch");
+    configuration.clock_gpio = 10;
+    entry.speed_fixed = true;
+    expect(spi_configuration_status(entry, configuration) ==
+               Status::BadArgument,
+           "a fixed-speed controller requires its exact speed");
 
-Status mock_spi_configure(const SpiMapEntry& map, const SpiConfig& caller,
-                          std::uint32_t readback_mode) {
-    if (caller.clock_gpio != map.clock_gpio ||
-        caller.transmit_gpio != map.transmit_gpio ||
-        caller.receive_gpio != map.receive_gpio)
-        return Status::BadArgument;
-
-    if (caller.baud == 0 || caller.baud > map.max_speed)
-        return Status::BadArgument;
-
-    if (map.speed_fixed && caller.baud != map.max_speed)
-        return Status::BadArgument;
-
-    // Verify readback mode: must keep SPI_NO_CS
-    if ((readback_mode & SPI_NO_CS) == 0)
-        return Status::Unsupported;
-
-    // Verify bit order
-    const bool readback_lsb = (readback_mode & SPI_LSB_FIRST) != 0;
-    if (readback_lsb != caller.lsb_first)
-        return Status::Unsupported;
-
-    return Status::Ok;
+    expect(spi_readback_status(
+               0, mm::mcu::BitOrder::MostSignificantFirst) ==
+               Status::Unsupported,
+           "production read-back requires SPI_NO_CS");
+    expect(spi_readback_status(
+               SPI_NO_CS, mm::mcu::BitOrder::LeastSignificantFirst) ==
+               Status::Unsupported,
+           "production read-back detects a refused bit order");
+    expect(spi_readback_status(
+               SPI_NO_CS | SPI_LSB_FIRST,
+               mm::mcu::BitOrder::LeastSignificantFirst) == Status::Ok,
+           "production read-back accepts the requested bit order");
 }
 
-void test_spi_configuration_and_readback_handling() {
-    SpiMapEntry map{};
-    SpiConfig config{};
-
-    // Valid configuration with correct readback
-    expect(mock_spi_configure(map, config, SPI_NO_CS) == Status::Ok,
-           "valid SPI configuration with matching readback is Ok");
-
-    // Pin mismatch
-    config.clock_gpio = 99;
-    expect(mock_spi_configure(map, config, SPI_NO_CS) == Status::BadArgument,
-           "pin mismatch is BadArgument");
-    config.clock_gpio = map.clock_gpio;
-
-    // Baud exceeding max_speed
-    config.baud = 20'000'000;
-    expect(mock_spi_configure(map, config, SPI_NO_CS) == Status::BadArgument,
-           "baud exceeding max_speed is BadArgument");
-    config.baud = 1'000'000;
-
-    // Speed-fixed handling
-    map.speed_fixed = true;
-    config.baud = 5'000'000;
-    expect(mock_spi_configure(map, config, SPI_NO_CS) == Status::BadArgument,
-           "baud differing from max-speed under speed-fixed is BadArgument");
-    config.baud = map.max_speed;
-    expect(mock_spi_configure(map, config, SPI_NO_CS) == Status::Ok,
-           "baud equal to max-speed under speed-fixed is Ok");
-    map.speed_fixed = false;
-    config.baud = 1'000'000;
-
-    // Readback lacking SPI_NO_CS
-    expect(mock_spi_configure(map, config, 0) == Status::Unsupported,
-           "controller not keeping SPI_NO_CS on final readback makes instance Unsupported");
-
-    // Readback refusing bit order
-    config.lsb_first = true;
-    expect(mock_spi_configure(map, config, SPI_NO_CS) == Status::Unsupported,
-           "controller refusing requested bit order makes instance Unsupported");
-    expect(mock_spi_configure(map, config, SPI_NO_CS | SPI_LSB_FIRST) == Status::Ok,
-           "controller accepting requested bit order is Ok");
+void gpio_configuration_state() {
+    using platform::linux::mcu_detail::gpio_access_status;
+    expect(gpio_access_status({}, false) == Status::BadArgument,
+           "an unconfigured GPIO cannot be read");
+    expect(gpio_access_status(mm::mcu::Direction::In, true) ==
+               Status::BadArgument,
+           "an input GPIO cannot be written");
+    expect(gpio_access_status(mm::mcu::Direction::Out, true) == Status::Ok,
+           "a configured output GPIO can be written");
 }
 
-Status mock_delay_ms(unsigned long milliseconds, int injected_nanosleep_return,
-                    int& sleep_calls) {
-    if (milliseconds == 0) return Status::Ok;
-    const auto seconds = milliseconds / 1000;
-    if (seconds > static_cast<unsigned long>(std::numeric_limits<time_t>::max()))
-        return Status::BadArgument;
+volatile std::sig_atomic_t alarms = 0;
+void alarm_handler(int) { alarms = 1; }
 
-    timespec request{static_cast<time_t>(seconds),
-                     static_cast<long>((milliseconds % 1000) * 1'000'000UL)};
-    while (true) {
-        ++sleep_calls;
-        timespec remaining{};
-        int result = (sleep_calls == 1) ? injected_nanosleep_return : 0;
-        if (result == 0) return Status::Ok;
-        if (result == EINTR) {
-            request = remaining;
-            continue;
-        }
-        return error_status(result, false);
-    }
-}
+void interrupted_delay() {
+    const auto previous = std::signal(SIGALRM, &alarm_handler);
+    itimerval timer{};
+    timer.it_value.tv_usec = 10'000;
+    ::setitimer(ITIMER_REAL, &timer, nullptr);
+    const auto start = std::chrono::steady_clock::now();
+    const auto status = mm::mcu::platform().delay_ms(50);
+    const auto elapsed = std::chrono::steady_clock::now() - start;
+    timer = {};
+    ::setitimer(ITIMER_REAL, &timer, nullptr);
+    std::signal(SIGALRM, previous);
 
-void test_delay_ms_signal_and_overflow_handling() {
-    int calls = 0;
-    // Delay 0 is Ok immediately without calling sleep
-    expect(mock_delay_ms(0, 0, calls) == Status::Ok && calls == 0,
-           "delay_ms(0) is Ok immediately");
-
-    // Overflowing argument
-    calls = 0;
-    const unsigned long max_ms = std::numeric_limits<unsigned long>::max();
-    if (max_ms / 1000 > static_cast<unsigned long>(std::numeric_limits<time_t>::max())) {
-        expect(mock_delay_ms(max_ms, 0, calls) == Status::BadArgument,
-               "overflowing argument is BadArgument");
-    }
-
-    // Injected EINTR retries and completes
-    calls = 0;
-    expect(mock_delay_ms(50, EINTR, calls) == Status::Ok && calls == 2,
-           "delay_ms sleeps across injected signal by retrying remaining time");
-
-    // Non-EINTR return value mapped from return value directly
-    calls = 0;
-    expect(mock_delay_ms(50, ENODEV, calls) == Status::Unsupported,
-           "non-EINTR clock_nanosleep return is translated from returned value");
+    expect(status == Status::Ok && alarms > 0,
+           "production delay retries after an injected signal");
+    expect(elapsed >= std::chrono::milliseconds(50),
+           "production delay does not shorten the requested interval");
 }
 
 const mm::test::case_ cases[]{
-    {"errno mapping per operation", &test_errno_mapping_per_operation},
-    {"SPI configuration and readback handling", &test_spi_configuration_and_readback_handling},
-    {"delay_ms signal and overflow handling", &test_delay_ms_signal_and_overflow_handling},
+    {"errno mapping", &errno_mapping},
+    {"SPI validation and read-back", &spi_validation},
+    {"GPIO configuration state", &gpio_configuration_state},
+    {"interrupted monotonic delay", &interrupted_delay},
 };
 const mm::test::registrar reg{"platform.linux.mcu", cases};
 

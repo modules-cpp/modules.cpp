@@ -192,6 +192,7 @@ void set_map(const Map& defaults) { registered = &defaults; }
 MapStatus apply_override(Map& map, const std::string& path, ParseError& error) {
     std::ifstream input(path);
     if (!input) { error={path,0,0,{},"cannot open override"}; return MapStatus::FileError; }
+    Map candidate = map;
     std::map<std::string,unsigned int,std::less<>> seen;
     std::string line;
     for (unsigned int line_number=1;std::getline(input,line);++line_number) {
@@ -205,9 +206,11 @@ MapStatus apply_override(Map& map, const std::string& path, ParseError& error) {
         if(key.empty()||value.empty()){error={path,line_number,0,std::string(key),"empty key or value"};return MapStatus::SyntaxError;}
         if(const auto it=seen.find(key);it!=seen.end()){error={path,line_number,it->second,std::string(key),"duplicate key"};return MapStatus::SyntaxError;}
         seen.emplace(std::string(key),line_number);
-        if(!apply(map,key,value)){error={path,line_number,0,std::string(key),"unknown key or invalid value"};return MapStatus::SyntaxError;}
+        if(!apply(candidate,key,value)){error={path,line_number,0,std::string(key),"unknown key or invalid value"};return MapStatus::SyntaxError;}
     }
-    return validate(map,path,error);
+    const auto status = validate(candidate,path,error);
+    if (status == MapStatus::Ok) map = std::move(candidate);
+    return status;
 }
 
 const Resolution& resolve() {

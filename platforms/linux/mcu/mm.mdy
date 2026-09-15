@@ -6,7 +6,6 @@ module: platform.linux.mcu
 use: mm.mcu
 use: platform.linux.map
 file: mcu.cppm
-option: buildable-host no
 ---
 
 # platform.linux.mcu

@@ -29,6 +29,19 @@ export module platform.linux.mcu;
 import mm.mcu;
 import platform.linux.map;
 
+export namespace platform::linux::mcu_detail {
+
+[[nodiscard]] mm::mcu::Status error_status(
+    int value, bool explicit_path = true, bool caller_field = false);
+[[nodiscard]] mm::mcu::Status spi_configuration_status(
+    const SpiEntry& entry, const mm::mcu::SpiConfiguration& value);
+[[nodiscard]] mm::mcu::Status spi_readback_status(
+    std::uint32_t actual, mm::mcu::BitOrder requested);
+[[nodiscard]] mm::mcu::Status gpio_access_status(
+    const std::optional<mm::mcu::Direction>& direction, bool write);
+
+}
+
 namespace {
 
 using Status = mm::mcu::Status;
@@ -49,6 +62,13 @@ public:
     Descriptor(const Descriptor&) = delete;
     Descriptor& operator=(const Descriptor&) = delete;
     Descriptor(Descriptor&& other) noexcept : value_(other.value_) { other.value_ = -1; }
+    Descriptor& operator=(Descriptor&& other) noexcept {
+        if (this == &other) return *this;
+        if (value_ >= 0) ::close(value_);
+        value_ = other.value_;
+        other.value_ = -1;
+        return *this;
+    }
     ~Descriptor() { if (value_ >= 0) ::close(value_); }
     [[nodiscard]] int get() const { return value_; }
 private:
@@ -116,8 +136,11 @@ public:
         if (pull == mm::mcu::Pull::None) request.config.flags |= GPIO_V2_LINE_FLAG_BIAS_DISABLED;
         if (::ioctl(chip.get(), GPIO_V2_GET_LINE_IOCTL, &request) < 0)
             return error_status(errno, true, true);
-        if (request.fd >= 0) ::close(request.fd);
-        gpio_direction_.resize(configured->gpios.size());
+        if (gpio_direction_.size() < configured->gpios.size())
+            gpio_direction_.resize(configured->gpios.size());
+        if (gpio_lines_.size() < configured->gpios.size())
+            gpio_lines_.resize(configured->gpios.size());
+        gpio_lines_[pin] = Descriptor(request.fd);
         gpio_direction_[pin] = direction;
         return Status::Ok;
     }
@@ -134,9 +157,9 @@ public:
         Status status; const auto* configured=map(status); if(!configured)return status;
         if(value.instance>=configured->spis.size())return Status::Unsupported;
         const auto& entry=configured->spis[value.instance];
-        if(value.clock_gpio!=entry.clock_gpio||value.transmit_gpio!=entry.transmit_gpio||
-           value.receive_gpio!=entry.receive_gpio||value.baud==0||value.baud>entry.max_speed||
-           (entry.speed_fixed&&value.baud!=entry.max_speed))return Status::BadArgument;
+        const auto validation =
+            platform::linux::mcu_detail::spi_configuration_status(entry, value);
+        if (validation != Status::Ok) return validation;
         Descriptor fd(::open(entry.path.c_str(),O_RDWR|O_CLOEXEC));
         if(fd.get()<0)return error_status(errno);
         std::uint32_t mode=static_cast<std::uint32_t>(value.mode)|SPI_NO_CS;
@@ -148,8 +171,9 @@ public:
             return error_status(errno,true,true);
         std::uint32_t actual=0;
         if(::ioctl(fd.get(),SPI_IOC_RD_MODE32,&actual)<0)return error_status(errno);
-        if((actual&SPI_NO_CS)==0||((actual&SPI_LSB_FIRST)!=0)!=static_cast<bool>(lsb))
-            return Status::Unsupported;
+        const auto readback = platform::linux::mcu_detail::spi_readback_status(
+            actual, value.bit_order);
+        if (readback != Status::Ok) return readback;
         if(spi_configuration_.size()<=value.instance)spi_configuration_.resize(value.instance+1);
         spi_configuration_[value.instance]=value;
         return Status::Ok;
@@ -231,11 +255,15 @@ private:
     Status gpio_value(unsigned int pin,bool write_value,bool& value) {
         Status status;const auto* configured=map(status);if(!configured)return status;
         if(pin>=configured->gpios.size())return Status::Unsupported;
-        if(pin>=gpio_direction_.size())return Status::BadArgument;
-        const auto& gpio=configured->gpios[pin];Descriptor chip(::open(gpio.chip.c_str(),O_RDONLY|O_CLOEXEC));if(chip.get()<0)return error_status(errno);
-        gpio_v2_line_request request{};request.offsets[0]=gpio.offset;request.num_lines=1;request.config.flags=write_value?GPIO_V2_LINE_FLAG_OUTPUT:GPIO_V2_LINE_FLAG_INPUT;std::strncpy(request.consumer,"modules.cpp",sizeof(request.consumer)-1);
-        if(::ioctl(chip.get(),GPIO_V2_GET_LINE_IOCTL,&request)<0)return error_status(errno,true,true);Descriptor line(request.fd);gpio_v2_line_values values{};values.mask=1;
-        if(write_value){values.bits=value?1:0;if(::ioctl(line.get(),GPIO_V2_LINE_SET_VALUES_IOCTL,&values)<0)return error_status(errno);}else{if(::ioctl(line.get(),GPIO_V2_LINE_GET_VALUES_IOCTL,&values)<0)return error_status(errno);value=(values.bits&1)!=0;}
+        const auto access = platform::linux::mcu_detail::gpio_access_status(
+            pin < gpio_direction_.size() ? gpio_direction_[pin] :
+                                           std::optional<mm::mcu::Direction>{},
+            write_value);
+        if (access != Status::Ok) return access;
+        if (pin >= gpio_lines_.size() || gpio_lines_[pin].get() < 0)
+            return Status::BadArgument;
+        gpio_v2_line_values values{};values.mask=1;
+        if(write_value){values.bits=value?1:0;if(::ioctl(gpio_lines_[pin].get(),GPIO_V2_LINE_SET_VALUES_IOCTL,&values)<0)return error_status(errno);}else{if(::ioctl(gpio_lines_[pin].get(),GPIO_V2_LINE_GET_VALUES_IOCTL,&values)<0)return error_status(errno);value=(values.bits&1)!=0;}
         return Status::Ok;
     }
 
@@ -243,10 +271,24 @@ private:
                         std::span<std::byte> receive) {
         Status status;const auto* configured=map(status);if(!configured)return status;
         if(instance>=configured->spis.size())return Status::Unsupported;
-        if(instance>=spi_configuration_.size()||!spi_configuration_[instance])return Status::BadArgument;
-        const auto& entry=configured->spis[instance];const auto& configuration=*spi_configuration_[instance];Descriptor fd(::open(entry.path.c_str(),O_RDWR|O_CLOEXEC));if(fd.get()<0)return error_status(errno);
+        const auto& entry=configured->spis[instance];
+        mm::mcu::SpiConfiguration default_configuration{
+            instance, entry.clock_gpio, entry.transmit_gpio,
+            entry.receive_gpio, entry.max_speed,
+            static_cast<mm::mcu::SpiMode>(entry.mode),
+            entry.least_significant_first ?
+                mm::mcu::BitOrder::LeastSignificantFirst :
+                mm::mcu::BitOrder::MostSignificantFirst};
+        const auto& configuration =
+            instance < spi_configuration_.size() && spi_configuration_[instance]
+                ? *spi_configuration_[instance] : default_configuration;
+        Descriptor fd(::open(entry.path.c_str(),O_RDWR|O_CLOEXEC));if(fd.get()<0)return error_status(errno);
         std::uint32_t mode=static_cast<std::uint32_t>(configuration.mode)|SPI_NO_CS;std::uint8_t lsb=configuration.bit_order==mm::mcu::BitOrder::LeastSignificantFirst;std::uint32_t speed=configuration.baud;
         if(::ioctl(fd.get(),SPI_IOC_WR_MODE32,&mode)<0||::ioctl(fd.get(),SPI_IOC_WR_LSB_FIRST,&lsb)<0||(!entry.speed_fixed&&::ioctl(fd.get(),SPI_IOC_WR_MAX_SPEED_HZ,&speed)<0))return error_status(errno);
+        std::uint32_t actual=0;
+        if(::ioctl(fd.get(),SPI_IOC_RD_MODE32,&actual)<0)return error_status(errno);
+        const auto readback=platform::linux::mcu_detail::spi_readback_status(actual,configuration.bit_order);
+        if(readback!=Status::Ok)return readback;
         spi_ioc_transfer transfer{};transfer.tx_buf=reinterpret_cast<std::uintptr_t>(transmit.data());transfer.rx_buf=reinterpret_cast<std::uintptr_t>(receive.data());transfer.len=transmit.size();transfer.speed_hz=speed;
         if(::ioctl(fd.get(),SPI_IOC_MESSAGE(1),&transfer)<0)return error_status(errno);
         return Status::Ok;
@@ -264,7 +306,8 @@ private:
 
     mutable bool board_ready_=false;
     mutable std::vector<mm::mcu::Gpio> gpio_inventory_;
-    std::vector<mm::mcu::Direction> gpio_direction_;
+    std::vector<Descriptor> gpio_lines_;
+    std::vector<std::optional<mm::mcu::Direction>> gpio_direction_;
     std::vector<std::optional<mm::mcu::SpiConfiguration>> spi_configuration_;
     std::vector<std::optional<mm::mcu::I2cConfiguration>> i2c_configuration_;
 };
@@ -272,5 +315,43 @@ private:
 LinuxPlatform linux_platform;
 struct Register { Register(){mm::mcu::set_platform(linux_platform);} };
 const Register registered;
+
+}
+
+namespace platform::linux::mcu_detail {
+
+mm::mcu::Status error_status(int value, bool explicit_path,
+                             bool caller_field) {
+    return ::error_status(value, explicit_path, caller_field);
+}
+
+mm::mcu::Status spi_configuration_status(
+    const SpiEntry& entry, const mm::mcu::SpiConfiguration& value) {
+    if (value.clock_gpio != entry.clock_gpio ||
+        value.transmit_gpio != entry.transmit_gpio ||
+        value.receive_gpio != entry.receive_gpio || value.baud == 0 ||
+        value.baud > entry.max_speed ||
+        (entry.speed_fixed && value.baud != entry.max_speed))
+        return mm::mcu::Status::BadArgument;
+    return mm::mcu::Status::Ok;
+}
+
+mm::mcu::Status spi_readback_status(std::uint32_t actual,
+                                    mm::mcu::BitOrder requested) {
+    if ((actual & SPI_NO_CS) == 0) return mm::mcu::Status::Unsupported;
+    const bool actual_lsb = (actual & SPI_LSB_FIRST) != 0;
+    const bool requested_lsb =
+        requested == mm::mcu::BitOrder::LeastSignificantFirst;
+    return actual_lsb == requested_lsb ? mm::mcu::Status::Ok :
+                                        mm::mcu::Status::Unsupported;
+}
+
+mm::mcu::Status gpio_access_status(
+    const std::optional<mm::mcu::Direction>& direction, bool write) {
+    if (!direction) return mm::mcu::Status::BadArgument;
+    if (write && *direction != mm::mcu::Direction::Out)
+        return mm::mcu::Status::BadArgument;
+    return mm::mcu::Status::Ok;
+}
 
 }

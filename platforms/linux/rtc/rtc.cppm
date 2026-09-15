@@ -15,6 +15,16 @@ export module platform.linux.rtc;
 import mm.rtc;
 import platform.linux.map;
 
+export namespace platform::linux::rtc_testing {
+
+[[nodiscard]] bool valid(const mm::rtc::DateTime& value);
+[[nodiscard]] bool convert(const mm::rtc::DateTime& value,
+                           RtcConvention convention, long long& epoch);
+[[nodiscard]] bool trusted(bool has_voltage, unsigned int voltage,
+                           bool wrote, bool clear_supported);
+
+}
+
 namespace {
 
 using Status = mm::rtc::Status;
@@ -71,10 +81,12 @@ bool convert(const mm::rtc::DateTime& value,
         return true;
     }
 
-    // Local time convention:
-    // Ambiguous hour resolves to the earlier offset (DST = 1).
-    // A skipped hour is rejected as BadArgument.
-    static constexpr int isdsts[]{1, 0, -1};
+    // Try both sides of a possible transition.  The earlier epoch is the first
+    // occurrence of an ambiguous wall-clock time; assuming that it is always
+    // the DST spelling is not valid for every timezone.
+    static constexpr int isdsts[]{0, 1};
+    bool found = false;
+    time_t earliest{};
     for (const int isdst : isdsts) {
         std::tm try_fields = fields;
         try_fields.tm_isdst = isdst;
@@ -85,12 +97,15 @@ bool convert(const mm::rtc::DateTime& value,
         if (check.tm_year == fields.tm_year && check.tm_mon == fields.tm_mon &&
             check.tm_mday == fields.tm_mday && check.tm_hour == fields.tm_hour &&
             check.tm_min == fields.tm_min && check.tm_sec == fields.tm_sec) {
-            normalized = check;
-            epoch = candidate_epoch;
-            return true;
+            if (!found || candidate_epoch < earliest) {
+                normalized = check;
+                earliest = candidate_epoch;
+                found = true;
+            }
         }
     }
-    return false;
+    if (found) epoch = earliest;
+    return found;
 }
 
 mm::rtc::DateTime public_time(const std::tm& value) {
@@ -106,16 +121,25 @@ mm::rtc::DateTime public_time(const std::tm& value) {
 class LinuxClock final : public mm::rtc::Clock {
 public:
     [[nodiscard]] Status initialize() override {
+        initialized_ = false;
+        map_ = nullptr;
+        wrote_ = false;
+        clear_supported_ = true;
         const auto& resolution = platform::linux::resolve();
         if (resolution.status != platform::linux::MapStatus::Ok ||
             resolution.map == nullptr)
             return Status::BadArgument;
-        map_ = resolution.map;
-        initialized_ = true;
-        if (map_->rtc.path.empty()) return Status::Ok;
-        const int fd = ::open(map_->rtc.path.c_str(), O_RDONLY | O_CLOEXEC);
+        const auto* candidate = resolution.map;
+        if (candidate->rtc.path.empty()) {
+            map_ = candidate;
+            initialized_ = true;
+            return Status::Ok;
+        }
+        const int fd = ::open(candidate->rtc.path.c_str(), O_RDONLY | O_CLOEXEC);
         if (fd < 0) return error_status(errno);
         ::close(fd);
+        map_ = candidate;
+        initialized_ = true;
         return Status::Ok;
     }
 
@@ -153,9 +177,8 @@ public:
         fields.tm_sec = raw.tm_sec;
         value = public_time(fields);
 
-        const bool invalid =
-            has_voltage && ((voltage & RTC_VL_DATA_INVALID) != 0);
-        trusted = !invalid || (wrote_ && !clear_supported_);
+        trusted = platform::linux::rtc_testing::trusted(
+            has_voltage, voltage, wrote_, clear_supported_);
         return Status::Ok;
     }
 
@@ -241,5 +264,27 @@ private:
 LinuxClock clock;
 struct Register { Register() { mm::rtc::set_clock(clock); } };
 const Register registered;
+
+}
+
+namespace platform::linux::rtc_testing {
+
+bool valid(const mm::rtc::DateTime& value) { return ::valid(value); }
+
+bool convert(const mm::rtc::DateTime& value, RtcConvention convention,
+             long long& epoch) {
+    std::tm normalized{};
+    time_t converted{};
+    if (!::convert(value, convention, normalized, converted)) return false;
+    epoch = static_cast<long long>(converted);
+    return true;
+}
+
+bool trusted(bool has_voltage, unsigned int voltage, bool wrote,
+             bool clear_supported) {
+    const bool invalid =
+        has_voltage && ((voltage & RTC_VL_DATA_INVALID) != 0);
+    return has_voltage ? !invalid : (wrote && !clear_supported);
+}
 
 }

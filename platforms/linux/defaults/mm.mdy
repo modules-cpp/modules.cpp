@@ -5,7 +5,6 @@ name: linux-defaults
 module: platform.linux.defaults
 use: platform.linux.map
 file: defaults.cppm
-option: buildable-host no
 ---
 
 # platform.linux.defaults

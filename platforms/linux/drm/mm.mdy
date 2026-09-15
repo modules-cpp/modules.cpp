@@ -6,7 +6,6 @@ module: platform.linux.display
 use: mm.display
 use: platform.linux.map
 file: display.cppm
-option: buildable-host no
 ---
 
 # platform.linux.display

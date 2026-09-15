@@ -1,0 +1,19 @@
+---
+device: lsm6dso
+kernel-driver: st_lsm6dsx
+capture-format: Linux IIO scan metadata
+in-accel-scale: 0.000598550
+in-anglvel-scale: 0.000133158
+in-accel-x: 3 le:s16/16>>0
+in-accel-y: 1 le:s16/16>>0
+in-accel-z: 5 le:s16/16>>0
+in-anglvel-x: 0 le:s16/16>>0
+in-anglvel-y: 4 le:s16/16>>0
+in-anglvel-z: 2 le:s16/16>>0
+---
+
+# LSM6DSO Linux IIO fixture
+
+The deliberately interleaved scan indices preserve the captured record layout
+while ensuring consumers retain each channel's semantic identity after sorting
+the layout by scan index.

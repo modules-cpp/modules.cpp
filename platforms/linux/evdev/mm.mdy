@@ -6,7 +6,6 @@ module: platform.linux.touch
 use: mm.touch
 use: platform.linux.map
 file: touch.cppm
-option: buildable-host no
 ---
 
 # platform.linux.touch

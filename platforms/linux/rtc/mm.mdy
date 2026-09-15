@@ -6,7 +6,6 @@ module: platform.linux.rtc
 use: mm.rtc
 use: platform.linux.map
 file: rtc.cppm
-option: buildable-host no
 ---
 
 # platform.linux.rtc

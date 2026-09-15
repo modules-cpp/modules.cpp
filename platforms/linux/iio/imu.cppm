@@ -10,6 +10,7 @@ module;
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
+#include <filesystem>
 #include <fcntl.h>
 #include <fstream>
 #include <optional>
@@ -17,6 +18,7 @@ module;
 #include <span>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <unistd.h>
 #include <vector>
 
@@ -25,7 +27,7 @@ export module platform.linux.imu;
 import mm.imu;
 import platform.linux.map;
 
-namespace platform::linux::iio_detail {
+export namespace platform::linux::iio_detail {
 
 struct Channel {
     std::string name;
@@ -39,6 +41,14 @@ struct Channel {
     std::size_t offset = 0;
     long double scale = 0;
 };
+
+[[nodiscard]] bool parse_scan_type(std::string_view text, Channel& channel);
+[[nodiscard]] std::optional<std::size_t> layout(
+    std::span<Channel> channels);
+[[nodiscard]] std::int64_t extract_value(
+    std::span<const std::byte> record, const Channel& channel);
+[[nodiscard]] std::optional<unsigned int> physical_range(
+    const Channel& channel, bool acceleration);
 
 }
 
@@ -72,7 +82,7 @@ bool write_text(const std::string& path, std::string_view value) {
 
 bool integer(std::string_view text, int& value) {
     const auto r = std::from_chars(text.data(), text.data() + text.size(), value);
-    return r.ec == std::errc{};
+    return r.ec == std::errc{} && r.ptr == text.data() + text.size();
 }
 
 bool scan_type(std::string_view text, Channel& c) {
@@ -99,7 +109,10 @@ bool scan_type(std::string_view text, Channel& c) {
     auto d = std::from_chars(text.data() + shift + 2,
                              text.data() + (end == text.npos ? text.size() : end),
                              amount);
-    if (a.ec != std::errc{} || b.ec != std::errc{} || d.ec != std::errc{} ||
+    if (a.ec != std::errc{} || a.ptr != text.data() + slash ||
+        b.ec != std::errc{} || b.ptr != text.data() + shift ||
+        d.ec != std::errc{} ||
+        d.ptr != text.data() + (end == text.npos ? text.size() : end) ||
         storage % 8 != 0 || real == 0 || real > storage || storage > 64)
         return false;
 
@@ -110,7 +123,9 @@ bool scan_type(std::string_view text, Channel& c) {
         unsigned long repeat = 0;
         auto e = std::from_chars(text.data() + end + 1,
                                  text.data() + text.size(), repeat);
-        if (e.ec != std::errc{} || repeat == 0) return false;
+        if (e.ec != std::errc{} || e.ptr != text.data() + text.size() ||
+            repeat == 0)
+            return false;
         c.repeat = repeat;
     }
     return true;
@@ -145,28 +160,41 @@ public:
             return Status::BadArgument;
         entry_ = &r.map->imu;
 
-        const bool explicit_path =
+        const bool explicit_selection =
             entry_->device.kind != platform::linux::SelectorKind::Auto;
-        unsigned int index =
-            entry_->device.kind == platform::linux::SelectorKind::Index
-                ? entry_->device.index
-                : 0;
-        if (entry_->device.kind == platform::linux::SelectorKind::Name) {
-            const auto pos = entry_->device.name.find("iio:device");
-            if (pos == std::string::npos) return Status::BadArgument;
-            const auto number = entry_->device.name.substr(pos + 10);
-            unsigned long parsed = 0;
-            auto result = std::from_chars(number.data(),
-                                           number.data() + number.size(),
-                                           parsed);
-            if (result.ec != std::errc{}) return Status::BadArgument;
-            index = parsed;
+        std::optional<unsigned int> selected;
+        if (entry_->device.kind == platform::linux::SelectorKind::Index) {
+            selected = entry_->device.index;
+        } else if (entry_->device.kind == platform::linux::SelectorKind::Name) {
+            for (unsigned int i = 0; i < 64; ++i) {
+                std::string name;
+                if (read_text("/sys/bus/iio/devices/iio:device" +
+                                  std::to_string(i) + "/name", name) &&
+                    name == entry_->device.name) {
+                    selected = i;
+                    break;
+                }
+            }
+            if (!selected) return Status::BadArgument;
         }
 
-        device_ = "/dev/iio:device" + std::to_string(index);
-        sysfs_ = "/sys/bus/iio/devices/iio:device" + std::to_string(index);
-        fd_ = ::open(device_.c_str(), O_RDONLY | O_NONBLOCK | O_CLOEXEC);
-        if (fd_ < 0) return failure(errno, explicit_path);
+        Status discovery_error = Status::Unsupported;
+        const auto try_open = [&](unsigned int index) {
+            device_ = "/dev/iio:device" + std::to_string(index);
+            sysfs_ = "/sys/bus/iio/devices/iio:device" +
+                     std::to_string(index);
+            fd_ = ::open(device_.c_str(), O_RDONLY | O_NONBLOCK | O_CLOEXEC);
+            if (fd_ >= 0) return true;
+            const auto status = failure(errno, explicit_selection);
+            if (status != Status::Unsupported) discovery_error = status;
+            return false;
+        };
+        if (selected) {
+            if (!try_open(*selected)) return discovery_error;
+        } else {
+            for (unsigned int i = 0; i < 64 && fd_ < 0; ++i) try_open(i);
+            if (fd_ < 0) return discovery_error;
+        }
 
         static constexpr std::array names{
             "in_accel_x", "in_accel_y", "in_accel_z",
@@ -195,34 +223,59 @@ public:
             channels_.push_back(c);
         }
 
-        std::sort(channels_.begin(), channels_.end(),
-                  [](const auto& a, const auto& b) {
-                      return a.index < b.index;
-                  });
-        record_size_ = 0;
-        for (auto& c : channels_) {
-            const auto bytes = c.storagebits / 8;
-            record_size_ = (record_size_ + bytes - 1) / bytes * bytes;
-            c.offset = record_size_;
-            record_size_ += bytes * c.repeat;
-        }
-
-        const auto accel = range(channels_[0], true);
-        const auto gyro = range(channels_[3], false);
-        if (!accel || !gyro || channels_[0].realbits != channels_[3].realbits) {
+        const auto layout = platform::linux::iio_detail::layout(channels_);
+        if (!layout) {
             cleanup();
             return Status::Unsupported;
         }
-        scale_ = {*accel, *gyro, 1U << (channels_[0].realbits - 1)};
+        record_size_ = *layout;
+
+        const auto accel =
+            platform::linux::iio_detail::physical_range(channels_[0], true);
+        const auto gyro =
+            platform::linux::iio_detail::physical_range(channels_[3], false);
+        if (!accel || !gyro || channels_[0].realbits != channels_[3].realbits ||
+            channels_[0].realbits > 32) {
+            cleanup();
+            return Status::Unsupported;
+        }
+        scale_ = {*accel, *gyro, static_cast<unsigned int>(
+                                      1ULL << (channels_[0].realbits - 1))};
 
         std::string old;
-        read_text(sysfs_ + "/buffer/enable", old);
+        if (!read_text(sysfs_ + "/buffer/enable", old)) {
+            cleanup();
+            return Status::TransportError;
+        }
         old_buffer_ = old;
-        write_text(sysfs_ + "/buffer/enable", "0");
-        for (const auto& c : channels_) {
+        if (!write_text(sysfs_ + "/buffer/enable", "0")) {
+            cleanup();
+            return Status::TransportError;
+        }
+
+        const auto scan_elements = sysfs_ + "/scan_elements";
+        std::error_code ec;
+        for (std::filesystem::directory_iterator it(scan_elements, ec), end;
+             !ec && it != end; it.increment(ec)) {
+            const auto filename = it->path().filename().string();
+            if (!filename.ends_with("_en")) continue;
             std::string state;
-            read_text(sysfs_ + "/scan_elements/" + c.name + "_en", state);
-            old_enable_.push_back(state);
+            const auto path = it->path().string();
+            if (!read_text(path, state)) {
+                cleanup();
+                return Status::TransportError;
+            }
+            old_enable_.emplace_back(path, state);
+            if (!write_text(path, "0")) {
+                cleanup();
+                return Status::TransportError;
+            }
+        }
+        if (ec) {
+            cleanup();
+            return Status::TransportError;
+        }
+        for (const auto& c : channels_) {
             if (!write_text(sysfs_ + "/scan_elements/" + c.name + "_en", "1")) {
                 cleanup();
                 return Status::TransportError;
@@ -234,6 +287,7 @@ public:
             cleanup();
             return Status::Unsupported;
         }
+        trigger_saved_ = true;
         std::string trigger = old_trigger_;
         if (entry_->trigger.kind == platform::linux::SelectorKind::Name)
             trigger = entry_->trigger.name;
@@ -269,7 +323,9 @@ public:
 
         std::array<int, 6> values{};
         for (std::size_t i = 0; i < channels_.size(); ++i)
-            values[i] = static_cast<int>(extract(record, channels_[i]));
+            values[i] = static_cast<int>(
+                platform::linux::iio_detail::extract_value(record,
+                                                           channels_[i]));
         acceleration = {values[0], values[1], values[2]};
         rotation = {values[3], values[4], values[5]};
         return Status::Ok;
@@ -297,26 +353,12 @@ public:
     }
 
 private:
-    std::optional<unsigned int> range(const Channel& c, bool acceleration) {
-        const long double counts = std::ldexp(1.0L, c.realbits - 1);
-        const long double physical =
-            c.scale * counts /
-            (acceleration ? 9.80665L : (3.14159265358979323846L / 180.0L));
-        const auto rounded = std::llround(physical);
-        if (rounded <= 0 ||
-            std::fabs((physical - rounded) / physical) > 0.0001L)
-            return {};
-        return static_cast<unsigned int>(rounded);
-    }
-
     void cleanup() {
         if (!sysfs_.empty()) {
             write_text(sysfs_ + "/buffer/enable", "0");
-            for (std::size_t i = 0;
-                 i < channels_.size() && i < old_enable_.size(); ++i)
-                write_text(sysfs_ + "/scan_elements/" + channels_[i].name + "_en",
-                           old_enable_[i]);
-            if (!old_trigger_.empty())
+            for (const auto& saved : old_enable_)
+                write_text(saved.first, saved.second);
+            if (trigger_saved_)
                 write_text(sysfs_ + "/trigger/current_trigger", old_trigger_);
             if (!old_buffer_.empty() && old_buffer_ != "0")
                 write_text(sysfs_ + "/buffer/enable", old_buffer_);
@@ -326,6 +368,8 @@ private:
         initialized_ = false;
         channels_.clear();
         old_enable_.clear();
+        trigger_saved_ = false;
+        old_trigger_.clear();
         sysfs_.clear();
     }
 
@@ -335,8 +379,9 @@ private:
     std::string device_;
     std::string sysfs_;
     std::string old_trigger_;
+    bool trigger_saved_ = false;
     std::string old_buffer_;
-    std::vector<std::string> old_enable_;
+    std::vector<std::pair<std::string, std::string>> old_enable_;
     std::vector<Channel> channels_;
     std::size_t record_size_ = 0;
     mm::imu::Scale scale_{};
@@ -345,5 +390,53 @@ private:
 LinuxImu imu;
 struct Register { Register() { mm::imu::set_imu(imu); } };
 const Register registered;
+
+}
+
+namespace platform::linux::iio_detail {
+
+bool parse_scan_type(std::string_view text, Channel& channel) {
+    return ::scan_type(text, channel);
+}
+
+std::optional<std::size_t> layout(std::span<Channel> channels) {
+    std::vector<std::size_t> order(channels.size());
+    for (std::size_t i = 0; i < order.size(); ++i) order[i] = i;
+    std::sort(order.begin(), order.end(), [&](auto a, auto b) {
+        return channels[a].index < channels[b].index;
+    });
+    for (std::size_t i = 1; i < order.size(); ++i)
+        if (channels[order[i - 1]].index == channels[order[i]].index)
+            return {};
+
+    std::size_t size = 0;
+    for (const auto position : order) {
+        auto& channel = channels[position];
+        const auto bytes = channel.storagebits / 8;
+        if (bytes == 0) return {};
+        size = (size + bytes - 1) / bytes * bytes;
+        channel.offset = size;
+        size += bytes * channel.repeat;
+    }
+    return size;
+}
+
+std::int64_t extract_value(std::span<const std::byte> record,
+                           const Channel& channel) {
+    return ::extract(record, channel);
+}
+
+std::optional<unsigned int> physical_range(const Channel& channel,
+                                           bool acceleration) {
+    const long double counts = std::ldexp(1.0L, channel.realbits - 1);
+    const long double physical = channel.scale * counts /
+        (acceleration ? 9.80665L :
+                        (3.14159265358979323846L / 180.0L));
+    const auto rounded = std::llround(physical);
+    if (rounded <= 0 ||
+        std::fabs((physical - rounded) / physical) > 0.0001L)
+        return {};
+    return static_cast<unsigned int>(rounded);
+}
 
 }

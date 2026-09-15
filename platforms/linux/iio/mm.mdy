@@ -6,7 +6,6 @@ module: platform.linux.imu
 use: mm.imu
 use: platform.linux.map
 file: imu.cppm
-option: buildable-host no
 ---
 
 # platform.linux.imu

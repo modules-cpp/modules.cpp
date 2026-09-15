@@ -5,7 +5,6 @@ name: linux-stdio
 module: platform.linux.stdio
 use: mm.stdio
 file: stdio.cppm
-option: buildable-host no
 ---
 
 # platform.linux.stdio

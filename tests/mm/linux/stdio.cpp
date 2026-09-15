@@ -4,6 +4,8 @@
 #include <csignal>
 
 import mm.test;
+import mm.stdio;
+import platform.linux.stdio;
 
 namespace {
 
@@ -26,9 +28,8 @@ void stdio_initialize_sets_sigpipe_to_ignore() {
     reset_action.sa_handler = SIG_DFL;
     sigaction(SIGPIPE, &reset_action, nullptr);
 
-    // Linux stdio initialization contract: sets SIGPIPE to SIG_IGN
-    const auto previous = ::signal(SIGPIPE, SIG_IGN);
-    expect(previous != SIG_ERR, "setting SIGPIPE to SIG_IGN succeeds");
+    expect(mm::stdio::selected_console().initialize() == mm::stdio::Status::Ok,
+           "Linux console initialization succeeds");
 
     struct sigaction current_pipe{};
     sigaction(SIGPIPE, nullptr, &current_pipe);
