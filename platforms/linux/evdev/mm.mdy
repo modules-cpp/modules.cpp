@@ -1,0 +1,15 @@
+---
+mm: 1.2
+kind: module
+name: linux-touch
+module: platform.linux.touch
+use: mm.touch
+use: platform.linux.map
+file: touch.cppm
+option: buildable-host no
+---
+
+# platform.linux.touch
+
+Linux evdev touch and pointer input with type-B multitouch, legacy absolute,
+and relative-pointer decoding.

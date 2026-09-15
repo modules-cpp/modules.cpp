@@ -120,6 +120,7 @@ mm::imu::Status Sensor::from_mcu(mm::mcu::Status status) const {
         case mm::mcu::Status::Unsupported: return mm::imu::Status::Unsupported;
         case mm::mcu::Status::Busy: return mm::imu::Status::Busy;
         case mm::mcu::Status::Timeout: return mm::imu::Status::Timeout;
+        case mm::mcu::Status::TransportError: return mm::imu::Status::TransportError;
     }
     return mm::imu::Status::TransportError;
 }

@@ -1,0 +1,15 @@
+---
+mm: 1.2
+kind: module
+name: linux-rtc
+module: platform.linux.rtc
+use: mm.rtc
+use: platform.linux.map
+file: rtc.cppm
+option: buildable-host no
+---
+
+# platform.linux.rtc
+
+Linux RTC character-device support with a CLOCK_REALTIME fallback and explicit
+voltage-latch trust semantics.

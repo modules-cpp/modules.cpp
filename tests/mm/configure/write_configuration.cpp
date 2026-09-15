@@ -543,6 +543,20 @@ const mm::test::case_ cases[] = {
     {"probes C compiler", &probes_c_compiler},
     {"writes and preserves C compiler configuration", &writes_and_preserves_c_compiler_configuration},
     {"writes cross-link external configuration", &writes_cross_link_external_configuration},
+    {"native runner profile", +[] {
+        mm::configure::PlatformSettings linux;
+        linux.system = mm::configure::PlatformSystem::Linux;
+        const auto runner = mm::configure::runner_profile(
+            "native", "aarch64-linux-gnu", &linux);
+        mm::test::expect(runner && runner->invocation == "/usr/bin/env" &&
+                             runner->image == mm::configure::RunnerImage::Positional &&
+                             runner->forwards_arguments,
+                         "native runner directly forwards a hosted image and arguments");
+        linux.system = mm::configure::PlatformSystem::BareMetal;
+        mm::test::expect(!mm::configure::runner_profile(
+                             "native", "arm-none-eabi", &linux),
+                         "native runner refuses a bare-metal platform");
+    }},
 };
 
 const mm::test::registrar reg{"mm.configure write_configuration", cases};

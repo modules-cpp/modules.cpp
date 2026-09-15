@@ -59,6 +59,7 @@ mm::rtc::Status Clock::from_mcu(mm::mcu::Status status) const {
         case mm::mcu::Status::Unsupported: return mm::rtc::Status::Unsupported;
         case mm::mcu::Status::Busy: return mm::rtc::Status::Busy;
         case mm::mcu::Status::Timeout: return mm::rtc::Status::Timeout;
+        case mm::mcu::Status::TransportError: return mm::rtc::Status::TransportError;
     }
     return mm::rtc::Status::TransportError;
 }

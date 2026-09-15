@@ -565,6 +565,20 @@ int main(int argc, char** argv) {
         };
         settings.cross_runner.reset();
         if (!runners.empty() && runners.front() != "none") {
+            if (runners.front() == "native") {
+                if (!options.seen("--target-host")) {
+                    std::cerr << "configure: native runner requires --target-host\n";
+                    return mm::build::exit_usage;
+                }
+                const auto host_probe = mm::configure::probe_compiler(
+                    settings.host.invocation, run_driver_command);
+                if (!host_probe || host_probe->target_triple != target) {
+                    std::cerr << "configure: native runner target " << target
+                              << " does not match build machine target "
+                              << (host_probe ? host_probe->target_triple : "unknown") << "\n";
+                    return mm::build::exit_usage;
+                }
+            }
             settings.cross_runner = mm::configure::runner_profile(
                 runners.front(), target, &*settings.cross_platform);
             if (!settings.cross_runner) {

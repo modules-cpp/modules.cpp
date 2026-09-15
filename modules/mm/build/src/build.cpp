@@ -171,6 +171,10 @@ struct ProcessorEntry {
 };
 
 constexpr ProcessorEntry processor_table[] = {
+    {CompilerFamily::Gcc, "aarch64-linux-gnu", "aarch64", "native", "native",
+     "non-secure", {}},
+    {CompilerFamily::Gcc, "x86_64-linux-gnu", "x86_64", "native", "native",
+     "non-secure", {}},
     {CompilerFamily::Gcc, "arm-none-eabi", "cortex-m3", "thumb", "soft", "non-secure",
      {"-mcpu=cortex-m3", "-mthumb", "-mfloat-abi=soft"}},
     {CompilerFamily::Gcc, "arm-none-eabi", "cortex-m0plus", "thumb", "soft", "non-secure",
@@ -764,7 +768,18 @@ bool load_platform(const mm::mdy::MDYDocument& document,
     if (platform.board) {
         const auto* entry = find_processor_entry_by_arguments(
             platform.sdk_family, platform.target, platform.compiler_arguments);
-        if (platform.link_ownership == mm::configure::LinkOwnership::External) {
+        if (*parsed_system == mm::configure::PlatformSystem::Linux) {
+            if (!platform.linker_script.empty()) {
+                std::cerr << "build: hosted board cannot declare linker script in "
+                          << path.string() << "\n";
+                return false;
+            }
+            if (entry == nullptr) {
+                std::cerr << "build: unknown processor combination for hosted board "
+                          << *platform.board << " in " << path.string() << "\n";
+                return false;
+            }
+        } else if (platform.link_ownership == mm::configure::LinkOwnership::External) {
             if (*parsed_system != mm::configure::PlatformSystem::BareMetal) {
                 std::cerr << "build: board platform requires bare-metal system in "
                           << path.string() << "\n";
@@ -1990,7 +2005,20 @@ bool parse_definitions(Project& project, const std::filesystem::path& root,
                 if (candidate.name == sdk->library) library = &candidate;
         }
         const bool external = library != nullptr && !library->external_build.empty();
-        if (external) {
+        const bool bare_metal = mm::configure::target_system(sdk->target) ==
+                                mm::configure::PlatformSystem::BareMetal;
+        if (!bare_metal) {
+            if (!board.linker_script.empty()) {
+                std::cerr << policy.tool << ": " << board.manifest.string()
+                          << ": hosted board cannot declare linker-script\n";
+                return false;
+            }
+            if (!board.provides.empty()) {
+                std::cerr << policy.tool << ": " << board.manifest.string()
+                          << ": hosted board cannot declare provides\n";
+                return false;
+            }
+        } else if (external) {
             if (!board.linker_script.empty()) {
                 const BoardDefinition* declaring = &board;
                 for (const auto& ancestor_name : board.chain) {

@@ -1,0 +1,15 @@
+---
+mm: 1.2
+kind: module
+name: linux-display
+module: platform.linux.display
+use: mm.display
+use: platform.linux.map
+file: display.cppm
+option: buildable-host no
+---
+
+# platform.linux.display
+
+A direct Linux DRM/KMS RGB565 display provider with a shadow buffer and
+explicit full-refresh publication.

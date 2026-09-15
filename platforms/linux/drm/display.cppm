@@ -1,0 +1,379 @@
+// Pawel Wodnicki (C) 2026
+// 32bitmicro LLC (C) 2026
+module;
+
+#include <algorithm>
+#include <cerrno>
+#include <cstddef>
+#include <cstdint>
+#include <cstring>
+#include <drm/drm.h>
+#include <drm/drm_mode.h>
+#include <fcntl.h>
+#include <span>
+#include <string>
+#include <sys/ioctl.h>
+#include <sys/mman.h>
+#include <unistd.h>
+#include <vector>
+
+export module platform.linux.display;
+
+import mm.display;
+import platform.linux.map;
+
+namespace {
+
+using Status = mm::display::Status;
+constexpr std::uint32_t connected_connector = 1;
+
+Status failure(int value, bool explicit_path = true) {
+    if ((value == ENOENT || value == ENODEV) && !explicit_path)
+        return Status::Unsupported;
+    if ((value == ENOENT || value == ENODEV) && explicit_path)
+        return Status::BadArgument;
+    if (value == EACCES || value == EPERM) return Status::TransportError;
+    if (value == EBUSY) return Status::Busy;
+    if (value == ETIMEDOUT) return Status::Timeout;
+    return Status::TransportError;
+}
+
+inline std::uint32_t rgb565_to_xrgb8888(std::uint8_t high, std::uint8_t low) {
+    const std::uint16_t pixel =
+        (static_cast<std::uint16_t>(high) << 8) | low;
+    const std::uint32_t r = (pixel >> 11) & 0x1f;
+    const std::uint32_t g = (pixel >> 5) & 0x3f;
+    const std::uint32_t b = pixel & 0x1f;
+    const std::uint32_t r8 = (r * 255 + 15) / 31;
+    const std::uint32_t g8 = (g * 255 + 31) / 63;
+    const std::uint32_t b8 = (b * 255 + 15) / 31;
+    return (r8 << 16) | (g8 << 8) | b8;
+}
+
+class LinuxDisplay final : public mm::display::Display {
+public:
+    ~LinuxDisplay() override { release(); }
+
+    [[nodiscard]] mm::display::Geometry geometry() const override {
+        return {width_, height_, 16};
+    }
+
+    [[nodiscard]] Status initialize() override {
+        release();
+        const auto& resolved = platform::linux::resolve();
+        if (resolved.status != platform::linux::MapStatus::Ok ||
+            !resolved.map)
+            return Status::BadArgument;
+        entry_ = &resolved.map->display;
+
+        const auto path = card_path(entry_->card);
+        const bool explicit_path =
+            entry_->card.kind != platform::linux::SelectorKind::Auto;
+        fd_ = ::open(path.c_str(), O_RDWR | O_CLOEXEC);
+        if (fd_ < 0) return failure(errno, explicit_path);
+
+        if (::ioctl(fd_, DRM_IOCTL_SET_MASTER, 0) < 0) {
+            const auto result = failure(errno, explicit_path);
+            release();
+            return result;
+        }
+        master_ = true;
+
+        drm_mode_card_res resources{};
+        if (::ioctl(fd_, DRM_IOCTL_MODE_GETRESOURCES, &resources) < 0)
+            return failed();
+
+        std::vector<std::uint32_t> connectors(resources.count_connectors);
+        std::vector<std::uint32_t> encoders(resources.count_encoders);
+        std::vector<std::uint32_t> crtcs(resources.count_crtcs);
+        resources.connector_id_ptr =
+            reinterpret_cast<std::uintptr_t>(connectors.data());
+        resources.encoder_id_ptr =
+            reinterpret_cast<std::uintptr_t>(encoders.data());
+        resources.crtc_id_ptr =
+            reinterpret_cast<std::uintptr_t>(crtcs.data());
+        if (::ioctl(fd_, DRM_IOCTL_MODE_GETRESOURCES, &resources) < 0)
+            return failed();
+
+        std::size_t connector_index = 0;
+        if (entry_->connector.kind == platform::linux::SelectorKind::Index)
+            connector_index = entry_->connector.index;
+
+        bool found = false;
+        drm_mode_get_connector connector{};
+        std::vector<drm_mode_modeinfo> modes;
+        for (std::size_t i = 0; i < connectors.size(); ++i) {
+            if (entry_->connector.kind == platform::linux::SelectorKind::Index &&
+                i != connector_index)
+                continue;
+            connector = {};
+            connector.connector_id = connectors[i];
+            if (::ioctl(fd_, DRM_IOCTL_MODE_GETCONNECTOR, &connector) < 0)
+                continue;
+            modes.resize(connector.count_modes);
+            connector.modes_ptr =
+                reinterpret_cast<std::uintptr_t>(modes.data());
+            if (::ioctl(fd_, DRM_IOCTL_MODE_GETCONNECTOR, &connector) < 0)
+                continue;
+            if (connector.connection == connected_connector &&
+                connector.count_modes > 0) {
+                connector_id_ = connector.connector_id;
+                found = true;
+                break;
+            }
+        }
+        if (!found) { release(); return Status::Unsupported; }
+
+        std::size_t mode_index = 0;
+        if (entry_->mode.kind == platform::linux::SelectorKind::Index)
+            mode_index = entry_->mode.index;
+        if (mode_index >= modes.size()) {
+            release();
+            return Status::BadArgument;
+        }
+        mode_ = modes[mode_index];
+
+        if (entry_->mode.kind == platform::linux::SelectorKind::Name) {
+            found = false;
+            for (const auto& mode : modes) {
+                if (entry_->mode.name == mode.name) {
+                    mode_ = mode;
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) { release(); return Status::BadArgument; }
+        }
+
+        drm_mode_get_encoder encoder{};
+        encoder.encoder_id = connector.encoder_id;
+        if (encoder.encoder_id &&
+            ::ioctl(fd_, DRM_IOCTL_MODE_GETENCODER, &encoder) == 0)
+            crtc_id_ = encoder.crtc_id;
+        if (!crtc_id_ && !crtcs.empty()) crtc_id_ = crtcs.front();
+        if (!crtc_id_) { release(); return Status::Unsupported; }
+
+        saved_ = {};
+        saved_.crtc_id = crtc_id_;
+        saved_valid_ = ::ioctl(fd_, DRM_IOCTL_MODE_GETCRTC, &saved_) == 0;
+
+        saved_connectors_.clear();
+        for (const auto id : connectors) {
+            drm_mode_get_connector item{};
+            item.connector_id = id;
+            if (::ioctl(fd_, DRM_IOCTL_MODE_GETCONNECTOR, &item) < 0 ||
+                !item.encoder_id)
+                continue;
+            drm_mode_get_encoder enc{};
+            enc.encoder_id = item.encoder_id;
+            if (::ioctl(fd_, DRM_IOCTL_MODE_GETENCODER, &enc) == 0 &&
+                enc.crtc_id == crtc_id_)
+                saved_connectors_.push_back(id);
+        }
+
+        width_ = entry_->width ? entry_->width : mode_.hdisplay;
+        height_ = entry_->height ? entry_->height : mode_.vdisplay;
+        if (width_ > mode_.hdisplay || height_ > mode_.vdisplay) {
+            release();
+            return Status::BadArgument;
+        }
+
+        drm_mode_create_dumb create{};
+        create.width = mode_.hdisplay;
+        create.height = mode_.vdisplay;
+        create.bpp = 32;
+        if (::ioctl(fd_, DRM_IOCTL_MODE_CREATE_DUMB, &create) < 0)
+            return failed();
+        handle_ = create.handle;
+        pitch_ = create.pitch;
+        size_ = create.size;
+
+        drm_mode_fb_cmd fb{};
+        fb.width = mode_.hdisplay;
+        fb.height = mode_.vdisplay;
+        fb.pitch = pitch_;
+        fb.bpp = 32;
+        fb.depth = 24;
+        fb.handle = handle_;
+        if (::ioctl(fd_, DRM_IOCTL_MODE_ADDFB, &fb) < 0) return failed();
+        fb_id_ = fb.fb_id;
+
+        drm_mode_map_dumb map{};
+        map.handle = handle_;
+        if (::ioctl(fd_, DRM_IOCTL_MODE_MAP_DUMB, &map) < 0) return failed();
+        mapping_ = ::mmap(nullptr, size_, PROT_READ | PROT_WRITE,
+                          MAP_SHARED, fd_, map.offset);
+        if (mapping_ == MAP_FAILED) {
+            mapping_ = nullptr;
+            return failed();
+        }
+
+        shadow_.assign(static_cast<std::size_t>(width_) * height_ * 2,
+                       std::byte{});
+        initialized_ = true;
+        return Status::Ok;
+    }
+
+    [[nodiscard]] Status clear(mm::display::Color color) override {
+        if (!initialized_) return Status::NotInitialized;
+        std::uint16_t pixel = 0;
+        if (color == mm::display::Color::White) pixel = 0xffff;
+        else if (color == mm::display::Color::Red) pixel = 0xf800;
+        const auto high = static_cast<std::byte>((pixel >> 8) & 0xff);
+        const auto low = static_cast<std::byte>(pixel & 0xff);
+        for (std::size_t i = 0; i < shadow_.size(); i += 2) {
+            shadow_[i] = high;
+            shadow_[i + 1] = low;
+        }
+        return Status::Ok;
+    }
+
+    [[nodiscard]] Status write(mm::display::Rectangle rectangle,
+                               std::span<const std::byte> data) override {
+        if (!initialized_) return Status::NotInitialized;
+        if (rectangle.width == 0 || rectangle.height == 0 ||
+            rectangle.x + rectangle.width > width_ ||
+            rectangle.y + rectangle.height > height_ ||
+            data.size() != static_cast<std::size_t>(rectangle.width) *
+                               rectangle.height * 2)
+            return Status::BadArgument;
+
+        for (unsigned int row = 0; row < rectangle.height; ++row) {
+            const auto source = data.subspan(
+                static_cast<std::size_t>(row) * rectangle.width * 2,
+                static_cast<std::size_t>(rectangle.width) * 2);
+            auto target = std::span{shadow_}.subspan(
+                (static_cast<std::size_t>(rectangle.y + row) * width_ +
+                 rectangle.x) * 2,
+                source.size());
+            std::copy(source.begin(), source.end(), target.begin());
+        }
+        return Status::Ok;
+    }
+
+    [[nodiscard]] Status refresh(mm::display::Refresh refresh) override {
+        if (!initialized_) return Status::NotInitialized;
+        if (refresh == mm::display::Refresh::Partial)
+            return Status::Unsupported;
+
+        const unsigned int offset_x =
+            (mode_.hdisplay > width_) ? (mode_.hdisplay - width_) / 2 : 0;
+        const unsigned int offset_y =
+            (mode_.vdisplay > height_) ? (mode_.vdisplay - height_) / 2 : 0;
+        auto* scanout = static_cast<std::uint8_t*>(mapping_);
+        for (unsigned int y = 0; y < height_; ++y) {
+            auto* row_dst = reinterpret_cast<std::uint32_t*>(
+                scanout +
+                static_cast<std::size_t>(offset_y + y) * pitch_ +
+                static_cast<std::size_t>(offset_x) * 4);
+            for (unsigned int x = 0; x < width_; ++x) {
+                const std::size_t src_idx =
+                    (static_cast<std::size_t>(y) * width_ + x) * 2;
+                const auto high =
+                    static_cast<std::uint8_t>(shadow_[src_idx]);
+                const auto low =
+                    static_cast<std::uint8_t>(shadow_[src_idx + 1]);
+                row_dst[x] = rgb565_to_xrgb8888(high, low);
+            }
+        }
+
+        drm_mode_crtc command{};
+        command.crtc_id = crtc_id_;
+        command.fb_id = fb_id_;
+        command.set_connectors_ptr =
+            reinterpret_cast<std::uintptr_t>(&connector_id_);
+        command.count_connectors = 1;
+        command.mode = mode_;
+        command.mode_valid = 1;
+        if (::ioctl(fd_, DRM_IOCTL_MODE_SETCRTC, &command) < 0)
+            return failure(errno);
+        active_ = true;
+        return Status::Ok;
+    }
+
+    [[nodiscard]] Status sleep() override {
+        if (!initialized_) return Status::NotInitialized;
+        restore();
+        return Status::Ok;
+    }
+
+private:
+    std::string card_path(const platform::linux::Selector& selector) const {
+        if (selector.kind == platform::linux::SelectorKind::Name)
+            return selector.name;
+        if (selector.kind == platform::linux::SelectorKind::Index)
+            return "/dev/dri/card" + std::to_string(selector.index);
+        return "/dev/dri/card0";
+    }
+
+    Status failed() {
+        const auto value = errno;
+        release();
+        return failure(value);
+    }
+
+    void restore() {
+        if (fd_ < 0) return;
+        if (saved_valid_ && active_) {
+            saved_.set_connectors_ptr =
+                reinterpret_cast<std::uintptr_t>(saved_connectors_.data());
+            saved_.count_connectors = saved_connectors_.size();
+            ::ioctl(fd_, DRM_IOCTL_MODE_SETCRTC, &saved_);
+        }
+        active_ = false;
+        if (master_) {
+            ::ioctl(fd_, DRM_IOCTL_DROP_MASTER, 0);
+            master_ = false;
+        }
+    }
+
+    void release() {
+        if (fd_ < 0) return;
+        restore();
+        if (mapping_) {
+            ::munmap(mapping_, size_);
+            mapping_ = nullptr;
+        }
+        if (fb_id_) {
+            std::uint32_t id = fb_id_;
+            ::ioctl(fd_, DRM_IOCTL_MODE_RMFB, &id);
+            fb_id_ = 0;
+        }
+        if (handle_) {
+            drm_mode_destroy_dumb destroy{};
+            destroy.handle = handle_;
+            ::ioctl(fd_, DRM_IOCTL_MODE_DESTROY_DUMB, &destroy);
+            handle_ = 0;
+        }
+        ::close(fd_);
+        fd_ = -1;
+        initialized_ = false;
+        shadow_.clear();
+    }
+
+    const platform::linux::DisplayEntry* entry_ = nullptr;
+    int fd_ = -1;
+    bool master_ = false;
+    bool initialized_ = false;
+    bool active_ = false;
+    bool saved_valid_ = false;
+    unsigned int width_ = 0;
+    unsigned int height_ = 0;
+    std::uint32_t connector_id_ = 0;
+    std::uint32_t crtc_id_ = 0;
+    std::uint32_t fb_id_ = 0;
+    std::uint32_t handle_ = 0;
+    std::uint32_t pitch_ = 0;
+    std::uint64_t size_ = 0;
+    void* mapping_ = nullptr;
+    drm_mode_modeinfo mode_{};
+    drm_mode_crtc saved_{};
+    std::vector<std::uint32_t> saved_connectors_;
+    std::vector<std::byte> shadow_;
+};
+
+LinuxDisplay display;
+struct Register { Register() { mm::display::set_display(display); } };
+const Register registered;
+
+}

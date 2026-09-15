@@ -592,3 +592,18 @@ record a skipped qualification with the missing prerequisite named.
 - It does not yet remove private C linkage at a vendor SDK boundary where the
   SDK itself is C. The portable application and provider contract remain pure
   C++ even when a provider delegates to such an adapter.
+
+# Hosted Linux provider
+
+platform.linux.mcu implements the same pure C++ Platform seam through Linux
+kernel character devices. A provider method without initialize resolves its
+device map on its first call. A syntactically invalid map makes board() empty
+and operations return BadArgument; an invalid entry is confined to its instance.
+
+Status::TransportError distinguishes a present transport that failed from
+Unsupported, which means the facility or instance is absent. EACCES and EPERM
+are transport failures, EBUSY is Busy, ETIMEDOUT is Timeout, an explicitly
+named missing path is BadArgument, and an auto-discovered missing device is
+Unsupported. A caller field rejected by a configuration ioctl is BadArgument;
+an internal ioctl rejecting its own argument is TransportError. Fields a Linux
+kernel API cannot apply are checked and rejected, never silently ignored.

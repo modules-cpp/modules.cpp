@@ -1,0 +1,13 @@
+---
+mm: 1.2
+kind: module
+name: generic-linux-aarch64-map
+module: platform.linux.generic_aarch64.map
+use: platform.linux.map
+file: map.cppm
+option: buildable-host no
+---
+
+# platform.linux.generic_aarch64.map
+
+Board-specific defaults for the generic native AArch64 Linux board.

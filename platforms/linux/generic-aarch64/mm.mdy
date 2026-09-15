@@ -1,0 +1,12 @@
+---
+mm: 1.0
+kind: dir
+name: generic-linux-aarch64-platform
+folder: board
+folder: map
+---
+
+# Generic native AArch64 Linux board
+
+A hosted-board fixture proving that a board can override the SDK's device-map
+provider without acquiring bare-metal linker or responsibility requirements.

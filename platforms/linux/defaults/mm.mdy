@@ -1,0 +1,14 @@
+---
+mm: 1.2
+kind: module
+name: linux-defaults
+module: platform.linux.defaults
+use: platform.linux.map
+file: defaults.cppm
+option: buildable-host no
+---
+
+# platform.linux.defaults
+
+The generic Linux device map. It names the platform and leaves optional kernel
+devices undiscovered; MM_LINUX_DEVICE_MAP can add or replace individual fields.

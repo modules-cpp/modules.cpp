@@ -164,6 +164,9 @@ Closing fence
 - No automated test asserts that bytes appeared at a host terminal.
 - A connected full write count is not an end-to-end delivery acknowledgement,
   because Pico SDK exposes no byte count from its timeout-capable USB callback.
-- No console provider exists yet for project-linked boards or hosted targets.
+- platform.linux.stdio provides a hosted Linux console through descriptors zero
+  and one. It installs SIG_IGN for SIGPIPE, tracks output and input loss
+  independently, and reports output connectivity without consulting a device
+  map. Project-linked bare-metal boards still have no console provider.
 - USB classes other than CDC, USB host mode, and reset-to-BOOTSEL are outside
   mm.stdio.

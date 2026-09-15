@@ -184,6 +184,9 @@ void transport_failure_reaches_the_caller() {
     std::size_t count = 0;
     expect(controller.read(points, count) == Status::Busy,
            "a busy bus is reported as busy rather than as no contact");
+    mm_test_touch_force(mm::mcu::Status::TransportError);
+    expect(controller.read(points, count) == Status::TransportError,
+           "an MCU transport error is mapped explicitly");
     mm_test_touch_force(mm::mcu::Status::Ok);
 }
 

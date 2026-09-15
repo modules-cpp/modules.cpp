@@ -1,0 +1,15 @@
+---
+mm: 1.2
+kind: board
+name: generic-linux-aarch64
+sdk: linux-aarch64
+cpu: aarch64
+instruction-set: native
+float-abi: native
+platform-provider: platform.linux.map platform.linux.generic_aarch64.map
+---
+
+# generic-linux-aarch64
+
+The generic hosted AArch64 board. It supplies no sources, linker script, or
+bare-metal responsibilities and differs from the SDK only in its named map.

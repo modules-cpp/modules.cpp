@@ -1,0 +1,13 @@
+---
+mm: 1.2
+kind: module
+name: linux-stdio
+module: platform.linux.stdio
+use: mm.stdio
+file: stdio.cppm
+option: buildable-host no
+---
+
+# platform.linux.stdio
+
+The hosted Linux console over file descriptors zero and one.

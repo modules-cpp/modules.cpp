@@ -1,0 +1,18 @@
+---
+mm: 1.2
+kind: app
+name: linux-smoke
+use: mm.mcu
+use: mm.display
+use: mm.touch
+use: mm.rtc
+use: mm.stdio
+use: mm.imu
+file: main.cpp
+option: buildable-host no
+---
+
+# linux-smoke
+
+Exercises each Linux platform interface. Optional absent facilities are not a
+failure; a facility which is present but cannot complete its operation is.

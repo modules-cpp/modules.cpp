@@ -1,0 +1,14 @@
+---
+mm: 1.2
+kind: module
+name: linux-map
+module: platform.linux.map
+platform-interface:
+file: map.cppm
+file: src/map.cpp
+---
+
+# platform.linux.map
+
+Portable Linux device-map types, parser, and process-lifetime resolution. The
+module uses only standard-library headers and remains buildable outside Linux.

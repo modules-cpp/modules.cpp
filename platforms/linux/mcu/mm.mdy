@@ -1,0 +1,15 @@
+---
+mm: 1.2
+kind: module
+name: linux-mcu
+module: platform.linux.mcu
+use: mm.mcu
+use: platform.linux.map
+file: mcu.cppm
+option: buildable-host no
+---
+
+# platform.linux.mcu
+
+Linux kernel implementations of mm.mcu GPIO, SPI, I2C, UART, and monotonic
+time. Device identity and applicable wiring come from platform.linux.map.

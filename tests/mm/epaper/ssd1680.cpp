@@ -270,6 +270,11 @@ void stops_after_a_transport_error() {
            "the MCU transport status reaches the display caller");
     expect(mm_test_epaper_transcript_size() == 0,
            "initialization emits no command after configuration fails");
+    mm_test_epaper_reset();
+    mm_test_epaper_force(mm::mcu::Status::TransportError);
+    mm::epaper::ssd1680::Controller disconnected{wiring(), panel()};
+    expect(disconnected.initialize() == mm::display::Status::TransportError,
+           "an MCU transport error is mapped explicitly");
 }
 
 const mm::test::case_ cases[] = {

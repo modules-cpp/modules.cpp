@@ -53,7 +53,7 @@ std::string_view responsibility_name(Responsibility responsibility) {
 
 std::optional<PlatformSystem> target_system(std::string_view target) {
     if (target == "m68k-linux-gnu" || target == "aarch64-linux-gnu" ||
-        target == "arm-linux-gnueabihf")
+        target == "arm-linux-gnueabihf" || target == "x86_64-linux-gnu")
         return PlatformSystem::Linux;
     if (target == "arm-none-eabi" || target == "riscv32-pico-elf")
         return PlatformSystem::BareMetal;
@@ -256,7 +256,8 @@ void write_platform(std::ostream& out, const PlatformSettings& platform) {
         for (const auto& base : platform.board_derives_from)
             out << "cross-board-derives-from: " << base << '\n';
         if (!platform.machine.empty()) out << "cross-board-machine: " << platform.machine << '\n';
-        if (platform.link_ownership != LinkOwnership::External) {
+        if (platform.link_ownership != LinkOwnership::External &&
+            !platform.linker_script.empty()) {
             out << "cross-board-linker-script: " << platform.linker_script.generic_string() << '\n';
         }
         for (const auto& source : platform.board_sources)
@@ -471,6 +472,12 @@ bool valid_target_triple(std::string_view value) {
 std::optional<RunnerSettings> runner_profile(std::string_view profile,
                                              std::string_view target,
                                              const PlatformSettings* platform) {
+    if (profile == "native" && platform != nullptr &&
+        platform->system == PlatformSystem::Linux) {
+        RunnerSettings runner;
+        runner.invocation = "/usr/bin/env";
+        return runner;
+    }
     if (profile == "qemu-user" && target == "m68k-linux-gnu") {
         RunnerSettings runner;
         runner.invocation = "qemu-m68k";

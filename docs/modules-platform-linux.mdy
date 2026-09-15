@@ -1,0 +1,66 @@
+---
+mm: 1.0
+kind: doc
+name: modules.cpp Linux platform specification
+status: official
+release: v1.2.0
+---
+
+# modules.cpp Linux platform specification
+
+# Status and authority
+
+This document specifies the implemented native hosted Linux target lane and its
+platform providers. docs/modules-platforms.mdy owns SDK selection and provider
+injection; this document owns the Linux mappings from portable interfaces to
+libc and Linux UAPI operations.
+
+# Lane
+
+linux-aarch64 and linux-x86_64 are hosted SDKs without boards or runtime
+prefixes. Configure selects one with --target-host and may select runner native.
+The native runner is accepted only when the target triple equals the build
+machine compiler's target triple, then executes the image through /usr/bin/env
+with application arguments forwarded.
+
+# Device map
+
+platform.linux.map is a portable platform interface. The selected SDK binds
+platform.linux.defaults, and each device provider depends on the interface so
+fixed-point provider injection selects that one map provider. The first call to
+resolve samples MM_LINUX_DEVICE_MAP and caches the result for the process.
+
+The override is one `facility.instance.field = value` assignment per line.
+Whitespace and blank lines are ignored, # begins a comment outside quotes,
+integers are decimal or hexadecimal, booleans are yes/no, and strings are
+double quoted with only backslash and quote escapes. A duplicate key names both
+lines; an unknown key, malformed value, or named missing file is an error.
+Omitted fields retain compiled defaults. GPIO names default to gpio.N and an
+LED must name a GPIO in the authoritative inventory.
+
+# Providers
+
+- platform.linux.stdio uses descriptors zero and one with zero-timeout input
+  polling, partial output counts, ignored SIGPIPE, and separate sticky input and
+  output loss.
+- platform.linux.mcu uses GPIO-v2 line ioctls, spidev with SPI_NO_CS, I2C_RDWR,
+  nonblocking termios writes with a deadline, and CLOCK_MONOTONIC.
+- platform.linux.rtc uses RTC_RD_TIME, RTC_SET_TIME, RTC_VL_READ and RTC_VL_CLR,
+  or CLOCK_REALTIME when no RTC path is configured.
+- platform.linux.display uses legacy DRM/KMS dumb buffers. It publishes RGB565
+  only, keeps writes in a shadow buffer until Full refresh, and refuses Partial.
+- platform.linux.touch decodes type-B multitouch, legacy absolute touch, and
+  relative pointers. Type-A multitouch is refused.
+- platform.linux.imu obtains all six axes from one IIO buffered record. It
+  derives layout from scan types and scale from realbits plus the IIO scale.
+
+No provider silently maps a permission failure to Unsupported. No provider
+adds a third-party library or explicit link input.
+
+# Qualification
+
+Machine-independent parser, status, conversion, and decoder behavior belongs in
+unit tests. Device qualification depends on the running machine: absent devices
+are Unsupported, explicit stale paths are BadArgument, permission failures are
+TransportError, and held devices are Busy. linux-smoke exits non-zero only when
+a present facility fails.

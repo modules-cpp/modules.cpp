@@ -56,6 +56,7 @@ mm::display::Status Controller::from_mcu(mm::mcu::Status status) const {
         case mm::mcu::Status::Unsupported: return mm::display::Status::Unsupported;
         case mm::mcu::Status::Busy: return mm::display::Status::Busy;
         case mm::mcu::Status::Timeout: return mm::display::Status::Timeout;
+        case mm::mcu::Status::TransportError: return mm::display::Status::TransportError;
     }
     return mm::display::Status::TransportError;
 }

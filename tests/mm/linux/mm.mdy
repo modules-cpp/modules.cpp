@@ -1,0 +1,20 @@
+---
+mm: 1.2
+kind: test
+name: linux
+use: mm.test
+use: platform.linux.map
+unit: tests/mm/linux/map.cpp
+unit: tests/mm/linux/stdio.cpp
+unit: tests/mm/linux/drm.cpp
+unit: tests/mm/linux/evdev.cpp
+unit: tests/mm/linux/iio.cpp
+unit: tests/mm/linux/rtc.cpp
+unit: tests/mm/linux/mcu.cpp
+unit: tests/main.cpp
+option: core no
+---
+
+# Linux platform tests
+
+Machine-independent grammar, override, decoders, conversions, and contracts.

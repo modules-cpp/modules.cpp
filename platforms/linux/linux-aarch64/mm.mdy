@@ -1,0 +1,20 @@
+---
+mm: 1.2
+kind: sdk
+name: linux-aarch64
+target: aarch64-linux-gnu
+compiler-family: gcc
+runtime: glibc
+platform-provider: platform.linux.map platform.linux.defaults
+platform-provider: mm.stdio platform.linux.stdio
+platform-provider: mm.mcu platform.linux.mcu
+platform-provider: mm.rtc platform.linux.rtc
+platform-provider: mm.display platform.linux.display
+platform-provider: mm.touch platform.linux.touch
+platform-provider: mm.imu platform.linux.imu
+---
+
+# Native AArch64 Linux SDK
+
+The hosted AArch64 Linux lane. It intentionally has no runtime-prefix: the
+native compiler uses the running system's libc and loader.

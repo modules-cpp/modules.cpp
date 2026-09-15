@@ -54,6 +54,7 @@ mm::touch::Status Controller::from_mcu(mm::mcu::Status status) const {
         case mm::mcu::Status::Unsupported: return mm::touch::Status::Unsupported;
         case mm::mcu::Status::Busy: return mm::touch::Status::Busy;
         case mm::mcu::Status::Timeout: return mm::touch::Status::Timeout;
+        case mm::mcu::Status::TransportError: return mm::touch::Status::TransportError;
     }
     return mm::touch::Status::TransportError;
 }

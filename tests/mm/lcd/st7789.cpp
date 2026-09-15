@@ -241,6 +241,11 @@ void a_transport_failure_stops_the_controller() {
     mm_test_lcd_force(mm::mcu::Status::Ok);
     expect(controller.write({0, 0, 1, 1}, pixel) == Status::NotInitialized,
            "a controller whose panel state is unknown stops claiming to be ready");
+    mm_test_lcd_reset();
+    mm_test_lcd_force(mm::mcu::Status::TransportError);
+    mm::lcd::st7789::Controller disconnected{wiring(), panel()};
+    expect(disconnected.initialize() == Status::TransportError,
+           "an MCU transport error is mapped explicitly");
 }
 
 const mm::test::case_ cases[] = {

@@ -152,6 +152,9 @@ void transport_failure_reaches_the_caller() {
     mm::imu::Axes rotation;
     expect(sensor.read(acceleration, rotation) == Status::Busy,
            "a busy bus is reported rather than returning a stale sample");
+    mm_test_imu_force(mm::mcu::Status::TransportError);
+    expect(sensor.read(acceleration, rotation) == Status::TransportError,
+           "an MCU transport error is mapped explicitly");
     mm_test_imu_force(mm::mcu::Status::Ok);
 }
 

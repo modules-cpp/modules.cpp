@@ -163,6 +163,9 @@ void transport_failure_reaches_the_caller() {
     bool trusted = true;
     expect(clock.read(time, trusted) == Status::Timeout,
            "a timed-out bus is reported rather than returning a stale calendar");
+    mm_test_rtc_force(mm::mcu::Status::TransportError);
+    expect(clock.read(time, trusted) == Status::TransportError,
+           "an MCU transport error is mapped explicitly");
     mm_test_rtc_force(mm::mcu::Status::Ok);
 }
 

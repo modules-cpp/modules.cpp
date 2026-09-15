@@ -1,0 +1,15 @@
+---
+mm: 1.2
+kind: module
+name: linux-imu
+module: platform.linux.imu
+use: mm.imu
+use: platform.linux.map
+file: imu.cppm
+option: buildable-host no
+---
+
+# platform.linux.imu
+
+Linux IIO buffered six-axis acquisition. A device without a usable trigger or
+one-record accelerometer and angular-velocity scan is reported Unsupported.
