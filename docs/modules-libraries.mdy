@@ -45,9 +45,12 @@ libraries/demo/third_party/      the vendored tree, may be absent
 Closing fence
 
 A library that implements one platform lives with that platform rather than here.
-Pico SDK is the instance: every asset of it, vendored and project-authored, lives
+Pico SDK is one instance: every asset of it, vendored and project-authored, lives
 under platforms/pico/sdk, and docs/modules-platform-pico.mdy gives that layout and
-everything else about it.
+everything else about it. SDL2 is the other, under platforms/linux/sdl2, and shows
+that the rule is about what a library serves rather than how it was obtained: its
+source is a record of an installed system package rather than a vendored checkout,
+and it belongs with its platform for the same reason.
 
 The project root manifest declares folder: libraries. libraries/mm.mdy declares option: core no with read-only: core once, and inheritance marks the whole branch non-core, so a wrapper cannot be mistaken for core code and no descendant can declare itself core again. A wrapper living with its platform instead needs the same declaration on a kind: dir of its own, because option and read-only are rejected on library, sdk, and board manifests; platforms/pico/sdk/mm.mdy is that node for Pico SDK. Without it the tree does not load: the wrapper is core, and a core node declaring library: is rejected.
 
@@ -152,9 +155,13 @@ When build or test reaches the wrapper, it rechecks checkout presence and the th
 
 More than one module may name the same library. Each is a wrapper, each is validated when it is reached, and each receives the interface independently; the library is not owned by the first module to name it.
 
-The validated directories are appended to that module's compile command in declaration order, and to no other node's. They are resolved to absolute paths, so the emitted command does not depend on the directory the tool was invoked from, and each is shell-quoted as one argument. They are appended to the compile command only: the linker's argument string is unchanged in this release.
+The validated directories are appended to that module's compile command in declaration order, and to no other node's. They are resolved to absolute paths, so the emitted command does not depend on the directory the tool was invoked from, and each is shell-quoted as one argument. They are appended to the compile command only.
 
-A library-directory, link-archive, or link-input declaration is validated and carried but reaches no command. An include directory rooted at a lane build prefix rather than at source is rejected as having no producer; that form is reserved for the external-build stage, and nothing constructs it today.
+Link inputs are the other half. Every link-input of every library a closure reaches is appended to the project link command after the objects, once per library however many wrappers reach it, and in the reverse of the order the closure was walked so a dependency's library follows the module that needed it. A linker resolves left to right and answers only references it has already seen, which is why the segment is after the objects rather than among them. The grammar is checked at manifest load, so no value needs quoting to be safe at this point. A library whose checkout is absent is reported here, naming the module that reached it, rather than discovered as an undefined symbol.
+
+The external link does not receive the segment. external_link hands objects to a bridge and CMake performs the link, so reaching it means a protocol in mm-inputs.cmake rather than another argument, and that is listed under Current boundaries.
+
+A library-directory or link-archive declaration is validated and carried but reaches no command. An include directory rooted at a lane build prefix rather than at source is rejected as having no producer; that form is reserved for the external-build stage, and nothing constructs it today.
 
 # Availability of an external wrapper
 
@@ -240,7 +247,8 @@ These are the conformance requirements for this release, not a description of ex
 - A library declaring link-archive with no library-directory is accepted; so is one declaring link-input with none.
 - Two libraries sharing a name are rejected naming both manifests; a library and a module may share a name.
 - An SDK or a module declaring more than one library is rejected; one naming an unknown library is rejected listing the libraries that exist; one declaring none is accepted.
-- A module declaring `library:` must declare a module name beginning with `lib.`; a different prefix is rejected naming the offending module.
+- A module declaring `library:` must declare a module name beginning with `lib.` or with `platform.`; any other prefix is rejected naming the offending module.
+- A closure reaching a library contributes its link inputs to the project link command once per library, after the objects, in reverse walk order; a closure reaching none contributes nothing. A library whose checkout is absent is reported before the linker runs.
 - A module declaring library in a 1.1 manifest is rejected by version; the same
   declaration in a 1.2 manifest is accepted and resolved.
 - A reference is resolved after every definition is known, and a reference to a missing library reports that rather than a consequence of it.
@@ -272,11 +280,12 @@ These are the conformance requirements for this release, not a description of ex
 
 Not implemented, by design, in this release:
 
-- Archive and link-input propagation. library-directory, link-archive, and link-input are declared, validated, ordered, and carried, and no link command consumes them. Adding them means a typed link segment after the objects, library order from a reversed order_from, and duplicate removal across a closure.
+- Archive propagation. link-input reaches the project link command; library-directory and link-archive are still declared, validated, ordered, and carried with nothing consuming them. An archive is a path rather than a name, so it needs the checkout rules applied at link time the way an include directory already is at compile time.
+- Link inputs in an external build. The project link appends them; external_link does not, because it hands objects to a bridge and CMake performs the link. Reaching it means mm-inputs.cmake gaining library directories, archives, and names with a defined ordering, every bridge consuming them, and the change accounted for in the external cache identity, which fingerprints that file.
 - Additional external build systems. external-build: cmake, its generated inputs and toolchain files, isolated cache, ABI projection check, external link, and artifact publication are implemented. No second external build system or manifest-selected recipe exists.
 - Build-prefix interface paths. The base exists in the definition and nothing constructs one, so an include directory that is not rooted at source is rejected as having no producer.
 - Compiling a vendored tree. There is no librarian, no manifest-declared source language for foreign code, and no rule for where a produced archive lands.
 - Machine-checked header ownership. Associating an include directive with a manifest-declared interface needs include analysis the check addon does not do, so the wrapper and linkage-shim rules stay normative and unenforced.
 - Declared ordering between libraries whose wrappers have no dependency. If the order matters, the dependency exists.
-- Contribution accounting across wrappers. Two wrappers over one library each receive its include interface today, which is correct because an include directory contributes the same thing however many times it appears. An archive does not, so the archive stage has to reduce a closure's libraries to one contribution each.
+- Contribution accounting for archives. Two wrappers over one library each receive its include interface, which is correct because an include directory contributes the same thing however many times it appears, and its link inputs once, because a repeated name is not that harmless. An archive is a path and needs the same reduction when the archive stage arrives.
 - A general dependency-update policy. Pico SDK is pinned to one reviewed release, but selecting, vetting, and advancing vendored revisions remains process rather than manifest mechanism.

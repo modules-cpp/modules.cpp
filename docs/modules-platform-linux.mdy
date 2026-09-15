@@ -25,7 +25,8 @@ with application arguments forwarded.
 
 # Device map
 
-platform.linux.map is a portable platform interface. The selected SDK binds
+platform.linux.map is a platform interface, portable across Linux boards rather
+than across platforms. The selected SDK binds
 platform.linux.defaults, and each device provider depends on the interface so
 fixed-point provider injection selects that one map provider. The first call to
 resolve samples MM_LINUX_DEVICE_MAP and caches the result for the process.
@@ -54,8 +55,44 @@ LED must name a GPIO in the authoritative inventory.
 - platform.linux.imu obtains all six axes from one IIO buffered record. It
   derives layout from scan types and scale from realbits plus the IIO scale.
 
-No provider silently maps a permission failure to Unsupported. No provider
-adds a third-party library or explicit link input.
+No provider silently maps a permission failure to Unsupported. No provider the
+SDK binds adds a third-party library or an explicit link input: every one of
+them is written against libc and the Linux userspace kernel ABI, whose headers
+come from packages any build here already needs.
+
+# SDL2 backend
+
+platform.linux.sdl implements mm.display and mm.touch over SDL2. It exists for
+the one thing the DRM provider cannot do: run in a window. DRM needs DRM master,
+a compositor holds it, and no provider can take it from a live holder, so
+anything visual on the DRM lane means leaving the session for a virtual
+terminal.
+
+One module implements both interfaces because SDL has one video subsystem, one
+window, one event queue, and state shared between drawing and input; two modules
+could not own that between them. The board binds the same module twice, and an
+application reaching both interfaces still links one of its objects.
+
+It is the platform's only optional package, and the only provider here that
+names a library. platforms/linux/sdl2 is that library: a kind: library whose
+source records an installed SDL2 rather than vendoring one, declaring an
+interface of a single link-input and no include directory, because SDL2's
+headers resolve from a default search directory without one. The provider is a
+folder inside it, as platforms/pico/sdk/pico-sdk arranges its own.
+
+Selection is what keeps the package optional. The SDKs bind the DRM and evdev
+providers; only the sdl-linux-aarch64 board replaces those two bindings, so a
+lane that does not name that board links no SDL2 and needs none installed. An
+absent package is not an absent checkout, because the checkout is a record, so
+nothing notices it before the compiler does.
+
+The provider publishes RGB565 and converts to SDL's native-endian sixteen-bit
+format on the way to the texture. The two disagree by byte order on a
+little-endian host and nothing reports it: feeding mm.display's red, 0xf8 then
+0x00, to an unswapped surface draws blue. It keeps writes in a shadow buffer
+until Full refresh and refuses Partial, as the DRM provider does. Touch reports
+the pointer while the left button is held and answers Unsupported when no window
+exists, rather than opening a second one.
 
 # Qualification
 
@@ -64,3 +101,8 @@ unit tests. Device qualification depends on the running machine: absent devices
 are Unsupported, explicit stale paths are BadArgument, permission failures are
 TransportError, and held devices are Busy. linux-smoke exits non-zero only when
 a present facility fails.
+
+The SDL lane inverts that expectation and is the only one that does: a window
+needs nothing of the session, so an application there is expected to succeed on
+an ordinary desktop and a failure is a failure. scripts/build-linux-sdl.sh gates
+its --run accordingly, while the three DRM-backed scripts report and do not.
