@@ -171,9 +171,18 @@ struct ProcessorEntry {
 };
 
 constexpr ProcessorEntry processor_table[] = {
+    // Hosted rows, one per family because the table is keyed on the compiler
+    // that will be invoked. A native lane wants no processor argument at all,
+    // so both families contribute an empty list and differ only in the key; a
+    // board selected with clang would otherwise be rejected as an unknown
+    // processor combination for a difference that has no effect on any command.
     {CompilerFamily::Gcc, "aarch64-linux-gnu", "aarch64", "native", "native",
      "non-secure", {}},
+    {CompilerFamily::Clang, "aarch64-linux-gnu", "aarch64", "native", "native",
+     "non-secure", {}},
     {CompilerFamily::Gcc, "x86_64-linux-gnu", "x86_64", "native", "native",
+     "non-secure", {}},
+    {CompilerFamily::Clang, "x86_64-linux-gnu", "x86_64", "native", "native",
      "non-secure", {}},
     {CompilerFamily::Gcc, "arm-none-eabi", "cortex-m3", "thumb", "soft", "non-secure",
      {"-mcpu=cortex-m3", "-mthumb", "-mfloat-abi=soft"}},
