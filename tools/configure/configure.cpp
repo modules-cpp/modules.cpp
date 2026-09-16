@@ -307,7 +307,7 @@ int main(int argc, char** argv) {
     if (cli != mm::app::Cli::ok) return mm::build::exit_usage;
 
     const bool verbose = options.verbose();
-    const auto targets = options.values("--target");
+    std::vector<std::string> targets = options.values("--target");
     if (options.count("--host") > 1 || options.count("--target-host") > 1 ||
         targets.size() > 1) {
         std::cerr << "configure: lane option may be given only once\n";
@@ -318,18 +318,18 @@ int main(int argc, char** argv) {
         return mm::build::exit_usage;
     }
     const bool target_lane = !targets.empty();
-    const auto sdks = options.values("--sdk");
-    const auto boards = options.values("--board");
+    std::vector<std::string> sdks = options.values("--sdk");
+    std::vector<std::string> boards = options.values("--board");
     if (sdks.size() > 1 || boards.size() > 1) {
         std::cerr << "configure: --sdk and --board may each be given only once\n";
         return mm::build::exit_usage;
     }
-    const auto runners = options.values("--runner");
+    std::vector<std::string> runners = options.values("--runner");
     if (runners.size() > 1) {
         std::cerr << "configure: --runner may be given only once\n";
         return mm::build::exit_usage;
     }
-    const auto debuggers = options.values("--debugger");
+    std::vector<std::string> debuggers = options.values("--debugger");
     if (debuggers.size() > 1) {
         std::cerr << "configure: --debugger may be given only once\n";
         return mm::build::exit_usage;
@@ -345,13 +345,13 @@ int main(int argc, char** argv) {
         return mm::build::exit_usage;
     }
 
-    const auto compilers = options.values("--compiler");
+    std::vector<std::string> compilers = options.values("--compiler");
     if (compilers.size() > 1) {
         std::cerr << "configure: --compiler may be given only once\n";
         return mm::build::exit_usage;
     }
 
-    const auto c_compilers = options.values("--c-compiler");
+    std::vector<std::string> c_compilers = options.values("--c-compiler");
     if (c_compilers.size() > 1) {
         std::cerr << "configure: --c-compiler may be given only once\n";
         return mm::build::exit_usage;
@@ -374,7 +374,7 @@ int main(int argc, char** argv) {
         return mm::build::exit_usage;
     }
 
-    const auto builds = options.values("--build");
+    std::vector<std::string> builds = options.values("--build");
     if (builds.size() > 1) {
         std::cerr << "configure: --build may be given only once\n";
         return mm::build::exit_usage;
