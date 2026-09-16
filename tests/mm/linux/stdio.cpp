@@ -28,8 +28,13 @@ void stdio_initialize_sets_sigpipe_to_ignore() {
     reset_action.sa_handler = SIG_DFL;
     sigaction(SIGPIPE, &reset_action, nullptr);
 
-    expect(mm::stdio::selected_console().initialize() == mm::stdio::Status::Ok,
-           "Linux console initialization succeeds");
+    // This binary links one console provider and no stand-in, so the seam is
+    // the Linux one. Ok rules out the unserved fallback, which answers
+    // Unsupported to everything; a second registrant would show up here rather
+    // than as a puzzling SIGPIPE result below.
+    auto& console = mm::stdio::selected_console();
+    expect(console.initialize() == mm::stdio::Status::Ok,
+           "Linux console initialization succeeds, so the seam is a real provider");
 
     struct sigaction current_pipe{};
     sigaction(SIGPIPE, nullptr, &current_pipe);

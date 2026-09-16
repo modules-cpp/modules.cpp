@@ -147,6 +147,18 @@ void reset(int fail_at = -1, int failure = EIO) {
     explicit_card_map.display.card =
         platform::linux::Selector{platform::linux::SelectorKind::Index, 0, {}};
     platform::linux::set_map(explicit_card_map);
+
+    // resolve() caches in a function-local static, so only the first call in
+    // this binary decides what every later one sees. Resolving here, under the
+    // pin just registered, is what makes that first call ours rather than
+    // whichever suite happens to run before this one. The assertion is the
+    // point: if another suite resolves first, the pin is silently ignored and
+    // the rollback case below would be testing auto-discovery instead.
+    const auto& resolved = platform::linux::resolve();
+    expect(resolved.status == platform::linux::MapStatus::Ok && resolved.map != nullptr &&
+               resolved.map->display.card.kind == platform::linux::SelectorKind::Index,
+           "the explicit card pin reached the resolved map");
+
     platform::linux::drm_detail::set_operations_for_testing(&operations);
     // A configured board may register its own display after this provider's
     // static registration. Reclaim the seam so this suite deterministically

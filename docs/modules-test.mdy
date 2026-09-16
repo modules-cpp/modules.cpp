@@ -64,6 +64,28 @@ Capability declarations produce no ignored-option warnings. Other manifest optio
 
 Test appends the requested kind:test target to the selected project modules, orders only its transitive dependency closure, and augments that closure with every effective platform provider it requires. It compiles each selected provider once, compiles the test's unit entries, compiles the configured board unit in that test's output tree, and links one test executable with the provider and board objects. An unselected provider is never compiled as an independent root, and a test that does not reach an interface receives no provider object.
 
+A test that names both an interface and a provider implementing it links two
+registrants for one seam. A platform interface is registered by a single
+setter called from static initialisation, so a stand-in unit and a real
+provider in the same binary both write it and the order is the linker's, not
+the test's. A test built this way exercises whichever one happened to run last,
+and does so silently: nothing about the call site says which object answered.
+
+So a stand-in reclaims the seam at the start of every case rather than only at
+static initialisation, in the reset entry point each case already calls, and
+registers itself rather than a named global. A case that reads the seam without
+first resetting is exercising an object it did not choose; where no stand-in
+exists and the case means to reach the real provider, it says so, and an
+assertion that distinguishes the provider from the interface's fallback is what
+makes that claim checkable. A provider may expose a narrowly named accessor for
+a suite that needs to name it directly, beside whatever other test seam it
+already has.
+
+The same applies to any other process-wide state a provider resolves once and
+caches. Registering a replacement after the first resolution has no effect, so
+a suite that depends on one resolves it under its own registration and asserts
+that what came back is what it registered.
+
 Project and external link ownership consume the same augmented ordered object list. When the selected SDK owns linking, test delegates to that library's external CMake bridge exactly as build does; the bridge publishes the primary test executable at the ordinary test path. This is required for a provider such as platform.pico.mcu whose private adapter and platform runtime are supplied by the bridge rather than project objects.
 
 A configuration-2 bare-metal test with an unresolved startup responsibility exits 65 before linking. Module compilation remains available in a boardless lane.
@@ -139,6 +161,7 @@ Compile and link a target test without executing it:
 - An unavailable dependency is rejected before compilation.
 - A target test reaching a platform interface receives the selected provider closure; an unbound requirement exits 77 before compilation, while a host unit test may register a stand-in against the interface fallback.
 - A selected provider is compiled once and appears once in the test link; an unrelated test receives no provider object.
+- A suite linking both a stand-in and a real provider for one interface exercises the stand-in in every case, whichever registration ran last; a suite that means to reach the real provider asserts that the seam is not the interface's fallback.
 - Project and external link ownership receive the same augmented object list, and external ownership delegates the test link to the selected SDK library's CMake bridge.
 - Platform compiler arguments reach test and board compilation and linking; specs and linker script arguments reach linking only.
 - The configured board unit is compiled in the selected test output tree and linked into the test executable.

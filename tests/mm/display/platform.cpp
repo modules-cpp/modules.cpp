@@ -64,7 +64,7 @@ StandDisplay stand;
 // case deterministically exercises the portable interface through this
 // stand-in.
 void StandDisplay::reset() {
-    mm::display::set_display(stand);
+    mm::display::set_display(*this);
     initialized = false;
     sleeping = false;
     color = mm::display::Color::White;
