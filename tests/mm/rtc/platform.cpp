@@ -76,7 +76,13 @@ const Register registered;
 
 }  // namespace
 
-void mm_test_rtc_reset() { platform.reset(); }
+// A configured board may inject its own mm.mcu platform into this binary,
+// and its static registration may run after ours. Reclaim the seam so every
+// case deterministically exercises the driver through this fake.
+void mm_test_rtc_reset() {
+    mm::mcu::set_platform(platform);
+    platform.reset();
+}
 void mm_test_rtc_force(mm::mcu::Status status) { platform.forced = status; }
 void mm_test_rtc_set_register(unsigned int reg, unsigned int value) {
     if (reg < register_count) platform.registers[reg] = static_cast<unsigned char>(value);

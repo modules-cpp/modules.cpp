@@ -15,6 +15,7 @@
 import mm.display;
 import mm.test;
 import platform.linux.display;
+import platform.linux.map;
 
 namespace {
 
@@ -133,11 +134,24 @@ int fake_close(int) {
 const platform::linux::drm_detail::Operations operations{
     &fake_open, &fake_ioctl, &fake_map, &fake_unmap, &fake_close};
 
+// The rollback case injects an open failure at step zero. An auto card
+// selector would discover the next card and recover from it, so pin an
+// explicit card before the map is first resolved: an open failure on a
+// named card is terminal.
+platform::linux::Map explicit_card_map;
+
 void reset(int fail_at = -1, int failure = EIO) {
     fake = {};
     fake.fail_at = fail_at;
     fake.failure = failure;
+    explicit_card_map.display.card =
+        platform::linux::Selector{platform::linux::SelectorKind::Index, 0, {}};
+    platform::linux::set_map(explicit_card_map);
     platform::linux::drm_detail::set_operations_for_testing(&operations);
+    // A configured board may register its own display after this provider's
+    // static registration. Reclaim the seam so this suite deterministically
+    // exercises the production DRM provider.
+    mm::display::set_display(platform::linux::drm_detail::display_for_testing());
 }
 
 void conversion_and_shadow_refresh() {
@@ -172,6 +186,10 @@ void conversion_and_shadow_refresh() {
 }
 
 void rollback_and_error_classification() {
+    // Bind the reference after reset reclaims the registration seam, so it
+    // names the DRM provider rather than whichever display another module
+    // registered earlier in the binary.
+    reset(0);
     auto& display = mm::display::selected_display();
     for (int step = 0; step <= 13; ++step) {
         if (step == 6) continue;  // current encoder may fall back compatibly

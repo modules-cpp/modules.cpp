@@ -47,14 +47,7 @@ public:
         return mm::display::Status::Ok;
     }
 
-    void reset() {
-        initialized = false;
-        sleeping = false;
-        color = mm::display::Color::White;
-        refresh_mode = mm::display::Refresh::Full;
-        rectangle = {};
-        size = 0;
-    }
+    void reset();
 
     bool initialized = false;
     bool sleeping = false;
@@ -65,6 +58,20 @@ public:
 };
 
 StandDisplay stand;
+
+// A configured board may inject its own display provider into this binary,
+// and its static registration may run after ours. Reclaim the seam so every
+// case deterministically exercises the portable interface through this
+// stand-in.
+void StandDisplay::reset() {
+    mm::display::set_display(stand);
+    initialized = false;
+    sleeping = false;
+    color = mm::display::Color::White;
+    refresh_mode = mm::display::Refresh::Full;
+    rectangle = {};
+    size = 0;
+}
 
 struct Register {
     Register() { mm::display::set_display(stand); }

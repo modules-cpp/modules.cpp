@@ -84,7 +84,13 @@ const Register registered;
 
 }  // namespace
 
-void mm_test_lcd_reset() { platform.reset(); }
+// A configured board may inject its own mm.mcu platform into this binary,
+// and its static registration may run after ours. Reclaim the seam so every
+// case deterministically exercises the driver through this fake.
+void mm_test_lcd_reset() {
+    mm::mcu::set_platform(platform);
+    platform.reset();
+}
 void mm_test_lcd_force(mm::mcu::Status status) { platform.forced = status; }
 std::size_t mm_test_lcd_transcript_size() { return platform.transcript.size(); }
 bool mm_test_lcd_is_data(std::size_t index) {

@@ -235,7 +235,13 @@ const Register registered;
 // The control surface the test uses, as free functions so the Stand type itself
 // stays internal. A real platform has no such surface, and mm.mcu cannot see it:
 // none of it is part of the Platform interface.
-void mm_test_reset() { stand.reset(); }
+// A configured board may inject its own mm.mcu platform into this binary,
+// and its static registration may run after ours. Reclaim the seam so every
+// case deterministically exercises the portable interface through this stand.
+void mm_test_reset() {
+    mm::mcu::set_platform(stand);
+    stand.reset();
+}
 void mm_test_force(mm::mcu::Status status) { stand.forced = status; }
 void mm_test_set_level(unsigned int pin, bool high) {
     if (pin < pin_count) stand.level[pin] = high;

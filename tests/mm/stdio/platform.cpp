@@ -95,7 +95,13 @@ const Register registered;
 
 }  // namespace
 
-void mm_test_stdio_reset() { stand.reset(); }
+// A configured board may inject its own stdio console into this binary,
+// and its static registration may run after ours. Reclaim the seam so every
+// case deterministically exercises the portable interface through this stand.
+void mm_test_stdio_reset() {
+    mm::stdio::set_console(stand);
+    stand.reset();
+}
 void mm_test_stdio_force(mm::stdio::Status status) { stand.forced = status; }
 void mm_test_stdio_connect(bool connected) { stand.link_connected = connected; }
 void mm_test_stdio_capacity(std::size_t capacity) { stand.capacity = capacity; }

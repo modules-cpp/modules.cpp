@@ -96,7 +96,13 @@ const Register registered;
 
 }
 
-void mm_test_epaper_reset() { platform.reset(); }
+// A configured board may inject its own mm.mcu platform into this binary,
+// and its static registration may run after ours. Reclaim the seam so every
+// case deterministically exercises the controller through this fake.
+void mm_test_epaper_reset() {
+    mm::mcu::set_platform(platform);
+    platform.reset();
+}
 void mm_test_epaper_busy(bool busy) { platform.busy = busy; }
 void mm_test_epaper_force(mm::mcu::Status status) { platform.forced = status; }
 bool mm_test_epaper_contains(unsigned int value) {

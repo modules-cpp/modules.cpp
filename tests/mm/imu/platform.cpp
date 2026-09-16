@@ -86,7 +86,13 @@ const Register registered;
 
 }  // namespace
 
-void mm_test_imu_reset() { platform.reset(); }
+// A configured board may inject its own mm.mcu platform into this binary,
+// and its static registration may run after ours. Reclaim the seam so every
+// case deterministically exercises the driver through this fake.
+void mm_test_imu_reset() {
+    mm::mcu::set_platform(platform);
+    platform.reset();
+}
 void mm_test_imu_force(mm::mcu::Status status) { platform.forced = status; }
 void mm_test_imu_address(unsigned int address) { platform.present_address = address; }
 void mm_test_imu_identifier(unsigned int value) {

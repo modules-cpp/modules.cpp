@@ -122,7 +122,13 @@ const Register registered;
 
 }  // namespace
 
-void mm_test_touch_reset() { platform.reset(); }
+// A configured board may inject its own mm.mcu platform into this binary,
+// and its static registration may run after ours. Reclaim the seam so every
+// case deterministically exercises the driver through this fake.
+void mm_test_touch_reset() {
+    mm::mcu::set_platform(platform);
+    platform.reset();
+}
 void mm_test_touch_force(mm::mcu::Status status) { platform.forced = status; }
 void mm_test_touch_check_code(unsigned int value) { platform.check_code = value; }
 void mm_test_touch_points(unsigned int value) { platform.reported_points = value; }

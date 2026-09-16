@@ -35,6 +35,10 @@ struct Operations {
 [[nodiscard]] std::uint32_t rgb565_to_xrgb8888(std::uint8_t high,
                                                std::uint8_t low);
 void set_operations_for_testing(const Operations* operations);
+// Test seam: lets the production display suite select this provider
+// deterministically when another provider's static registration may run
+// after this one in the same binary.
+mm::display::Display& display_for_testing();
 
 }
 
@@ -503,5 +507,7 @@ std::uint32_t rgb565_to_xrgb8888(std::uint8_t high, std::uint8_t low) {
 void set_operations_for_testing(const Operations* replacement) {
     ::operations = replacement ? replacement : &::real_operations;
 }
+
+mm::display::Display& display_for_testing() { return display; }
 
 }
