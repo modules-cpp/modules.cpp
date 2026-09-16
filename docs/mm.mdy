@@ -13,6 +13,8 @@ file: modules-debug.mdy
 file: modules-display.mdy
 file: modules-epaper.mdy
 file: modules-flash.mdy
+file: modules-imu.mdy
+file: modules-lcd.mdy
 file: modules-libraries.mdy
 file: modules-mm.mdy
 file: modules-model.mdy
@@ -20,8 +22,10 @@ file: modules-platform-mcu.mdy
 file: modules-platform-linux.mdy
 file: modules-platform-pico.mdy
 file: modules-platforms.mdy
+file: modules-rtc.mdy
 file: modules-run.mdy
 file: modules-stdio.mdy
+file: modules-touch.mdy
 file: modules-test.mdy
 ---
 

@@ -1,0 +1,217 @@
+---
+mm: 1.0
+kind: doc
+name: modules.cpp colour LCD controller
+status: official
+release: v1.2.1
+---
+
+# modules.cpp colour LCD controller
+
+# Status and authority
+
+status: official gives the implemented portions of this document the same
+authority as the other v1.2.1 specifications. This document specifies the
+implemented colour LCD controller module and its ST7789 driver. mm.lcd, the
+ST7789 controller, the rp2350_touch_lcd_28 board provider, and the
+display-demo application exist. Visual panel behavior on hardware remains a
+hardware-qualification requirement rather than a completed claim.
+
+docs/modules-display.mdy owns the portable display boundary and platform
+binding. docs/modules-platform-mcu.mdy owns the implemented MCU provider
+model. docs/modules-platform-pico.mdy owns the Pico SDK bridge. This document
+specifies the colour controller beneath mm.display and must not weaken any of
+those boundaries.
+
+# Separation of responsibilities
+
+Four layers own four different facts:
+
+- mm.mcu owns reusable SPI and GPIO operations.
+- A controller module owns the controller command protocol and refresh state.
+- A display provider owns panel parameters and fixed physical wiring.
+- A board profile states that the provider's display is actually attached.
+
+The Pico SDK adapter does not expose LCD commands. The controller does not
+include Pico SDK headers. The portable application does not know which
+controller or GPIOs were selected.
+
+# Relation to mm.display and mm.epaper
+
+mm.display is the portable boundary. It defines geometry, initialization,
+packed pixel writes, clear, refresh, and sleep. ePaper controllers implement
+that boundary for one-bit and tri-colour panels where refresh is a physical
+operation that rewrites the panel. LCD controllers implement the same boundary
+for sixteen-bit colour panels where refresh has nothing left to do: the panel
+shows what was written the moment it was written.
+
+The difference that reaches mm.display is the pixel format, not the lifecycle:
+these panels report sixteen bits per pixel and answer `Ok` to refresh because
+the visible state is already the controller's frame memory. An ePaper panel
+reports one bit per pixel and refresh drives a physical waveform. A portable
+application writes a rectangle and calls refresh; the answer differs by
+controller but the call is the same.
+
+# Portable interface
+
+The controller implements the existing mm.display::Display interface. It does
+not add a new virtual function, a new colour enum, or a new pixel format
+beyond what mm.display already defines.
+
+The controller reports:
+
+Opening fence
+Geometry geometry() const override;
+// width, height from the panel descriptor; bits_per_pixel is 16
+Closing fence
+
+`write` takes an mm.display::Rectangle and a byte span of RGB565 pixels,
+most significant byte first. It sets the window in the controller and streams
+the pixels. `refresh` answers Ok and sends nothing. `clear` maps the three
+mm.display::Color values onto their RGB565 encodings and fills the named
+rectangle. `sleep` puts the controller in its low-power state and the display
+off.
+
+The three named colours are what a portable smoke test can ask of any panel.
+A caller that wants one of the other sixty-five thousand composes RGB565
+pixels and writes them.
+
+# Controller driver
+
+mm.lcd.st7789 implements the Sitronix ST7789 colour TFT controller over
+portable mm.mcu SPI and GPIO. It contains no vendor header and no board pin
+number: a board's provider supplies the wiring, the panel timings, and the
+initialisation sequence, and this module drives the protocol.
+
+The driver receives immutable wiring and panel descriptors:
+
+Opening fence
+struct Wiring {
+    mm::mcu::SpiConfiguration spi;
+    unsigned int chip_select_gpio;
+    unsigned int data_command_gpio;
+    unsigned int reset_gpio;
+    std::optional<unsigned int> backlight_gpio;
+    unsigned long reset_step_ms;
+    unsigned long sleep_out_ms;
+};
+
+struct InitializationCommand {
+    std::byte command;
+    std::span<const std::byte> data;
+};
+
+struct Panel {
+    unsigned int width;
+    unsigned int height;
+    std::span<const InitializationCommand> initialization;
+    std::byte memory_access;
+    bool inverted;
+    unsigned int column_offset;
+    unsigned int row_offset;
+};
+Closing fence
+
+Command data is provider-owned static storage and must outlive the Controller.
+Porch, power, and gamma settings differ between panels carrying the same
+controller, so the board supplies them rather than the module guessing. The
+memory access control byte and inversion flag are board facts: the module only
+sends them. The visible area may sit at an offset inside the controller's
+frame memory, which is what makes a 240-wide panel on a 240-wide controller
+still need a column offset on some boards.
+
+The driver owns a state machine distinguishing Idle, Ready, and Sleeping.
+Initialization configures SPI, performs the documented reset sequence (hold
+low, release, wait), sends the provider's initialisation commands, sets the
+pixel format to sixteen bits, applies memory access control and inversion, and
+turns the display on. A backlight GPIO, when present, is raised at initialize.
+
+Reset uses the reference driver's high-low-high sequence with configurable
+step delays. Sleep-out wait is a fixed delay after the 0x11 command.
+
+Two things in the Waveshare LCD_2in8 reference driver are deliberately not
+reproduced. Its scan direction is absent, because mm.display writes
+rectangles and rotation belongs to the caller for the same reason it does in
+mm.touch. Its full-framebuffer Display path is absent: mm.display writes
+bounded rectangles and does not require a whole-screen framebuffer.
+
+# Provider binding
+
+The controller is bound through the existing mm.display platform-interface
+mechanism. A concrete hardware board binds mm.display to a provider that
+constructs the ST7789 controller:
+
+Opening fence
+platform-provider: mm.display platform.rp2350_touch_lcd_28.display
+Closing fence
+
+The provider imports mm.display, mm.lcd.st7789, and mm.mcu. It owns the fixed
+SPI wiring, pin assignments, and panel descriptor, constructs the controller,
+and registers the Display implementation from a retained static object.
+Existing provider validation, board-over-SDK precedence, conditional closure
+injection, and core platform-edge rules apply unchanged.
+
+An SDK must not provide a default LCD binding merely because it can drive
+one. The SDK supplies buses; attachment is a board-profile fact.
+
+# Test strategy
+
+Controller tests use a fake MCU Platform that records SPI and GPIO operations.
+Tests compare semantic command transcripts rather than merely checking that a
+source file compiled.
+
+Required host tests cover:
+
+- SPI configuration and transfer ordering;
+- reset sequence and step delays;
+- command versus data GPIO transitions;
+- initialization transcript including pixel format and memory access;
+- window setting and RGB565 pixel streaming;
+- rectangle and data-length validation;
+- clear maps the three named colours to their RGB565 values;
+- refresh answers Ok without sending a command;
+- sleep and the reinitialization path;
+- transport errors propagated without continuing the command sequence;
+- no controller or provider objects in an unrelated executable closure.
+
+Target qualification builds one portable app through the real Pico external
+CMake bridge, validates the ELF and UF2, and confirms exactly one display and
+MCU provider registration object. It then flashes through flash.sh.
+
+# Implementation stages
+
+1. Implemented: add mm.mcu SPI facility described by
+   docs/modules-epaper.mdy.
+2. Implemented: add mm.lcd.st7789 with initialization, write, clear, and
+   sleep tests against fake SPI and GPIO.
+3. Implemented: add the rp2350_touch_lcd_28 display provider binding
+   mm.display to the ST7789 controller.
+4. Implemented: add apps/display-demo drawing three RGB565 colour bars.
+5. Pending hardware: qualify initialization, colour bars, rotation, clear,
+   and sleep on the named Waveshare board.
+
+# Acceptance criteria
+
+- An app importing only mm.display links with exactly one selected display
+  provider and the provider's controller closure.
+- The same app is unavailable on a board with no display binding.
+- An app not importing mm.display contains no display provider or controller
+  registration object.
+- Controller host tests pass without Pico SDK or physical hardware.
+- SPI payloads cross the platform boundary as spans, not byte-at-a-time
+  virtual calls.
+- No controller source includes Pico SDK headers.
+- A successful link or flash is not reported as a successful screen refresh.
+- The display-demo red bar draws red (0xf800), not blue, catching a
+  byte-swap in the RGB565 encoding.
+
+# What this does not settle
+
+- ST7789 is the first implemented LCD controller. Its scan-direction
+  variants, other pixel formats, and DMA-driven SPI are not implemented.
+- Arbitrary image composition, fonts, drawing primitives, and UI layout are
+  outside this module and belong in layers above mm.display.
+- Backlight PWM dimming is not implemented; a panel with a plain on-off
+  backlight line is raised at initialize and left.
+- Multi-display selection and hot-plug discovery are not specified.
+- Grayscale and bit depths other than sixteen are not promised.

@@ -1,0 +1,230 @@
+---
+mm: 1.0
+kind: doc
+name: modules.cpp touch input interface
+status: official
+release: v1.2.1
+---
+
+# modules.cpp touch input interface
+
+# Status and authority
+
+status: official gives the implemented portions of this document the same
+authority as the other v1.2.1 specifications. This document specifies the
+implemented portable touch input interface and its CST328 controller driver.
+mm.touch, the CST328 driver, the rp2350_touch_lcd_28 board provider, and the
+board-smoke application exist. Touch behavior on hardware remains a
+hardware-qualification requirement rather than a completed claim.
+
+docs/modules-platform-mcu.mdy remains authoritative for the implemented mm.mcu
+interface, including the I2C and GPIO transports this driver uses.
+docs/modules-platforms.mdy remains authoritative for SDK and board selection.
+docs/modules-mm.mdy remains authoritative for the closed v1.2 manifest schema.
+
+# Decision
+
+Touch input is a device service layered above mm.mcu I2C and GPIO. It is not
+a pointer device, an event queue, a gesture engine, and not a policy module.
+
+The intended dependency direction is:
+
+Opening fence
+portable application
+        |
+     mm.touch
+        |
+selected board touch provider
+        |
+mm.touch.cst328 (or another controller)
+        |
+I2C and GPIO from mm.mcu
+        |
+selected MCU platform provider
+Closing fence
+
+An application using only portable touch behavior declares:
+
+Opening fence
+use: mm.touch
+Closing fence
+
+It does not name a controller, vendor, I2C address, GPIO number, or provider
+module. The selected physical board profile supplies those facts.
+
+# Portable interface
+
+mm.touch is a platform interface with an allocation-free API for geometry,
+initialization, point readings, and sleep. Its fallback object reports
+Unsupported.
+
+The public shape is:
+
+Opening fence
+enum class Status { Ok, BadArgument, Unsupported,
+                    NotInitialized, Busy, Timeout, TransportError };
+
+struct Geometry {
+    unsigned int width = 0;
+    unsigned int height = 0;
+    unsigned int points = 0;
+};
+
+struct Point {
+    unsigned int x = 0;
+    unsigned int y = 0;
+};
+
+class Touch {
+public:
+    virtual ~Touch() = default;
+
+    [[nodiscard]] virtual Geometry geometry() const;
+    [[nodiscard]] virtual Status initialize();
+    [[nodiscard]] virtual Status read(std::span<Point>, std::size_t& count);
+    [[nodiscard]] virtual Status sleep();
+};
+
+void set_touch(Touch&);
+[[nodiscard]] Touch& selected_touch();
+Closing fence
+
+`read` fills as many points as the panel currently reports, up to the caller's
+span, and sets count. No contact is Ok with count zero rather than an error:
+nothing being touched is an answer. A caller never learns about points it had
+no room for, so a span of one is a valid single-touch client of a five-point
+panel. `count` is written only when the call answers Ok, so a caller that
+ignores the status cannot mistake a stale count for a fresh reading.
+
+`Geometry` describes the panel's own coordinate space: width, height, and the
+maximum number of simultaneous contacts the panel reports. A panel laminated
+to a display need not share its geometry; rotation and calibration belong to
+the caller, because only the caller knows how the panel is mounted relative
+to what is drawn on it.
+
+The interrupt line a controller may offer is deliberately absent. A caller
+polls `read`; a provider may use its own interrupt internally to make that
+cheap. Exposing an interrupt would mean exposing a callback registration
+mm.mcu does not have.
+
+The platform-interface marker makes a selected board touch provider part of an
+executable only when its ordinary closure reaches mm.touch.
+
+# Controller driver
+
+mm.touch.cst328 implements the Hynitron CST328 capacitive touch controller
+over portable mm.mcu I2C and GPIO. It contains no vendor header and no board
+pin number: a board's provider supplies the wiring and this module drives the
+protocol.
+
+The driver receives immutable wiring and panel descriptors:
+
+Opening fence
+struct Wiring {
+    mm::mcu::I2cConfiguration i2c;
+    unsigned int address;
+    unsigned int reset_gpio;
+    unsigned int interrupt_gpio;
+    unsigned long reset_hold_ms;
+    unsigned long reset_release_ms;
+};
+
+struct Panel {
+    unsigned int width;
+    unsigned int height;
+    unsigned int points;  // default 5
+};
+Closing fence
+
+The register map is sixteen-bit and big-endian, which is why every access is
+an mm.mcu `i2c_write_read` rather than a write followed by a read: the
+controller's address pointer must not be exposed to another master between the
+two halves.
+
+Reset holds the reset GPIO low for `reset_hold_ms`, releases it, and waits
+`reset_release_ms`. Both are panel timings rather than bus timings, so a board
+that measured different ones may say so.
+
+The driver owns a state machine distinguishing Idle, Ready, and Sleeping.
+Initialization configures I2C, performs the reset sequence, identifies the
+controller, and reaches Ready. `read` queries the contact registers and
+decomposes the packed big-endian coordinates into Points. Sleep puts the
+controller in its low-power state; a subsequent read requires reinitialization.
+
+Two things in the Waveshare reference driver for the RP2350-Touch-LCD-2.8 are
+deliberately not reproduced. Its interrupt handler is absent, because
+mm.touch is polled and mm.mcu has no callback registration. Its rotation
+transform is absent, because mm.touch reports the panel's own coordinates and
+rotation belongs to whoever knows how the panel is mounted.
+
+# Provider binding
+
+mm.touch carries the existing platform-interface marker. A concrete hardware
+board binds it to one unique provider:
+
+Opening fence
+platform-provider: mm.touch platform.rp2350_touch_lcd_28.touch
+Closing fence
+
+The provider imports mm.touch, the selected controller module, and mm.mcu. It
+owns the fixed I2C wiring, reset and interrupt GPIOs, and panel geometry,
+constructs the controller, and registers the Touch implementation from a
+retained static object. Existing provider validation, board-over-SDK
+precedence, conditional closure injection, and core platform-edge rules apply
+unchanged.
+
+# Test strategy
+
+Controller tests use a fake MCU Platform that records I2C and GPIO operations.
+Tests compare semantic register transcripts rather than merely checking that
+a source file compiled.
+
+Required host tests cover:
+
+- reset sequence and GPIO timing;
+- initialization transcript for the exact controller revision;
+- contact register reading and big-endian coordinate decomposition;
+- zero-contact reading answers Ok with count zero;
+- partial span: a span of two from a five-point panel fills two points;
+- sleep and the reinitialization path;
+- transport errors propagated without continuing the register sequence;
+- no touch or provider objects in an unrelated executable closure.
+
+Target qualification builds one portable app through the real Pico external
+CMake bridge, validates the ELF and UF2, and confirms exactly one touch and
+MCU provider registration object. It then flashes through flash.sh.
+
+# Implementation stages
+
+1. Implemented: add mm.mcu:i2c with host transcript tests.
+2. Implemented: add mm.touch with a host stand-in independent of any
+   controller.
+3. Implemented: add mm.touch.cst328 with reset, read, and sleep tests.
+4. Implemented: add the rp2350_touch_lcd_28 board touch provider.
+5. Implemented: add apps/board-smoke using mm.touch alongside mm.display,
+   mm.imu, and mm.rtc.
+6. Pending hardware: qualify contact detection, multi-point reading, and
+   sleep on the named Waveshare board.
+
+# Acceptance criteria
+
+- An app importing only mm.touch links with exactly one selected touch
+  provider and the provider's controller closure.
+- The same app is unavailable on a board with no touch binding.
+- An app not importing mm.touch contains no touch provider or controller
+  registration object.
+- Controller host tests pass without Pico SDK or physical hardware.
+- I2C register accesses cross the platform boundary as write-read
+  transactions, not separate write and read calls.
+- No controller source includes vendor or Pico SDK headers.
+- A successful link or flash is not reported as a successful touch reading.
+
+# What this does not settle
+
+- CST328 is the first implemented controller. Its interrupt-driven mode,
+  pen/stylus support, and palm rejection are absent.
+- Gesture recognition, event queues, pointer state, and rotation are policy
+  above this module.
+- Multi-touch beyond the panel's reported point count is not promised.
+- A data-ready interrupt is not exposed; mm.mcu has no callback registration.
+- Multi-panel selection and runtime touch discovery are not specified.

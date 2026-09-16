@@ -1,0 +1,229 @@
+---
+mm: 1.0
+kind: doc
+name: modules.cpp real-time clock interface
+status: official
+release: v1.2.1
+---
+
+# modules.cpp real-time clock interface
+
+# Status and authority
+
+status: official gives the implemented portions of this document the same
+authority as the other v1.2.1 specifications. This document specifies the
+implemented portable real-time clock interface and its PCF85063 controller
+driver. mm.rtc, the PCF85063 driver, the rp2350_touch_lcd_28 board provider,
+and the board-smoke application exist. Clock behavior on hardware remains a
+hardware-qualification requirement rather than a completed claim.
+
+docs/modules-platform-mcu.mdy remains authoritative for the implemented mm.mcu
+interface, including the I2C transport this driver uses. docs/modules-platforms.mdy
+remains authoritative for SDK and board selection. docs/modules-mm.mdy remains
+authoritative for the closed v1.2 manifest schema.
+
+# Decision
+
+A real-time clock is a device service layered above mm.mcu I2C. It is not a
+time-zone engine, a formatter, an alarm scheduler, and not a policy module.
+
+The intended dependency direction is:
+
+Opening fence
+portable application
+        |
+     mm.rtc
+        |
+selected board clock provider
+        |
+mm.rtc.pcf85063 (or another controller)
+        |
+I2C from mm.mcu
+        |
+selected MCU platform provider
+Closing fence
+
+An application using only portable clock behavior declares:
+
+Opening fence
+use: mm.rtc
+Closing fence
+
+It does not name a controller, vendor, I2C address, or provider module. The
+selected physical board profile supplies those facts.
+
+# Portable interface
+
+mm.rtc is a platform interface with an allocation-free API for initialization,
+calendar read and write, and a trust flag. Its fallback object reports
+Unsupported.
+
+The public shape is:
+
+Opening fence
+enum class Status { Ok, BadArgument, Unsupported,
+                    NotInitialized, Busy, Timeout, TransportError };
+
+struct DateTime {
+    unsigned int year = 0;
+    unsigned int month = 1;
+    unsigned int day = 1;
+    unsigned int weekday = 0;
+    unsigned int hour = 0;
+    unsigned int minute = 0;
+    unsigned int second = 0;
+};
+
+class Clock {
+public:
+    virtual ~Clock() = default;
+
+    [[nodiscard]] virtual Status initialize();
+    [[nodiscard]] virtual Status read(DateTime& time, bool& trusted);
+    [[nodiscard]] virtual Status write(const DateTime&);
+};
+
+void set_clock(Clock&);
+[[nodiscard]] Clock& selected_clock();
+Closing fence
+
+DateTime is a plain calendar, not a count of seconds since an epoch. A
+battery-backed clock counts calendar fields in hardware, and converting them
+to an epoch here would pick a representation, an epoch, and an integer width
+on behalf of callers that mostly want to print the fields back out. Nothing
+in this interface needs `<ctime>`, which a freestanding lane may not have.
+
+`year` is the full year rather than an offset from some base, because every
+offset convention is a trap for someone. A part that stores two digits is the
+provider's problem, not the caller's. `month` and `day` count from one.
+`weekday` counts from zero, where zero is the part's own first day and mm.rtc
+does not name which day that is.
+
+`read` reports the time alongside a `trusted` flag. A clock that lost power
+still answers: its registers hold whatever they held, and the reading is well
+formed and wrong. The flag is an out-parameter rather than a field of DateTime
+so that a caller has to name it, and rather than a Status so that a caller is
+not pushed into treating a readable clock as a failure. A caller must decide
+what to do about a reading it cannot trust, so the interface makes the clock
+say so rather than hiding it behind a status a caller might treat as fatal.
+
+Setting the time with `write` is what makes a later reading trusted.
+
+The interrupt and alarm outputs a part may offer are deliberately absent, as
+in mm.touch and mm.imu: mm.mcu has no callback registration. A caller that
+needs an alarm polls `read` and bounds the loop itself.
+
+The platform-interface marker makes a selected board clock provider part of an
+executable only when its ordinary closure reaches mm.rtc.
+
+# Controller driver
+
+mm.rtc.pcf85063 implements the NXP PCF85063 real-time clock over portable
+mm.mcu I2C. It contains no vendor header and no board pin number: a board's
+provider supplies the wiring and this module drives the protocol.
+
+The driver receives immutable wiring:
+
+Opening fence
+struct Wiring {
+    mm::mcu::I2cConfiguration i2c;
+    unsigned int address;  // 0x51
+};
+Closing fence
+
+Registers are eight-bit and the calendar is packed binary-coded decimal, so
+every field crosses this boundary twice: once as BCD on the wire and once as
+an ordinary number in mm.rtc's DateTime. The part stores two year digits, so
+this driver fixes the century at 2000 and refuses a year outside it rather
+than wrapping one silently.
+
+Every register access is an mm.mcu `i2c_write_read` rather than a write and a
+read, because the clock's address pointer must not be exposed to another
+master between the two halves.
+
+The `trusted` flag is read from the oscillator-stop bit in the same seconds
+byte the time came from, rather than from a second transaction. This matches
+the hardware: the PCF85063 latches the oscillator state alongside the time
+registers.
+
+Two things differ from the Waveshare reference driver for the
+RP2350-Touch-LCD-2.8. The reference reports oscillator stop by printing; here
+it is the `trusted` flag mm.rtc requires, read from the same seconds byte the
+time came from. The reference converts through `struct tm` and `mktime`;
+mm.rtc has its own calendar so that a freestanding lane needs no `<ctime>`,
+and the month and year offsets `tm` imposes are gone with it.
+
+# Provider binding
+
+mm.rtc carries the existing platform-interface marker. A concrete hardware
+board binds it to one unique provider:
+
+Opening fence
+platform-provider: mm.rtc platform.rp2350_touch_lcd_28.rtc
+Closing fence
+
+The provider imports mm.rtc, the selected controller module, and mm.mcu. It
+owns the fixed I2C wiring and clock address, constructs the controller, and
+registers the Clock implementation from a retained static object. Existing
+provider validation, board-over-SDK precedence, conditional closure
+injection, and core platform-edge rules apply unchanged.
+
+# Test strategy
+
+Controller tests use a fake MCU Platform that records I2C operations. Tests
+compare semantic register transcripts rather than merely checking that a
+source file compiled.
+
+Required host tests cover:
+
+- initialization transcript;
+- BCD packing and unpacking for every calendar field;
+- read returns the calendar and the trusted flag from one transaction;
+- write sets the calendar and makes a later reading trusted;
+- oscillator-stop detection maps to trusted false;
+- a year outside the 2000 century is rejected rather than wrapped;
+- weekday passthrough without naming a day;
+- transport errors propagated without continuing the register sequence;
+- no clock or provider objects in an unrelated executable closure.
+
+Target qualification builds one portable app through the real Pico external
+CMake bridge, validates the ELF and UF2, and confirms exactly one clock and
+MCU provider registration object. It then flashes through flash.sh.
+
+# Implementation stages
+
+1. Implemented: add mm.mcu:i2c with host transcript tests.
+2. Implemented: add mm.rtc with a host stand-in independent of any controller.
+3. Implemented: add mm.rtc.pcf85063 with BCD, read, write, and trust tests.
+4. Implemented: add the rp2350_touch_lcd_28 board clock provider.
+5. Implemented: add apps/board-smoke using mm.rtc alongside mm.display,
+   mm.touch, and mm.imu.
+6. Pending hardware: qualify reading, setting, oscillator-stop recovery, and
+   power-loss behavior on the named Waveshare board.
+
+# Acceptance criteria
+
+- An app importing only mm.rtc links with exactly one selected clock provider
+  and the provider's controller closure.
+- The same app is unavailable on a board with no clock binding.
+- An app not importing mm.rtc contains no clock provider or controller
+  registration object.
+- Controller host tests pass without Pico SDK or physical hardware.
+- I2C register accesses cross the platform boundary as write-read
+  transactions, not separate write and read calls.
+- No controller source includes vendor or Pico SDK headers.
+- No controller source includes `<ctime>`.
+- A successful link or flash is not reported as a successful clock reading.
+
+# What this does not settle
+
+- PCF85063 is the first implemented controller. Its timer, alarm, and square-
+  wave outputs are absent because mm.rtc has no callback registration and the
+  board does not wire them.
+- Time zones, daylight saving, formatting, and epoch conversion are policy
+  above this module.
+- Multi-clock selection and runtime clock discovery are not specified.
+- A century beyond 2000 is not supported; the part stores two digits and the
+  driver refuses rather than wraps.
+- NTP synchronization, time sources other than a battery-backed crystal, and
+  leap-second handling are outside this interface.

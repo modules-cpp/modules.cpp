@@ -1,0 +1,242 @@
+---
+mm: 1.0
+kind: doc
+name: modules.cpp inertial measurement interface
+status: official
+release: v1.2.1
+---
+
+# modules.cpp inertial measurement interface
+
+# Status and authority
+
+status: official gives the implemented portions of this document the same
+authority as the other v1.2.1 specifications. This document specifies the
+implemented portable inertial measurement interface and its QMI8658 controller
+driver. mm.imu, the QMI8658 driver, the rp2350_touch_lcd_28 board provider, and
+the board-smoke application exist. Visual sensor behavior on hardware remains
+a hardware-qualification requirement rather than a completed claim.
+
+docs/modules-platform-mcu.mdy remains authoritative for the implemented mm.mcu
+interface, including the I2C transport this driver uses. docs/modules-platforms.mdy
+remains authoritative for SDK and board selection. docs/modules-mm.mdy remains
+authoritative for the closed v1.2 manifest schema.
+
+# Decision
+
+Inertial measurement is a device service layered above mm.mcu I2C. It is not
+a new transport, a new group of virtual functions on mm::mcu::Platform, and
+not a policy module that fuses, filters, or calibrates.
+
+The intended dependency direction is:
+
+Opening fence
+portable application
+        |
+     mm.imu
+        |
+selected board IMU provider
+        |
+mm.imu.qmi8658 (or another controller)
+        |
+I2C from mm.mcu
+        |
+selected MCU platform provider
+Closing fence
+
+An application using only portable inertial behavior declares:
+
+Opening fence
+use: mm.imu
+Closing fence
+
+It does not name a controller, vendor, I2C address, or provider module. The
+selected physical board profile supplies those facts.
+
+# Portable interface
+
+mm.imu is a platform interface with an allocation-free API for scale,
+initialization, atomic axis readings, temperature, and sleep. Its fallback
+object reports Unsupported.
+
+The public shape is:
+
+Opening fence
+enum class Status { Ok, BadArgument, Unsupported,
+                    NotInitialized, Busy, Timeout, TransportError };
+
+struct Axes {
+    int x = 0;
+    int y = 0;
+    int z = 0;
+};
+
+struct Scale {
+    unsigned int acceleration_range_g = 0;
+    unsigned int rotation_range_dps = 0;
+    unsigned int full_scale = 0;
+};
+
+class Imu {
+public:
+    virtual ~Imu() = default;
+
+    [[nodiscard]] virtual Scale scale() const;
+    [[nodiscard]] virtual Status initialize();
+    [[nodiscard]] virtual Status read(Axes& acceleration, Axes& rotation);
+    [[nodiscard]] virtual Status temperature(int& centidegrees);
+    [[nodiscard]] virtual Status sleep();
+};
+
+void set_imu(Imu&);
+[[nodiscard]] Imu& selected_imu();
+Closing fence
+
+Readings are signed counts in the sensor's own axes. What a count is worth is
+Scale's business: an acceleration count is
+acceleration_range_g / full_scale of a g; a rotation count is
+rotation_range_dps / full_scale of a degree per second. A caller converts to
+whatever units it wants, and no caller pays for units it does not. Doing the
+conversion in this module would force floating point on every executable that
+reaches mm.imu, including bare-metal lanes with no hardware, to produce one
+of the several unit systems callers actually want. The reference drivers this
+interface was modelled on make that choice with a compile-time switch, which
+is evidence that the choice belongs to the caller.
+
+`read` fills both axis sets from one sensor reading so a caller cannot pair
+an acceleration with a rotation the sensor measured at a different moment.
+`temperature` reports hundredths of a degree Celsius, the sensor's precision
+expressed without a floating-point type. The out-parameter is written only
+when the call answers Ok.
+
+The data-ready interrupt a sensor may offer is deliberately absent, as it is
+in mm.touch and mm.rtc: a caller polls read, and mm.mcu has no callback
+registration. A provider may use its own interrupt internally to make that
+cheap without exposing it.
+
+The platform-interface marker makes a selected board IMU provider part of an
+executable only when its ordinary closure reaches mm.imu.
+
+# Controller driver
+
+mm.imu.qmi8658 implements the QST QMI8658 six-axis inertial sensor over
+portable mm.mcu I2C. It contains no vendor header and no board pin number: a
+board's provider supplies the wiring and this module drives the protocol.
+
+The driver receives immutable wiring and configuration descriptors:
+
+Opening fence
+struct Wiring {
+    mm::mcu::I2cConfiguration i2c;
+    unsigned int address;          // 0x6b
+    unsigned int alternate_address; // 0x6a
+};
+
+enum class AccelerationRange { G2, G4, G8, G16 };
+enum class RotationRange { Dps32, Dps64, Dps128, Dps256, Dps512, Dps1024,
+                           Dps2048, Dps4096 };
+enum class OutputRate { Hz8000, Hz4000, Hz2000, Hz1000, Hz500,
+                       Hz250, Hz125, Hz62_5, Hz31_25 };
+
+struct Configuration {
+    AccelerationRange acceleration;
+    RotationRange rotation;
+    OutputRate acceleration_rate;
+    OutputRate rotation_rate;
+};
+Closing fence
+
+The part answers at one of two addresses depending on how its SA0 pin is
+strapped. The driver probes both and records which one replied, so a provider
+that does not know the strap still works.
+
+Registers are eight-bit, so a read is one address byte followed by the reply.
+Every register access is an mm.mcu `i2c_write_read` rather than a write and a
+read, because the sensor's address pointer must not be exposed to another
+master between the two halves.
+
+The driver owns a state machine distinguishing Idle, Ready, and Sleeping.
+Initialization configures I2C, identifies the part at either address, applies
+the configured ranges and output rates, and reaches Ready. Sleep puts the
+sensor in its low-power state; a subsequent read requires reinitialization.
+
+Three things in the Waveshare reference driver for the RP2350-Touch-LCD-2.8
+are deliberately not reproduced. Its unit conversion is absent, because
+mm.imu reports counts and a scale and lets the caller choose units. Its
+AttitudeEngine, magnetometer, and wake-on-motion paths are absent, because the
+board wires none of them and a driver should not carry registers nobody can
+reach. Its address retry loop is kept, because the part answers at one of two
+addresses and which one is a board fact the driver can discover rather than
+demand.
+
+# Provider binding
+
+mm.imu carries the existing platform-interface marker. A concrete hardware
+board binds it to one unique provider:
+
+Opening fence
+platform-provider: mm.imu platform.rp2350_touch_lcd_28.imu
+Closing fence
+
+The provider imports mm.imu, the selected controller module, and mm.mcu. It
+owns the fixed I2C wiring and sensor address, constructs the controller, and
+registers the Imu implementation from a retained static object. Existing
+provider validation, board-over-SDK precedence, conditional closure injection,
+and core platform-edge rules apply unchanged.
+
+# Test strategy
+
+Controller tests use a fake MCU Platform that records I2C operations. Tests
+compare semantic register transcripts rather than merely checking that a
+source file compiled.
+
+Required host tests cover:
+
+- address discovery at both strapped addresses;
+- initialization transcript for the exact part revision;
+- configured ranges and output rates appear in the correct registers;
+- atomic read returns both axis sets from one transaction;
+- temperature conversion to hundredths of a degree;
+- sleep and the reinitialization path;
+- transport errors propagated without continuing the register sequence;
+- no IMU or provider objects in an unrelated executable closure.
+
+Target qualification builds one portable app through the real Pico external
+CMake bridge, validates the ELF and UF2, and confirms exactly one IMU and MCU
+provider registration object. It then flashes through flash.sh.
+
+# Implementation stages
+
+1. Implemented: add mm.mcu:i2c with host transcript tests.
+2. Implemented: add mm.imu with a host stand-in independent of any controller.
+3. Implemented: add mm.imu.qmi8658 with initialization, read, and sleep tests.
+4. Implemented: add the rp2350_touch_lcd_28 board IMU provider.
+5. Implemented: add apps/board-smoke using mm.imu alongside mm.display,
+   mm.touch, and mm.rtc.
+6. Pending hardware: qualify readings, ranges, temperature, and sleep on the
+   named Waveshare board.
+
+# Acceptance criteria
+
+- An app importing only mm.imu links with exactly one selected IMU provider
+  and the provider's controller closure.
+- The same app is unavailable on a board with no IMU binding.
+- An app not importing mm.imu contains no IMU provider or controller
+  registration object.
+- Controller host tests pass without Pico SDK or physical hardware.
+- I2C register accesses cross the platform boundary as write-read
+  transactions, not separate write and read calls.
+- No controller source includes vendor or Pico SDK headers.
+- A successful link or flash is not reported as a successful sensor reading.
+
+# What this does not settle
+
+- QMI8658 is the first implemented controller. Its magnetometer,
+  attitude engine, and wake-on-motion paths are absent because the board wires
+  none of them.
+- Orientation fusion, filtering, gesture detection, and calibration are policy
+  above this module.
+- A data-ready interrupt is not exposed; mm.mcu has no callback registration.
+- Multi-sensor selection and runtime sensor discovery are not specified.
+- Temperature beyond the sensor's hundredths-of-a-degree precision is not
+  promised.
