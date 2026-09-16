@@ -68,6 +68,10 @@ the CI fix that keeps the gate honest.
   colour bars, holds them, and rotates them twice. It exists so a person can
   tell a working panel from a still one, and so the red bar's encoding
   (0xf800) catches a byte-swap that would draw blue instead.
+- **`--runner native`.** A runner profile that executes a target image
+  directly through `/usr/bin/env`, accepted only when the selected target
+  triple equals the build machine's and only with `--target-host`. It is what
+  makes a native lane's tests runnable without `--compile-only`.
 - **Linux platform.** Native hosted SDKs for `x86_64-linux-gnu` and
   `aarch64-linux-gnu`, implemented directly over libc and the Linux userspace
   kernel ABI. Two boards per architecture: `generic-linux-<arch>` names the
@@ -82,6 +86,34 @@ the CI fix that keeps the gate honest.
   `modules-rtc.mdy`, and `modules-touch.mdy`, each marked with the release it
   governs. `docs/modules-platform-linux.mdy` and `modules-stdio.mdy` were
   added in the same series and are included in this entry.
+
+### Changed
+
+- **A library's `link-input` reaches the link line.** It was declared,
+  validated, ordered, and carried since v1.2.0 with no command consuming it.
+  The project link now appends the link inputs of every library a closure
+  reaches, after the objects, once per library however many wrappers reach it,
+  and in reverse walk order so a dependency's library follows the module that
+  needed it. A library whose checkout is absent is reported before the linker
+  runs rather than discovered as an undefined symbol. `library-directory` and
+  `link-archive` are still carried and still consumed by nothing, and the
+  external CMake link does not receive the segment; both remain under
+  docs/modules-libraries.mdy's Current boundaries.
+- **`mm::mcu::Status` gains `TransportError`.** `Unsupported` means the
+  platform does not have the facility, which cannot also stand for a device
+  that is present and failing. The five controller modules that translate
+  `mm::mcu::Status` — SSD1680, ST7789, CST328, QMI8658, PCF85063 — each handle
+  the new value explicitly. The Pico provider's private ABI cannot originate
+  it and does not need to.
+- **A module naming a `library:` may take the `platform.` prefix.** A wrapper
+  still takes `lib.`; a platform provider that reaches its library directly
+  takes `platform.`, because its public dependency is the project interface
+  module rather than a foreign library API. The loader machine-checks that the
+  prefix is one of the two.
+- **A non-core platform provider named by a hosted SDK or board may include
+  POSIX and Linux UAPI headers** and invoke their ioctl request macros, for the
+  interface it implements and nothing else. Without it the Linux providers were
+  not expressible. docs/modules-c++20.mdy carries the allowance.
 
 ### Fixed
 
@@ -120,8 +152,11 @@ the CI fix that keeps the gate honest.
 
 - `mm: 1.0`, `mm: 1.1`, and `mm: 1.2` manifests are unchanged and still valid.
 - No new manifest keys are introduced; all new modules use existing `kind:`,
-  `module:`, `platform-interface:`, `platform-provider:`, `use:`, and
-  `file:` keys under `mm: 1.2`.
+  `module:`, `platform-interface:`, `platform-provider:`, `use:`, `library:`,
+  `link-input:`, and `file:` keys under `mm: 1.2`.
+- `mm::mcu::Status` gains one enumerator, `TransportError`. Code switching over
+  it exhaustively without a default gains an unhandled case; every such switch
+  in this repository was updated.
 - The configuration record stays `configuration-2`.
 - GCC 15 or newer is required, as in v1.2.0.
 

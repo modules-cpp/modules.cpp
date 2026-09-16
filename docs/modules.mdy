@@ -3,7 +3,7 @@ mm: 1.0
 kind: doc
 name: modules.cpp developer guide
 status: official
-release: v1.2.0
+release: v1.2.1
 ---
 
 # Introduction
@@ -169,23 +169,29 @@ The source tree is organized by responsibility.
 |   +-- mm.mdy                documentation manifest
 |   +-- mdy.mdy               MDY format reference
 |   +-- modules.mdy           this guide
+|   +-- compiler-is-all-you-need.mdy  the essay the project argues from
 |   +-- modules-build.mdy     build tool and lane-selection specification
 |   +-- modules-c++20.mdy     C++20 language subset specification
 |   +-- modules-cmake.mdy     external CMake builder specification
-|   +-- modules-configure.mdy official configure specification for release v1.2.0
+|   +-- modules-configure.mdy official configure specification for release v1.2.1
 |   +-- modules-debug.mdy     debug tool and debugger specification
 |   +-- modules-display.mdy   portable display interface and binding design
 |   +-- modules-epaper.mdy    ePaper transport and controller architecture
 |   +-- modules-flash.mdy     Pico firmware flashing specification
+|   +-- modules-imu.mdy       portable inertial interface and QMI8658 driver
+|   +-- modules-lcd.mdy       portable colour LCD controllers and ST7789
 |   +-- modules-libraries.mdy vendored library and wrapper specification
 |   +-- modules-mm.mdy        manifest schema specification, every mm: version
 |   +-- modules-model.mdy     the abstract data model
+|   +-- modules-platform-linux.mdy the native Linux platform and its providers
 |   +-- modules-platform-mcu.mdy   portable MCU interface and provider injection
 |   +-- modules-platform-pico.mdy  the Pico platform family
 |   +-- modules-platforms.mdy SDK, board, and platform specification
+|   +-- modules-rtc.mdy       portable real-time clock and PCF85063 driver
 |   +-- modules-run.mdy       run tool and runner specification
 |   +-- modules-stdio.mdy     portable console and Pico USB CDC provider
 |   +-- modules-test.mdy      test tool and target execution specification
+|   +-- modules-touch.mdy     portable touch interface and CST328 driver
 |
 +-- out/                      bootstrap output, installed commands, configuration
 |   +-- bootstrap-bmi/       stage-zero GCC compiled-module state

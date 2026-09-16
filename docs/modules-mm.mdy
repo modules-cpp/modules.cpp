@@ -3,7 +3,7 @@ mm: 1.0
 kind: doc
 name: modules.cpp mm manifest specification
 status: official
-release: v1.2.0
+release: v1.2.1
 ---
 
 # modules.cpp mm manifest specification

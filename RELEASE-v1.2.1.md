@@ -51,8 +51,10 @@ The Linux platform adds two hosted SDKs — `x86_64-linux-gnu` and
 `aarch64-linux-gnu` — implemented directly over libc and the Linux userspace
 kernel ABI. Two boards per architecture: a generic board with DRM/KMS
 display, evdev touch, IIO sensors, and file-descriptor console; and an SDL2
-board that moves the screen and pointer into a window. Nothing is optional:
-every provider the board binds is the one the executable receives.
+board that moves the screen and pointer into a window. The SDL2 backend is the
+one optional package in the platform, and selecting the board is the only way
+anything pays for it. Injection then follows the application: a provider the
+board binds but the application never reaches is not in the executable.
 
 `mm.mcu:i2c` is the new transport facility the device drivers use:
 `I2cConfiguration`, `i2c_configure`, `i2c_write`, `i2c_read`, and
