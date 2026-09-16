@@ -18,6 +18,8 @@ folder: sdl2
 folder: apps
 folder: generic-aarch64
 folder: sdl-aarch64
+folder: generic-x86_64
+folder: sdl-x86_64
 ---
 
 # Linux platform

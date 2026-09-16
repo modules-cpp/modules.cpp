@@ -1,0 +1,13 @@
+---
+mm: 1.2
+kind: module
+name: generic-linux-x86_64-map
+module: platform.linux.generic_x86_64.map
+use: platform.linux.map
+file: map.cppm
+option: buildable-host no
+---
+
+# platform.linux.generic_x86_64.map
+
+Board-specific defaults for the generic native x86-64 Linux board.

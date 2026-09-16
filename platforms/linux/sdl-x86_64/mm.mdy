@@ -1,0 +1,12 @@
+---
+mm: 1.0
+kind: dir
+name: sdl-linux-x86_64-platform
+folder: board
+---
+
+# SDL x86-64 Linux board
+
+A hosted board that replaces the display and touch providers with the SDL2
+backend, so a portable application can be watched in a window instead of on a
+virtual terminal.
