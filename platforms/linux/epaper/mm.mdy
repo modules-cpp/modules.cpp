@@ -1,0 +1,14 @@
+---
+mm: 1.2
+kind: dir
+name: epaper
+folder: chip
+folder: device
+folder: display
+folder: board
+---
+
+# Linux e-paper platform
+
+A virtual SSD1680 behind the mm.mcu seam, with an SDL2 window showing its
+RAM when a refresh completes. See drafts/linux-epaper.mdy for the design.

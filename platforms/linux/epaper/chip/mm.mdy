@@ -1,0 +1,9 @@
+---
+mm: 1.2
+kind: module
+name: linux-epaper-chip
+module: platform.linux.epaper.chip
+file: chip.cppm
+---
+
+# The virtual SSD1680 the real controller drives over the mm.mcu seam.

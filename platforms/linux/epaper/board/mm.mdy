@@ -1,0 +1,19 @@
+---
+mm: 1.2
+kind: board
+name: epaper-linux-x86_64
+derives-from: generic-linux-x86_64
+platform-provider: mm.mcu platform.linux.epaper.device
+platform-provider: mm.display platform.linux.epaper.display
+---
+
+# epaper-linux-x86_64
+
+The generic hosted x86-64 board with its MCU and screen pointed at the
+emulated SSD1680. Everything else is inherited: the same SDK, the same named
+device map, and the same RTC and IMU providers.
+
+Rebinding mm.mcu, not only mm.display, is what makes the window real: the
+emulated chip sits behind the same seam the real driver talks to, and the
+SDL2 window is owned by that MCU provider. Selecting this board is the only
+way anything in the e-paper lane pays for SDL2.

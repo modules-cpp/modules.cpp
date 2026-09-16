@@ -1,0 +1,14 @@
+---
+mm: 1.2
+kind: module
+name: linux-epaper-device
+module: platform.linux.epaper.device
+file: device.cppm
+use: mm.mcu
+use: platform.linux.epaper.chip
+library: sdl2
+option: buildable-host no
+---
+
+# The mm.mcu seam over the emulated chip, plus the SDL2 window that shows
+# the chip's RAM when a refresh completes.

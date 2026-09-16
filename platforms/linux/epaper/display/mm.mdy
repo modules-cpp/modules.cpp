@@ -1,0 +1,13 @@
+---
+mm: 1.2
+kind: module
+name: linux-epaper-display
+module: platform.linux.epaper.display
+file: display.cppm
+use: mm.display
+use: mm.epaper.ssd1680
+use: mm.mcu
+option: buildable-host no
+---
+
+# The portable display: the real SSD1680 controller over the emulated chip.
