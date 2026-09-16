@@ -27,6 +27,13 @@ enum class Responsibility { ResetVector, InitialStack, MemoryLayout, RuntimeInit
 [[nodiscard]] std::string_view platform_system_name(PlatformSystem system);
 [[nodiscard]] std::string_view platform_runtime_name(PlatformRuntime runtime);
 [[nodiscard]] std::string_view responsibility_name(Responsibility responsibility);
+// One machine, two spellings. clang emits a vendor field and writes unknown
+// when there is none; Debian's GCC omits it. normalized_target collapses that
+// one difference and nothing else, and same_target compares two triples by the
+// machine they name rather than by how a toolchain spelled it.
+[[nodiscard]] std::string normalized_target(std::string_view target);
+[[nodiscard]] bool same_target(std::string_view left, std::string_view right);
+
 [[nodiscard]] std::optional<PlatformSystem> target_system(std::string_view target);
 
 struct BuildDefaults {

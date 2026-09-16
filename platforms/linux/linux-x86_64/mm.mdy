@@ -3,7 +3,7 @@ mm: 1.2
 kind: sdk
 name: linux-x86_64
 target: x86_64-linux-gnu
-compiler-family: gcc
+compiler-family: any
 runtime: glibc
 platform-provider: platform.linux.map platform.linux.defaults
 platform-provider: mm.stdio platform.linux.stdio
@@ -18,3 +18,8 @@ platform-provider: mm.imu platform.linux.imu
 
 The hosted x86-64 Linux lane. Native-runner validation prevents selecting it
 on a build machine whose compiler reports a different target triple.
+
+compiler-family: any because this SDK supplies no specs file, no linker script,
+and no runtime prefix. It owns none of the link, so it constrains none of the
+toolchain: a lane may select gcc or clang and the SDK is equally true of both.
+A bare-metal SDK cannot say this, and the loader rejects it there.

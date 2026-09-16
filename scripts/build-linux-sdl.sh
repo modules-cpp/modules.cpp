@@ -35,6 +35,7 @@ both_app=board-smoke
 both_path=apps/board-smoke
 control_app=target-smoke-any
 run_app=no
+compiler=
 run_must_succeed=yes
 arch=
 
@@ -48,13 +49,22 @@ while [ "$#" -gt 0 ]; do
             arch=$2
             shift 2
             ;;
+        -c|--compiler)
+            if [ "$#" -lt 2 ]; then
+                echo "$test_name: $1 requires a compiler" >&2
+                exit 64
+            fi
+            compiler=$2
+            shift 2
+            ;;
         --run)
             run_app=yes
             shift
             ;;
         -h|--help)
-            echo "usage: $0 [-a|--arch aarch64|x86_64] [--run]"
+            echo "usage: $0 [-a|--arch aarch64|x86_64] [-c|--compiler CXX] [--run]"
             echo "architectures: aarch64, x86_64 (default: this machine's)"
+            echo "--compiler defaults to <triple>-g++; name another to avoid a broken one"
             echo "--run opens a window; no virtual terminal is needed"
             exit 0
             ;;
@@ -65,8 +75,31 @@ while [ "$#" -gt 0 ]; do
     esac
 done
 
+# clang normalises a target triple to four fields and writes unknown where there
+# is no vendor; Debian's GCC omits the field. aarch64-linux-gnu and
+# aarch64-unknown-linux-gnu are the same machine, so collapse that one
+# difference before comparing. none is left alone: a bare-metal triple means it.
+normalize_triple() {
+    case "$1" in
+        *-unknown-*-*) printf '%s\n' "$1" | sed 's/-unknown-/-/' ;;
+        *) printf '%s\n' "$1" ;;
+    esac
+}
+
+# configure validates the native runner against the compiler the host lane is
+# configured with, not against whatever gcc happens to be on PATH. Those differ
+# on a machine whose host lane is clang, so ask the same compiler configure will.
+configured_host_compiler() {
+    if [ -f out/config.mdy ]; then
+        sed -n 's/^host-compiler: *//p' out/config.mdy | head -1
+    fi
+}
+
+host_cxx=$(configured_host_compiler)
+: "${host_cxx:=g++}"
+
 if [ -z "$arch" ]; then
-    case $(gcc -dumpmachine 2>/dev/null) in
+    case $(normalize_triple "$(${host_cxx:-g++} -dumpmachine 2>/dev/null)") in
         aarch64-*) arch=aarch64 ;;
         x86_64-*)  arch=x86_64 ;;
         *)
@@ -97,7 +130,7 @@ case "$arch" in
         ;;
 esac
 
-compiler="$target-g++"
+: "${compiler:=$target-g++}"
 nm_command="$target-nm"
 readelf_command="$target-readelf"
 
@@ -109,9 +142,10 @@ for command_name in "$compiler" "$nm_command" "$readelf_command"; do
     fi
 done
 
-if [ "$(gcc -dumpmachine 2>/dev/null)" != "$target" ]; then
+host_triple=$(normalize_triple "$("$host_cxx" -dumpmachine 2>/dev/null)")
+if [ "$host_triple" != "$(normalize_triple "$target")" ]; then
     echo "$test_name: $target is not this machine's triple" >&2
-    echo "  the native runner accepts only $(gcc -dumpmachine)" >&2
+    echo "  $host_cxx reports $host_triple, and the native runner accepts only that" >&2
     exit 65
 fi
 

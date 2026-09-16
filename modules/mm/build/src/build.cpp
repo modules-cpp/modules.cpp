@@ -1644,9 +1644,10 @@ bool parse_definitions(Project& project, const std::filesystem::path& root,
                 return false;
             if (family == "gcc") sdk.family = CompilerFamily::Gcc;
             else if (family == "clang") sdk.family = CompilerFamily::Clang;
+            else if (family == "any") sdk.family_agnostic = true;
             else {
                 std::cerr << policy.tool << ": " << node.manifest.string()
-                          << ": compiler-family must be gcc or clang\n";
+                          << ": compiler-family must be gcc, clang, or any\n";
                 return false;
             }
             if (runtime == "glibc") sdk.runtime = mm::configure::PlatformRuntime::Glibc;
@@ -1658,9 +1659,19 @@ bool parse_definitions(Project& project, const std::filesystem::path& root,
                           << ": unsupported runtime: " << runtime << "\n";
                 return false;
             }
-            if (!mm::configure::target_system(sdk.target)) {
+            const auto sdk_system = mm::configure::target_system(sdk.target);
+            if (!sdk_system) {
                 std::cerr << policy.tool << ": " << node.manifest.string()
                           << ": unsupported target: " << sdk.target << "\n";
+                return false;
+            }
+            // A bare-metal SDK supplies the specs, the startup, and the link,
+            // and every one of those is family-specific. Only a hosted SDK,
+            // which supplies none of them, may decline to name a family.
+            if (sdk.family_agnostic &&
+                *sdk_system != mm::configure::PlatformSystem::Linux) {
+                std::cerr << policy.tool << ": " << node.manifest.string()
+                          << ": compiler-family: any requires a hosted target\n";
                 return false;
             }
             const auto* specs_file_values = lookup(doc, "specs-file");

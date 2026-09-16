@@ -183,7 +183,9 @@ int resolve_platform(const mm::build::Project& project,
         std::cerr << "configure: unknown SDK: " << sdk_name << "\n";
         return mm::build::exit_usage;
     }
-    if (sdk->target != target || sdk->family != family) {
+    // A family-agnostic hosted SDK accepts whichever toolchain the lane names.
+    if (!mm::configure::same_target(sdk->target, target) ||
+        (!sdk->family_agnostic && sdk->family != family)) {
         std::cerr << "configure: SDK " << sdk->name << " is not compatible with " << target
                   << " and " << mm::configure::compiler_family_name(family) << "\n";
         return mm::build::exit_usage;
@@ -214,7 +216,7 @@ int resolve_platform(const mm::build::Project& project,
     }
     platform.sdk = sdk->name;
     platform.sdk_manifest = sdk->manifest;
-    platform.sdk_family = sdk->family;
+    platform.sdk_family = sdk->family_agnostic ? family : sdk->family;
     platform.sysroot = sdk->sysroot;
     platform.runtime_prefix = sdk->runtime_prefix;
     if (!sdk->specs_profile.empty())
@@ -572,7 +574,11 @@ int main(int argc, char** argv) {
                 }
                 const auto host_probe = mm::configure::probe_compiler(
                     settings.host.invocation, run_driver_command);
-                if (!host_probe || host_probe->target_triple != target) {
+                // The machine, not the spelling: the host lane may be clang
+                // while the target lane is GCC, and the two write the vendor
+                // field differently for the same hardware.
+                if (!host_probe ||
+                    !mm::configure::same_target(host_probe->target_triple, target)) {
                     std::cerr << "configure: native runner target " << target
                               << " does not match build machine target "
                               << (host_probe ? host_probe->target_triple : "unknown") << "\n";

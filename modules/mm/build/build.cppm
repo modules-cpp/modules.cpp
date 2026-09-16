@@ -193,6 +193,11 @@ struct SdkDefinition {
     std::filesystem::path manifest;
     std::string target;
     CompilerFamily family = CompilerFamily::Gcc;
+    // compiler-family: any. A hosted SDK that supplies no specs file, no
+    // linker script, and no runtime prefix does not care which toolchain
+    // builds it, and naming gcc there would refuse a clang lane for no reason.
+    // A bare-metal SDK owns the link and cannot say this.
+    bool family_agnostic = false;
     mm::configure::PlatformRuntime runtime = mm::configure::PlatformRuntime::Unknown;
     std::string specs_profile;
     std::filesystem::path specs_file;

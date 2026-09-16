@@ -14,6 +14,7 @@ module;
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 module mm.configure;
 
@@ -51,11 +52,46 @@ std::string_view responsibility_name(Responsibility responsibility) {
     return {};
 }
 
+// Two toolchains spell one machine differently and both are right: clang
+// normalises to a four-field triple and writes unknown where there is no
+// vendor, while Debian patches GCC to leave the field out. aarch64-linux-gnu
+// and aarch64-unknown-linux-gnu are the same CPU, ABI, and C library, so a
+// comparison that distinguishes them is measuring the toolchain rather than
+// the machine. Only unknown is collapsed: none is a vendor a bare-metal triple
+// means, as arm-none-eabi does, and dropping it would merge two real targets.
+std::string normalized_target(std::string_view target) {
+    std::vector<std::string_view> fields;
+    std::size_t start = 0;
+    while (start <= target.size()) {
+        const auto next = target.find('-', start);
+        if (next == std::string_view::npos) {
+            fields.push_back(target.substr(start));
+            break;
+        }
+        fields.push_back(target.substr(start, next - start));
+        start = next + 1;
+    }
+    if (fields.size() < 4 || fields[1] != "unknown") return std::string(target);
+
+    std::string result;
+    for (std::size_t i = 0; i < fields.size(); ++i) {
+        if (i == 1) continue;
+        if (!result.empty()) result += '-';
+        result.append(fields[i]);
+    }
+    return result;
+}
+
+bool same_target(std::string_view left, std::string_view right) {
+    return normalized_target(left) == normalized_target(right);
+}
+
 std::optional<PlatformSystem> target_system(std::string_view target) {
-    if (target == "m68k-linux-gnu" || target == "aarch64-linux-gnu" ||
-        target == "arm-linux-gnueabihf" || target == "x86_64-linux-gnu")
+    const auto canonical = normalized_target(target);
+    if (canonical == "m68k-linux-gnu" || canonical == "aarch64-linux-gnu" ||
+        canonical == "arm-linux-gnueabihf" || canonical == "x86_64-linux-gnu")
         return PlatformSystem::Linux;
-    if (target == "arm-none-eabi" || target == "riscv32-pico-elf")
+    if (canonical == "arm-none-eabi" || canonical == "riscv32-pico-elf")
         return PlatformSystem::BareMetal;
     return std::nullopt;
 }
