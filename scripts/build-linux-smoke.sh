@@ -84,8 +84,8 @@ case "$arch" in
     x86_64)
         target=x86_64-linux-gnu
         sdk=linux-x86_64
-        board=
-        board_map=
+        board=generic-linux-x86_64
+        board_map=platform.linux.generic_x86_64.map
         machine=X86-64
         ;;
     *)

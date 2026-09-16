@@ -6,6 +6,7 @@
 // loaded; these cases pin the real values instead.
 
 #include <cstddef>
+#include <string>
 #include <string_view>
 
 import mm.model;
@@ -61,17 +62,22 @@ void repository_exposes_platform_definitions() {
     const auto boards = loaded.repository().boards();
     mm::test::expect(ok && sdks.size() == 9,
                      "expected all nine SDK definitions from the manifest walk");
-    mm::test::expect(boards.size() == 15,
-                     "expected all fifteen board definitions from the manifest walk");
+    mm::test::expect(boards.size() == 17,
+                     "expected all seventeen board definitions from the manifest walk");
 
-    // The SDL board binds one provider module to two interfaces. Two bindings
+    // An SDL board binds one provider module to two interfaces. Two bindings
     // naming one module is the shape a board takes when a single provider
-    // serves both roles, and nothing else in the tree exercises it.
-    const models::BoardNode* sdl_linux = nullptr;
-    for (const auto* board : boards)
-        if (board->name() == "sdl-linux-aarch64") sdl_linux = board;
-    mm::test::expect(sdl_linux != nullptr, "expected the SDL Linux board definition");
-    if (sdl_linux != nullptr) {
+    // serves both roles, and nothing else in the tree exercises it. Both
+    // architectures are checked, because a second one added by copying is
+    // exactly where a binding goes missing unnoticed.
+    for (const auto* name : {"sdl-linux-aarch64", "sdl-linux-x86_64"}) {
+        const models::BoardNode* sdl_linux = nullptr;
+        for (const auto* board : boards)
+            if (board->name() == name) sdl_linux = board;
+        mm::test::expect(sdl_linux != nullptr,
+                         std::string("expected the ") + name + " board definition");
+        if (sdl_linux == nullptr) continue;
+
         const auto bindings = sdl_linux->platform_providers();
         std::size_t named_sdl = 0;
         bool display_bound = false;
@@ -83,11 +89,13 @@ void repository_exposes_platform_definitions() {
             if (binding.interface_module == "mm.touch") touch_bound = true;
         }
         mm::test::expect(named_sdl == 2 && display_bound && touch_bound,
-                         "expected both SDL bindings to name one provider module");
+                         std::string("expected both ") + name +
+                             " bindings to name one provider module");
         // The base board's map binding survives derivation untouched, which is
         // what says the derived board replaced two interfaces and not the set.
         mm::test::expect(bindings.size() == 3,
-                         "expected the inherited map binding beside the two SDL ones");
+                         std::string("expected ") + name +
+                             " to keep its inherited map binding");
     }
     const models::BoardNode* mps2 = nullptr;
     const models::BoardNode* rp2040 = nullptr;

@@ -81,12 +81,14 @@ case "$arch" in
         target=aarch64-linux-gnu
         sdk=linux-aarch64
         board=sdl-linux-aarch64
+        inherited_map=platform.linux.generic_aarch64.map
         machine=AArch64
         ;;
     x86_64)
         target=x86_64-linux-gnu
         sdk=linux-x86_64
-        board=
+        board=sdl-linux-x86_64
+        inherited_map=platform.linux.generic_x86_64.map
         machine=X86-64
         ;;
     *)
@@ -283,7 +285,7 @@ verify_provider "$binary" platform.linux.display 0
 verify_provider "$binary" platform.linux.touch 0
 # The board replaced two interfaces and inherited the rest.
 verify_provider "$binary" platform.linux.mcu 1
-verify_provider "$binary" "platform.linux.generic_aarch64.map" 1
+verify_provider "$binary" "$inherited_map" 1
 verify_library "$binary" yes
 
 echo "  SDL provider, no DRM or evdev, and SDL2 on the link line"

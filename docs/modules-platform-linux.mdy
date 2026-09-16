@@ -17,11 +17,20 @@ libc and Linux UAPI operations.
 
 # Lane
 
-linux-aarch64 and linux-x86_64 are hosted SDKs without boards or runtime
-prefixes. Configure selects one with --target-host and may select runner native.
-The native runner is accepted only when the target triple equals the build
-machine compiler's target triple, then executes the image through /usr/bin/env
-with application arguments forwarded.
+linux-aarch64 and linux-x86_64 are hosted SDKs without runtime prefixes.
+Configure selects one with --target-host and may select runner native. The
+native runner is accepted only when the target triple equals the build machine
+compiler's target triple, then executes the image through /usr/bin/env with
+application arguments forwarded, which is why a lane can only be built and run
+on the architecture it names.
+
+Each SDK is complete without a board. Two boards exist per architecture and
+neither supplies sources, a linker script, or a bare-metal responsibility:
+generic-linux-<arch> names its own map provider, and sdl-linux-<arch> derives
+from it and moves the screen and pointer into a window. A hosted board is what
+the loader accepts here rather than the bare-metal shape, and the processor
+registry carries a row per hosted triple whose argument list is empty, because a
+native lane wants no processor arguments at all.
 
 # Device map
 
@@ -81,8 +90,8 @@ headers resolve from a default search directory without one. The provider is a
 folder inside it, as platforms/pico/sdk/pico-sdk arranges its own.
 
 Selection is what keeps the package optional. The SDKs bind the DRM and evdev
-providers; only the sdl-linux-aarch64 board replaces those two bindings, so a
-lane that does not name that board links no SDL2 and needs none installed. An
+providers; only an sdl-linux-<arch> board replaces those two bindings, so a
+lane that does not name one links no SDL2 and needs none installed. An
 absent package is not an absent checkout, because the checkout is a record, so
 nothing notices it before the compiler does.
 
