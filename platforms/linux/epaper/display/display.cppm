@@ -1,10 +1,12 @@
 // Pawel Wodnicki (C) 2026
 // 32bitmicro LLC (C) 2026
 //
-// The portable e-paper display for the emulated Linux board: the same
-// descriptor and registration pattern as the PICO e-paper board, with the
-// PICO board's pin numbers so the real controller talks the same bytes the
-// chip expects, on SPI instance 0 of the emulated single bus.
+// The portable e-paper display for the emulated Linux board: the
+// pico_epaper_b descriptor and registration pattern, with the board's pin
+// numbers so the real controller talks the same bytes the chip expects, on
+// SPI instance 0 of the emulated single bus. The panel is the tri-color one:
+// a black/white plane plus a pigment plane at 0x26, exactly as the PICO
+// board declares it.
 module;
 
 #include <array>
@@ -47,8 +49,9 @@ constexpr mm::epaper::ssd1680::Panel panel{
     .width = 152,
     .height = 296,
     .initialization = initialization,
-    .full_update_control = std::byte{0xf7},
+    .full_update_control = std::nullopt,
     .partial_update_control = std::nullopt,
+    .chromatic_ram_command = std::byte{0x26},
     .deep_sleep_control = std::byte{0x01},
 };
 

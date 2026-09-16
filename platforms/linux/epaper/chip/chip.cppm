@@ -193,6 +193,10 @@ void EmulatedSsd1680::data_byte(std::byte value) {
             ram(black_white_, value);
             return;
         case std::byte{0x25}:
+        case std::byte{0x26}:
+            // Datasheet revisions differ on which address writes the pigment
+            // RAM; panels name one in their descriptor. Both land in the
+            // same plane here, as they do on the silicon.
             ram(chromatic_, value);
             return;
         case std::byte{0x10}:

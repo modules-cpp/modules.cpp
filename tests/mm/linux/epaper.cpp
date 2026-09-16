@@ -297,8 +297,17 @@ void chromatic_plane() {
     mm::mcu::set_platform(platform);
     RestorePlatform restore{original};
 
+    // The same panel without the pigment command is the black/white board:
+    // it must not claim red and must never touch the pigment RAM.
+    mm::epaper::ssd1680::Controller mono{wiring(), panel()};
+    expect(mono.initialize() == mm::display::Status::Ok, "monochrome init");
+    expect(mono.clear(mm::display::Color::Red) == mm::display::Status::Unsupported,
+           "a black/white panel rejects red");
+    expect(all_bytes(chip.chromatic_ram(), std::byte{0x00}),
+           "the black/white panel never touches the pigment RAM");
+
     mm::epaper::ssd1680::Controller controller{
-        wiring(), panel(std::byte{0x25})};
+        wiring(), panel(std::byte{0x26})};
     expect(controller.initialize() == mm::display::Status::Ok, "initializing");
     expect(controller.clear(mm::display::Color::Black) == mm::display::Status::Ok,
            "filling black");
@@ -310,7 +319,40 @@ void chromatic_plane() {
     expect(all_bytes(chip.black_white_ram(), std::byte{0xff}) &&
                all_bytes(chip.chromatic_ram(), std::byte{0x00}),
            "a white clear leaves the chromatic pigment inactive");
+    expect(controller.clear(mm::display::Color::Red) == mm::display::Status::Ok,
+           "filling red");
+    expect(all_bytes(chip.black_white_ram(), std::byte{0xff}) &&
+               all_bytes(chip.chromatic_ram(), std::byte{0xff}),
+           "a red clear drives the pigment over white");
 
+    // A frame write restores the patterned black/white plane and
+    // deactivates the pigment across the rectangle.
+    std::array<std::byte, 19 * 296> frame{};
+    for (auto& cell : frame) cell = std::byte{0x55};
+    expect(controller.write({0, 0, 152, 296},
+                           std::span<const std::byte>{frame}) ==
+               mm::display::Status::Ok,
+           "writing a frame over the red panel");
+    expect(all_bytes(chip.black_white_ram(), std::byte{0x55}) &&
+               all_bytes(chip.chromatic_ram(), std::byte{0x00}),
+           "the frame write clears the pigment and lands in the black/white");
+
+    // The datasheet's other pigment address reaches the same RAM.
+    constexpr std::array x_window{std::byte{0x00}, std::byte{0x03}};
+    constexpr std::array y_window{std::byte{0x00}, std::byte{0x00},
+                                  std::byte{0x00}, std::byte{0x01}};
+    constexpr std::array single_zero{std::byte{0x00}};
+    constexpr std::array pair_zero{std::byte{0x00}, std::byte{0x00}};
+    constexpr std::array pigment_byte{std::byte{0xff}};
+    chip_data(chip, std::byte{0x44}, x_window);
+    chip_data(chip, std::byte{0x45}, y_window);
+    chip_data(chip, std::byte{0x4E}, single_zero);
+    chip_data(chip, std::byte{0x4F}, pair_zero);
+    chip_data(chip, std::byte{0x25}, pigment_byte);
+    chip_data(chip, std::byte{0x26}, pair_zero);
+    const auto chromatic = chip.chromatic_ram();
+    expect(chromatic[0] == std::byte{0xff} && chromatic[1] == std::byte{0x00},
+           "0x25 and 0x26 stream into the same pigment RAM");
 }
 
 const mm::test::case_ cases[]{
