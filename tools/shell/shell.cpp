@@ -45,7 +45,9 @@ int main(int argc, char** argv) {
     if (options.parse(argc, argv) != mm::app::Cli::ok) return mm::build::exit_usage;
 
     const bool verbose = options.verbose();
-    const auto assignments = options.values("-e");
+    ///auto assignments_tmp = options.values("-e"); // NOTE: this line is causing ICE in gcc-14
+    auto assignments_tmp = options.values("-e");
+    const std::vector<std::string> assignments = assignments_tmp; // NOTE: this is done to avoid ICE and enable bootstrap with gcc-14
     const auto& positional = options.positional();
 
     std::filesystem::path manifest_path;
