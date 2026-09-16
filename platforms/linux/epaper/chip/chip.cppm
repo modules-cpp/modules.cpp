@@ -114,9 +114,11 @@ void EmulatedSsd1680::pump() {
 void EmulatedSsd1680::reset_chip() {
     // A real panel's RAM is garbage after power-on; deterministic white keeps
     // host tests assertable. The portable sequence clears the panel before
-    // writing, so nothing portable can see the difference.
+    // writing, so nothing portable can see the difference. White means the
+    // black/white plane set and the chromatic pigment *inactive*: a chromatic
+    // byte of 0xff drives red, so 0x00 is the pigment-free default.
     black_white_.assign(black_white_.size(), std::byte{0xff});
-    chromatic_.assign(chromatic_.size(), std::byte{0xff});
+    chromatic_.assign(chromatic_.size(), std::byte{0x00});
     sleeping_ = false;
     last_command_ = std::byte{};
     argument_ = 0;

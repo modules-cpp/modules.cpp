@@ -168,8 +168,8 @@ void full_sequence() {
            "initialize completes over the emulated chip");
     expect(all_bytes(chip.black_white_ram(), std::byte{0xff}),
            "the reset pulse leaves RAM white");
-    expect(all_bytes(chip.chromatic_ram(), std::byte{0xff}),
-           "the reset pulse leaves the chromatic RAM white");
+    expect(all_bytes(chip.chromatic_ram(), std::byte{0x00}),
+           "the reset pulse leaves the chromatic pigment inactive");
 
     expect(controller.clear(mm::display::Color::White) == mm::display::Status::Ok,
            "clearing to white");
