@@ -9,7 +9,9 @@
 // the whole Polish charset, so a person can tell a working font from a
 // scrambled one. Below that, every glyph the twelve pixel table holds,
 // wrapped to the panel, so a broken bitmap anywhere in the charset is on
-// screen rather than hidden.
+// screen rather than hidden. The whole block is shown four times, upright
+// and then turned a quarter clockwise each time: the text is always composed
+// upright, and the packed frame is what turns.
 #include <array>
 #include <cstddef>
 #include <span>
@@ -28,24 +30,20 @@ constexpr unsigned int y12_second = y12_first + mm::fonts::kMono12.line_height;
 constexpr unsigned int block_rows = y12_second + mm::fonts::kMono12.height;
 
 // The whole charset follows the four lines, one gap below them, wrapped to as
-// many twelve pixel cells as the panel is wide. How many lines that takes is
-// a runtime fact, so the frame is budgeted for the narrowest panel the demo
-// will meet and a narrower one is refused rather than overrun.
+// many twelve pixel cells as the frame is wide.
 constexpr unsigned int charset_y = block_rows + mm::fonts::kMono12.line_height;
 constexpr unsigned int charset_size =
     static_cast<unsigned int>(mm::fonts::kMono12.glyphs.size());
-constexpr unsigned int minimum_width = 128;
-constexpr unsigned int minimum_cells = minimum_width / mm::fonts::kMono12.advance;
-constexpr unsigned int maximum_charset_lines =
-    (charset_size + minimum_cells - 1u) / minimum_cells;
-constexpr unsigned int maximum_rows =
-    charset_y + maximum_charset_lines * mm::fonts::kMono12.line_height;
 
-// One bit per pixel for the composed frame: the widest panel this demo will
-// meet, packed eight pixels to the byte, times every row it may lay out.
-constexpr unsigned int maximum_width = 480;
-constexpr std::size_t maximum_row_bytes = (maximum_width + 7u) / 8u;
-std::array<std::byte, maximum_row_bytes * maximum_rows> frame;
+// The block is composed upright on a logical panel that is the physical one
+// turned back, so either side may be the width. Both one-bit frames -- the
+// composed one and the turned one -- are budgeted for the longest side the
+// demo will meet in either role, packed eight pixels to the byte. A panel
+// that exceeds it is refused rather than overrun.
+constexpr unsigned int maximum_side = 480;
+constexpr std::size_t maximum_row_bytes = (maximum_side + 7u) / 8u;
+std::array<std::byte, maximum_row_bytes * maximum_side> frame;
+std::array<std::byte, maximum_row_bytes * maximum_side> turned;
 
 // One expanded RGB565 row for the sixteen-bit path: every bit of a packed row
 // becomes two bytes, so it is sized from the packed row and not the panel.
@@ -159,6 +157,102 @@ constexpr Palette charset_palette = black_on_white;
     return true;
 }
 
+// The logical row a physical pixel came from, which is where its palette
+// lives once the frame has been turned: the inverse of the turn mm.fonts
+// applied, for the logical height the frame was turned with.
+[[nodiscard]] unsigned int logical_row(unsigned int x, unsigned int y,
+                                       unsigned int turns, unsigned int height) {
+    switch (turns % 4u) {
+        case 1: return height - 1u - x;
+        case 2: return height - 1u - y;
+        case 3: return x;
+        default: return y;
+    }
+}
+
+// The whole block at one orientation: composed upright on the logical panel,
+// turned into place, and written row by row. Returns the step that failed,
+// numbered as main's exit codes, or zero.
+[[nodiscard]] int show(mm::display::Display& display,
+                       const mm::display::Geometry& geometry, unsigned int turns) {
+    const bool sideways = turns % 2u == 1u;
+    const unsigned int width = sideways ? geometry.height : geometry.width;
+    const unsigned int height = sideways ? geometry.width : geometry.height;
+
+    // Packed row strides, eight pixels to the byte, the last byte padded: one
+    // for the logical frame and one for the panel it is turned onto.
+    const unsigned int stride = (width + 7u) / 8u;
+    const unsigned int panel_stride = (geometry.width + 7u) / 8u;
+    const unsigned int cells = width / mm::fonts::kMono12.advance;
+    if (cells == 0) return 3;
+    const unsigned int charset_lines = (charset_size + cells - 1u) / cells;
+    const unsigned int rows =
+        charset_y + charset_lines * mm::fonts::kMono12.line_height;
+    // The logical frame holds the whole panel, or the whole block when that
+    // is taller: a short panel shows what fits, and the charset is the part
+    // that gets cut, because only the panel's rows are turned.
+    const unsigned int logical_rows = rows > height ? rows : height;
+    if (static_cast<std::size_t>(stride) * logical_rows > frame.size() ||
+        static_cast<std::size_t>(panel_stride) * geometry.height > turned.size() ||
+        static_cast<std::size_t>(panel_stride) * 16u > row.size())
+        return 3;
+
+    // White is 1 in a one-bit frame: clear the panel, then mark the composed
+    // frame to match before drawing black text over it.
+    if (display.clear(mm::display::Color::White) != mm::display::Status::Ok)
+        return 4;
+    frame.fill(std::byte{0xff});
+
+    for (const Line& line : lines) {
+        const auto metrics = mm::fonts::measure(line.text, line.size, *line.font);
+        const unsigned int x = metrics.width < width ? (width - metrics.width) / 2 : 0;
+        if (mm::fonts::render(line.text, line.size, *line.font,
+                              mm::display::Color::Black,
+                              mm::display::Color::White, x, line.y, frame,
+                              stride) != mm::display::Status::Ok)
+            return 5;
+    }
+    if (!render_charset(cells, width, frame, stride)) return 5;
+
+    // Into place. No turn is a copy, which keeps one path for every
+    // orientation.
+    if (mm::fonts::rotate(frame, width, height, turns, turned) !=
+        mm::display::Status::Ok)
+        return 5;
+
+    for (unsigned int y = 0; y < geometry.height; ++y) {
+        const std::span<const std::byte> packed{
+            turned.data() + static_cast<std::size_t>(y) * panel_stride, panel_stride};
+        if (geometry.bits_per_pixel == 1) {
+            if (display.write({0, y, geometry.width, 1}, packed) !=
+                mm::display::Status::Ok)
+                return 6;
+            continue;
+        }
+        // The frame holds paper as set bits and ink as cleared bits. A
+        // turned row crosses every line's band, so each pixel looks up the
+        // palette of the logical row it came from rather than the row taking
+        // one pair.
+        for (unsigned int x = 0; x < geometry.width; ++x) {
+            const Palette palette = palette_for(logical_row(x, y, turns, height));
+            const std::byte bit = packed[x / 8u] & static_cast<std::byte>(0x80u >> (x % 8u));
+            const unsigned short color = bit != std::byte{0} ? palette.paper : palette.ink;
+            const std::size_t at = static_cast<std::size_t>(x) * 2u;
+            row[at] = static_cast<std::byte>(color >> 8);
+            row[at + 1u] = static_cast<std::byte>(color & 0xffu);
+        }
+        if (display.write({0, y, geometry.width, 1},
+                          std::span<const std::byte>{
+                              row.data(), static_cast<std::size_t>(geometry.width) * 2u}) !=
+            mm::display::Status::Ok)
+            return 6;
+    }
+
+    if (display.refresh(mm::display::Refresh::Full) != mm::display::Status::Ok)
+        return 7;
+    return 0;
+}
+
 }
 
 int main() {
@@ -170,67 +264,14 @@ int main() {
         (geometry.bits_per_pixel != 1 && geometry.bits_per_pixel != 16))
         return 2;
 
-    // The packed row stride: eight pixels to the byte, the last byte padded.
-    const unsigned int frame_width = (geometry.width + 7u) / 8u;
-    const unsigned int cells = geometry.width / mm::fonts::kMono12.advance;
-    if (cells == 0) return 3;
-    const unsigned int charset_lines = (charset_size + cells - 1u) / cells;
-    const unsigned int rows =
-        charset_y + charset_lines * mm::fonts::kMono12.line_height;
-    if (static_cast<std::size_t>(frame_width) * rows > frame.size() ||
-        static_cast<std::size_t>(frame_width) * 16u > row.size())
-        return 3;
-    // A short panel shows what fits; the charset is the part that gets cut.
-    const unsigned int visible_rows = rows < geometry.height ? rows : geometry.height;
-
-    // White is 1 in a one-bit frame: clear the panel, then mark the composed
-    // frame to match before drawing black text over it.
-    if (display.clear(mm::display::Color::White) != mm::display::Status::Ok)
-        return 4;
-    frame.fill(std::byte{0xff});
-
-    for (const Line& line : lines) {
-        const auto metrics = mm::fonts::measure(line.text, line.size, *line.font);
-        const unsigned int x = metrics.width < geometry.width
-            ? (geometry.width - metrics.width) / 2
-            : 0;
-        if (mm::fonts::render(line.text, line.size, *line.font,
-                              mm::display::Color::Black,
-                              mm::display::Color::White, x, line.y, frame,
-                              frame_width) != mm::display::Status::Ok)
-            return 5;
+    // Upright, then a quarter turn clockwise three times, each held long
+    // enough to be read. Without the hold the frame is gone before anyone
+    // sees it: a provider that owns the display releases it when this
+    // process ends.
+    for (unsigned int turns = 0; turns < 4; ++turns) {
+        if (const int step = show(display, geometry, turns); step != 0) return step;
+        if (mm::mcu::delay_ms(hold_ms) != mm::mcu::Status::Ok) return 8;
     }
-    if (!render_charset(cells, geometry.width, frame, frame_width)) return 5;
-
-    for (unsigned int y = 0; y < visible_rows; ++y) {
-        const std::span<const std::byte> packed{
-            frame.data() + static_cast<std::size_t>(y) * frame_width, frame_width};
-        if (geometry.bits_per_pixel == 1) {
-            if (display.write({0, y, geometry.width, 1}, packed) !=
-                mm::display::Status::Ok)
-                return 6;
-        } else {
-            // The frame holds paper as set bits and ink as cleared bits, so
-            // the set-bit colour is the paper and the cleared-bit colour the
-            // ink.
-            const Palette palette = palette_for(y);
-            if (mm::fonts::expand_row(packed, frame_width, palette.paper,
-                                      palette.ink, row) != mm::display::Status::Ok)
-                return 6;
-            if (display.write({0, y, geometry.width, 1},
-                              std::span<const std::byte>{
-                                  row.data(), static_cast<std::size_t>(geometry.width) * 2u}) !=
-                mm::display::Status::Ok)
-                return 6;
-        }
-    }
-
-    if (display.refresh(mm::display::Refresh::Full) != mm::display::Status::Ok)
-        return 7;
-
-    // Without this the frame is gone before anyone sees it: a provider that
-    // owns the display releases it when this process ends.
-    if (mm::mcu::delay_ms(hold_ms) != mm::mcu::Status::Ok) return 8;
 
     if (display.sleep() != mm::display::Status::Ok) return 9;
     return 0;

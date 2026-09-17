@@ -348,6 +348,77 @@ void expand_row_maps_one_bit_to_rgb565() {
            "a packed row shorter than its declared width is rejected");
 }
 
+void rotate_turns_a_packed_frame() {
+    using mm::display::Status;
+    // A 10 by 3 frame with one distinct pixel per corner and one interior:
+    //   .X........      row 0: 0x40 0x00
+    //   ..........      row 1: 0x00 0x00
+    //   X........X      row 2: 0x80 0x40
+    const std::array<std::byte, 6> source = {
+        std::byte{0x40}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x80}, std::byte{0x40},
+    };
+    std::array<std::byte, 12> turned;
+    // A quarter turn clockwise is 3 wide and 10 tall: the left column of the
+    // source becomes the top row, read bottom to top.
+    //   X..   row 0 (source column 0: rows 2,1,0 -> X . .)
+    //   ..X   row 1 (source column 1: . . X)
+    //   ...   rows 2..8
+    //   X..   row 9 (source column 9: X . .)
+    expect(mm::fonts::rotate(source, 10, 3, 1, turned) == Status::Ok,
+           "one quarter turn is accepted");
+    bool quarter = turned[0] == std::byte{0x80} && turned[1] == std::byte{0x20} &&
+                   turned[9] == std::byte{0x80};
+    for (unsigned int y = 2; y < 9; ++y) quarter = quarter && turned[y] == std::byte{0};
+    expect(quarter, "a quarter turn maps columns to rows, bottom to top");
+    // A half turn keeps the shape and flips both axes.
+    //   X........X      0x80 0x40
+    //   ..........      0x00 0x00
+    //   ........X.      0x00 0x80
+    expect(mm::fonts::rotate(source, 10, 3, 2, turned) == Status::Ok,
+           "a half turn is accepted");
+    expect(turned[0] == std::byte{0x80} && turned[1] == std::byte{0x40} &&
+               turned[2] == std::byte{0x00} && turned[3] == std::byte{0x00} &&
+               turned[4] == std::byte{0x00} && turned[5] == std::byte{0x80},
+           "a half turn flips both axes");
+    // Three quarter turns is the quarter turn's mirror: the right column of
+    // the source becomes the top row, read top to bottom.
+    //   ..X   row 0 (source column 9: . . X)
+    //   ...   rows 1..7
+    //   X..   row 8 (source column 1: X . .)
+    //   ..X   row 9 (source column 0: . . X)
+    expect(mm::fonts::rotate(source, 10, 3, 3, turned) == Status::Ok,
+           "three quarter turns are accepted");
+    bool three = turned[0] == std::byte{0x20} && turned[8] == std::byte{0x80} &&
+                 turned[9] == std::byte{0x20};
+    for (unsigned int y = 1; y < 8; ++y) three = three && turned[y] == std::byte{0};
+    expect(three, "three quarter turns map columns to rows, top to bottom");
+    // No turn copies, and a full turn is no turn.
+    expect(mm::fonts::rotate(source, 10, 3, 4, turned) == Status::Ok &&
+               turned[0] == source[0] && turned[1] == source[1] &&
+               turned[4] == source[4] && turned[5] == source[5],
+           "four quarter turns copy the frame");
+    // The turned frame's own padding is cleared even where the source had
+    // padding bits set.
+    const std::array<std::byte, 2> dirty = {std::byte{0xff}, std::byte{0xff}};
+    std::array<std::byte, 9> tall;
+    tall.fill(std::byte{0xa5});
+    expect(mm::fonts::rotate(dirty, 9, 1, 1, tall) == Status::Ok,
+           "a nine wide, one tall frame turns");
+    bool clean = true;
+    for (unsigned int y = 0; y < 9; ++y) clean = clean && tall[y] == std::byte{0x80};
+    expect(clean, "only the one source column is set; padding bits are zero");
+    expect(mm::fonts::rotate(source, 0, 3, 1, turned) == Status::BadArgument,
+           "a zero width is rejected");
+    expect(mm::fonts::rotate(std::span<const std::byte>{source.data(), 5}, 10, 3, 1,
+                             turned) == Status::BadArgument,
+           "a source shorter than its declared frame is rejected");
+    expect(mm::fonts::rotate(source, 10, 3, 1,
+                             std::span<std::byte>{turned.data(), 9}) ==
+               Status::BadArgument,
+           "a turned frame shorter than the result is rejected");
+}
+
 const mm::test::case_ cases[] = {
     {"golden index and metrics", &golden_index_and_metrics},
     {"golden glyph bitmaps", &golden_glyph_bitmaps},
@@ -359,6 +430,7 @@ const mm::test::case_ cases[] = {
     {"right edge clipping", &render_clips_at_the_right_edge},
     {"byte boundary crossing", &render_crosses_byte_boundaries},
     {"one bit to rgb565", &expand_row_maps_one_bit_to_rgb565},
+    {"quarter turns", &rotate_turns_a_packed_frame},
 };
 
 const mm::test::registrar reg{"mm.fonts", cases};

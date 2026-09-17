@@ -169,8 +169,8 @@ binary="out-target-$target/$app_path/$app"
 # The exit codes are the steps of apps/font-demo/main.cpp, in order.
 explain_run() {
     case "$1" in
-        0) echo "  four lines and the whole charset were drawn and held, in the" ;
-           echo "  emulation window" ;;
+        0) echo "  four lines and the whole charset were drawn and held in four" ;
+           echo "  orientations, in the emulation window" ;;
         1) echo "  1 is display.initialize: the controller's reset or busy" ;
            echo "  handshake with the emulated chip failed" ;;
         2) echo "  2 is the geometry check: the panel is neither one nor" ;
@@ -321,6 +321,7 @@ trap - 0
 echo
 echo "PASS: $test_name"
 echo "To watch it: scripts/build-linux-epaper-font-demo.sh --run"
-echo "A 152 by 296 window opens when the refresh completes: four centred lines,"
-echo "two at 16px and two at 12px, the last one Polish, then every glyph of"
-echo "the 12px table in six lines of 21, black on white, held four seconds."
+echo "A 152 by 296 window opens when the first refresh completes: four centred"
+echo "lines, two at 16px and two at 12px, the last one Polish, then every glyph"
+echo "of the 12px table, black on white. Upright first, then a quarter turn"
+echo "clockwise on each of three more refreshes, four seconds each."

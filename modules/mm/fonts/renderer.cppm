@@ -40,4 +40,14 @@ export namespace mm::fonts {
     unsigned short foreground, unsigned short background,
     std::span<std::byte> rgb565_row);
 
+// A packed one-bit frame turned clockwise by quarter turns, so text composed
+// upright can be shown sideways or upside down on any panel. Rows are packed
+// eight pixels to the byte, MSB left, the last byte padded, with no gap
+// between rows; the turned frame is laid out the same way and is height wide
+// and width tall after an odd number of turns. Its padding bits come out
+// zero. source and turned must not overlap.
+[[nodiscard]] mm::display::Status rotate(
+    std::span<const std::byte> source, unsigned int width, unsigned int height,
+    unsigned int quarter_turns, std::span<std::byte> turned);
+
 }

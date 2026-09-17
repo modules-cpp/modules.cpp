@@ -162,7 +162,8 @@ binary="out-target-$target/$app_path/$app"
 # The exit codes are the steps of apps/font-demo/main.cpp, in order.
 explain_run() {
     case "$1" in
-        0) echo "  four lines and the whole charset were drawn and held, in a window" ;;
+        0) echo "  four lines and the whole charset were drawn and held in four" ;
+           echo "  orientations, in a window" ;;
         1) echo "  1 is display.initialize: a headless session or an" ;
            echo "  SDL_VIDEODRIVER override would explain this" ;;
         2) echo "  2 is the geometry check: the panel is neither one nor" ;
@@ -303,8 +304,9 @@ echo
 echo "PASS: $test_name"
 echo "To watch it: scripts/build-linux-sdl-font-demo.sh --run"
 echo "Four centred lines, two at 16px and two at 12px, the last one Polish,"
-echo "then every glyph of the 12px table, wrapped to the window. The second"
-echo "line is white on blue, the third red, the fourth green; a line that comes"
-echo "out inverted means the set-bit colour went to the ink."
+echo "then every glyph of the 12px table, wrapped to the window, upright and"
+echo "then turned a quarter clockwise three times, four seconds each. The"
+echo "second line is white on blue, the third red, the fourth green; a line"
+echo "that comes out inverted means the set-bit colour went to the ink."
 echo "Text that comes out scrambled means the packed rows and the panel's"
 echo "row stride disagree."

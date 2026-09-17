@@ -15,7 +15,10 @@ A portrait of the committed font tables, held long enough to be read. It draws
 two lines at sixteen pixels and two at twelve, centred on the panel, the last
 one in the Polish charset, so a person can tell a working font from a
 scrambled one. Below them it lays out every glyph of the twelve pixel table,
-wrapped to the panel's width, so no bitmap in the charset goes unseen.
+wrapped to the panel's width, so no bitmap in the charset goes unseen. The
+whole block is shown upright and then turned a quarter clockwise three times:
+the text is always composed upright, and the packed frame is what turns, so
+sideways text costs the font nothing.
 
 It branches on the panel's depth: a one-bit panel receives the composed packed
 rows directly, and a sixteen-bit panel receives each row expanded to RGB565 in

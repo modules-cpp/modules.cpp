@@ -185,6 +185,43 @@ mm::display::Status render(const char8_t* text, std::size_t text_size, const Fon
     return mm::display::Status::Ok;
 }
 
+mm::display::Status rotate(std::span<const std::byte> source,
+                           unsigned int width, unsigned int height,
+                           unsigned int quarter_turns, std::span<std::byte> turned)
+{
+    if (width == 0 || height == 0) return mm::display::Status::BadArgument;
+    const unsigned int turns = quarter_turns % 4u;
+    const unsigned int turned_width = turns % 2u ? height : width;
+    const unsigned int turned_height = turns % 2u ? width : height;
+    const std::size_t source_stride = (static_cast<std::size_t>(width) + 7u) / 8u;
+    const std::size_t turned_stride = (static_cast<std::size_t>(turned_width) + 7u) / 8u;
+    if (source.size() < source_stride * height) return mm::display::Status::BadArgument;
+    if (turned.size() < turned_stride * turned_height) return mm::display::Status::BadArgument;
+
+    for (std::size_t i = 0; i < turned_stride * turned_height; ++i) turned[i] = std::byte{0};
+
+    // Each turned pixel is read from the source pixel that lands on it: a
+    // gather, so every turned bit is written exactly once and the padding
+    // bits stay clear.
+    for (unsigned int y = 0; y < turned_height; ++y) {
+        std::byte* out = turned.data() + static_cast<std::size_t>(y) * turned_stride;
+        for (unsigned int x = 0; x < turned_width; ++x) {
+            unsigned int sx = x;
+            unsigned int sy = y;
+            switch (turns) {
+                case 1: sx = y; sy = height - 1u - x; break;
+                case 2: sx = width - 1u - x; sy = height - 1u - y; break;
+                case 3: sx = width - 1u - y; sy = x; break;
+                default: break;
+            }
+            const std::byte bit = source[static_cast<std::size_t>(sy) * source_stride + sx / 8u]
+                                & static_cast<std::byte>(0x80u >> (sx % 8u));
+            if (bit != std::byte{0}) out[x / 8u] |= static_cast<std::byte>(0x80u >> (x % 8u));
+        }
+    }
+    return mm::display::Status::Ok;
+}
+
 mm::display::Status expand_row(std::span<const std::byte> packed_row,
                                unsigned int row_width_bytes,
                                unsigned short foreground, unsigned short background,
