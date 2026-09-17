@@ -153,11 +153,13 @@ tile alignment, panel bounds, expansion palettes, and the absence of an
 implicit refresh. It also checks surface sizes, packing, clipping, padding,
 and rotation without hardware.
 
-`apps/gfx-demo` draws a framed scene with every drawing primitive, rotates it
-through four orientations, and writes it to either panel depth. On colour
-panels it also draws an RGB565 swatch directly and writes that tile at the
-panel's depth. Its build scripts cover Linux SDL, emulated e-paper, Pico
-e-paper, and RP2350 LCD.
+`apps/gfx-demo` composes a one-bit scene with every drawing primitive: an
+ordered-dither glow, nested frames, a haloed porthole with a starburst, and an
+orientation tick. It turns the scene through four orientations and writes it
+to either panel depth. On colour panels the expanding write runs through six
+hue-cycling regions turned with the scene, and a plasma drawn directly in
+RGB565 is written through the porthole at the panel's depth. Its build
+scripts cover Linux SDL, emulated e-paper, Pico e-paper, and RP2350 LCD.
 
 The one-bit surface has no red pigment plane, grayscale, or alpha. Image
 decoding, circles, paths, UI controls, and a sixteen-bit rotate are outside

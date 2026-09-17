@@ -11,12 +11,19 @@ file: main.cpp
 
 # gfx-demo
 
-Draws a one-bit scene with fill, pixels, lines, outlines, and filled
-rectangles. It turns the scene clockwise through four orientations and holds
-each one long enough to inspect. A one-bit panel receives packed pixels; a
-sixteen-bit panel receives RGB565 rows with red, green, and blue palette
-regions turned with the scene, followed by a direct RGB565 swatch in the
-centre. The packed composition is identical on both depths.
+A picture made of nothing but mm.gfx's primitives. The scene is composed one
+bit deep: a dithered glow that thins from the centre to the corners, a tunnel
+of nested frames, a haloed porthole with a starburst of rays inside it, and an
+off-centre tick so the turn is visible. Ordered dithering, the circle, and the
+disc are pixel() and one-row rectangles in loops; the rays are lines from a
+compile-time sine table. The frame turns a quarter clockwise four times.
+
+A one-bit panel receives exactly that, black on white, one refresh per
+orientation. A sixteen-bit panel receives the same bits expanded through six
+rainbow bands on deep blue paper that turn with the scene and cycle their hues
+sixteen times per orientation, and a plasma drawn directly in RGB565, masked to
+a disc, written through the porthole and moving with the bands. The packed
+composition is identical on both depths; only the write differs.
 
 The application uses mm.gfx, mm.display, and mm.mcu. It has no font, board,
 SDK, or vendor dependency.

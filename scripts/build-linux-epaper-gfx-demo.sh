@@ -169,7 +169,7 @@ binary="out-target-$target/$app_path/$app"
 # The exit codes are the steps of apps/gfx-demo/main.cpp, in order.
 explain_run() {
     case "$1" in
-        0) echo "  gfx shapes were drawn and held in four orientations" ;;
+        0) echo "  the glow, tunnel, and porthole were drawn in four orientations" ;;
         1) echo "  1 is display.initialize: the controller's reset or busy" ;
            echo "  handshake with the emulated chip failed" ;;
         2) echo "  2 is the geometry check: the panel is neither one nor" ;
@@ -284,6 +284,10 @@ echo "E-paper board"
 verify_image "$binary"
 verify_library "$binary"
 verify_symbols "$binary"
+if "$nm_command" -C "$binary" | grep -q 'mm::fonts'; then
+    echo "$test_name: unexpected mm::fonts symbols in $binary" >&2
+    exit 1
+fi
 
 # The two interfaces gfx-demo reaches, both rebound by the board, the chip
 # that arrives behind them, and the six providers the SDK binds that nothing
@@ -315,6 +319,7 @@ trap - 0
 echo
 echo "PASS: $test_name"
 echo "To watch it: scripts/build-linux-epaper-gfx-demo.sh --run"
-echo "A 152 by 296 window opens when the first refresh completes. A black"
-echo "framed X, filled centre box, and corner dots appear on white, then turn"
-echo "a quarter clockwise on each of three more refreshes, four seconds each."
+echo "A 152 by 296 window opens when the first refresh completes: a dithered"
+echo "glow around a porthole full of rays, nested frames, and an off-centre"
+echo "tick, black on white. The scene turns a quarter clockwise three more"
+echo "times, four seconds apart."

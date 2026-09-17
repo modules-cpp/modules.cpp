@@ -208,6 +208,10 @@ for symbol in mm::epaper::ssd1680; do
         exit 1
     fi
 done
+if arm-none-eabi-nm -C "$binary" | grep -q 'mm::fonts'; then
+    echo "$test_name: unexpected mm::fonts symbols in $binary" >&2
+    exit 1
+fi
 
 cmake \
     "-DMM_UF2=$binary.uf2" \
@@ -245,6 +249,6 @@ trap - 0
 echo "PASS: $test_name"
 echo "To see it: hold BOOTSEL, plug the Pico in, then"
 echo "  scripts/build-gfx-demo-pico-epaper.sh --panel $panel --flash"
-echo "Four full refreshes, four seconds apart: a black framed X, filled"
-echo "centre box, and corner dots on white, turned a quarter clockwise each"
-echo "time, before the panel sleeps."
+echo "Four full refreshes, four seconds apart: a dithered glow around a"
+echo "porthole full of rays, nested frames, and an off-centre tick, black on"
+echo "white, turned a quarter clockwise each time, before the panel sleeps."

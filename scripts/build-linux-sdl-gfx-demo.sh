@@ -161,7 +161,7 @@ binary="out-target-$target/$app_path/$app"
 # The exit codes are the steps of apps/gfx-demo/main.cpp, in order.
 explain_run() {
     case "$1" in
-        0) echo "  gfx shapes were drawn and held in four orientations" ;;
+        0) echo "  the glow, tunnel, and porthole were drawn in four orientations" ;;
         1) echo "  1 is display.initialize: a headless session or an" ;
            echo "  SDL_VIDEODRIVER override would explain this" ;;
         2) echo "  2 is the geometry check: the panel is neither one nor" ;
@@ -262,6 +262,10 @@ echo "SDL board"
 
 verify_image "$binary"
 verify_library "$binary"
+if "$nm_command" -C "$binary" | grep -q 'mm::fonts'; then
+    echo "$test_name: unexpected mm::fonts symbols in $binary" >&2
+    exit 1
+fi
 
 # The two interfaces gfx-demo reaches, served by the board's one SDL object
 # and the inherited MCU provider, and the four it never mentions.
@@ -287,8 +291,8 @@ trap - 0
 echo
 echo "PASS: $test_name"
 echo "To watch it: scripts/build-linux-sdl-gfx-demo.sh --run"
-echo "A framed X, a filled centre box, and corner dots appear in four"
-echo "orientations, four seconds each. The black marks become red, green, and"
-echo "blue across three bands; white stays white. A blue RGB565 swatch with a"
-echo "red border and green centre overlays them. Wrong colours indicate a"
-echo "palette or RGB565 byte-order problem."
+echo "A dithered glow, nested frames, a ringed porthole, and an off-centre"
+echo "tick, in four orientations. Six rainbow bands on deep blue turn with the"
+echo "scene and cycle their hues; a plasma swirls inside the porthole. Bands"
+echo "that come out as solid blocks mean the expansion lost the bits; a plasma"
+echo "in the wrong hues means the RGB565 byte swap was dropped."

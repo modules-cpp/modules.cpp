@@ -178,6 +178,10 @@ if ! arm-none-eabi-nm -C "$binary" | grep -q mm::lcd::st7789; then
     echo "$test_name: no mm::lcd::st7789 symbols in $binary" >&2
     exit 1
 fi
+if arm-none-eabi-nm -C "$binary" | grep -q 'mm::fonts'; then
+    echo "$test_name: unexpected mm::fonts symbols in $binary" >&2
+    exit 1
+fi
 
 cmake \
     "-DMM_UF2=$binary.uf2" \
@@ -216,8 +220,8 @@ trap - 0
 echo "PASS: $test_name"
 echo "To see it: hold BOOTSEL, plug the board in, then"
 echo "  scripts/build-gfx-demo-rp2350_touch_lcd_28.sh --flash"
-echo "A framed X, filled centre box, and corner dots appear in four"
-echo "orientations, four seconds each. The black marks become red, green, and"
-echo "blue across three bands; white stays white. A blue RGB565 swatch with a"
-echo "red border and green centre overlays them. Wrong colours may indicate"
-echo "a palette or RGB565 byte-order problem."
+echo "A dithered glow, nested frames, a ringed porthole, and an off-centre"
+echo "tick, in four orientations. Six rainbow bands on deep blue turn with the"
+echo "scene and cycle their hues; a plasma swirls inside the porthole. Bands"
+echo "that come out as solid blocks mean the expansion lost the bits; a plasma"
+echo "in the wrong hues means the RGB565 byte swap was dropped."
