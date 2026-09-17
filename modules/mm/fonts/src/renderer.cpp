@@ -25,7 +25,7 @@ namespace {
     if (index >= size) return false;
     const unsigned char first = text[index];
     unsigned int extra = 0;
-    unsigned int minimum = 0x7Fu;
+    unsigned int minimum = 0x80u;
     if (first < 0x80u) {
         code_point = first;
         consumed = 1;
@@ -36,12 +36,13 @@ namespace {
     else if ((first & 0xF8u) == 0xF0u) { extra = 3; code_point = first & 0x07u; minimum = 0x10000u; }
     else return false;
     if (index + extra >= size) return false;
-    if (code_point < minimum) return false;
     for (unsigned int i = 0; i < extra; ++i) {
         const unsigned char c = text[index + 1 + i];
         if ((c & 0xC0u) != 0x80u) return false;
         code_point = (code_point << 6) | (c & 0x3Fu);
     }
+    // Overlong: the value must need every byte it was given.
+    if (code_point < minimum) return false;
     if (code_point >= 0xD800u && code_point <= 0xDFFFu) return false;
     if (code_point > 0x10FFFFu) return false;
     consumed = 1 + extra;

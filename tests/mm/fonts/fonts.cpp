@@ -161,9 +161,11 @@ void missing_code_points_render_blank_and_advance() {
            "a missing code point is not an error");
     bool placed = true;
     for (unsigned int row = 0; row < 22; ++row) {
+        // The golden row left-aligned in the 24-bit frame row, then moved
+        // right by one advance.
         const unsigned int value =
-            (static_cast<unsigned int>(a_16[row * 2]) << 8 |
-             static_cast<unsigned int>(a_16[row * 2 + 1])) << 10;
+            ((static_cast<unsigned int>(a_16[row * 2]) << 8 |
+              static_cast<unsigned int>(a_16[row * 2 + 1])) << 8) >> 10;
         if (frame[row * 3] != static_cast<std::byte>(value >> 16) ||
             frame[row * 3 + 1] != static_cast<std::byte>(value >> 8) ||
             frame[row * 3 + 2] != static_cast<std::byte>(value))
@@ -239,9 +241,11 @@ void render_clips_at_the_right_edge() {
            "ink crossing the right edge is clipped, not an error");
     bool clipped = true;
     for (unsigned int row = 0; row < 22; ++row) {
+        // The golden row moved right by twelve columns in the 16-bit frame
+        // row: only its first four columns survive.
         const unsigned int value =
             (static_cast<unsigned int>(a_16[row * 2]) << 8 |
-             static_cast<unsigned int>(a_16[row * 2 + 1])) << 12;
+             static_cast<unsigned int>(a_16[row * 2 + 1])) >> 12;
         if (frame[row * 2] != static_cast<std::byte>(value >> 8) ||
             frame[row * 2 + 1] != static_cast<std::byte>(value))
             clipped = false;
