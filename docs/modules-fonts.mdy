@@ -178,8 +178,17 @@ measure is the monospace contract: width is the count of well-formed code
 points times the advance, and height is the font's line height. No per-glyph
 scanning, so it costs nothing.
 
-mm.gfx owns expand_row and both surface and rectangle rotation. Their packing,
-buffer, and clipping contracts are specified in docs/modules-gfx.mdy.
+expand_row maps one packed one-bit row to RGB565 for the sixteen-bit panels,
+most significant byte first: bit 1 becomes the foreground, bit 0 the
+background, two bytes per pixel. A 240-pixel row is 480 bytes. It answers
+BadArgument for a packed row shorter than its declared width or an output row
+shorter than the expanded one.
+
+rotate turns a packed one-bit frame clockwise by quarter turns. An odd turn
+swaps its width and height. The source and destination must not overlap
+(a precondition, not a checked error); the destination padding bits are
+cleared. It answers BadArgument for zero dimensions or a span too short
+for the source or turned frame.
 
 # Glyph data
 
@@ -246,6 +255,8 @@ without a display provider:
   in both polarities.
 - Rendering over a pre-marked frame leaves the marked bits untouched in both
   polarities, the transparent composition contract.
+- Ink straddling a frame byte boundary lands in both bytes, in both
+  polarities.
 - A missing code point renders blank and the pen still advances.
 - measure obeys the monospace contract and counts multi-byte Polish letters
   one cell each.
@@ -259,7 +270,8 @@ without a display provider:
 1. Implemented: add mm.fonts:types and mm.fonts:renderer with host tests.
 2. Implemented: generate and commit the kMono12 and kMono16 IBM Plex Mono
    tables with their provenance header and the OFL text.
-3. Implemented: add apps/font-demo drawing both sizes and the Polish line on
+3. Implemented: add apps/font-demo drawing both sizes, the Polish line, the
+   full twelve pixel charset, and all four quarter-turn orientations, on
    both panel kinds.
 4. Pending hardware: qualify legibility, polarity, alignment, and refresh on
    the named ePaper and LCD boards.
@@ -274,8 +286,9 @@ without a display provider:
   mm.display.
 - Full-row composition satisfies the ePaper's byte alignment on both panel
   widths.
-- font-demo draws both committed sizes and the Polish line on a named display
-  board before legibility is claimed.
+- font-demo draws both committed sizes, the Polish line, and the full
+  charset in all four orientations on a named display board before
+  legibility is claimed.
 - A successful build is not reported as legible text on a panel.
 - The committed tables carry their provenance header, and the OFL text sits
   beside them in the repository.
