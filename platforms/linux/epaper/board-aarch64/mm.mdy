@@ -1,0 +1,15 @@
+---
+mm: 1.2
+kind: board
+name: epaper-linux-aarch64
+derives-from: generic-linux-aarch64
+platform-provider: mm.mcu platform.linux.epaper.device
+platform-provider: mm.display platform.linux.epaper.display
+---
+
+# epaper-linux-aarch64
+
+The generic hosted AArch64 board with its MCU and screen pointed at the
+emulated SSD1680, the same two rebindings as epaper-linux-x86_64 on the other
+architecture. Everything else is inherited: the same SDK, the same named
+device map, and the same RTC and IMU providers.

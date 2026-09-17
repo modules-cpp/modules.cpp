@@ -6,6 +6,7 @@ folder: chip
 folder: device
 folder: display
 folder: board
+folder: board-aarch64
 ---
 
 # Linux e-paper platform
