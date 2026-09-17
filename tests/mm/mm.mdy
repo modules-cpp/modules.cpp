@@ -10,6 +10,7 @@ folder: configure
 folder: debug
 folder: display
 folder: epaper
+folder: fonts
 folder: flash
 folder: shell
 folder: stdio

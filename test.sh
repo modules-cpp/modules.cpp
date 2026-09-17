@@ -205,6 +205,7 @@ run_test_target tests/mm/configure/ || exit $?
 run_test_target tests/mm/debug/ || exit $?
 run_test_target tests/mm/display/ || exit $?
 run_test_target tests/mm/epaper/ || exit $?
+run_test_target tests/mm/fonts/ || exit $?
 run_test_target tests/mm/flash/ || exit $?
 run_test_target tests/mm/mcu/ || exit $?
 run_test_target tests/mm/mdy/ || exit $?

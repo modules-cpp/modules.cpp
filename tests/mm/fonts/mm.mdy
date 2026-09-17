@@ -1,0 +1,16 @@
+---
+mm: 1.0
+kind: test
+name: fonts
+use: mm.test
+use: mm.fonts
+unit: tests/mm/fonts/fonts.cpp
+unit: tests/main.cpp
+---
+
+# mm.fonts test target
+
+Exercises the pure font logic on the host: the committed glyph tables against
+a small golden set, transparent one-bit composition in both polarities,
+monospace measurement, UTF-8 validation, right-edge clipping, and the one-bit
+to RGB565 row expander. No display provider is involved.
