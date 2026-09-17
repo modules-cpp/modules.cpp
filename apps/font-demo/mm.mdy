@@ -18,9 +18,11 @@ scrambled one. Below them it lays out every glyph of the twelve pixel table,
 wrapped to the panel's width, so no bitmap in the charset goes unseen.
 
 It branches on the panel's depth: a one-bit panel receives the composed packed
-rows directly, and a sixteen-bit panel receives each row expanded to RGB565
-black on white. Either way the composition is the same one-bit frame, which is
-the point of mm.fonts: the text knows nothing about the panel.
+rows directly, and a sixteen-bit panel receives each row expanded to RGB565 in
+the two colours its line names, so each line can carry its own ink and paper.
+Either way the composition is the same one-bit frame, which is the point of
+mm.fonts: the text knows nothing about the panel, and colour is a property of
+the expansion rather than of the font.
 
 It names mm.fonts for the tables and the composition, mm.display for the
 frame, and mm.mcu for the hold, and no board, SDK, or vendor.

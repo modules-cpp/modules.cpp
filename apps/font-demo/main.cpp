@@ -3,11 +3,13 @@
 //
 // The fonts, held long enough to be read. On a one-bit panel it renders black
 // text on the white frame and writes the packed rows; on a sixteen-bit panel
-// it composes the same one-bit frame and expands each row to RGB565 before
-// writing. Two sizes, centred, with a line that uses the whole Polish
-// charset, so a person can tell a working font from a scrambled one. Below
-// that, every glyph the twelve pixel table holds, wrapped to the panel, so
-// a broken bitmap anywhere in the charset is on screen rather than hidden.
+// it composes the same one-bit frame and expands each row to RGB565 in the
+// two colours its line names before writing, so colour is a property of the
+// expansion and not of the font. Two sizes, centred, with a line that uses
+// the whole Polish charset, so a person can tell a working font from a
+// scrambled one. Below that, every glyph the twelve pixel table holds,
+// wrapped to the panel, so a broken bitmap anywhere in the charset is on
+// screen rather than hidden.
 #include <array>
 #include <cstddef>
 #include <span>
@@ -66,19 +68,45 @@ const char8_t polish[] = {
     0xc4, 0x87,  // ć
 };
 
+// The two RGB565 colours a band of rows expands to on a sixteen-bit panel.
+// The composed frame is one bit deep whatever the panel, so a one-bit panel
+// shows black on white and never reads these.
+struct Palette {
+    unsigned short ink;
+    unsigned short paper;
+};
+
+constexpr Palette black_on_white{0x0000, 0xffff};
+
 struct Line {
     const char8_t* text;
     std::size_t size;
     const mm::fonts::Font* font;
     unsigned int y;
+    Palette palette;
 };
 
+constexpr Palette white_on_blue{0xffff, 0x001f};
+constexpr Palette red_on_white{0xf800, 0xffff};
+constexpr Palette green_on_white{0x03e0, 0xffff};
+
 const Line lines[4] = {
-    {u8"modules.cpp", 11, &mm::fonts::kMono16, y16_first},
-    {u8"16px mono", 9, &mm::fonts::kMono16, y16_second},
-    {u8"12px mono 0123", 14, &mm::fonts::kMono12, y12_first},
-    {polish, sizeof polish, &mm::fonts::kMono12, y12_second},
+    {u8"modules.cpp", 11, &mm::fonts::kMono16, y16_first, black_on_white},
+    {u8"16px mono", 9, &mm::fonts::kMono16, y16_second, white_on_blue},
+    {u8"12px mono 0123", 14, &mm::fonts::kMono12, y12_first, red_on_white},
+    {polish, sizeof polish, &mm::fonts::kMono12, y12_second, green_on_white},
 };
+
+constexpr Palette charset_palette = black_on_white;
+
+// The palette of the band a row falls in: a line's rows take its palette, the
+// charset's rows its own, and the gaps between them are plain paper.
+[[nodiscard]] Palette palette_for(unsigned int y) {
+    for (const Line& line : lines)
+        if (y >= line.y && y < line.y + line.font->height) return line.palette;
+    if (y >= charset_y) return charset_palette;
+    return black_on_white;
+}
 
 // One code point as UTF-8. The charset ends below U+0800, so two bytes are
 // enough, but the three byte form costs nothing to carry.
@@ -182,8 +210,12 @@ int main() {
                 mm::display::Status::Ok)
                 return 6;
         } else {
-            if (mm::fonts::expand_row(packed, frame_width, 0x0000, 0xffff, row) !=
-                mm::display::Status::Ok)
+            // The frame holds paper as set bits and ink as cleared bits, so
+            // the set-bit colour is the paper and the cleared-bit colour the
+            // ink.
+            const Palette palette = palette_for(y);
+            if (mm::fonts::expand_row(packed, frame_width, palette.paper,
+                                      palette.ink, row) != mm::display::Status::Ok)
                 return 6;
             if (display.write({0, y, geometry.width, 1},
                               std::span<const std::byte>{
