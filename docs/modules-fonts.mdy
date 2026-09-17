@@ -1,0 +1,300 @@
+---
+mm: 1.0
+kind: doc
+name: modules.cpp bitmap font module
+status: official
+release: v1.2.1
+---
+
+# modules.cpp bitmap font module
+
+# Status and authority
+
+status: official gives the implemented portions of this document the same
+authority as the other v1.2.1 specifications. This document specifies the
+implemented mm.fonts module: the Glyph, Font, and TextMetrics types, the
+measure, render, and expand_row functions, and the committed kMono12 and
+kMono16 glyph tables derived from IBM Plex Mono. The font-demo application
+exists. Legible text on a physical panel remains a hardware-qualification
+requirement rather than a completed claim.
+
+docs/modules-display.mdy owns the portable display boundary and its pixel
+packing. docs/modules-platform-mcu.mdy owns the MCU provider model. mm.fonts
+sits above mm.display and consumes nothing below it, and this document must
+not weaken either boundary to make one panel draw text quickly.
+
+# Role
+
+mm.fonts turns a UTF-8 string into exactly the packed bytes mm.display
+writes. mm.display moves packed pixels and names the boundary in its own
+manifest: graphics policy, fonts, image decoding, and controller commands
+live above or below it, not inside it. Text support is the layer that closes
+that gap for the two panels this project targets, the 152 by 296 one-bit
+ePaper and the 240 by 320 sixteen-bit RGB565 LCD.
+
+The module obeys the standing project rules:
+
+- No vector parsing and no font engine on the target. The bitmaps are
+  precomputed at development time and shipped as static data.
+- No heap at runtime. Every structure is a span over provider-owned static
+  storage that outlives its users, the same shape the display drivers use
+  for their initialization tables.
+- One portable sequence for both panels. Text is composed into a one-bit
+  frame; the one-bit panel receives those rows, and the sixteen-bit panel
+  receives each row expanded to RGB565.
+- Monospace by design. A fixed cell width makes wrapping and alignment
+  arithmetic, which is what a terminal-style panel UI wants.
+
+# IBM Plex Mono
+
+The committed tables are derived from IBM Plex Mono, IBM's monospace
+typeface, licensed under the SIL Open Font License 1.1 (OFL). The OFL is an
+open source font licence, copyright 2017 IBM Corp., with the reserved font
+name "Plex". Its terms that reach this project:
+
+- It permits use, study, copy, merge, embed, modify, redistribution, and
+  sale of modified and unmodified copies.
+- The font software may not be sold by itself, which firmware never does.
+- Every distributed copy carries the copyright notice and the licence. The
+  repository carries the OFL text at modules/mm/fonts/licenses/OFL.txt
+  beside the Apache 2.0 root licence, and each generated table names its
+  provenance in a header comment.
+- The reserved name "Plex" may not be the primary user-facing name of a
+  derivative work. The module keeps "Plex" to provenance attribution and
+  keeps its identifiers neutral, kMono12 and kMono16 rather than kPlex12.
+
+The face facts the module relies on:
+
+- Coverage: 1049 glyphs, unitsPerEm 1000, all 95 printable ASCII code points,
+  and all 18 Polish letters, ą ć ę ł ń ó ś ź ż in both cases.
+- Monospacing: every printable-ASCII advance is exactly 600 units, 0.600 em.
+  The face is a true monospace, which is what a fixed-cell display UI wants.
+- Format: vector outlines only. IBM ships no bitmap variant, which is why the
+  module's bitmaps are generated from the TTF at development time instead of
+  parsed at runtime.
+
+# Module layout
+
+Opening fence
+modules/mm/fonts/
+    mm.mdy
+    fonts.cppm
+    types.cppm
+    renderer.cppm
+    data.cppm
+    src/renderer.cpp
+    licenses/OFL.txt
+Closing fence
+
+mm.fonts is one module with three partitions. types carries the data shapes,
+renderer carries the pure composition logic, and data carries the generated
+tables. fonts re-exports the three, so a consumer imports only mm.fonts.
+
+Opening fence
+mm: 1.2
+kind: module
+name: fonts
+module: mm.fonts
+use: mm.display
+file: types.cppm mm.fonts:types
+file: renderer.cppm mm.fonts:renderer
+file: data.cppm mm.fonts:data
+file: fonts.cppm mm.fonts
+file: src/renderer.cpp
+Closing fence
+
+# Types
+
+Opening fence
+struct Glyph {
+    unsigned int code_point = 0;   // sorted ascending in the index
+    unsigned int x_offset = 0;     // ink left edge, pixels from the cell origin
+    unsigned int width = 0;        // tight ink width in pixels
+    unsigned int byte_offset = 0;  // offset into Font::data
+    [[nodiscard]] constexpr unsigned int row_bytes() const;
+};
+
+struct Font {
+    std::span<const std::byte> data;
+    std::span<const Glyph> glyphs;
+    unsigned int advance = 0;      // monospace cell width, pixels
+    unsigned int height = 0;       // ascent + descent
+    unsigned int ascent = 0;
+    unsigned int line_height = 0;  // height plus the row gap the face wants
+};
+
+struct TextMetrics {
+    unsigned int width = 0;
+    unsigned int height = 0;
+};
+Closing fence
+
+Font::data holds every glyph bitmap: per glyph, one bit per pixel, most
+significant bit left, each row padded to a byte, rows top to bottom from the
+ascent line. A glyph's rows begin at its byte_offset and are row_bytes()
+wide. The index is sorted ascending by code point, is searched by binary
+search, and leads with the space glyph at zero width.
+
+# Renderer
+
+Opening fence
+[[nodiscard]] mm::display::Status render(
+    const char8_t* text, std::size_t text_size, const Font& font,
+    mm::display::Color foreground, mm::display::Color background,
+    unsigned int x, unsigned int y,
+    std::span<std::byte> frame, unsigned int frame_width_bytes);
+
+[[nodiscard]] TextMetrics measure(const char8_t* text,
+                                  std::size_t text_size, const Font& font);
+
+[[nodiscard]] mm::display::Status expand_row(
+    std::span<const std::byte> packed_row, unsigned int row_width_bytes,
+    unsigned short foreground, unsigned short background,
+    std::span<std::byte> rgb565_row);
+Closing fence
+
+render composes UTF-8 text into a one-bit packed frame in mm.display's
+packing: row-major, most significant bit left, one white and zero black, byte
+stride frame_width_bytes. Composition is transparent: glyph pixels take the
+foreground, and every other pixel is left untouched, so text composes over
+whatever is already in the frame. Polarity falls out of the bit convention:
+white ink sets the glyph bits, black ink clears them. The background argument
+is advisory; a caller that wants a cleared region clears it before rendering.
+
+The host tests pin these semantics down:
+
+- A code point absent from the font renders blank, and the pen still advances
+  one cell for it.
+- Text that reaches the right edge of the frame is clipped, not an error.
+- render answers BadArgument for null text with a nonzero size, a zero frame
+  stride, a frame shorter than its declared width, text reaching past the
+  last frame row, a Red foreground, and any malformed UTF-8 sequence:
+  truncated, overlong, surrogate, or out-of-range. measure is lenient by
+  design: a malformed sequence ends the count, and nothing is measured past
+  it.
+- A glyph row is copied as whole bytes and rotated at its two edges, so the
+  common case needs no per-pixel loop.
+
+measure is the monospace contract: width is the count of well-formed code
+points times the advance, and height is the font's line height. No per-glyph
+scanning, so it costs nothing.
+
+expand_row maps one packed one-bit row to RGB565 for the sixteen-bit panels,
+most significant byte first: bit 1 becomes the foreground, bit 0 the
+background, two bytes per pixel. A 240-pixel row is 480 bytes. It answers
+BadArgument for a packed row shorter than its declared width or an output row
+shorter than the expanded one.
+
+# Glyph data
+
+data.cppm carries the two committed tables. Both are generated from the
+pinned IBMPlexMono-Regular.ttf at development time, and both hold the same
+113 code points: the 95 printable ASCII plus the 18 Polish letters.
+
+- kMono12: 113 glyphs, 1904 packed bytes, advance 7, height 17, ascent 13,
+  line_height 17.
+- kMono16: 113 glyphs, 4928 packed bytes, advance 10, height 22, ascent 17,
+  line_height 22.
+
+data.cppm is a generated file and must not be edited by hand; regenerating it
+from the pinned TTF is the only supported change. Its header carries the
+provenance the licence requires: the face, the TTF's SHA256, the charset, and
+each table's glyph count and packed size, with the OFL attribution beside
+licenses/OFL.txt.
+
+Both tables fit both boards' flash with room for the rest of the project. At
+the committed advances:
+
+- 12 px, advance 7, line_height 17: 21 columns by 17 lines on the 152 by 296
+  ePaper, 34 by 18 on the 240 by 320 LCD.
+- 16 px, advance 10, line_height 22: 15 columns by 13 lines on the ePaper,
+  24 by 14 on the LCD.
+
+The runtime cost is negligible against refresh: a full ePaper text screen is
+a write of 13 rows by 19 bytes against the panel's 200 ms class full refresh,
+and nothing on the LCD, where refresh does nothing.
+
+# Both panels from one sequence
+
+A caller draws the same text on either panel with one portable sequence:
+compose, write rows, refresh.
+
+- Compose the lines into a one-bit frame a full panel row wide, centring each
+  line with measure. Full rows satisfy the ePaper's write contract: x zero is
+  a multiple of 8, and both panel widths, 152 and 240, are multiples of 8, so
+  no row needs special handling.
+- On a one-bit panel, write each row with mm.display::write as a rectangle of
+  height one from the visible top-left origin.
+- On a sixteen-bit panel, expand_row first maps each packed row to RGB565,
+  most significant byte first, and write takes the expanded row.
+- Refresh is always explicit and unchanged by this module.
+
+apps/font-demo exercises exactly that sequence. It clears the panel white,
+composes four centred lines, two at 16 pixels and two at 12, the last in the
+Polish charset, holds them long enough to be read, and sleeps. It branches on
+the panel's depth, and it names mm.fonts, mm.display, and mm.mcu, no board,
+SDK, or vendor.
+
+# Test strategy
+
+The module's host tests under tests/mm/fonts exercise the pure font logic
+without a display provider:
+
+- The committed kMono12 and kMono16 index and data match a small golden set
+  of glyph bitmaps, so a corrupted regeneration fails the suite.
+- render of a known glyph at a known origin equals the expected packed bytes,
+  in both polarities.
+- Rendering over a pre-marked frame leaves the marked bits untouched in both
+  polarities, the transparent composition contract.
+- A missing code point renders blank and the pen still advances.
+- measure obeys the monospace contract and counts multi-byte Polish letters
+  one cell each.
+- Text reaching the right edge is clipped rather than rejected.
+- BadArgument: undersized frame, zero stride, text past the last row, Red
+  foreground, truncated UTF-8, null text with a nonzero size.
+- expand_row maps a known one-bit pattern to exact RGB565 bytes and rejects
+  short input and output rows.
+
+# Implementation stages
+
+1. Implemented: add mm.fonts:types and mm.fonts:renderer with host tests.
+2. Implemented: generate and commit the kMono12 and kMono16 IBM Plex Mono
+   tables with their provenance header and the OFL text.
+3. Implemented: add apps/font-demo drawing both sizes and the Polish line on
+   both panel kinds.
+4. Pending hardware: qualify legibility, polarity, alignment, and refresh on
+   the named ePaper and LCD boards.
+
+# Acceptance criteria
+
+- The mm.fonts host tests pass without a display provider, Pico SDK, or
+  hardware.
+- No font table or renderer object appears in an executable that does not
+  import mm.fonts.
+- The same composed frame drives both panel kinds through mm.display alone.
+- Full-row composition satisfies the ePaper's byte alignment on both panel
+  widths.
+- font-demo draws both committed sizes and the Polish line on a named display
+  board before legibility is claimed.
+- A successful build is not reported as legible text on a panel.
+- The committed tables carry their provenance header, and the OFL text sits
+  beside them in the repository.
+
+# What this does not settle
+
+- Antialiasing and grayscale are not implemented; both panels are one-bit or
+  two-polarity in this project's contract.
+- No 8 px table is committed. Plex Mono at 8 px is soft, the limit of a modern
+  display face at an eight-pixel cell. An 8 px table would be a data question,
+  another generated Font constant, not a design change.
+- Weights, italics, and proportional metrics are not in the committed face or
+  format; the data partition holds any number of tables if a face is wanted.
+- RLE compression of glyph rows is deferred: the storage saving does not
+  justify a decoder on either board's flash budget.
+- Charset growth beyond printable ASCII and the 18 Polish letters is a
+  regeneration, not a format change.
+- Kerning, ligatures, and text shaping are out of scope; the face is
+  monospace and the charset is a flat code-point set.
+- Drawing primitives, image formats, and UI layout remain outside mm.fonts.
+- No change reaches mm.display, mm.epaper, or mm.lcd; this module consumes
+  only mm.display.
