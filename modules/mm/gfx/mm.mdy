@@ -1,0 +1,13 @@
+---
+mm: 1.2
+kind: module
+name: gfx
+module: mm.gfx
+use: mm.display
+file: gfx.cppm mm.gfx
+file: src/gfx.cpp
+---
+
+Caller-owned packed surfaces, clipped drawing, one-bit to RGB565 expansion,
+rotation, and checked writes through mm.display. No framebuffer allocation or
+display provider is owned by this module.

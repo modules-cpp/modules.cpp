@@ -1,0 +1,22 @@
+---
+mm: 1.2
+kind: app
+name: gfx-demo
+option: buildable-host no
+use: mm.gfx
+use: mm.display
+use: mm.mcu
+file: main.cpp
+---
+
+# gfx-demo
+
+Draws a one-bit scene with fill, pixels, lines, outlines, and filled
+rectangles. It turns the scene clockwise through four orientations and holds
+each one long enough to inspect. A one-bit panel receives packed pixels; a
+sixteen-bit panel receives RGB565 rows with red, green, and blue palette
+regions turned with the scene, followed by a direct RGB565 swatch in the
+centre. The packed composition is identical on both depths.
+
+The application uses mm.gfx, mm.display, and mm.mcu. It has no font, board,
+SDK, or vendor dependency.

@@ -18,6 +18,7 @@
 
 import mm.display;
 import mm.fonts;
+import mm.gfx;
 import mm.mcu;
 
 namespace {
@@ -45,9 +46,8 @@ constexpr std::size_t maximum_row_bytes = (maximum_side + 7u) / 8u;
 std::array<std::byte, maximum_row_bytes * maximum_side> frame;
 std::array<std::byte, maximum_row_bytes * maximum_side> turned;
 
-// One expanded RGB565 row for the sixteen-bit path: every bit of a packed row
-// becomes two bytes, so it is sized from the packed row and not the panel.
-std::array<std::byte, maximum_row_bytes * 16u> row;
+// One expanded RGB565 row for the sixteen-bit path.
+std::array<std::byte, maximum_side * 2u> row;
 
 constexpr unsigned int hold_ms = 4'000;
 
@@ -69,12 +69,8 @@ const char8_t polish[] = {
 // The two RGB565 colours a band of rows expands to on a sixteen-bit panel.
 // The composed frame is one bit deep whatever the panel, so a one-bit panel
 // shows black on white and never reads these.
-struct Palette {
-    unsigned short ink;
-    unsigned short paper;
-};
-
-constexpr Palette black_on_white{0x0000, 0xffff};
+using Palette = mm::gfx::Palette;
+constexpr Palette black_on_white{mm::gfx::rgb565_black, mm::gfx::rgb565_white};
 
 struct Line {
     const char8_t* text;
@@ -84,9 +80,9 @@ struct Line {
     Palette palette;
 };
 
-constexpr Palette white_on_blue{0xffff, 0x001f};
-constexpr Palette red_on_white{0xf800, 0xffff};
-constexpr Palette green_on_white{0x03e0, 0xffff};
+constexpr Palette white_on_blue{mm::gfx::rgb565_white, {0x001f}};
+constexpr Palette red_on_white{mm::gfx::rgb565_red, mm::gfx::rgb565_white};
+constexpr Palette green_on_white{{0x03e0}, mm::gfx::rgb565_white};
 
 const Line lines[4] = {
     {u8"modules.cpp", 11, &mm::fonts::kMono16, y16_first, black_on_white},
@@ -96,15 +92,6 @@ const Line lines[4] = {
 };
 
 constexpr Palette charset_palette = black_on_white;
-
-// The palette of the band a row falls in: a line's rows take its palette, the
-// charset's rows its own, and the gaps between them are plain paper.
-[[nodiscard]] Palette palette_for(unsigned int y) {
-    for (const Line& line : lines)
-        if (y >= line.y && y < line.y + line.font->height) return line.palette;
-    if (y >= charset_y) return charset_palette;
-    return black_on_white;
-}
 
 // One code point as UTF-8. The charset ends below U+0800, so two bytes are
 // enough, but the three byte form costs nothing to carry.
@@ -129,8 +116,7 @@ constexpr Palette charset_palette = black_on_white;
 // line does not open with an invisible cell. Returns false if a glyph does
 // not compose.
 [[nodiscard]] bool render_charset(unsigned int cells, unsigned int panel_width,
-                                  std::span<std::byte> composed,
-                                  unsigned int frame_width) {
+                                  mm::gfx::Surface composed) {
     const auto& font = mm::fonts::kMono12;
     unsigned int inked = 0;
     for (const auto& glyph : font.glyphs)
@@ -149,25 +135,11 @@ constexpr Palette charset_palette = black_on_white;
         char8_t text[3];
         const std::size_t size = encode(glyph.code_point, text);
         if (mm::fonts::render(text, size, font, mm::display::Color::Black,
-                              mm::display::Color::White, x, y, composed,
-                              frame_width) != mm::display::Status::Ok)
+                              x, y, composed) != mm::display::Status::Ok)
             return false;
         ++cell;
     }
     return true;
-}
-
-// The logical row a physical pixel came from, which is where its palette
-// lives once the frame has been turned: the inverse of the turn mm.fonts
-// applied, for the logical height the frame was turned with.
-[[nodiscard]] unsigned int logical_row(unsigned int x, unsigned int y,
-                                       unsigned int turns, unsigned int height) {
-    switch (turns % 4u) {
-        case 1: return height - 1u - x;
-        case 2: return height - 1u - y;
-        case 3: return x;
-        default: return y;
-    }
 }
 
 // The whole block at one orientation: composed upright on the logical panel,
@@ -201,52 +173,40 @@ constexpr Palette charset_palette = black_on_white;
     // frame to match before drawing black text over it.
     if (display.clear(mm::display::Color::White) != mm::display::Status::Ok)
         return 4;
-    frame.fill(std::byte{0xff});
+    const mm::gfx::Surface composed{width, logical_rows, 1, frame};
+    if (mm::gfx::fill(composed, mm::display::Color::White) !=
+        mm::display::Status::Ok)
+        return 4;
 
     for (const Line& line : lines) {
         const auto metrics = mm::fonts::measure(line.text, line.size, *line.font);
         const unsigned int x = metrics.width < width ? (width - metrics.width) / 2 : 0;
         if (mm::fonts::render(line.text, line.size, *line.font,
-                              mm::display::Color::Black,
-                              mm::display::Color::White, x, line.y, frame,
-                              stride) != mm::display::Status::Ok)
+                              mm::display::Color::Black, x, line.y,
+                              composed) != mm::display::Status::Ok)
             return 5;
     }
-    if (!render_charset(cells, width, frame, stride)) return 5;
+    if (!render_charset(cells, width, composed)) return 5;
 
     // Into place. No turn is a copy, which keeps one path for every
     // orientation.
-    if (mm::fonts::rotate(frame, width, height, turns, turned) !=
+    const mm::gfx::Surface source{width, height, 1, frame};
+    const mm::gfx::Surface destination{
+        geometry.width, geometry.height, 1, turned};
+    if (mm::gfx::rotate(source, turns, destination) !=
         mm::display::Status::Ok)
         return 5;
+    std::array<mm::gfx::Region, 4> regions{};
+    for (unsigned int i = 0; i < regions.size(); ++i)
+        regions[i] = {mm::gfx::rotate({0, lines[i].y, width,
+                                      lines[i].font->height}, width, height,
+                                     turns), lines[i].palette};
 
-    for (unsigned int y = 0; y < geometry.height; ++y) {
-        const std::span<const std::byte> packed{
-            turned.data() + static_cast<std::size_t>(y) * panel_stride, panel_stride};
-        if (geometry.bits_per_pixel == 1) {
-            if (display.write({0, y, geometry.width, 1}, packed) !=
-                mm::display::Status::Ok)
-                return 6;
-            continue;
-        }
-        // The frame holds paper as set bits and ink as cleared bits. A
-        // turned row crosses every line's band, so each pixel looks up the
-        // palette of the logical row it came from rather than the row taking
-        // one pair.
-        for (unsigned int x = 0; x < geometry.width; ++x) {
-            const Palette palette = palette_for(logical_row(x, y, turns, height));
-            const std::byte bit = packed[x / 8u] & static_cast<std::byte>(0x80u >> (x % 8u));
-            const unsigned short color = bit != std::byte{0} ? palette.paper : palette.ink;
-            const std::size_t at = static_cast<std::size_t>(x) * 2u;
-            row[at] = static_cast<std::byte>(color >> 8);
-            row[at + 1u] = static_cast<std::byte>(color & 0xffu);
-        }
-        if (display.write({0, y, geometry.width, 1},
-                          std::span<const std::byte>{
-                              row.data(), static_cast<std::size_t>(geometry.width) * 2u}) !=
-            mm::display::Status::Ok)
-            return 6;
-    }
+    const auto write_status = geometry.bits_per_pixel == 1
+        ? mm::gfx::write(display, destination, 0, 0)
+        : mm::gfx::write(display, destination, 0, 0,
+                         charset_palette, regions, row);
+    if (write_status != mm::display::Status::Ok) return 6;
 
     if (display.refresh(mm::display::Refresh::Full) != mm::display::Status::Ok)
         return 7;

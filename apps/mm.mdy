@@ -5,6 +5,7 @@ name: apps
 folder: board-smoke
 folder: display-demo
 folder: font-demo
+folder: gfx-demo
 folder: main
 folder: mcu-blink
 folder: epaper-smoke

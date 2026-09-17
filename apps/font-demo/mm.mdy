@@ -4,6 +4,7 @@ kind: app
 name: font-demo
 option: buildable-host no
 use: mm.fonts
+use: mm.gfx
 use: mm.display
 use: mm.mcu
 file: main.cpp
@@ -27,5 +28,6 @@ Either way the composition is the same one-bit frame, which is the point of
 mm.fonts: the text knows nothing about the panel, and colour is a property of
 the expansion rather than of the font.
 
-It names mm.fonts for the tables and the composition, mm.display for the
-frame, and mm.mcu for the hold, and no board, SDK, or vendor.
+It names mm.fonts for the tables and composition, mm.gfx for rotation and
+writes, mm.display for the panel, and mm.mcu for the hold, with no board, SDK,
+or vendor dependency.

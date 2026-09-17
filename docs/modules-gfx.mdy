@@ -1,0 +1,164 @@
+---
+mm: 1.0
+kind: doc
+name: modules.cpp graphics module
+status: official
+release: v1.2.1
+---
+
+# modules.cpp graphics module
+
+# Status and boundary
+
+This document specifies the implemented mm.gfx module. Its host tests cover
+packing, clipping, rotation, region palettes, and writes through a recording
+display. Visual output on physical panels still requires hardware
+qualification. docs/modules-display.mdy owns display lifecycle and packed
+transfer; mm.gfx owns caller-provided composition memory and drawing.
+
+mm.gfx is an ordinary module with `use: mm.display`. It does not select a display,
+allocate a framebuffer, or refresh a panel. A caller selects or receives a
+Display, initializes it, writes one or more surfaces, and refreshes explicitly.
+
+# Surface and colour
+
+Opening fence
+struct Surface {
+    unsigned int width;
+    unsigned int height;
+    unsigned int bits_per_pixel;
+    std::span<std::byte> pixels;
+    constexpr std::size_t row_bytes() const;
+    constexpr std::size_t size() const;
+    constexpr bool valid() const;
+};
+
+struct Rgb565 { unsigned short value; };
+constexpr Rgb565 rgb(unsigned char r, unsigned char g, unsigned char b);
+struct Palette { Rgb565 ink; Rgb565 paper; };
+struct Region { mm::display::Rectangle area; Palette palette; };
+Closing fence
+
+The caller owns `pixels`. Rows are packed tightly with no extra stride. At
+one bit per pixel, the most significant bit is leftmost, one is white, and a
+row ends at a byte boundary. At sixteen bits, pixels are RGB565 with the most
+significant byte first. `maximum_side` is 1,048,576 pixels.
+
+`row_bytes()` is `(width + 7) / 8` for one bit and `width * 2` for sixteen
+bits. It returns zero for a zero or over-bound width or an unsupported depth.
+`size()` returns `row_bytes() * height`, or zero for a zero or over-bound
+height or an unrepresentable product. `valid()` requires nonzero `size()` and
+at least that many bytes in `pixels`. These methods are safe on an invalid or
+default-constructed Surface. Extra storage after the first `size()` bytes is
+not part of the surface and is never accessed by drawing or writing.
+
+`rgb` truncates eight-bit red and blue to five bits and green to six.
+`rgb565_black`, `rgb565_white`, and `rgb565_red` name common values. For a
+one-bit surface, drawing takes `mm::display::Color::Black` or `White`; Red
+returns Unsupported. For a sixteen-bit surface, drawing takes Rgb565. A
+colour overload used with the other depth returns BadArgument.
+
+# Drawing
+
+Opening fence
+using mm::display::Color;
+
+Status fill(Surface, Color);
+Status fill(Surface, Rgb565);
+Status pixel(Surface, int x, int y, Color);
+Status pixel(Surface, int x, int y, Rgb565);
+Status line(Surface, int x0, int y0, int x1, int y1, Color);
+Status line(Surface, int x0, int y0, int x1, int y1, Rgb565);
+Status rectangle(Surface, int x, int y, unsigned width, unsigned height,
+                 Color);
+Status rectangle(Surface, int x, int y, unsigned width, unsigned height,
+                 Rgb565);
+Status fill_rectangle(Surface, int x, int y, unsigned width,
+                      unsigned height, Color);
+Status fill_rectangle(Surface, int x, int y, unsigned width,
+                      unsigned height, Rgb565);
+Closing fence
+
+Drawing coordinates are local to the surface and may be negative. Primitives
+clip to its visible area; a shape wholly outside it or with zero extent is a
+successful no-op. `rectangle` draws a one-pixel outline and
+`fill_rectangle` paints its interior. Shapes overwrite in call order.
+
+Lines include both endpoints and use Bresenham after clipping. The clipped
+line may differ by a pixel from clipping an unclipped raster because its
+starting phase changes. Clipping uses wide arithmetic for far-away origins;
+the rasterizer operates on coordinates bounded by `maximum_side`.
+
+Drawing a one-bit pixel preserves its neighbors and the unused padding bits
+at the row's right edge. `fill` clears those padding bits. An invalid surface
+returns BadArgument before any pixel is changed.
+
+# Expansion and rotation
+
+Opening fence
+Status expand_row(std::span<const std::byte> packed_row,
+                  unsigned int width, Palette,
+                  std::span<std::byte> rgb565_row);
+Status rotate(Surface source, unsigned int quarter_turns, Surface turned);
+constexpr mm::display::Rectangle rotate(mm::display::Rectangle area,
+                                         unsigned int frame_width,
+                                         unsigned int frame_height,
+                                         unsigned int quarter_turns);
+Closing fence
+
+`expand_row` consumes exactly `width` visible bits and produces `width * 2`
+RGB565 bytes. Set bits take the palette's paper; cleared bits take its ink.
+Input padding is ignored. It rejects short input or output spans.
+
+The surface `rotate` turns a one-bit surface clockwise by quarter turns and
+clears destination padding. Source and destination must be separate, valid
+surfaces with the corresponding dimensions. The rectangle overload clips a
+region to the original frame before turning it. A wholly outside or empty
+rectangle returns an empty rectangle. Turning a region with its surface
+preserves the pixels that receive its palette.
+
+# Display writes and tiles
+
+Opening fence
+Status write(mm::display::Display&, Surface, unsigned display_x,
+             unsigned display_y);
+Status write(mm::display::Display&, Surface, unsigned display_x,
+             unsigned display_y, Palette base,
+             std::span<const Region> regions,
+             std::span<std::byte> scratch);
+Closing fence
+
+Both overloads validate the surface and panel bounds before writing. The
+first requires matching bit depth and passes exactly the first `size()` bytes
+in one Display::write call. On a one-bit panel, `display_x` must be a multiple
+of eight; surface width must be a multiple of eight unless the region reaches
+the panel's right edge. This matches the SSD1680 window rule.
+
+The second overload requires a one-bit surface and a sixteen-bit panel. It
+expands one row at a time into caller scratch of at least `width * 2` bytes
+and writes exactly that many bytes for each row. The first Region covering a
+surface pixel supplies its palette; uncovered pixels use `base`. Regions are
+clipped to the surface. A surface can be a full frame or a tile, and the
+caller translates global shape coordinates when composing a tile.
+
+Neither overload initializes or refreshes the display. A TFT can show each
+write immediately; an ePaper provider makes it visible on refresh. The
+interface has no readback. Repainting an old tile requires retained pixels
+or replaying the shapes that cover it.
+
+# Tests and limits
+
+`tests/mm/gfx` uses a recording Display to check exact transferred bytes,
+tile alignment, panel bounds, expansion palettes, and the absence of an
+implicit refresh. It also checks surface sizes, packing, clipping, padding,
+and rotation without hardware.
+
+`apps/gfx-demo` draws a framed scene with every drawing primitive, rotates it
+through four orientations, and writes it to either panel depth. On colour
+panels it also draws an RGB565 swatch directly and writes that tile at the
+panel's depth. Its build scripts cover Linux SDL, emulated e-paper, Pico
+e-paper, and RP2350 LCD.
+
+The one-bit surface has no red pigment plane, grayscale, or alpha. Image
+decoding, circles, paths, UI controls, and a sixteen-bit rotate are outside
+this module's current API.

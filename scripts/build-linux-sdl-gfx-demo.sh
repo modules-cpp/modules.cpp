@@ -1,30 +1,23 @@
 #!/bin/sh
-# Build apps/font-demo for a native Linux lane on the emulated e-paper board,
-# and verify what came out.
+# Build apps/gfx-demo for a native Linux lane on the SDL2 board, and verify
+# what came out.
 #
-# The e-paper board rebinds two interfaces: mm.display to the real SSD1680
-# controller, and mm.mcu to the emulated chip behind the seam the controller
-# talks through. font-demo names both, so the image must carry one object for
-# each, the ssd1680 driver between them, and the emulated chip and its SDL2
-# window behind the MCU provider. No DRM, evdev, touch, IMU or RTC object may
-# reach the link: the board inherits those bindings, and the demo never
-# mentions them.
+# gfx-demo names mm.gfx, mm.display, and mm.mcu. The SDL
+# board binds mm.display and mm.touch to one provider module, so the image must
+# carry exactly one platform.linux.sdl object even though the application
+# reaches only half of what it serves, and no DRM, evdev, IMU or RTC provider
+# at all. mm.gfx is a plain module with no provider behind it.
 #
-# The panel is the 152 by 296 tri-color one the board declares, one bit deep,
-# so this is the lane where the demo's packed-row path is the one exercised,
-# not the RGB565 expansion the sixteen-bit panels take.
-#
-# --run is expected to work on an ordinary desktop. The emulation opens a
-# window when the controller's refresh completes, so no virtual terminal is
-# needed.
+# --run is expected to work on an ordinary desktop. The SDL provider opens a
+# window, so no virtual terminal and no DRM master are needed.
 set -eu
 
-test_name=build-linux-epaper-font-demo
+test_name=build-linux-sdl-gfx-demo
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$script_dir"
 
-app=font-demo
-app_path=apps/font-demo
+app=gfx-demo
+app_path=apps/gfx-demo
 run_app=no
 compiler=
 run_must_succeed=yes
@@ -56,7 +49,7 @@ while [ "$#" -gt 0 ]; do
             echo "usage: $0 [-a|--arch aarch64|x86_64] [-c|--compiler CXX] [--run]"
             echo "architectures: aarch64, x86_64 (default: this machine's)"
             echo "--compiler defaults to <triple>-g++; name another to avoid a broken one"
-            echo "--run opens the emulation window; no virtual terminal is needed"
+            echo "--run opens a window; no virtual terminal is needed"
             exit 0
             ;;
         *)
@@ -103,14 +96,14 @@ case "$arch" in
     aarch64)
         target=aarch64-linux-gnu
         sdk=linux-aarch64
-        board=epaper-linux-aarch64
+        board=sdl-linux-aarch64
         inherited_map=platform.linux.generic_aarch64.map
         machine=AArch64
         ;;
     x86_64)
         target=x86_64-linux-gnu
         sdk=linux-x86_64
-        board=epaper-linux-x86_64
+        board=sdl-linux-x86_64
         inherited_map=platform.linux.generic_x86_64.map
         machine=X86-64
         ;;
@@ -139,9 +132,8 @@ if [ "$host_triple" != "$(normalize_triple "$target")" ]; then
     exit 65
 fi
 
-# The emulated device declares the SDL2 system package for its window, so an
-# absent package is not an absent checkout. Nothing would catch it before the
-# compiler did.
+# The SDL library declares a system package, so an absent package is not an
+# absent checkout. Nothing would catch it before the compiler did.
 if [ ! -f /usr/include/SDL2/SDL.h ]; then
     echo "$test_name: SDL2 development headers not found" >&2
     echo "  install libsdl2-dev" >&2
@@ -166,25 +158,22 @@ trap restore_host 0
 
 binary="out-target-$target/$app_path/$app"
 
-# The exit codes are the steps of apps/font-demo/main.cpp, in order.
+# The exit codes are the steps of apps/gfx-demo/main.cpp, in order.
 explain_run() {
     case "$1" in
-        0) echo "  four lines and the whole charset were drawn and held in four" ;
-           echo "  orientations, in the emulation window" ;;
-        1) echo "  1 is display.initialize: the controller's reset or busy" ;
-           echo "  handshake with the emulated chip failed" ;;
+        0) echo "  gfx shapes were drawn and held in four orientations" ;;
+        1) echo "  1 is display.initialize: a headless session or an" ;
+           echo "  SDL_VIDEODRIVER override would explain this" ;;
         2) echo "  2 is the geometry check: the panel is neither one nor" ;
            echo "  sixteen bits deep, or reported no size" ;;
-        3) echo "  3 is the frame budget: the panel is wider or narrower" ;
-           echo "  than the demo's static frame allows" ;;
+        3) echo "  3 is the frame budget: a panel side exceeds 480 pixels" ;;
         4) echo "  4 is display.clear" ;;
-        5) echo "  5 is fonts.render: a line did not compose" ;;
-        6) echo "  6 is gfx.write: the controller refused the packed frame" ;;
-        7) echo "  7 is display.refresh: the emulated refresh did not complete," ;
-           echo "  or the window could not be shown" ;;
+        5) echo "  5 is gfx drawing or rotation" ;;
+        6) echo "  6 is gfx.write: expansion or display.write failed" ;;
+        7) echo "  7 is display.refresh" ;;
         8) echo "  8 is mcu.delay_ms: the hold did not complete" ;;
         9) echo "  9 is display.sleep" ;;
-        *) echo "  see apps/font-demo/main.cpp for that step" ;;
+        *) echo "  see apps/gfx-demo/main.cpp for that step" ;;
     esac
 }
 
@@ -203,7 +192,7 @@ run_application() {
     fi
 }
 
-echo "Native Linux lane, emulated e-paper"
+echo "Native Linux lane, SDL2 backend"
 echo "  target   $target"
 echo "  compiler $compiler"
 echo "  sdk      $sdk"
@@ -253,28 +242,12 @@ verify_library() {
     count=$("$readelf_command" -d "$image" | grep -c 'Shared library: \[libSDL2' || true)
     if [ "$count" -eq 0 ]; then
         echo "$test_name: $image does not link SDL2" >&2
-        echo "  the emulated device's window did not reach the link line" >&2
         exit 1
     fi
 }
 
-# Symbols that must be present by name: the real controller the display
-# provider wraps, and both font tables the demo draws with.
-verify_symbols() {
-    image=$1
-    for symbol in \
-        mm::epaper::ssd1680 \
-        mm::fonts::kMono12Data \
-        mm::fonts::kMono16Data; do
-        if ! $nm_command -C "$image" | grep -q "$symbol"; then
-            echo "$test_name: no $symbol symbols in $image" >&2
-            exit 1
-        fi
-    done
-}
-
 echo
-echo "E-paper board"
+echo "SDL board"
 
 ./configure \
     --target "$target" \
@@ -289,27 +262,20 @@ echo "E-paper board"
 
 verify_image "$binary"
 verify_library "$binary"
-verify_symbols "$binary"
 
-# The two interfaces font-demo reaches, both rebound by the board, the chip
-# that arrives behind them, and the six providers the SDK binds that nothing
-# here mentions. The named device map is absent too: the DRM and evdev
-# providers are what use it, and the emulated device needs no device names.
-verify_provider "$binary" platform.linux.epaper.display 1
-verify_provider "$binary" platform.linux.epaper.device 1
-verify_provider "$binary" platform.linux.epaper.chip 1
-verify_provider "$binary" "$inherited_map" 0
+# The two interfaces gfx-demo reaches, served by the board's one SDL object
+# and the inherited MCU provider, and the four it never mentions.
+verify_provider "$binary" platform.linux.sdl 1
+verify_provider "$binary" platform.linux.mcu 1
+verify_provider "$binary" "$inherited_map" 1
 verify_provider "$binary" platform.linux.display 0
-verify_provider "$binary" platform.linux.mcu 0
-verify_provider "$binary" platform.linux.sdl 0
 verify_provider "$binary" platform.linux.touch 0
 verify_provider "$binary" platform.linux.imu 0
 verify_provider "$binary" platform.linux.rtc 0
 verify_provider "$binary" platform.linux.stdio 0
 verify_provider "$binary" platform.linux.defaults 0
 
-echo "  emulated chip and controller, both font tables, SDL2 on the link line,"
-echo "  nothing else"
+echo "  SDL provider, SDL2 on the link line, nothing else"
 
 if [ "$run_app" = yes ]; then
     run_application
@@ -320,8 +286,9 @@ trap - 0
 
 echo
 echo "PASS: $test_name"
-echo "To watch it: scripts/build-linux-epaper-font-demo.sh --run"
-echo "A 152 by 296 window opens when the first refresh completes: four centred"
-echo "lines, two at 16px and two at 12px, the last one Polish, then every glyph"
-echo "of the 12px table, black on white. Upright first, then a quarter turn"
-echo "clockwise on each of three more refreshes, four seconds each."
+echo "To watch it: scripts/build-linux-sdl-gfx-demo.sh --run"
+echo "A framed X, a filled centre box, and corner dots appear in four"
+echo "orientations, four seconds each. The black marks become red, green, and"
+echo "blue across three bands; white stays white. A blue RGB565 swatch with a"
+echo "red border and green centre overlays them. Wrong colours indicate a"
+echo "palette or RGB565 byte-order problem."

@@ -94,6 +94,7 @@ keeps an unqualified waveform or pinout out of the generic controller.
 The public interface is intentionally smaller than a graphics toolkit. It owns
 display lifecycle, geometry, packed pixel transfer, refresh, and sleep. Text,
 fonts, shapes, image decoding, and UI policy belong in modules layered above it.
+mm.gfx supplies packed surfaces and basic shapes at that higher layer.
 
 The public shape is:
 

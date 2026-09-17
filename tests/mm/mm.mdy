@@ -11,6 +11,7 @@ folder: debug
 folder: display
 folder: epaper
 folder: fonts
+folder: gfx
 folder: flash
 folder: shell
 folder: stdio

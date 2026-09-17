@@ -13,15 +13,15 @@ release: v1.2.1
 status: official gives the implemented portions of this document the same
 authority as the other v1.2.1 specifications. This document specifies the
 implemented mm.fonts module: the Glyph, Font, and TextMetrics types, the
-measure, render, expand_row, and rotate functions, and the committed kMono12 and
+measure and render functions, and the committed kMono12 and
 kMono16 glyph tables derived from IBM Plex Mono. The font-demo application
 exists. Legible text on a physical panel remains a hardware-qualification
 requirement rather than a completed claim.
 
 docs/modules-display.mdy owns the portable display boundary and its pixel
-packing. docs/modules-platform-mcu.mdy owns the MCU provider model. mm.fonts
-sits above mm.display and consumes nothing below it, and this document must
-not weaken either boundary to make one panel draw text quickly.
+packing. docs/modules-gfx.mdy owns surfaces, drawing, expansion, and rotation.
+docs/modules-platform-mcu.mdy owns the MCU provider model. mm.fonts consumes
+mm.gfx and mm.display and does not weaken either boundary for one panel.
 
 # Role
 
@@ -29,8 +29,7 @@ mm.fonts composes a UTF-8 string into a packed one-bit frame. A one-bit
 display writes those bytes directly; a sixteen-bit display needs RGB565
 conversion before writing. mm.display moves packed pixels and names the
 boundary in its own manifest: graphics policy, fonts, image decoding, and
-controller commands
-live above or below it, not inside it. Text support is the layer that closes
+controller commands live above or below it, not inside it. Text support closes
 that gap for the two panels this project targets, the 152 by 296 one-bit
 ePaper and the 240 by 320 sixteen-bit RGB565 LCD.
 
@@ -38,13 +37,13 @@ The module obeys the standing project rules:
 
 - No vector parsing and no font engine on the target. The bitmaps are
   precomputed at development time and shipped as static data.
-- No heap allocation in the font module at runtime. Font holds spans over
-  module-owned, generated static glyph tables; Glyph and TextMetrics hold
-  scalar values. The caller owns the frame passed to render and the output
-  buffer passed to expand_row or rotate.
+- No heap allocation in the font module at runtime. The committed Font
+  instances hold spans over generated static glyph tables; Glyph and
+  TextMetrics hold scalar values. The caller owns the Surface passed to
+  render.
 - One composition format for both panels. Text is composed into a one-bit
   frame; the one-bit panel receives those rows, and the sixteen-bit panel
-  receives RGB565 rows converted by the caller.
+  receives RGB565 rows converted by mm.gfx.
 - Monospace by design. A fixed cell width makes wrapping and alignment
   arithmetic, which is what a terminal-style panel UI wants.
 
@@ -99,6 +98,7 @@ kind: module
 name: fonts
 module: mm.fonts
 use: mm.display
+use: mm.gfx
 file: types.cppm mm.fonts:types
 file: renderer.cppm mm.fonts:renderer
 file: data.cppm mm.fonts:data
@@ -143,40 +143,28 @@ search, and leads with the space glyph at zero width.
 Opening fence
 [[nodiscard]] mm::display::Status render(
     const char8_t* text, std::size_t text_size, const Font& font,
-    mm::display::Color foreground, mm::display::Color background,
-    unsigned int x, unsigned int y,
-    std::span<std::byte> frame, unsigned int frame_width_bytes);
+    mm::display::Color ink, unsigned int x, unsigned int y,
+    mm::gfx::Surface surface);
 
 [[nodiscard]] TextMetrics measure(const char8_t* text,
                                   std::size_t text_size, const Font& font);
 
-[[nodiscard]] mm::display::Status expand_row(
-    std::span<const std::byte> packed_row, unsigned int row_width_bytes,
-    unsigned short foreground, unsigned short background,
-    std::span<std::byte> rgb565_row);
-
-[[nodiscard]] mm::display::Status rotate(
-    std::span<const std::byte> source, unsigned int width,
-    unsigned int height, unsigned int quarter_turns,
-    std::span<std::byte> turned);
 Closing fence
 
-render composes UTF-8 text into a one-bit packed frame in mm.display's
-packing: row-major, most significant bit left, one white and zero black, byte
-stride frame_width_bytes. Composition is transparent: glyph pixels take the
-foreground, and every other pixel is left untouched, so text composes over
-whatever is already in the frame. Polarity falls out of the bit convention:
-white ink sets the glyph bits, black ink clears them. The background argument
-is advisory; a caller that wants a cleared region clears it before rendering.
+render composes UTF-8 text into a one-bit mm.gfx::Surface. Composition is
+transparent: glyph pixels take the ink, and every other pixel is left
+untouched. White ink sets glyph bits; black ink clears them. A caller that
+wants a cleared region fills it before rendering. The surface width is the
+visible right edge, and its height is the bottom boundary for text.
 
 The host tests pin these semantics down:
 
 - A code point absent from the font renders blank, and the pen still advances
   one cell for it.
 - Text that reaches the right edge of the frame is clipped, not an error.
-- render answers BadArgument for null text with a nonzero size, a zero frame
-  stride, a frame shorter than its declared width, text reaching past the
-  last frame row, a Red foreground, a glyph table extending beyond its data,
+- render answers BadArgument for null text with a nonzero size, an invalid
+  or non-one-bit surface, text reaching past its bottom, Red ink, a glyph
+  table extending beyond its data,
   and malformed UTF-8. The host tests cover a truncated sequence. measure is
   lenient by design: a malformed sequence ends the count, and nothing is
   measured past it.
@@ -190,16 +178,8 @@ measure is the monospace contract: width is the count of well-formed code
 points times the advance, and height is the font's line height. No per-glyph
 scanning, so it costs nothing.
 
-expand_row maps one packed one-bit row to RGB565 for the sixteen-bit panels,
-most significant byte first: bit 1 becomes the foreground, bit 0 the
-background, two bytes per pixel. A 240-pixel row is 480 bytes. It answers
-BadArgument for a packed row shorter than its declared width or an output row
-shorter than the expanded one.
-
-rotate turns a packed one-bit frame clockwise by quarter turns. An odd turn
-swaps its width and height. The source and destination must not overlap;
-destination padding bits are cleared. It answers BadArgument for zero
-dimensions or a span too short for the source or turned frame.
+mm.gfx owns expand_row and both surface and rectangle rotation. Their packing,
+buffer, and clipping contracts are specified in docs/modules-gfx.mdy.
 
 # Glyph data
 
@@ -241,12 +221,9 @@ convert rows when needed, write, refresh.
   line with measure. Full rows satisfy the ePaper's write contract: x zero is
   a multiple of 8, and both panel widths, 152 and 240, are multiples of 8, so
   no row needs special handling.
-- On a one-bit panel, write each row with mm.display::write as a rectangle of
-  height one from the visible top-left origin.
-- On a sixteen-bit panel, expand_row can map each packed row through one
-  foreground and background pair to RGB565, most significant byte first.
-  A caller needing different colours within a row converts its pixels with
-  the corresponding palettes before writing the expanded row.
+- On a one-bit panel, mm.gfx::write sends the packed frame directly.
+- On a sixteen-bit panel, mm.gfx::write expands each row through a base
+  palette and optional rectangular palette regions before sending it.
 - Refresh is always explicit and unchanged by this module.
 
 apps/font-demo clears the panel white, composes four centred lines, two at
@@ -254,9 +231,9 @@ apps/font-demo clears the panel white, composes four centred lines, two at
 charset. It turns the composed frame through all four quarter-turn
 orientations, holds each view long enough to be read, and sleeps. On the LCD,
 palette selection follows each pixel's original logical row after rotation,
-so the demo converts pixels itself rather than calling expand_row with one
-palette for the whole row. It branches on panel depth and names mm.fonts,
-mm.display, and mm.mcu, with no board, SDK, or vendor dependency.
+represented by a rotated Region for each line. The demo uses mm.gfx to turn
+the frame and regions and to write either panel depth. It names mm.fonts,
+mm.gfx, mm.display, and mm.mcu, with no board, SDK, or vendor dependency.
 
 # Test strategy
 
@@ -273,13 +250,9 @@ without a display provider:
 - measure obeys the monospace contract and counts multi-byte Polish letters
   one cell each.
 - Text reaching the right edge is clipped rather than rejected.
-- BadArgument: undersized frame, zero stride, text past the last row, Red
-  foreground, truncated UTF-8, a glyph table beyond its data, and null text
-  with a nonzero size.
-- expand_row maps a known one-bit pattern to exact RGB565 bytes and rejects
-  short input and output rows.
-- rotate checks all four quarter turns, clears output padding bits, and
-  rejects zero dimensions and undersized buffers.
+- BadArgument: invalid Surface, text past its last row, Red ink, truncated
+  UTF-8, a glyph table beyond its data, and null text with a nonzero size.
+  Expansion and rotation tests live under tests/mm/gfx.
 
 # Implementation stages
 
@@ -297,7 +270,8 @@ without a display provider:
   hardware.
 - No font table or renderer object appears in an executable that does not
   import mm.fonts.
-- The same composed frame drives both panel kinds through mm.display alone.
+- The same composed frame drives both panel kinds through mm.gfx and
+  mm.display.
 - Full-row composition satisfies the ePaper's byte alignment on both panel
   widths.
 - font-demo draws both committed sizes and the Polish line on a named display
@@ -324,4 +298,4 @@ without a display provider:
   monospace and the charset is a flat code-point set.
 - Drawing primitives, image formats, and UI layout remain outside mm.fonts.
 - No change reaches mm.display, mm.epaper, or mm.lcd; this module consumes
-  only mm.display.
+  mm.gfx and mm.display.

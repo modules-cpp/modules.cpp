@@ -10,6 +10,7 @@ module mm.fonts;
 import :types;
 import :renderer;
 import mm.display;
+import mm.gfx;
 
 namespace mm::fonts {
 
@@ -104,17 +105,15 @@ TextMetrics measure(const char8_t* text, std::size_t text_size, const Font& font
 }
 
 mm::display::Status render(const char8_t* text, std::size_t text_size, const Font& font,
-                           mm::display::Color foreground, mm::display::Color background,
-                           unsigned int x, unsigned int y,
-                           std::span<std::byte> frame, unsigned int frame_width_bytes)
+                           mm::display::Color ink, unsigned int x, unsigned int y,
+                           mm::gfx::Surface surface)
 {
-    (void)background;
     if (text == nullptr && text_size != 0) return mm::display::Status::BadArgument;
-    if (frame_width_bytes == 0) return mm::display::Status::BadArgument;
-    if (frame.size() < frame_width_bytes) return mm::display::Status::BadArgument;
-    if (foreground == mm::display::Color::Red) return mm::display::Status::BadArgument;
-    const std::size_t frame_rows = frame.size() / frame_width_bytes;
-    if (static_cast<std::size_t>(y) + font.height > frame_rows)
+    if (!surface.valid() || surface.bits_per_pixel != 1)
+        return mm::display::Status::BadArgument;
+    if (ink == mm::display::Color::Red) return mm::display::Status::BadArgument;
+    const unsigned int frame_width_bytes = static_cast<unsigned int>(surface.row_bytes());
+    if (static_cast<std::size_t>(y) + font.height > surface.height)
         return mm::display::Status::BadArgument;
 
     const auto* bytes = reinterpret_cast<const unsigned char*>(text);
@@ -134,8 +133,8 @@ mm::display::Status render(const char8_t* text, std::size_t text_size, const Fon
             return mm::display::Status::BadArgument;
     }
 
-    const std::size_t frame_width_bits = static_cast<std::size_t>(frame_width_bytes) * 8u;
-    const bool white = foreground == mm::display::Color::White;
+    const std::size_t frame_width_bits = surface.width;
+    const bool white = ink == mm::display::Color::White;
     unsigned int text_pos = 0;
     for (unsigned int cell = 0; cell < code_points; ++cell) {
         const std::size_t cell_x = static_cast<std::size_t>(x)
@@ -158,7 +157,7 @@ mm::display::Status render(const char8_t* text, std::size_t text_size, const Fon
         for (unsigned int row = 0; row < font.height; ++row) {
             const std::byte* src = font.data.data() + glyph->byte_offset
                                  + static_cast<std::size_t>(row) * row_bytes;
-            std::byte* dst = frame.data()
+            std::byte* dst = surface.pixels.data()
                            + static_cast<std::size_t>(y + row) * frame_width_bytes
                            + ink_x / 8u;
             const unsigned int shift = ink_x % 8u;
@@ -180,64 +179,6 @@ mm::display::Status render(const char8_t* text, std::size_t text_size, const Fon
                     if (spills) dst[b + 1] = dst[b + 1] & static_cast<std::byte>(~high);
                 }
             }
-        }
-    }
-    return mm::display::Status::Ok;
-}
-
-mm::display::Status rotate(std::span<const std::byte> source,
-                           unsigned int width, unsigned int height,
-                           unsigned int quarter_turns, std::span<std::byte> turned)
-{
-    if (width == 0 || height == 0) return mm::display::Status::BadArgument;
-    const unsigned int turns = quarter_turns % 4u;
-    const unsigned int turned_width = turns % 2u ? height : width;
-    const unsigned int turned_height = turns % 2u ? width : height;
-    const std::size_t source_stride = (static_cast<std::size_t>(width) + 7u) / 8u;
-    const std::size_t turned_stride = (static_cast<std::size_t>(turned_width) + 7u) / 8u;
-    if (source.size() < source_stride * height) return mm::display::Status::BadArgument;
-    if (turned.size() < turned_stride * turned_height) return mm::display::Status::BadArgument;
-
-    for (std::size_t i = 0; i < turned_stride * turned_height; ++i) turned[i] = std::byte{0};
-
-    // Each turned pixel is read from the source pixel that lands on it: a
-    // gather, so every turned bit is written exactly once and the padding
-    // bits stay clear.
-    for (unsigned int y = 0; y < turned_height; ++y) {
-        std::byte* out = turned.data() + static_cast<std::size_t>(y) * turned_stride;
-        for (unsigned int x = 0; x < turned_width; ++x) {
-            unsigned int sx = x;
-            unsigned int sy = y;
-            switch (turns) {
-                case 1: sx = y; sy = height - 1u - x; break;
-                case 2: sx = width - 1u - x; sy = height - 1u - y; break;
-                case 3: sx = width - 1u - y; sy = x; break;
-                default: break;
-            }
-            const std::byte bit = source[static_cast<std::size_t>(sy) * source_stride + sx / 8u]
-                                & static_cast<std::byte>(0x80u >> (sx % 8u));
-            if (bit != std::byte{0}) out[x / 8u] |= static_cast<std::byte>(0x80u >> (x % 8u));
-        }
-    }
-    return mm::display::Status::Ok;
-}
-
-mm::display::Status expand_row(std::span<const std::byte> packed_row,
-                               unsigned int row_width_bytes,
-                               unsigned short foreground, unsigned short background,
-                               std::span<std::byte> rgb565_row)
-{
-    if (packed_row.size() < row_width_bytes) return mm::display::Status::BadArgument;
-    if (rgb565_row.size() < static_cast<std::size_t>(row_width_bytes) * 16u)
-        return mm::display::Status::BadArgument;
-    for (unsigned int i = 0; i < row_width_bytes; ++i) {
-        const unsigned int value = static_cast<unsigned int>(packed_row[i]);
-        for (unsigned int bit = 0; bit < 8u; ++bit) {
-            const unsigned short color =
-                (value & (0x80u >> bit)) ? foreground : background;
-            const std::size_t off = (static_cast<std::size_t>(i) * 8u + bit) * 2u;
-            rgb565_row[off] = static_cast<std::byte>(color >> 8);
-            rgb565_row[off + 1] = static_cast<std::byte>(color & 0xFFu);
         }
     }
     return mm::display::Status::Ok;

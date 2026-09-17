@@ -4,6 +4,7 @@ kind: test
 name: fonts
 use: mm.test
 use: mm.fonts
+use: mm.gfx
 unit: tests/mm/fonts/fonts.cpp
 unit: tests/main.cpp
 ---
@@ -13,4 +14,4 @@ unit: tests/main.cpp
 Exercises the pure font logic on the host: the committed glyph tables against
 a small golden set, transparent one-bit composition in both polarities,
 monospace measurement, UTF-8 validation, right-edge clipping, and the one-bit
-to RGB565 row expander. No display provider is involved.
+surface validation. No display provider is involved.

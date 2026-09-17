@@ -4,6 +4,7 @@ kind: module
 name: fonts
 module: mm.fonts
 use: mm.display
+use: mm.gfx
 file: types.cppm mm.fonts:types
 file: renderer.cppm mm.fonts:renderer
 file: data.cppm mm.fonts:data
@@ -14,7 +15,7 @@ file: src/renderer.cpp
 Bitmap font support for the one-bit ePaper and the sixteen-bit RGB565 LCD
 panels. Generated glyph tables (derived from IBM Plex Mono, SIL OFL 1.1, see
 licenses/OFL.txt) and a transparent one-bit compositor above mm.display:
-measure, render, and expand_row.
+measure and render. Packed row expansion and rotation are in mm.gfx.
 
 The tables are produced by tools/fonts/gen_font.py on the development host.
 data.cppm is generated and must not be edited by hand; regenerate it from the

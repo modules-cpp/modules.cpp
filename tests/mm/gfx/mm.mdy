@@ -1,0 +1,14 @@
+---
+mm: 1.0
+kind: test
+name: gfx
+use: mm.test
+use: mm.gfx
+use: mm.display
+unit: tests/mm/gfx/recording.cpp
+unit: tests/mm/gfx/gfx.cpp
+unit: tests/main.cpp
+---
+
+Host checks for packed drawing, clipping, rotation, expansion, and exact
+display writes through a recording display.

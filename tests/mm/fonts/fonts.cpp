@@ -6,11 +6,20 @@
 
 import mm.display;
 import mm.fonts;
+import mm.gfx;
 import mm.test;
 
 namespace {
 
 using mm::test::expect;
+
+[[nodiscard]] mm::display::Status render_on(
+    const char8_t* text, std::size_t count, const mm::fonts::Font& font,
+    mm::display::Color ink, unsigned int x, unsigned int y,
+    std::span<std::byte> frame, unsigned int row_bytes) {
+    return mm::fonts::render(text, count, font, ink, x, y,
+        mm::gfx::Surface{row_bytes * 8u, font.height, 1u, frame});
+}
 
 // Golden bitmaps from tools/fonts/gen_font.py's committed provenance: IBM Plex
 // Mono, rasterized at 16 and 12 pixels, most significant bit first.
@@ -116,15 +125,11 @@ void renders_both_polarities() {
     const char8_t* text = u8"A";
     std::array<std::byte, 44> frame;
     frame.fill(std::byte{0x00});
-    expect(mm::fonts::render(text, 1, mm::fonts::kMono16,
-                             mm::display::Color::White, mm::display::Color::Black,
-                             0, 0, frame, 2) == mm::display::Status::Ok,
+    expect(render_on(text, 1, mm::fonts::kMono16, mm::display::Color::White, 0, 0, frame, 2) == mm::display::Status::Ok,
            "white ink on a cleared frame composes");
     expect(frame == a_16, "white ink sets exactly the glyph bits");
     frame.fill(std::byte{0xff});
-    expect(mm::fonts::render(text, 1, mm::fonts::kMono16,
-                             mm::display::Color::Black, mm::display::Color::White,
-                             0, 0, frame, 2) == mm::display::Status::Ok,
+    expect(render_on(text, 1, mm::fonts::kMono16, mm::display::Color::Black, 0, 0, frame, 2) == mm::display::Status::Ok,
            "black ink on a marked frame composes");
     expect(frame == combine(0xffff, false), "black ink clears exactly the glyph bits");
 }
@@ -133,16 +138,12 @@ void composes_over_an_existing_frame() {
     const char8_t* text = u8"A";
     std::array<std::byte, 44> frame;
     frame.fill(std::byte{0x5a});
-    expect(mm::fonts::render(text, 1, mm::fonts::kMono16,
-                             mm::display::Color::White, mm::display::Color::Black,
-                             0, 0, frame, 2) == mm::display::Status::Ok,
+    expect(render_on(text, 1, mm::fonts::kMono16, mm::display::Color::White, 0, 0, frame, 2) == mm::display::Status::Ok,
            "composition over a pre-marked frame is accepted");
     expect(frame == combine(0x5a5a, true),
            "glyph bits are set and pre-marked bits stay untouched");
     frame.fill(std::byte{0x5a});
-    expect(mm::fonts::render(text, 1, mm::fonts::kMono16,
-                             mm::display::Color::Black, mm::display::Color::White,
-                             0, 0, frame, 2) == mm::display::Status::Ok,
+    expect(render_on(text, 1, mm::fonts::kMono16, mm::display::Color::Black, 0, 0, frame, 2) == mm::display::Status::Ok,
            "clearing composition over a pre-marked frame is accepted");
     expect(frame == combine(0x5a5a, false),
            "glyph bits are cleared and pre-marked bits stay untouched");
@@ -155,9 +156,7 @@ void missing_code_points_render_blank_and_advance() {
         static_cast<char8_t>(0xc3), static_cast<char8_t>(0xa9), u8'A'};
     std::array<std::byte, 3 * 22> frame;
     frame.fill(std::byte{0x00});
-    expect(mm::fonts::render(text, 3, mm::fonts::kMono16,
-                             mm::display::Color::White, mm::display::Color::Black,
-                             0, 0, frame, 3) == mm::display::Status::Ok,
+    expect(render_on(text, 3, mm::fonts::kMono16, mm::display::Color::White, 0, 0, frame, 3) == mm::display::Status::Ok,
            "a missing code point is not an error");
     bool placed = true;
     for (unsigned int row = 0; row < 22; ++row) {
@@ -203,31 +202,19 @@ void render_rejects_bad_arguments() {
     const char8_t* text = u8"A";
     std::array<std::byte, 44> frame;
     frame.fill(std::byte{0x00});
-    expect(mm::fonts::render(text, 1, mm::fonts::kMono16,
-                             mm::display::Color::Red, mm::display::Color::Black,
-                             0, 0, frame, 2) == mm::display::Status::BadArgument,
+    expect(render_on(text, 1, mm::fonts::kMono16, mm::display::Color::Red, 0, 0, frame, 2) == mm::display::Status::BadArgument,
            "red has no one-bit value");
-    expect(mm::fonts::render(text, 1, mm::fonts::kMono16,
-                             mm::display::Color::White, mm::display::Color::Black,
-                             0, 0, std::span<std::byte>{frame.data(), 43}, 2) ==
+    expect(render_on(text, 1, mm::fonts::kMono16, mm::display::Color::White, 0, 0, std::span<std::byte>{frame.data(), 43}, 2) ==
                mm::display::Status::BadArgument,
            "a frame shorter than its declared width is rejected");
-    expect(mm::fonts::render(text, 1, mm::fonts::kMono16,
-                             mm::display::Color::White, mm::display::Color::Black,
-                             0, 1, frame, 2) == mm::display::Status::BadArgument,
+    expect(render_on(text, 1, mm::fonts::kMono16, mm::display::Color::White, 0, 1, frame, 2) == mm::display::Status::BadArgument,
            "text reaching past the last row is rejected");
     const char8_t partial[] = {u8'A', static_cast<char8_t>(0xc4)};
-    expect(mm::fonts::render(partial, 2, mm::fonts::kMono16,
-                             mm::display::Color::White, mm::display::Color::Black,
-                             0, 0, frame, 2) == mm::display::Status::BadArgument,
+    expect(render_on(partial, 2, mm::fonts::kMono16, mm::display::Color::White, 0, 0, frame, 2) == mm::display::Status::BadArgument,
            "a trailing partial UTF-8 sequence is rejected");
-    expect(mm::fonts::render(nullptr, 1, mm::fonts::kMono16,
-                             mm::display::Color::White, mm::display::Color::Black,
-                             0, 0, frame, 2) == mm::display::Status::BadArgument,
+    expect(render_on(nullptr, 1, mm::fonts::kMono16, mm::display::Color::White, 0, 0, frame, 2) == mm::display::Status::BadArgument,
            "null text with a nonzero size is rejected");
-    expect(mm::fonts::render(text, 1, mm::fonts::kMono16,
-                             mm::display::Color::White, mm::display::Color::Black,
-                             0, 0, frame, 0) == mm::display::Status::BadArgument,
+    expect(render_on(text, 1, mm::fonts::kMono16, mm::display::Color::White, 0, 0, frame, 0) == mm::display::Status::BadArgument,
            "a zero-width frame is rejected");
     // A hand-built table whose index points past its packed bytes.
     const std::array<std::byte, 8> short_data{};
@@ -236,9 +223,7 @@ void render_rejects_bad_arguments() {
     const mm::fonts::Font broken{short_data, past_the_end, 8, 8, 6, 8};
     std::array<std::byte, 8> small;
     small.fill(std::byte{0x00});
-    expect(mm::fonts::render(text, 1, broken,
-                             mm::display::Color::White, mm::display::Color::Black,
-                             0, 0, small, 1) == mm::display::Status::BadArgument,
+    expect(render_on(text, 1, broken, mm::display::Color::White, 0, 0, small, 1) == mm::display::Status::BadArgument,
            "a glyph reaching past the font's packed bytes is rejected");
     expect(small == std::array<std::byte, 8>{},
            "nothing is inked before the mismatched table is rejected");
@@ -250,9 +235,7 @@ void render_crosses_byte_boundaries() {
     // boundary and land in bits 8..2 of the sixteen-bit row.
     std::array<std::byte, 2 * 17> frame12;
     frame12.fill(std::byte{0x00});
-    expect(mm::fonts::render(text, 1, mm::fonts::kMono12,
-                             mm::display::Color::White, mm::display::Color::Black,
-                             7, 0, frame12, 2) == mm::display::Status::Ok,
+    expect(render_on(text, 1, mm::fonts::kMono12, mm::display::Color::White, 7, 0, frame12, 2) == mm::display::Status::Ok,
            "kMono12 ink across a byte boundary composes");
     bool straddled = true;
     for (unsigned int row = 0; row < 17; ++row) {
@@ -265,9 +248,7 @@ void render_crosses_byte_boundaries() {
     // kMono16 'A' at column seven: ten columns spanning three frame bytes.
     std::array<std::byte, 3 * 22> frame16;
     frame16.fill(std::byte{0x00});
-    expect(mm::fonts::render(text, 1, mm::fonts::kMono16,
-                             mm::display::Color::White, mm::display::Color::Black,
-                             7, 0, frame16, 3) == mm::display::Status::Ok,
+    expect(render_on(text, 1, mm::fonts::kMono16, mm::display::Color::White, 7, 0, frame16, 3) == mm::display::Status::Ok,
            "kMono16 ink across two byte boundaries composes");
     bool spanned = true;
     for (unsigned int row = 0; row < 22; ++row) {
@@ -282,9 +263,7 @@ void render_crosses_byte_boundaries() {
     expect(spanned, "the last column spills into the third byte");
     // Black ink takes the same path and clears the same bits.
     frame16.fill(std::byte{0xff});
-    expect(mm::fonts::render(text, 1, mm::fonts::kMono16,
-                             mm::display::Color::Black, mm::display::Color::White,
-                             7, 0, frame16, 3) == mm::display::Status::Ok,
+    expect(render_on(text, 1, mm::fonts::kMono16, mm::display::Color::Black, 7, 0, frame16, 3) == mm::display::Status::Ok,
            "black ink across two byte boundaries composes");
     bool cleared = true;
     for (unsigned int row = 0; row < 22; ++row) {
@@ -303,9 +282,7 @@ void render_clips_at_the_right_edge() {
     const char8_t* text = u8"A";
     std::array<std::byte, 44> frame;
     frame.fill(std::byte{0x00});
-    expect(mm::fonts::render(text, 1, mm::fonts::kMono16,
-                             mm::display::Color::White, mm::display::Color::Black,
-                             12, 0, frame, 2) == mm::display::Status::Ok,
+    expect(render_on(text, 1, mm::fonts::kMono16, mm::display::Color::White, 12, 0, frame, 2) == mm::display::Status::Ok,
            "ink crossing the right edge is clipped, not an error");
     bool clipped = true;
     for (unsigned int row = 0; row < 22; ++row) {
@@ -321,104 +298,6 @@ void render_clips_at_the_right_edge() {
     expect(clipped, "only the four columns inside the frame are inked");
 }
 
-void expand_row_maps_one_bit_to_rgb565() {
-    using mm::display::Status;
-    const std::array<std::byte, 1> row{std::byte{0x81}};
-    const std::array<std::byte, 16> black_on_white = {
-    std::byte{0x00}, std::byte{0x00}, std::byte{0xff}, std::byte{0xff}, std::byte{0xff}, std::byte{0xff}, std::byte{0xff}, std::byte{0xff},
-    std::byte{0xff}, std::byte{0xff}, std::byte{0xff}, std::byte{0xff}, std::byte{0xff}, std::byte{0xff}, std::byte{0x00}, std::byte{0x00},
-    };
-    const std::array<std::byte, 16> white_on_black = {
-    std::byte{0xff}, std::byte{0xff}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
-    std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0xff}, std::byte{0xff},
-    };
-    std::array<std::byte, 16> out;
-    expect(mm::fonts::expand_row(row, 1, 0x0000, 0xffff, out) == Status::Ok &&
-               out == black_on_white,
-           "set bits become the foreground colour, the rest the background");
-    expect(mm::fonts::expand_row(row, 1, 0xffff, 0x0000, out) == Status::Ok &&
-               out == white_on_black,
-           "polarity follows the two colours, not the bits");
-    expect(mm::fonts::expand_row(row, 1, 0xffff, 0x0000,
-                                 std::span<std::byte>{out.data(), 15}) ==
-               Status::BadArgument,
-           "a short output row is rejected");
-    expect(mm::fonts::expand_row(std::span<const std::byte>{row.data(), 0}, 1,
-                                 0xffff, 0x0000, out) == Status::BadArgument,
-           "a packed row shorter than its declared width is rejected");
-}
-
-void rotate_turns_a_packed_frame() {
-    using mm::display::Status;
-    // A 10 by 3 frame with one distinct pixel per corner and one interior:
-    //   .X........      row 0: 0x40 0x00
-    //   ..........      row 1: 0x00 0x00
-    //   X........X      row 2: 0x80 0x40
-    const std::array<std::byte, 6> source = {
-        std::byte{0x40}, std::byte{0x00}, std::byte{0x00},
-        std::byte{0x00}, std::byte{0x80}, std::byte{0x40},
-    };
-    std::array<std::byte, 12> turned;
-    // A quarter turn clockwise is 3 wide and 10 tall: the left column of the
-    // source becomes the top row, read bottom to top.
-    //   X..   row 0 (source column 0: rows 2,1,0 -> X . .)
-    //   ..X   row 1 (source column 1: . . X)
-    //   ...   rows 2..8
-    //   X..   row 9 (source column 9: X . .)
-    expect(mm::fonts::rotate(source, 10, 3, 1, turned) == Status::Ok,
-           "one quarter turn is accepted");
-    bool quarter = turned[0] == std::byte{0x80} && turned[1] == std::byte{0x20} &&
-                   turned[9] == std::byte{0x80};
-    for (unsigned int y = 2; y < 9; ++y) quarter = quarter && turned[y] == std::byte{0};
-    expect(quarter, "a quarter turn maps columns to rows, bottom to top");
-    // A half turn keeps the shape and flips both axes.
-    //   X........X      0x80 0x40
-    //   ..........      0x00 0x00
-    //   ........X.      0x00 0x80
-    expect(mm::fonts::rotate(source, 10, 3, 2, turned) == Status::Ok,
-           "a half turn is accepted");
-    expect(turned[0] == std::byte{0x80} && turned[1] == std::byte{0x40} &&
-               turned[2] == std::byte{0x00} && turned[3] == std::byte{0x00} &&
-               turned[4] == std::byte{0x00} && turned[5] == std::byte{0x80},
-           "a half turn flips both axes");
-    // Three quarter turns is the quarter turn's mirror: the right column of
-    // the source becomes the top row, read top to bottom.
-    //   ..X   row 0 (source column 9: . . X)
-    //   ...   rows 1..7
-    //   X..   row 8 (source column 1: X . .)
-    //   ..X   row 9 (source column 0: . . X)
-    expect(mm::fonts::rotate(source, 10, 3, 3, turned) == Status::Ok,
-           "three quarter turns are accepted");
-    bool three = turned[0] == std::byte{0x20} && turned[8] == std::byte{0x80} &&
-                 turned[9] == std::byte{0x20};
-    for (unsigned int y = 1; y < 8; ++y) three = three && turned[y] == std::byte{0};
-    expect(three, "three quarter turns map columns to rows, top to bottom");
-    // No turn copies, and a full turn is no turn.
-    expect(mm::fonts::rotate(source, 10, 3, 4, turned) == Status::Ok &&
-               turned[0] == source[0] && turned[1] == source[1] &&
-               turned[4] == source[4] && turned[5] == source[5],
-           "four quarter turns copy the frame");
-    // The turned frame's own padding is cleared even where the source had
-    // padding bits set.
-    const std::array<std::byte, 2> dirty = {std::byte{0xff}, std::byte{0xff}};
-    std::array<std::byte, 9> tall;
-    tall.fill(std::byte{0xa5});
-    expect(mm::fonts::rotate(dirty, 9, 1, 1, tall) == Status::Ok,
-           "a nine wide, one tall frame turns");
-    bool clean = true;
-    for (unsigned int y = 0; y < 9; ++y) clean = clean && tall[y] == std::byte{0x80};
-    expect(clean, "only the one source column is set; padding bits are zero");
-    expect(mm::fonts::rotate(source, 0, 3, 1, turned) == Status::BadArgument,
-           "a zero width is rejected");
-    expect(mm::fonts::rotate(std::span<const std::byte>{source.data(), 5}, 10, 3, 1,
-                             turned) == Status::BadArgument,
-           "a source shorter than its declared frame is rejected");
-    expect(mm::fonts::rotate(source, 10, 3, 1,
-                             std::span<std::byte>{turned.data(), 9}) ==
-               Status::BadArgument,
-           "a turned frame shorter than the result is rejected");
-}
-
 const mm::test::case_ cases[] = {
     {"golden index and metrics", &golden_index_and_metrics},
     {"golden glyph bitmaps", &golden_glyph_bitmaps},
@@ -429,8 +308,6 @@ const mm::test::case_ cases[] = {
     {"render bad arguments", &render_rejects_bad_arguments},
     {"right edge clipping", &render_clips_at_the_right_edge},
     {"byte boundary crossing", &render_crosses_byte_boundaries},
-    {"one bit to rgb565", &expand_row_maps_one_bit_to_rgb565},
-    {"quarter turns", &rotate_turns_a_packed_frame},
 };
 
 const mm::test::registrar reg{"mm.fonts", cases};

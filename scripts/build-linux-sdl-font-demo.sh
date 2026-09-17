@@ -2,7 +2,7 @@
 # Build apps/font-demo for a native Linux lane on the SDL2 board, and verify
 # what came out.
 #
-# font-demo names mm.fonts, mm.display and mm.mcu, and nothing else. The SDL
+# font-demo names mm.fonts, mm.gfx, mm.display, and mm.mcu. The SDL
 # board binds mm.display and mm.touch to one provider module, so the image must
 # carry exactly one platform.linux.sdl object even though the application
 # reaches only half of what it serves, and no DRM, evdev, IMU or RTC provider
@@ -172,7 +172,7 @@ explain_run() {
            echo "  than the demo's static frame allows" ;;
         4) echo "  4 is display.clear" ;;
         5) echo "  5 is fonts.render: a line did not compose" ;;
-        6) echo "  6 is the row write: expand_row or display.write refused a row" ;;
+        6) echo "  6 is gfx.write: expansion or display.write failed" ;;
         7) echo "  7 is display.refresh" ;;
         8) echo "  8 is mcu.delay_ms: the hold did not complete" ;;
         9) echo "  9 is display.sleep" ;;

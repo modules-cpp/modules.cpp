@@ -1,10 +1,10 @@
 #!/bin/sh
-# Build apps/font-demo for a native Linux lane on the emulated e-paper board,
+# Build apps/gfx-demo for a native Linux lane on the emulated e-paper board,
 # and verify what came out.
 #
 # The e-paper board rebinds two interfaces: mm.display to the real SSD1680
 # controller, and mm.mcu to the emulated chip behind the seam the controller
-# talks through. font-demo names both, so the image must carry one object for
+# talks through. gfx-demo names both, so the image must carry one object for
 # each, the ssd1680 driver between them, and the emulated chip and its SDL2
 # window behind the MCU provider. No DRM, evdev, touch, IMU or RTC object may
 # reach the link: the board inherits those bindings, and the demo never
@@ -19,12 +19,12 @@
 # needed.
 set -eu
 
-test_name=build-linux-epaper-font-demo
+test_name=build-linux-epaper-gfx-demo
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$script_dir"
 
-app=font-demo
-app_path=apps/font-demo
+app=gfx-demo
+app_path=apps/gfx-demo
 run_app=no
 compiler=
 run_must_succeed=yes
@@ -166,25 +166,23 @@ trap restore_host 0
 
 binary="out-target-$target/$app_path/$app"
 
-# The exit codes are the steps of apps/font-demo/main.cpp, in order.
+# The exit codes are the steps of apps/gfx-demo/main.cpp, in order.
 explain_run() {
     case "$1" in
-        0) echo "  four lines and the whole charset were drawn and held in four" ;
-           echo "  orientations, in the emulation window" ;;
+        0) echo "  gfx shapes were drawn and held in four orientations" ;;
         1) echo "  1 is display.initialize: the controller's reset or busy" ;
            echo "  handshake with the emulated chip failed" ;;
         2) echo "  2 is the geometry check: the panel is neither one nor" ;
            echo "  sixteen bits deep, or reported no size" ;;
-        3) echo "  3 is the frame budget: the panel is wider or narrower" ;
-           echo "  than the demo's static frame allows" ;;
+        3) echo "  3 is the frame budget: a panel side exceeds 480 pixels" ;;
         4) echo "  4 is display.clear" ;;
-        5) echo "  5 is fonts.render: a line did not compose" ;;
+        5) echo "  5 is gfx drawing or rotation" ;;
         6) echo "  6 is gfx.write: the controller refused the packed frame" ;;
         7) echo "  7 is display.refresh: the emulated refresh did not complete," ;
            echo "  or the window could not be shown" ;;
         8) echo "  8 is mcu.delay_ms: the hold did not complete" ;;
         9) echo "  9 is display.sleep" ;;
-        *) echo "  see apps/font-demo/main.cpp for that step" ;;
+        *) echo "  see apps/gfx-demo/main.cpp for that step" ;;
     esac
 }
 
@@ -258,14 +256,10 @@ verify_library() {
     fi
 }
 
-# Symbols that must be present by name: the real controller the display
-# provider wraps, and both font tables the demo draws with.
+# The controller behind the emulated display provider must reach the image.
 verify_symbols() {
     image=$1
-    for symbol in \
-        mm::epaper::ssd1680 \
-        mm::fonts::kMono12Data \
-        mm::fonts::kMono16Data; do
+    for symbol in mm::epaper::ssd1680; do
         if ! $nm_command -C "$image" | grep -q "$symbol"; then
             echo "$test_name: no $symbol symbols in $image" >&2
             exit 1
@@ -291,7 +285,7 @@ verify_image "$binary"
 verify_library "$binary"
 verify_symbols "$binary"
 
-# The two interfaces font-demo reaches, both rebound by the board, the chip
+# The two interfaces gfx-demo reaches, both rebound by the board, the chip
 # that arrives behind them, and the six providers the SDK binds that nothing
 # here mentions. The named device map is absent too: the DRM and evdev
 # providers are what use it, and the emulated device needs no device names.
@@ -308,7 +302,7 @@ verify_provider "$binary" platform.linux.rtc 0
 verify_provider "$binary" platform.linux.stdio 0
 verify_provider "$binary" platform.linux.defaults 0
 
-echo "  emulated chip and controller, both font tables, SDL2 on the link line,"
+echo "  emulated chip and controller, SDL2 on the link line,"
 echo "  nothing else"
 
 if [ "$run_app" = yes ]; then
@@ -320,8 +314,7 @@ trap - 0
 
 echo
 echo "PASS: $test_name"
-echo "To watch it: scripts/build-linux-epaper-font-demo.sh --run"
-echo "A 152 by 296 window opens when the first refresh completes: four centred"
-echo "lines, two at 16px and two at 12px, the last one Polish, then every glyph"
-echo "of the 12px table, black on white. Upright first, then a quarter turn"
-echo "clockwise on each of three more refreshes, four seconds each."
+echo "To watch it: scripts/build-linux-epaper-gfx-demo.sh --run"
+echo "A 152 by 296 window opens when the first refresh completes. A black"
+echo "framed X, filled centre box, and corner dots appear on white, then turn"
+echo "a quarter clockwise on each of three more refreshes, four seconds each."
