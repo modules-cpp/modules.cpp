@@ -13,7 +13,7 @@ release: v1.2.1
 status: official gives the implemented portions of this document the same
 authority as the other v1.2.1 specifications. This document specifies the
 implemented mm.fonts module: the Glyph, Font, and TextMetrics types, the
-measure, render, and expand_row functions, and the committed kMono12 and
+measure, render, expand_row, and rotate functions, and the committed kMono12 and
 kMono16 glyph tables derived from IBM Plex Mono. The font-demo application
 exists. Legible text on a physical panel remains a hardware-qualification
 requirement rather than a completed claim.
@@ -25,9 +25,11 @@ not weaken either boundary to make one panel draw text quickly.
 
 # Role
 
-mm.fonts turns a UTF-8 string into exactly the packed bytes mm.display
-writes. mm.display moves packed pixels and names the boundary in its own
-manifest: graphics policy, fonts, image decoding, and controller commands
+mm.fonts composes a UTF-8 string into a packed one-bit frame. A one-bit
+display writes those bytes directly; a sixteen-bit display needs RGB565
+conversion before writing. mm.display moves packed pixels and names the
+boundary in its own manifest: graphics policy, fonts, image decoding, and
+controller commands
 live above or below it, not inside it. Text support is the layer that closes
 that gap for the two panels this project targets, the 152 by 296 one-bit
 ePaper and the 240 by 320 sixteen-bit RGB565 LCD.
@@ -36,12 +38,13 @@ The module obeys the standing project rules:
 
 - No vector parsing and no font engine on the target. The bitmaps are
   precomputed at development time and shipped as static data.
-- No heap at runtime. Every structure is a span over provider-owned static
-  storage that outlives its users, the same shape the display drivers use
-  for their initialization tables.
-- One portable sequence for both panels. Text is composed into a one-bit
+- No heap allocation in the font module at runtime. Font holds spans over
+  module-owned, generated static glyph tables; Glyph and TextMetrics hold
+  scalar values. The caller owns the frame passed to render and the output
+  buffer passed to expand_row or rotate.
+- One composition format for both panels. Text is composed into a one-bit
   frame; the one-bit panel receives those rows, and the sixteen-bit panel
-  receives each row expanded to RGB565.
+  receives RGB565 rows converted by the caller.
 - Monospace by design. A fixed cell width makes wrapping and alignment
   arithmetic, which is what a terminal-style panel UI wants.
 
@@ -151,6 +154,11 @@ Opening fence
     std::span<const std::byte> packed_row, unsigned int row_width_bytes,
     unsigned short foreground, unsigned short background,
     std::span<std::byte> rgb565_row);
+
+[[nodiscard]] mm::display::Status rotate(
+    std::span<const std::byte> source, unsigned int width,
+    unsigned int height, unsigned int quarter_turns,
+    std::span<std::byte> turned);
 Closing fence
 
 render composes UTF-8 text into a one-bit packed frame in mm.display's
@@ -168,12 +176,15 @@ The host tests pin these semantics down:
 - Text that reaches the right edge of the frame is clipped, not an error.
 - render answers BadArgument for null text with a nonzero size, a zero frame
   stride, a frame shorter than its declared width, text reaching past the
-  last frame row, a Red foreground, and any malformed UTF-8 sequence:
-  truncated, overlong, surrogate, or out-of-range. measure is lenient by
-  design: a malformed sequence ends the count, and nothing is measured past
-  it.
+  last frame row, a Red foreground, a glyph table extending beyond its data,
+  and malformed UTF-8. The host tests cover a truncated sequence. measure is
+  lenient by design: a malformed sequence ends the count, and nothing is
+  measured past it.
 - A glyph row is copied as whole bytes and rotated at its two edges, so the
   common case needs no per-pixel loop.
+
+The decoder also rejects overlong, surrogate, and out-of-range sequences;
+those cases are not separately exercised by the current host tests.
 
 measure is the monospace contract: width is the count of well-formed code
 points times the advance, and height is the font's line height. No per-glyph
@@ -184,6 +195,11 @@ most significant byte first: bit 1 becomes the foreground, bit 0 the
 background, two bytes per pixel. A 240-pixel row is 480 bytes. It answers
 BadArgument for a packed row shorter than its declared width or an output row
 shorter than the expanded one.
+
+rotate turns a packed one-bit frame clockwise by quarter turns. An odd turn
+swaps its width and height. The source and destination must not overlap;
+destination padding bits are cleared. It answers BadArgument for zero
+dimensions or a span too short for the source or turned frame.
 
 # Glyph data
 
@@ -210,14 +226,16 @@ the committed advances:
 - 16 px, advance 10, line_height 22: 15 columns by 13 lines on the ePaper,
   24 by 14 on the LCD.
 
-The runtime cost is negligible against refresh: a full ePaper text screen is
-a write of 13 rows by 19 bytes against the panel's 200 ms class full refresh,
-and nothing on the LCD, where refresh does nothing.
+A full 152 by 296 one-bit frame contains 296 rows of 19 bytes, or 5,624
+bytes. A full 240 by 320 RGB565 frame contains 320 rows of 480 bytes, or
+153,600 bytes. The LCD provider shows pixels as they are written, so its
+refresh call sends nothing further. Font composition and RGB565 conversion
+still take CPU time; this document makes no unmeasured timing claim.
 
 # Both panels from one sequence
 
-A caller draws the same text on either panel with one portable sequence:
-compose, write rows, refresh.
+A caller draws the same one-bit text composition on either panel: compose,
+convert rows when needed, write, refresh.
 
 - Compose the lines into a one-bit frame a full panel row wide, centring each
   line with measure. Full rows satisfy the ePaper's write contract: x zero is
@@ -225,15 +243,20 @@ compose, write rows, refresh.
   no row needs special handling.
 - On a one-bit panel, write each row with mm.display::write as a rectangle of
   height one from the visible top-left origin.
-- On a sixteen-bit panel, expand_row first maps each packed row to RGB565,
-  most significant byte first, and write takes the expanded row.
+- On a sixteen-bit panel, expand_row can map each packed row through one
+  foreground and background pair to RGB565, most significant byte first.
+  A caller needing different colours within a row converts its pixels with
+  the corresponding palettes before writing the expanded row.
 - Refresh is always explicit and unchanged by this module.
 
-apps/font-demo exercises exactly that sequence. It clears the panel white,
-composes four centred lines, two at 16 pixels and two at 12, the last in the
-Polish charset, holds them long enough to be read, and sleeps. It branches on
-the panel's depth, and it names mm.fonts, mm.display, and mm.mcu, no board,
-SDK, or vendor.
+apps/font-demo clears the panel white, composes four centred lines, two at
+16 pixels and two at 12, then shows every inked glyph in the committed
+charset. It turns the composed frame through all four quarter-turn
+orientations, holds each view long enough to be read, and sleeps. On the LCD,
+palette selection follows each pixel's original logical row after rotation,
+so the demo converts pixels itself rather than calling expand_row with one
+palette for the whole row. It branches on panel depth and names mm.fonts,
+mm.display, and mm.mcu, with no board, SDK, or vendor dependency.
 
 # Test strategy
 
@@ -251,9 +274,12 @@ without a display provider:
   one cell each.
 - Text reaching the right edge is clipped rather than rejected.
 - BadArgument: undersized frame, zero stride, text past the last row, Red
-  foreground, truncated UTF-8, null text with a nonzero size.
+  foreground, truncated UTF-8, a glyph table beyond its data, and null text
+  with a nonzero size.
 - expand_row maps a known one-bit pattern to exact RGB565 bytes and rejects
   short input and output rows.
+- rotate checks all four quarter turns, clears output padding bits, and
+  rejects zero dimensions and undersized buffers.
 
 # Implementation stages
 
@@ -282,8 +308,9 @@ without a display provider:
 
 # What this does not settle
 
-- Antialiasing and grayscale are not implemented; both panels are one-bit or
-  two-polarity in this project's contract.
+- Antialiasing and grayscale glyph masks are not implemented; the committed
+  bitmaps have one-bit coverage. The LCD accepts RGB565 colours chosen when
+  the one-bit frame is expanded, while the ePaper write path remains one-bit.
 - No 8 px table is committed. Plex Mono at 8 px is soft, the limit of a modern
   display face at an eight-pixel cell. An 8 px table would be a data question,
   another generated Font constant, not a design change.
