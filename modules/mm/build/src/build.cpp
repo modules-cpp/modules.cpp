@@ -4549,7 +4549,10 @@ bool query_driver_projection(
     for (const auto& opt : sanitised_options) {
         command += " " + shell_quote(opt);
     }
-    command += " -Q --help=target -c";
+    // No -c: the driver answers --help=target by compiling a synthetic input
+    // named help-dummy, and with -c it would also assemble it, leaving a
+    // help-dummy.o in the working directory. The listing is the same.
+    command += " -Q --help=target";
 
     FILE* pipe = ::popen(command.c_str(), "r");
     if (pipe == nullptr) {

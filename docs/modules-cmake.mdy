@@ -252,7 +252,7 @@ mm.build retains only -m options from that command, then asks the same driver fo
 its effective target state under LC_ALL=C:
 
 Opening fence
-C-DRIVER OPTIONS -Q --help=target -c
+C-DRIVER OPTIONS -Q --help=target
 Closing fence
 
 It performs the same query for the project's processor options and compares a

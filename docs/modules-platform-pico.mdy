@@ -284,7 +284,7 @@ generation rather than calling convention.
 The RISC-V schema was confirmed with the supplied riscv32-pico-elf GCC 16.1.0:
 
 Opening fence
-LC_ALL=C riscv32-pico-elf-gcc -mcpu=hazard3-rp2350 -mstrict-align -Q --help=target -c
+LC_ALL=C riscv32-pico-elf-gcc -mcpu=hazard3-rp2350 -mstrict-align -Q --help=target
 
 -march= rv32imacb_zicsr_zifencei_zmmul_zaamo_zalrsc_zca_zcb_zcmp_zba_zbb_zbkb_zbs_xh3bextm
 -mabi= ilp32
