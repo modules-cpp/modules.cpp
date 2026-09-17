@@ -80,6 +80,14 @@ namespace {
     return nullptr;
 }
 
+// Every row of the glyph's bitmap lies inside the font's packed bytes.
+[[nodiscard]] bool glyph_fits(const Font& font, const Glyph& glyph)
+{
+    const std::size_t end = static_cast<std::size_t>(glyph.byte_offset)
+                          + static_cast<std::size_t>(font.height) * glyph.row_bytes();
+    return end <= font.data.size();
+}
+
 }
 
 TextMetrics measure(const char8_t* text, std::size_t text_size, const Font& font)
@@ -113,6 +121,18 @@ mm::display::Status render(const char8_t* text, std::size_t text_size, const Fon
     unsigned int code_points = 0;
     if (!count_code_points(bytes, text_size, true, code_points))
         return mm::display::Status::BadArgument;
+    // A glyph index that points past the packed bytes is a mismatched table:
+    // reject it before any ink is laid down.
+    for (unsigned int i = 0; i < text_size;) {
+        unsigned int code_point = 0;
+        unsigned int consumed = 0;
+        if (!decode_code_point(bytes, text_size, i, code_point, consumed))
+            return mm::display::Status::BadArgument;
+        i += consumed;
+        const Glyph* glyph = find_glyph(font.glyphs, code_point);
+        if (glyph != nullptr && glyph->width != 0 && !glyph_fits(font, *glyph))
+            return mm::display::Status::BadArgument;
+    }
 
     const std::size_t frame_width_bits = static_cast<std::size_t>(frame_width_bytes) * 8u;
     const bool white = foreground == mm::display::Color::White;
@@ -147,13 +167,17 @@ mm::display::Status render(const char8_t* text, std::size_t text_size, const Fon
                 unsigned int value = static_cast<unsigned int>(src[b]);
                 if (b + 1 == out_bytes && width % 8u) value &= 0xFFu << (8u - (width % 8u));
                 const unsigned int low = value >> shift;
-                const unsigned int high = value << (8u - shift);
+                const unsigned int high = (value << (8u - shift)) & 0xFFu;
+                // The shifted source byte spills into the next frame byte
+                // whenever its last inked column crosses the byte boundary;
+                // width is clipped, so that byte is always inside the row.
+                const bool spills = shift != 0 && shift + width > 8u * (b + 1);
                 if (white) {
                     dst[b] = dst[b] | static_cast<std::byte>(low);
-                    if (b + 1 < out_bytes) dst[b + 1] = dst[b + 1] | static_cast<std::byte>(high);
+                    if (spills) dst[b + 1] = dst[b + 1] | static_cast<std::byte>(high);
                 } else {
                     dst[b] = dst[b] & static_cast<std::byte>(~low);
-                    if (b + 1 < out_bytes) dst[b + 1] = dst[b + 1] & static_cast<std::byte>(~high);
+                    if (spills) dst[b + 1] = dst[b + 1] & static_cast<std::byte>(~high);
                 }
             }
         }

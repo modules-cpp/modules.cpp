@@ -229,6 +229,74 @@ void render_rejects_bad_arguments() {
                              mm::display::Color::White, mm::display::Color::Black,
                              0, 0, frame, 0) == mm::display::Status::BadArgument,
            "a zero-width frame is rejected");
+    // A hand-built table whose index points past its packed bytes.
+    const std::array<std::byte, 8> short_data{};
+    const std::array<mm::fonts::Glyph, 1> past_the_end = {
+        mm::fonts::Glyph{0x41, 0, 8, 4}};
+    const mm::fonts::Font broken{short_data, past_the_end, 8, 8, 6, 8};
+    std::array<std::byte, 8> small;
+    small.fill(std::byte{0x00});
+    expect(mm::fonts::render(text, 1, broken,
+                             mm::display::Color::White, mm::display::Color::Black,
+                             0, 0, small, 1) == mm::display::Status::BadArgument,
+           "a glyph reaching past the font's packed bytes is rejected");
+    expect(small == std::array<std::byte, 8>{},
+           "nothing is inked before the mismatched table is rejected");
+}
+
+void render_crosses_byte_boundaries() {
+    const char8_t* text = u8"A";
+    // kMono12 'A' at column seven: the seven ink columns straddle the byte
+    // boundary and land in bits 8..2 of the sixteen-bit row.
+    std::array<std::byte, 2 * 17> frame12;
+    frame12.fill(std::byte{0x00});
+    expect(mm::fonts::render(text, 1, mm::fonts::kMono12,
+                             mm::display::Color::White, mm::display::Color::Black,
+                             7, 0, frame12, 2) == mm::display::Status::Ok,
+           "kMono12 ink across a byte boundary composes");
+    bool straddled = true;
+    for (unsigned int row = 0; row < 17; ++row) {
+        const unsigned int value = static_cast<unsigned int>(a_12[row]) << 1;
+        if (frame12[row * 2] != static_cast<std::byte>(value >> 8) ||
+            frame12[row * 2 + 1] != static_cast<std::byte>(value))
+            straddled = false;
+    }
+    expect(straddled, "every column past the boundary is inked");
+    // kMono16 'A' at column seven: ten columns spanning three frame bytes.
+    std::array<std::byte, 3 * 22> frame16;
+    frame16.fill(std::byte{0x00});
+    expect(mm::fonts::render(text, 1, mm::fonts::kMono16,
+                             mm::display::Color::White, mm::display::Color::Black,
+                             7, 0, frame16, 3) == mm::display::Status::Ok,
+           "kMono16 ink across two byte boundaries composes");
+    bool spanned = true;
+    for (unsigned int row = 0; row < 22; ++row) {
+        const unsigned int value =
+            ((static_cast<unsigned int>(a_16[row * 2]) << 8 |
+              static_cast<unsigned int>(a_16[row * 2 + 1])) << 8) >> 7;
+        if (frame16[row * 3] != static_cast<std::byte>(value >> 16) ||
+            frame16[row * 3 + 1] != static_cast<std::byte>(value >> 8) ||
+            frame16[row * 3 + 2] != static_cast<std::byte>(value))
+            spanned = false;
+    }
+    expect(spanned, "the last column spills into the third byte");
+    // Black ink takes the same path and clears the same bits.
+    frame16.fill(std::byte{0xff});
+    expect(mm::fonts::render(text, 1, mm::fonts::kMono16,
+                             mm::display::Color::Black, mm::display::Color::White,
+                             7, 0, frame16, 3) == mm::display::Status::Ok,
+           "black ink across two byte boundaries composes");
+    bool cleared = true;
+    for (unsigned int row = 0; row < 22; ++row) {
+        const unsigned int value =
+            ~(((static_cast<unsigned int>(a_16[row * 2]) << 8 |
+                static_cast<unsigned int>(a_16[row * 2 + 1])) << 8) >> 7);
+        if (frame16[row * 3] != static_cast<std::byte>(value >> 16) ||
+            frame16[row * 3 + 1] != static_cast<std::byte>(value >> 8) ||
+            frame16[row * 3 + 2] != static_cast<std::byte>(value))
+            cleared = false;
+    }
+    expect(cleared, "black ink clears exactly the spilled columns");
 }
 
 void render_clips_at_the_right_edge() {
@@ -289,6 +357,7 @@ const mm::test::case_ cases[] = {
     {"monospace measurement", &measure_obey_the_monospace_contract},
     {"render bad arguments", &render_rejects_bad_arguments},
     {"right edge clipping", &render_clips_at_the_right_edge},
+    {"byte boundary crossing", &render_crosses_byte_boundaries},
     {"one bit to rgb565", &expand_row_maps_one_bit_to_rgb565},
 };
 
