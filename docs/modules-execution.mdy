@@ -215,7 +215,9 @@ only whether an idle read touches the bus. Model 1's loop, cheaper, with
 `read` meaning what it meant.
 
 This is prospective. The CST328 driver polls the bus on every `read`
-today, and docs/modules-touch.mdy says so.
+today, and docs/modules-touch.mdy says so; the change is staged behind a
+hardware check of the controller's interrupt behaviour, and that document
+changes when the driver does.
 
 # What is excluded
 
