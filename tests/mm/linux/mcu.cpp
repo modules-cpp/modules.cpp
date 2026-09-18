@@ -4,9 +4,14 @@
 #include <chrono>
 #include <csignal>
 #include <cstdint>
+#include <array>
+#include <fcntl.h>
+#include <linux/gpio.h>
 #include <linux/spi/spi.h>
 #include <optional>
+#include <sys/ioctl.h>
 #include <sys/time.h>
+#include <unistd.h>
 
 import mm.mcu;
 import mm.test;
@@ -33,6 +38,12 @@ void errno_mapping() {
     expect(error_status(EINVAL, true, true) == Status::BadArgument &&
                error_status(EINVAL) == Status::TransportError,
            "EINVAL is contextual to caller-controlled fields");
+    using platform::linux::mcu_detail::edge_error_status;
+    expect(error_status(ENXIO) == Status::TransportError &&
+               error_status(EOPNOTSUPP) == Status::TransportError &&
+               edge_error_status(ENXIO) == Status::Unsupported &&
+               edge_error_status(EOPNOTSUPP) == Status::Unsupported,
+           "unsupported edge ioctls do not change other transport mapping");
 }
 
 void spi_validation() {
@@ -84,6 +95,47 @@ void gpio_configuration_state() {
            "a configured output GPIO can be written");
 }
 
+void gpio_event_read_bound() {
+    int ends[2]{};
+    expect(::pipe(ends) == 0, "event fixture opens a pipe");
+    const int flags = ::fcntl(ends[0], F_GETFL);
+    expect(flags >= 0 && ::fcntl(ends[0], F_SETFL, flags | O_NONBLOCK) == 0,
+           "event fixture has nonblocking reads");
+    std::array<gpio_v2_line_event, 40> events{};
+    expect(::write(ends[1], events.data(), sizeof(events)) == sizeof(events),
+           "fixture queues forty whole records");
+    using platform::linux::mcu_detail::take_events;
+    bool pending = false;
+    expect(take_events(ends[0], pending) == Status::Ok && pending,
+           "first take consumes at most sixteen records");
+    int queued = 0;
+    expect(::ioctl(ends[0], FIONREAD, &queued) == 0 &&
+               queued == 24 * sizeof(events[0]),
+           "twenty-four records remain");
+    expect(take_events(ends[0], pending) == Status::Ok && pending &&
+               ::ioctl(ends[0], FIONREAD, &queued) == 0 &&
+               queued == 8 * sizeof(events[0]),
+           "second take leaves eight records");
+    expect(take_events(ends[0], pending) == Status::Ok && pending &&
+               take_events(ends[0], pending) == Status::Ok && !pending,
+           "third take drains the queue and fourth sees EAGAIN");
+    pending = true;
+    ::close(ends[1]);
+    expect(take_events(ends[0], pending) == Status::TransportError && pending,
+           "zero-byte read preserves output");
+    ::close(ends[0]);
+
+    expect(::pipe(ends) == 0, "partial-record fixture opens a pipe");
+    expect(::write(ends[1], events.data(), 1) == 1,
+           "partial-record fixture writes one byte");
+    pending = false;
+    expect(take_events(ends[0], pending) == Status::TransportError && !pending &&
+               take_events(ends[1], pending) == Status::TransportError && !pending,
+           "partial record and EBADF preserve output");
+    ::close(ends[0]);
+    ::close(ends[1]);
+}
+
 volatile std::sig_atomic_t alarms = 0;
 void alarm_handler(int) { alarms = 1; }
 
@@ -106,6 +158,7 @@ void interrupted_delay() {
 }
 
 const mm::test::case_ cases[]{
+    {"GPIO event read bound", &gpio_event_read_bound},
     {"errno mapping", &errno_mapping},
     {"SPI validation and read-back", &spi_validation},
     {"GPIO configuration state", &gpio_configuration_state},

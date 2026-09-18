@@ -21,4 +21,23 @@ export namespace mm::mcu {
     return platform().gpio_read(pin, high);
 }
 
+[[nodiscard]] inline Status gpio_watch(unsigned int pin, Pull pull, Edge edge) {
+    if (edge != Edge::Rising && edge != Edge::Falling && edge != Edge::Both)
+        return Status::BadArgument;
+    return platform().gpio_watch(pin, pull, edge);
+}
+
+[[nodiscard]] inline Status gpio_take(unsigned int pin, bool& pending) {
+    return platform().gpio_take(pin, pending);
+}
+
+[[nodiscard]] inline Status gpio_unwatch(unsigned int pin) {
+    return platform().gpio_unwatch(pin);
+}
+
+[[nodiscard]] inline Status gpio_wait(unsigned int pin, unsigned long timeout_ms,
+                                      bool& pending) {
+    return platform().gpio_wait(pin, timeout_ms, pending);
+}
+
 }

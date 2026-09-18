@@ -3,7 +3,7 @@ mm: 1.0
 kind: doc
 name: modules.cpp Pico platform specification
 status: official
-release: v1.2.2
+release: v1.2.3
 ---
 
 # modules.cpp Pico platform specification
@@ -592,6 +592,17 @@ Three behaviours surprise people and are recorded here rather than rediscovered.
   semihosting enabled beside USB.
 
 # Current boundaries
+
+The GPIO edge latch uses the SDK's generic GPIO callback on core zero. Code
+using another GPIO interrupt while watches exist must not call
+`gpio_set_irq_enabled_with_callback`, which would replace that callback.
+It may use `gpio_add_raw_irq_handler_masked`, or the 64-bit masked variant
+for RP2350 GPIOs above 31, on disjoint pins only. Raw handlers remove their
+pins from generic callback dispatch; a raw handler and a watch cannot own
+the same pin. The adapter cannot detect that conflict.
+Watches run on core zero only; all four edge calls on core one answer
+Unsupported. The generic callback and bank IRQ remain installed after the
+last unwatch so a later watch can use them again.
 
 - Nothing automated asserts that a Pico image ran. The OpenOCD profile programs,
   verifies, and resets, but defines no completion protocol, which is the same limit

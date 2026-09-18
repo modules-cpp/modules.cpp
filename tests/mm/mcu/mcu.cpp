@@ -29,6 +29,7 @@ std::size_t mm_test_i2c_write_reads();
 namespace {
 
 using mm::mcu::Direction;
+using mm::mcu::Edge;
 using mm::mcu::Pull;
 using mm::mcu::Status;
 using mm::test::expect;
@@ -209,6 +210,63 @@ void an_unserved_facility_answers_unsupported() {
     expect(bare.i2c_write_read(0, 0x1a, {}, {}) == Status::Unsupported,
            "an unserved register read answers rather than dereferencing nothing");
     expect(bare.delay_ms(1) == Status::Unsupported, "so does an unimplemented timer");
+    bool pending = true;
+    expect(bare.gpio_watch(1, Pull::Up, Edge::Rising) == Status::Unsupported &&
+               bare.gpio_take(1, pending) == Status::Unsupported && pending &&
+               bare.gpio_wait(1, 10, pending) == Status::Unsupported && pending &&
+               bare.gpio_unwatch(1) == Status::Unsupported,
+           "the edge facility defaults to Unsupported without changing output");
+}
+
+void gpio_edge_forwards_and_preserves_output() {
+    class Recording final : public mm::mcu::Platform {
+    public:
+        Status answer = Status::Ok;
+        unsigned int pin = 0;
+        Pull pull = Pull::None;
+        Edge edge = Edge::Rising;
+        unsigned long timeout = 0;
+        unsigned int calls = 0;
+        Status gpio_watch(unsigned int p, Pull u, Edge e) override {
+            pin = p; pull = u; edge = e; ++calls; return answer;
+        }
+        Status gpio_take(unsigned int p, bool& pending) override {
+            pin = p; ++calls;
+            if (answer == Status::Ok) pending = true;
+            return answer;
+        }
+        Status gpio_unwatch(unsigned int p) override {
+            pin = p; ++calls; return answer;
+        }
+        Status gpio_wait(unsigned int p, unsigned long ms, bool& pending) override {
+            pin = p; timeout = ms; ++calls;
+            if (answer == Status::Ok) pending = false;
+            return answer;
+        }
+    } record;
+    auto& previous = mm::mcu::platform();
+    mm::mcu::set_platform(record);
+    expect(mm::mcu::gpio_watch(7, Pull::Down, static_cast<Edge>(99)) ==
+               Status::BadArgument && record.calls == 0,
+           "invalid edge is rejected before the platform seam");
+    expect(mm::mcu::gpio_watch(7, Pull::Down, Edge::Both) == Status::Ok &&
+               record.pin == 7 && record.pull == Pull::Down &&
+               record.edge == Edge::Both,
+           "watch forwards every argument");
+    bool pending = false;
+    expect(mm::mcu::gpio_take(8, pending) == Status::Ok && pending && record.pin == 8,
+           "take forwards the pin and success output");
+    expect(mm::mcu::gpio_wait(9, 123, pending) == Status::Ok && !pending &&
+               record.pin == 9 && record.timeout == 123,
+           "wait forwards pin and duration");
+    expect(mm::mcu::gpio_unwatch(10) == Status::Ok && record.pin == 10,
+           "unwatch forwards its pin");
+    record.answer = Status::Busy;
+    pending = true;
+    expect(mm::mcu::gpio_take(8, pending) == Status::Busy && pending &&
+               mm::mcu::gpio_wait(8, 1, pending) == Status::Busy && pending,
+           "failed take and wait preserve the output");
+    mm::mcu::set_platform(previous);
 }
 
 void i2c_configures_and_addresses_a_device() {
@@ -305,6 +363,7 @@ void i2c_rejects_invalid_use() {
 }
 
 const mm::test::case_ cases[] = {
+    {"GPIO edge forwarding", &gpio_edge_forwards_and_preserves_output},
     {"board describes GPIOs and LED", &board_describes_gpio_inventory_and_led_attachment},
     {"gpio round trip", &gpio_round_trip},
     {"gpio rejects what the platform rejects", &gpio_rejects_what_the_platform_rejects},

@@ -3,7 +3,7 @@ mm: 1.0
 kind: doc
 name: modules.cpp platform MCU provider specification
 status: official
-release: v1.2.2
+release: v1.2.3
 ---
 
 # modules.cpp platform MCU provider specification
@@ -285,6 +285,30 @@ The provider owns its subclass and registration object. The provider object is
 linked directly, not extracted from an archive, so its namespace-scope
 registration initializer is retained. The existing m68k external-link fixture
 already proves that project object initializers survive the CMake hand-off.
+
+## GPIO edge latch
+
+`Edge` names Rising, Falling, or Both physical transitions, as `gpio_read`
+reports level. `gpio_watch(pin, pull, edge)` takes over an existing GPIO
+configuration or configures an input, and starts with an empty latch. One
+watch owns a pin. A second watch or `gpio_configure` on it answers Busy.
+`gpio_unwatch` releases the pin and leaves it unconfigured.
+
+`gpio_take(pin, pending)` is nonblocking. On Ok it reports and consumes at
+least one selected edge observed but not yet reported. Edges coalesce: there
+is no count, order, timestamp, or debounce. A queue-backed provider may
+deliver an older edge on a later call. Calling take until false empties
+delivered events, but does not establish a delivery barrier; use a new watch
+for a known-empty start. An edge arriving during a take is delivered by that
+call or the next. `gpio_wait(pin, timeout_ms, pending)` has the same result
+but waits until an edge or the deadline; zero timeout is a take. Unrelated
+wakeups and interrupted sleeps do not shorten the wait.
+
+Take, wait, or unwatch without a watch answers BadArgument; an unavailable pin
+or edge facility answers Unsupported. On failure, pending is unchanged and
+watch leaves no partial ownership. A caller needing the current level reads
+it separately with `gpio_read`. All four calls run from ordinary application
+code, on the watching core where the provider requires that.
 
 ## Board description and future devices
 

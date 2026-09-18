@@ -7,6 +7,7 @@ module;
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <climits>
 #include <fcntl.h>
 #include <limits>
 #include <linux/gpio.h>
@@ -57,12 +58,14 @@ private:
 
 [[nodiscard]] mm::mcu::Status error_status(
     int value, bool explicit_path = true, bool caller_field = false);
+[[nodiscard]] mm::mcu::Status edge_error_status(int value);
 [[nodiscard]] mm::mcu::Status spi_configuration_status(
     const SpiEntry& entry, const mm::mcu::SpiConfiguration& value);
 [[nodiscard]] mm::mcu::Status spi_readback_status(
     std::uint32_t actual, mm::mcu::BitOrder requested);
 [[nodiscard]] mm::mcu::Status gpio_access_status(
     const std::optional<mm::mcu::Direction>& direction, bool write);
+[[nodiscard]] mm::mcu::Status take_events(int descriptor, bool& pending);
 
 }
 
@@ -150,6 +153,7 @@ public:
         const auto* configured = map(status);
         if (!configured) return status;
         if (pin >= configured->gpios.size()) return Status::Unsupported;
+        if (pin < gpio_watched_.size() && gpio_watched_[pin]) return Status::Busy;
         const auto& gpio = configured->gpios[pin];
         Descriptor chip(::open(gpio.chip.c_str(), O_RDONLY | O_CLOEXEC));
         if (chip.get() < 0) return error_status(errno);
@@ -185,6 +189,143 @@ public:
 
     [[nodiscard]] Status gpio_read(unsigned int pin, bool& high) override {
         return gpio_value(pin, false, high);
+    }
+
+    [[nodiscard]] Status gpio_watch(unsigned int pin, mm::mcu::Pull pull,
+                                     mm::mcu::Edge edge) override {
+        Status status;
+        const auto* configured = map(status);
+        if (!configured) return status;
+        if (pin >= configured->gpios.size()) return Status::Unsupported;
+        if (pin < gpio_watched_.size() && gpio_watched_[pin]) return Status::Busy;
+        if (pull != mm::mcu::Pull::None && pull != mm::mcu::Pull::Up &&
+            pull != mm::mcu::Pull::Down) return Status::BadArgument;
+        gpio_v2_line_config config{};
+        config.flags = GPIO_V2_LINE_FLAG_INPUT;
+        if (pull == mm::mcu::Pull::Up)
+            config.flags |= GPIO_V2_LINE_FLAG_BIAS_PULL_UP;
+        if (pull == mm::mcu::Pull::Down)
+            config.flags |= GPIO_V2_LINE_FLAG_BIAS_PULL_DOWN;
+        if (pull == mm::mcu::Pull::None)
+            config.flags |= GPIO_V2_LINE_FLAG_BIAS_DISABLED;
+        if (edge == mm::mcu::Edge::Rising || edge == mm::mcu::Edge::Both)
+            config.flags |= GPIO_V2_LINE_FLAG_EDGE_RISING;
+        if (edge == mm::mcu::Edge::Falling || edge == mm::mcu::Edge::Both)
+            config.flags |= GPIO_V2_LINE_FLAG_EDGE_FALLING;
+
+        const bool held = pin < gpio_lines_.size() && gpio_lines_[pin] >= 0;
+        int fd = -1;
+        int old_flags = -1;
+        if (held) {
+            fd = gpio_lines_[pin];
+            old_flags = ::fcntl(fd, F_GETFL);
+            if (old_flags < 0) return error_status(errno);
+            if (::fcntl(fd, F_SETFL, old_flags | O_NONBLOCK) < 0)
+                return error_status(errno);
+            if (::ioctl(fd, GPIO_V2_LINE_SET_CONFIG_IOCTL, &config) < 0) {
+                const int cause = errno;
+                if (::fcntl(fd, F_SETFL, old_flags) < 0) {
+                    clear_gpio(pin);
+                    return Status::TransportError;
+                }
+                return platform::linux::mcu_detail::edge_error_status(cause);
+            }
+        } else {
+            const auto& gpio = configured->gpios[pin];
+            Descriptor chip(::open(gpio.chip.c_str(), O_RDONLY | O_CLOEXEC));
+            if (chip.get() < 0) return error_status(errno);
+            gpio_v2_line_request request{};
+            request.offsets[0] = gpio.offset;
+            request.num_lines = 1;
+            request.event_buffer_size = 64;
+            std::strncpy(request.consumer, "modules.cpp",
+                         sizeof(request.consumer) - 1);
+            request.config = config;
+            if (::ioctl(chip.get(), GPIO_V2_GET_LINE_IOCTL, &request) < 0)
+                return platform::linux::mcu_detail::edge_error_status(errno);
+            fd = request.fd;
+            const int flags = ::fcntl(fd, F_GETFL);
+            if (flags < 0 || ::fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0) {
+                const int cause = errno;
+                ::close(fd);
+                return error_status(cause);
+            }
+        }
+        // The request is nonblocking before the first read. Discard events
+        // caused by the takeover itself; bound the drain under a live stream.
+        gpio_v2_line_event events[16];
+        for (int i = 0; i < 4; ++i) {
+            const auto count = ::read(fd, events, sizeof(events));
+            if (count < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) break;
+            if (count <= 0 || count % sizeof(events[0]) != 0) {
+                if (held) clear_gpio(pin); else ::close(fd);
+                return Status::TransportError;
+            }
+        }
+        if (gpio_lines_.size() < configured->gpios.size())
+            gpio_lines_.resize(configured->gpios.size(), -1);
+        if (gpio_direction_.size() < configured->gpios.size())
+            gpio_direction_.resize(configured->gpios.size());
+        if (gpio_watched_.size() < configured->gpios.size())
+            gpio_watched_.resize(configured->gpios.size(), false);
+        gpio_lines_[pin] = fd;
+        gpio_direction_[pin] = mm::mcu::Direction::In;
+        gpio_watched_[pin] = true;
+        return Status::Ok;
+    }
+
+    [[nodiscard]] Status gpio_take(unsigned int pin, bool& pending) override {
+        Status status;
+        const auto* configured = map(status);
+        if (!configured) return status;
+        if (pin >= configured->gpios.size()) return Status::Unsupported;
+        if (pin >= gpio_watched_.size() || !gpio_watched_[pin])
+            return Status::BadArgument;
+        return platform::linux::mcu_detail::take_events(gpio_lines_[pin], pending);
+    }
+
+    [[nodiscard]] Status gpio_unwatch(unsigned int pin) override {
+        Status status;
+        const auto* configured = map(status);
+        if (!configured) return status;
+        if (pin >= configured->gpios.size()) return Status::Unsupported;
+        if (pin >= gpio_watched_.size() || !gpio_watched_[pin])
+            return Status::BadArgument;
+        clear_gpio(pin);
+        return Status::Ok;
+    }
+
+    [[nodiscard]] Status gpio_wait(unsigned int pin, unsigned long timeout_ms,
+                                    bool& pending) override {
+        Status status;
+        const auto* configured = map(status);
+        if (!configured) return status;
+        if (pin >= configured->gpios.size()) return Status::Unsupported;
+        if (pin >= gpio_watched_.size() || !gpio_watched_[pin])
+            return Status::BadArgument;
+        using Clock = std::chrono::steady_clock;
+        const auto now = Clock::now();
+        const auto available = Clock::time_point::max() - now;
+        const auto maximum_ms =
+            std::chrono::duration_cast<std::chrono::milliseconds>(available).count();
+        const auto deadline = timeout_ms >= static_cast<unsigned long>(maximum_ms)
+            ? Clock::time_point::max()
+            : now + std::chrono::milliseconds(static_cast<long long>(timeout_ms));
+        for (;;) {
+            const auto taken = gpio_take(pin, pending);
+            if (taken != Status::Ok || pending) return taken;
+            const auto left = deadline - Clock::now();
+            if (left <= Clock::duration::zero()) return Status::Ok;
+            const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(left);
+            const int slice = ms.count() >= INT_MAX ? INT_MAX
+                            : static_cast<int>(ms.count() + (ms < left ? 1 : 0));
+            pollfd item{gpio_lines_[pin], POLLIN, 0};
+            const int ready = ::poll(&item, 1, slice);
+            if (ready < 0 && errno == EINTR) continue;
+            if (ready < 0) return error_status(errno);
+            if (ready > 0 && (item.revents & (POLLERR | POLLHUP | POLLNVAL)))
+                return Status::TransportError;
+        }
     }
 
     [[nodiscard]] Status spi_configure(
@@ -372,6 +513,15 @@ public:
     }
 
 private:
+    void clear_gpio(unsigned int pin) {
+        if (pin < gpio_lines_.size() && gpio_lines_[pin] >= 0) {
+            ::close(gpio_lines_[pin]);
+            gpio_lines_[pin] = -1;
+        }
+        if (pin < gpio_direction_.size()) gpio_direction_[pin].reset();
+        if (pin < gpio_watched_.size()) gpio_watched_[pin] = false;
+    }
+
     Status gpio_value(unsigned int pin, bool write_value, bool& value) {
         Status status;
         const auto* configured = map(status);
@@ -491,6 +641,7 @@ private:
     mutable std::vector<mm::mcu::Gpio> gpio_inventory_;
     std::vector<int> gpio_lines_;
     std::vector<std::optional<mm::mcu::Direction>> gpio_direction_;
+    std::vector<bool> gpio_watched_;
     std::vector<std::optional<mm::mcu::SpiConfiguration>> spi_configuration_;
     std::vector<std::optional<mm::mcu::I2cConfiguration>> i2c_configuration_;
 };
@@ -503,9 +654,28 @@ const Register registered;
 
 namespace platform::linux::mcu_detail {
 
+mm::mcu::Status take_events(int descriptor, bool& pending) {
+    gpio_v2_line_event events[16];
+    const auto count = ::read(descriptor, events, sizeof(events));
+    if (count < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+        pending = false;
+        return mm::mcu::Status::Ok;
+    }
+    if (count <= 0 || count % sizeof(events[0]) != 0)
+        return mm::mcu::Status::TransportError;
+    pending = true;
+    return mm::mcu::Status::Ok;
+}
+
 mm::mcu::Status error_status(int value, bool explicit_path,
                              bool caller_field) {
     return ::error_status(value, explicit_path, caller_field);
+}
+
+mm::mcu::Status edge_error_status(int value) {
+    if (value == ENXIO || value == EOPNOTSUPP)
+        return mm::mcu::Status::Unsupported;
+    return ::error_status(value, true, true);
 }
 
 mm::mcu::Status spi_configuration_status(

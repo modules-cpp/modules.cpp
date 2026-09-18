@@ -12,5 +12,6 @@ enum class Status { Ok, BadArgument, Unsupported, Busy, Timeout, TransportError 
 
 enum class Direction { In, Out };
 enum class Pull { None, Up, Down };
+enum class Edge { Rising, Falling, Both };
 
 }

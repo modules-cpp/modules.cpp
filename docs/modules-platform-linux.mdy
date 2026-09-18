@@ -3,7 +3,7 @@ mm: 1.0
 kind: doc
 name: modules.cpp Linux platform specification
 status: official
-release: v1.2.2
+release: v1.2.3
 ---
 
 # modules.cpp Linux platform specification
@@ -63,6 +63,17 @@ LED must name a GPIO in the authoritative inventory.
   relative pointers. Type-A multitouch is refused.
 - platform.linux.imu obtains all six axes from one IIO buffered record. It
   derives layout from scan types and scale from realbits plus the IIO scale.
+
+The MCU provider watches GPIO edges on its existing line request, changing
+configuration in place, or requests a new line when none exists. A watched
+descriptor is nonblocking. Watch discards queued setup events before it
+returns; take reads at most sixteen records per call, and wait polls against a
+monotonic deadline. A fresh request asks for a sixty-four-event queue, which
+the kernel may cap. Unwatch closes the request and leaves the pin unconfigured.
+Linux GPIO cdev delivers readiness through poll; no signal handler or waiter
+thread is installed for this facility.
+An edge request refused with ENXIO or EOPNOTSUPP answers Unsupported;
+those errnos retain their transport-error meaning for other MCU operations.
 
 No provider silently maps a permission failure to Unsupported. No provider the
 SDK binds adds a third-party library or an explicit link input: every one of

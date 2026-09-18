@@ -5,6 +5,8 @@
 #include "../stdio/stdio-c.h"
 #include "hardware/spi.h"
 #include "hardware/i2c.h"
+#include "hardware/irq.h"
+#include "hardware/sync.h"
 #include "hardware/uart.h"
 #include "pico/stdio/driver.h"
 #include "pico/stdlib.h"
@@ -128,6 +130,19 @@ static int mm_pico_pin_valid(unsigned int pin) {
     return pin < (unsigned int)NUM_BANK0_GPIOS;
 }
 
+static volatile int mm_pico_gpio_watched[NUM_BANK0_GPIOS];
+static volatile int mm_pico_gpio_pending[NUM_BANK0_GPIOS];
+static unsigned int mm_pico_gpio_mask[NUM_BANK0_GPIOS];
+static int mm_pico_gpio_callback_ready;
+
+static void mm_pico_gpio_callback(unsigned int pin, uint32_t events) {
+    if (mm_pico_pin_valid(pin) && mm_pico_gpio_watched[pin] &&
+        (events & mm_pico_gpio_mask[pin])) {
+        mm_pico_gpio_pending[pin] = 1;
+        __sev();
+    }
+}
+
 static spi_inst_t* mm_pico_spi(unsigned int instance) {
     if (instance == 0) return spi0;
     if (instance == 1) return spi1;
@@ -146,8 +161,11 @@ static int mm_pico_spi_pin_matches(unsigned int instance, unsigned int pin,
 
 int mm_pico_mcu_gpio_configure(unsigned int pin, int direction, int pull) {
     if (!mm_pico_pin_valid(pin)) return MM_PICO_MCU_BAD_ARGUMENT;
+    if (mm_pico_gpio_watched[pin]) return MM_PICO_MCU_BUSY;
     if (direction != MM_PICO_MCU_DIRECTION_IN && direction != MM_PICO_MCU_DIRECTION_OUT)
         return MM_PICO_MCU_BAD_ARGUMENT;
+    if (pull != MM_PICO_MCU_PULL_NONE && pull != MM_PICO_MCU_PULL_UP &&
+        pull != MM_PICO_MCU_PULL_DOWN) return MM_PICO_MCU_BAD_ARGUMENT;
 
     gpio_init(pin);
     gpio_set_dir(pin, direction == MM_PICO_MCU_DIRECTION_OUT);
@@ -171,6 +189,95 @@ int mm_pico_mcu_gpio_read(unsigned int pin, int* high) {
     if (!mm_pico_pin_valid(pin) || high == NULL) return MM_PICO_MCU_BAD_ARGUMENT;
     *high = gpio_get(pin) ? 1 : 0;
     return MM_PICO_MCU_OK;
+}
+
+int mm_pico_mcu_gpio_watch(unsigned int pin, int pull, int edge) {
+    if (get_core_num() != 0) return MM_PICO_MCU_UNSUPPORTED;
+    if (!mm_pico_pin_valid(pin)) return MM_PICO_MCU_UNSUPPORTED;
+    if ((pull != MM_PICO_MCU_PULL_NONE && pull != MM_PICO_MCU_PULL_UP &&
+         pull != MM_PICO_MCU_PULL_DOWN) ||
+        (edge != MM_PICO_MCU_EDGE_RISING && edge != MM_PICO_MCU_EDGE_FALLING &&
+         edge != MM_PICO_MCU_EDGE_BOTH)) return MM_PICO_MCU_BAD_ARGUMENT;
+    uint32_t saved = save_and_disable_interrupts();
+    if (mm_pico_gpio_watched[pin]) {
+        restore_interrupts(saved);
+        return MM_PICO_MCU_BUSY;
+    }
+    const int configured = mm_pico_mcu_gpio_configure(
+        pin, MM_PICO_MCU_DIRECTION_IN, pull);
+    if (configured != MM_PICO_MCU_OK) {
+        restore_interrupts(saved);
+        return configured;
+    }
+    const unsigned int mask =
+        (edge == MM_PICO_MCU_EDGE_RISING ? GPIO_IRQ_EDGE_RISE : 0u) |
+        (edge == MM_PICO_MCU_EDGE_FALLING ? GPIO_IRQ_EDGE_FALL : 0u) |
+        (edge == MM_PICO_MCU_EDGE_BOTH ?
+             GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL : 0u);
+    if (!mm_pico_gpio_callback_ready) {
+        gpio_set_irq_callback(mm_pico_gpio_callback);
+        irq_set_enabled(IO_IRQ_BANK0, true);
+        mm_pico_gpio_callback_ready = 1;
+    }
+    gpio_acknowledge_irq(pin, mask);
+    mm_pico_gpio_mask[pin] = mask;
+    mm_pico_gpio_pending[pin] = 0;
+    mm_pico_gpio_watched[pin] = 1;
+    gpio_set_irq_enabled(pin, mask, true);
+    restore_interrupts(saved);
+    return MM_PICO_MCU_OK;
+}
+
+int mm_pico_mcu_gpio_take(unsigned int pin, int* pending) {
+    if (get_core_num() != 0) return MM_PICO_MCU_UNSUPPORTED;
+    if (!mm_pico_pin_valid(pin)) return MM_PICO_MCU_UNSUPPORTED;
+    if (pending == NULL) return MM_PICO_MCU_BAD_ARGUMENT;
+    const uint32_t saved = save_and_disable_interrupts();
+    if (!mm_pico_gpio_watched[pin]) {
+        restore_interrupts(saved);
+        return MM_PICO_MCU_BAD_ARGUMENT;
+    }
+    const int value = mm_pico_gpio_pending[pin];
+    mm_pico_gpio_pending[pin] = 0;
+    restore_interrupts(saved);
+    *pending = value;
+    return MM_PICO_MCU_OK;
+}
+
+int mm_pico_mcu_gpio_unwatch(unsigned int pin) {
+    if (get_core_num() != 0) return MM_PICO_MCU_UNSUPPORTED;
+    if (!mm_pico_pin_valid(pin)) return MM_PICO_MCU_UNSUPPORTED;
+    const uint32_t saved = save_and_disable_interrupts();
+    if (!mm_pico_gpio_watched[pin]) {
+        restore_interrupts(saved);
+        return MM_PICO_MCU_BAD_ARGUMENT;
+    }
+    mm_pico_gpio_watched[pin] = 0;
+    gpio_set_irq_enabled(pin, mm_pico_gpio_mask[pin], false);
+    mm_pico_gpio_pending[pin] = 0;
+    gpio_deinit(pin);
+    // Leave the generic callback and bank IRQ installed. They are shared by
+    // future watches; the watched mark suppresses any stale NVIC delivery.
+    // The saved mask is overwritten by the next watch on this pin.
+    restore_interrupts(saved);
+    return MM_PICO_MCU_OK;
+}
+
+int mm_pico_mcu_gpio_wait(unsigned int pin, unsigned long timeout_ms, int* pending) {
+    if (get_core_num() != 0) return MM_PICO_MCU_UNSUPPORTED;
+    if (!mm_pico_pin_valid(pin)) return MM_PICO_MCU_UNSUPPORTED;
+    if (pending == NULL) return MM_PICO_MCU_BAD_ARGUMENT;
+    const absolute_time_t deadline = make_timeout_time_ms(timeout_ms);
+    for (;;) {
+        int value = 0;
+        const int status = mm_pico_mcu_gpio_take(pin, &value);
+        if (status != MM_PICO_MCU_OK) return status;
+        if (value || time_reached(deadline)) {
+            *pending = value;
+            return MM_PICO_MCU_OK;
+        }
+        best_effort_wfe_or_timeout(deadline);
+    }
 }
 
 int mm_pico_mcu_spi_configure(unsigned int instance, unsigned int clock_pin,

@@ -32,6 +32,14 @@ public:
     }
     [[nodiscard]] virtual Status gpio_write(unsigned int, bool) { return Status::Unsupported; }
     [[nodiscard]] virtual Status gpio_read(unsigned int, bool&) { return Status::Unsupported; }
+    [[nodiscard]] virtual Status gpio_watch(unsigned int, Pull, Edge) {
+        return Status::Unsupported;
+    }
+    [[nodiscard]] virtual Status gpio_take(unsigned int, bool&) { return Status::Unsupported; }
+    [[nodiscard]] virtual Status gpio_unwatch(unsigned int) { return Status::Unsupported; }
+    [[nodiscard]] virtual Status gpio_wait(unsigned int, unsigned long, bool&) {
+        return Status::Unsupported;
+    }
 
     [[nodiscard]] virtual Status spi_configure(const SpiConfiguration&) {
         return Status::Unsupported;

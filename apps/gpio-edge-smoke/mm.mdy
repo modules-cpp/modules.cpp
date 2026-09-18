@@ -1,0 +1,34 @@
+---
+mm: 1.2
+kind: app
+name: gpio-edge-smoke
+use: mm.mcu
+use: mm.stdio
+file: main.cpp
+---
+
+# gpio-edge-smoke
+
+Wire the driver GPIO to the sensor GPIO named in main.cpp. On Linux, also
+connect a 10 kOhm pull-up from the sensor to the board's I/O voltage. The
+last check asks an operator to remove the jumper during a ten-second wait.
+
+The application skips only when the first watch answers Unsupported. The
+firmware image build cannot prove physical edge delivery; run it with the
+fixture and a USB CDC console to see the verdict. Replace the jumper after
+the manual step, including after a failure.
+
+Exit codes:
+
+| Code | Meaning |
+| --- | --- |
+| 0 | All checks passed, or the edge facility was unavailable and skipped. |
+| 1–2 | Initial watch or driver setup failed. |
+| 3 | Rising/falling delivery or rejection check failed; inspect GPIO14/15. |
+| 4–5 | Burst setup or watched-pin Busy contract failed. |
+| 6–8 | Burst drive, delivery, or eventual clearing failed. |
+| 9–13 | Immediate wait, quiet timeout, or unwatched take failed. |
+| 14–17 | Manual wait setup, wait, read, or unwatch failed. |
+| 18 | Sensor stayed low; check the jumper and pull-up. |
+| 19 | Operator confirmed an in-window removal; edge was missed. |
+| 20 | Removal timing was inconclusive or no answer arrived in 30 seconds. |

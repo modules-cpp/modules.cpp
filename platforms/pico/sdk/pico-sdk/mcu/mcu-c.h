@@ -21,10 +21,16 @@ enum {
 
 enum { MM_PICO_MCU_DIRECTION_IN = 0, MM_PICO_MCU_DIRECTION_OUT = 1 };
 enum { MM_PICO_MCU_PULL_NONE = 0, MM_PICO_MCU_PULL_UP = 1, MM_PICO_MCU_PULL_DOWN = 2 };
+enum { MM_PICO_MCU_EDGE_RISING = 0, MM_PICO_MCU_EDGE_FALLING = 1,
+       MM_PICO_MCU_EDGE_BOTH = 2 };
 
 int mm_pico_mcu_gpio_configure(unsigned int pin, int direction, int pull);
 int mm_pico_mcu_gpio_write(unsigned int pin, int high);
 int mm_pico_mcu_gpio_read(unsigned int pin, int* high);
+int mm_pico_mcu_gpio_watch(unsigned int pin, int pull, int edge);
+int mm_pico_mcu_gpio_take(unsigned int pin, int* pending);
+int mm_pico_mcu_gpio_unwatch(unsigned int pin);
+int mm_pico_mcu_gpio_wait(unsigned int pin, unsigned long timeout_ms, int* pending);
 int mm_pico_mcu_spi_configure(unsigned int instance, unsigned int clock_pin,
                               unsigned int transmit_pin, unsigned int receive_pin,
                               int has_receive, unsigned long baud, int mode,

@@ -2,6 +2,25 @@
 
 All notable changes to modules.cpp. Versions follow [semantic versioning](https://semver.org/).
 
+## [v1.2.3] — Unreleased
+
+### Added
+
+- **GPIO edge latch in `mm.mcu`.** Portable `gpio_watch`, `gpio_take`,
+  `gpio_unwatch`, and bounded `gpio_wait` report selected physical edges
+  without running application callbacks inside interrupt handlers. Pico SDK
+  and Linux GPIO-v2 providers implement the facility; Linux uses a bounded
+  event read and monotonic poll, while Pico uses its GPIO callback and an
+  event-assisted wait. `gpio-edge-smoke` builds for Pico ARM and RISC-V and
+  provides a wired fixture for physical verification.
+
+### Changed
+
+- A watched GPIO is owned by its provider: another watch or configuration
+  answers Busy, and unwatch leaves the pin unconfigured. Linux maps ENXIO and
+  EOPNOTSUPP to Unsupported for edge requests while retaining the existing
+  transport-error mapping for other MCU operations.
+
 ## [v1.2.2] — 2026-09-17
 
 Something to draw with. v1.2.1 bound colour and e-paper panels to portable

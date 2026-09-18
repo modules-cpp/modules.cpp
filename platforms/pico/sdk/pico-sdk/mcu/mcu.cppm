@@ -72,6 +72,32 @@ public:
         return status;
     }
 
+    [[nodiscard]] mm::mcu::Status gpio_watch(unsigned int pin, mm::mcu::Pull pull,
+                                              mm::mcu::Edge edge) override {
+        return from(mm_pico_mcu_gpio_watch(pin, static_cast<int>(pull),
+                                           static_cast<int>(edge)));
+    }
+
+    [[nodiscard]] mm::mcu::Status gpio_take(unsigned int pin, bool& pending) override {
+        int raw = 0;
+        const auto status = from(mm_pico_mcu_gpio_take(pin, &raw));
+        if (status == mm::mcu::Status::Ok) pending = raw != 0;
+        return status;
+    }
+
+    [[nodiscard]] mm::mcu::Status gpio_unwatch(unsigned int pin) override {
+        return from(mm_pico_mcu_gpio_unwatch(pin));
+    }
+
+    [[nodiscard]] mm::mcu::Status gpio_wait(unsigned int pin,
+                                             unsigned long timeout_ms,
+                                             bool& pending) override {
+        int raw = 0;
+        const auto status = from(mm_pico_mcu_gpio_wait(pin, timeout_ms, &raw));
+        if (status == mm::mcu::Status::Ok) pending = raw != 0;
+        return status;
+    }
+
     [[nodiscard]] mm::mcu::Status spi_configure(
         const mm::mcu::SpiConfiguration& configuration) override {
         return from(mm_pico_mcu_spi_configure(
