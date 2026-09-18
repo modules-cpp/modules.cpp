@@ -7,6 +7,7 @@ module;
 #include <climits>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <random>
 #include <span>
 #include <string>
@@ -165,6 +166,52 @@ static InterruptEntry interrupt_table_[max_interrupts]{};
 constexpr std::size_t pin_pull_count = 64;
 static mm::mcu::Pull pin_pulls_[pin_pull_count]{};
 
+mm::mcu::SpiMode to_mcu_spi_mode(SpiMode mode) {
+    switch (mode) {
+        case SpiMode::Mode0: return mm::mcu::SpiMode::Mode0;
+        case SpiMode::Mode1: return mm::mcu::SpiMode::Mode1;
+        case SpiMode::Mode2: return mm::mcu::SpiMode::Mode2;
+        case SpiMode::Mode3: return mm::mcu::SpiMode::Mode3;
+    }
+    return mm::mcu::SpiMode::Mode0;
+}
+
+mm::mcu::BitOrder to_mcu_bit_order(BitOrder order) {
+    switch (order) {
+        case BitOrder::MsbFirst: return mm::mcu::BitOrder::MostSignificantFirst;
+        case BitOrder::LsbFirst: return mm::mcu::BitOrder::LeastSignificantFirst;
+    }
+    return mm::mcu::BitOrder::MostSignificantFirst;
+}
+
+static bool spi_begun_ = false;
+static SPISettings spi_current_settings_{};
+
+constexpr std::size_t wire_buffer_capacity = 32;
+static bool wire_begun_ = false;
+static unsigned long wire_clock_ = 100'000;
+static unsigned int wire_tx_address_ = 0;
+static bool wire_transmitting_ = false;
+static bool wire_tx_overflow_ = false;
+static bool wire_pending_write_read_ = false;
+static std::byte wire_tx_buf_[wire_buffer_capacity];
+static std::size_t wire_tx_len_ = 0;
+
+static std::byte wire_rx_buf_[wire_buffer_capacity];
+static std::size_t wire_rx_len_ = 0;
+static std::size_t wire_rx_head_ = 0;
+
+void flush_pending_wire_write() {
+    if (!wire_pending_write_read_) return;
+    wire_pending_write_read_ = false;
+    const auto board = mm::mcu::board();
+    if (board.i2c && wire_tx_len_ > 0) {
+        (void)mm::mcu::i2c_write(board.i2c->instance, wire_tx_address_,
+                                 std::span<const std::byte>(wire_tx_buf_, wire_tx_len_));
+    }
+    wire_tx_len_ = 0;
+}
+
 } // namespace
 
 Status lastError() {
@@ -252,6 +299,14 @@ int run(Setup setup, Loop loop) {
     serial_callback_ = nullptr;
     timeout_ms_ = 1000;
     dispatching_ = false;
+    spi_begun_ = false;
+    wire_begun_ = false;
+    wire_transmitting_ = false;
+    wire_tx_overflow_ = false;
+    wire_pending_write_read_ = false;
+    wire_tx_len_ = 0;
+    wire_rx_len_ = 0;
+    wire_rx_head_ = 0;
 
     for (std::size_t i = 0; i < pin_pull_count; ++i) {
         pin_pulls_[i] = mm::mcu::Pull::None;
@@ -274,6 +329,7 @@ int run(Setup setup, Loop loop) {
         dispatch();
     }
 
+    flush_pending_wire_write();
     const int code = exit_code_;
     exit_requested_ = false;
     exit_code_ = 0;
@@ -1599,5 +1655,386 @@ double SerialPort::parseFloat() {
     }
     return negative ? -value : value;
 }
+
+// SPIClass implementation
+bool SPIClass::begin() {
+    CallScope scope{"SPI.begin"};
+    const auto board = mm::mcu::board();
+    if (!board.spi) {
+        record_failure(Status::Unsupported, "SPI.begin");
+        return false;
+    }
+    spi_current_settings_ = SPISettings{};
+    const mm::mcu::SpiConfiguration config{
+        board.spi->instance,
+        board.spi->clock_gpio,
+        board.spi->transmit_gpio,
+        board.spi->receive_gpio,
+        spi_current_settings_.clock,
+        to_mcu_spi_mode(spi_current_settings_.data_mode),
+        to_mcu_bit_order(spi_current_settings_.bit_order)
+    };
+    const auto st = mm::mcu::spi_configure(config);
+    if (st != mm::mcu::Status::Ok) {
+        record_failure(from(st), "SPI.begin");
+        return false;
+    }
+    spi_begun_ = true;
+    return true;
+}
+
+bool SPIClass::end() {
+    CallScope scope{"SPI.end"};
+    spi_begun_ = false;
+    return true;
+}
+
+void SPIClass::beginTransaction(SPISettings settings) {
+    CallScope scope{"SPI.beginTransaction"};
+    if (!spi_begun_) {
+        record_failure(Status::NotInitialized, "SPI.beginTransaction");
+        return;
+    }
+    const auto board = mm::mcu::board();
+    if (!board.spi) {
+        record_failure(Status::Unsupported, "SPI.beginTransaction");
+        return;
+    }
+    const mm::mcu::SpiConfiguration config{
+        board.spi->instance,
+        board.spi->clock_gpio,
+        board.spi->transmit_gpio,
+        board.spi->receive_gpio,
+        settings.clock,
+        to_mcu_spi_mode(settings.data_mode),
+        to_mcu_bit_order(settings.bit_order)
+    };
+    const auto st = mm::mcu::spi_configure(config);
+    if (st != mm::mcu::Status::Ok) {
+        record_failure(from(st), "SPI.beginTransaction");
+        return;
+    }
+    spi_current_settings_ = settings;
+}
+
+void SPIClass::endTransaction() {
+    CallScope scope{"SPI.endTransaction"};
+    if (!spi_begun_) {
+        record_failure(Status::NotInitialized, "SPI.endTransaction");
+    }
+}
+
+byte SPIClass::transfer(byte val) {
+    CallScope scope{"SPI.transfer"};
+    if (!spi_begun_) {
+        record_failure(Status::NotInitialized, "SPI.transfer");
+        return 0;
+    }
+    const auto board = mm::mcu::board();
+    if (!board.spi) {
+        record_failure(Status::Unsupported, "SPI.transfer");
+        return 0;
+    }
+    const std::byte tx = static_cast<std::byte>(val);
+    std::byte rx{0};
+    const auto st = mm::mcu::spi_transfer(board.spi->instance,
+                                          std::span<const std::byte>(&tx, 1),
+                                          std::span<std::byte>(&rx, 1));
+    if (st != mm::mcu::Status::Ok) {
+        record_failure(from(st), "SPI.transfer");
+        return 0;
+    }
+    return static_cast<byte>(rx);
+}
+
+word SPIClass::transfer16(word val) {
+    CallScope scope{"SPI.transfer16"};
+    if (!spi_begun_) {
+        record_failure(Status::NotInitialized, "SPI.transfer16");
+        return 0;
+    }
+    const auto board = mm::mcu::board();
+    if (!board.spi) {
+        record_failure(Status::Unsupported, "SPI.transfer16");
+        return 0;
+    }
+    std::byte tx[2];
+    std::byte rx[2]{};
+    if (spi_current_settings_.bit_order == BitOrder::MsbFirst) {
+        tx[0] = static_cast<std::byte>((val >> 8) & 0xFF);
+        tx[1] = static_cast<std::byte>(val & 0xFF);
+    } else {
+        tx[0] = static_cast<std::byte>(val & 0xFF);
+        tx[1] = static_cast<std::byte>((val >> 8) & 0xFF);
+    }
+    const auto st = mm::mcu::spi_transfer(board.spi->instance, tx, rx);
+    if (st != mm::mcu::Status::Ok) {
+        record_failure(from(st), "SPI.transfer16");
+        return 0;
+    }
+    if (spi_current_settings_.bit_order == BitOrder::MsbFirst) {
+        return static_cast<word>((static_cast<word>(static_cast<byte>(rx[0])) << 8) |
+                                 static_cast<word>(static_cast<byte>(rx[1])));
+    } else {
+        return static_cast<word>(static_cast<word>(static_cast<byte>(rx[0])) |
+                                 (static_cast<word>(static_cast<byte>(rx[1])) << 8));
+    }
+}
+
+void SPIClass::transfer(void* buffer, std::size_t size) {
+    CallScope scope{"SPI.transfer"};
+    if (!buffer || size == 0) return;
+    if (!spi_begun_) {
+        record_failure(Status::NotInitialized, "SPI.transfer");
+        return;
+    }
+    const auto board = mm::mcu::board();
+    if (!board.spi) {
+        record_failure(Status::Unsupported, "SPI.transfer");
+        return;
+    }
+    std::vector<std::byte> tx(size);
+    std::memcpy(tx.data(), buffer, size);
+    const auto st = mm::mcu::spi_transfer(
+        board.spi->instance, tx,
+        std::span<std::byte>(reinterpret_cast<std::byte*>(buffer), size));
+    if (st != mm::mcu::Status::Ok) {
+        record_failure(from(st), "SPI.transfer");
+    }
+}
+
+void SPIClass::transfer(byte* buffer, std::size_t size) {
+    transfer(static_cast<void*>(buffer), size);
+}
+
+SPIClass SPI;
+
+// TwoWire implementation
+bool TwoWire::begin() {
+    CallScope scope{"Wire.begin"};
+    flush_pending_wire_write();
+    const auto board = mm::mcu::board();
+    if (!board.i2c) {
+        record_failure(Status::Unsupported, "Wire.begin");
+        return false;
+    }
+    wire_clock_ = 100'000;
+    const mm::mcu::I2cConfiguration config{
+        board.i2c->instance,
+        board.i2c->data_gpio,
+        board.i2c->clock_gpio,
+        wire_clock_
+    };
+    const auto st = mm::mcu::i2c_configure(config);
+    if (st != mm::mcu::Status::Ok) {
+        record_failure(from(st), "Wire.begin");
+        return false;
+    }
+    wire_begun_ = true;
+    wire_transmitting_ = false;
+    wire_tx_overflow_ = false;
+    wire_pending_write_read_ = false;
+    wire_tx_len_ = 0;
+    wire_rx_len_ = 0;
+    wire_rx_head_ = 0;
+    return true;
+}
+
+bool TwoWire::end() {
+    CallScope scope{"Wire.end"};
+    flush_pending_wire_write();
+    wire_begun_ = false;
+    wire_transmitting_ = false;
+    wire_tx_overflow_ = false;
+    wire_pending_write_read_ = false;
+    wire_tx_len_ = 0;
+    wire_rx_len_ = 0;
+    wire_rx_head_ = 0;
+    return true;
+}
+
+void TwoWire::setClock(unsigned long clock_speed) {
+    CallScope scope{"Wire.setClock"};
+    if (!wire_begun_) {
+        record_failure(Status::NotInitialized, "Wire.setClock");
+        return;
+    }
+    const auto board = mm::mcu::board();
+    if (!board.i2c) {
+        record_failure(Status::Unsupported, "Wire.setClock");
+        return;
+    }
+    wire_clock_ = clock_speed;
+    const mm::mcu::I2cConfiguration config{
+        board.i2c->instance,
+        board.i2c->data_gpio,
+        board.i2c->clock_gpio,
+        wire_clock_
+    };
+    const auto st = mm::mcu::i2c_configure(config);
+    if (st != mm::mcu::Status::Ok) {
+        record_failure(from(st), "Wire.setClock");
+    }
+}
+
+void TwoWire::beginTransmission(byte address) {
+    CallScope scope{"Wire.beginTransmission"};
+    flush_pending_wire_write();
+    wire_tx_address_ = static_cast<unsigned int>(address);
+    wire_tx_len_ = 0;
+    wire_tx_overflow_ = false;
+    wire_transmitting_ = true;
+}
+
+void TwoWire::beginTransmission(int address) {
+    beginTransmission(static_cast<byte>(address));
+}
+
+std::size_t TwoWire::write(byte val) {
+    CallScope scope{"Wire.write"};
+    if (!wire_transmitting_) return 0;
+    if (wire_tx_len_ >= wire_buffer_capacity) {
+        wire_tx_overflow_ = true;
+        return 0;
+    }
+    wire_tx_buf_[wire_tx_len_++] = static_cast<std::byte>(val);
+    return 1;
+}
+
+std::size_t TwoWire::write(const byte* buffer, std::size_t size) {
+    CallScope scope{"Wire.write"};
+    if (!wire_transmitting_ || !buffer || size == 0) return 0;
+    const std::size_t space = wire_buffer_capacity - wire_tx_len_;
+    const std::size_t count = std::min(size, space);
+    for (std::size_t i = 0; i < count; ++i) {
+        wire_tx_buf_[wire_tx_len_++] = static_cast<std::byte>(buffer[i]);
+    }
+    if (size > space) {
+        wire_tx_overflow_ = true;
+    }
+    return count;
+}
+
+std::size_t TwoWire::write(const char* s) {
+    CallScope scope{"Wire.write"};
+    if (!s) return 0;
+    return write(reinterpret_cast<const byte*>(s), std::strlen(s));
+}
+
+byte TwoWire::endTransmission(bool send_stop) {
+    CallScope scope{"Wire.endTransmission"};
+    if (!wire_begun_) {
+        record_failure(Status::NotInitialized, "Wire.endTransmission");
+        wire_transmitting_ = false;
+        wire_tx_len_ = 0;
+        return 4;
+    }
+    const auto board = mm::mcu::board();
+    if (!board.i2c) {
+        record_failure(Status::Unsupported, "Wire.endTransmission");
+        wire_transmitting_ = false;
+        wire_tx_len_ = 0;
+        return 4;
+    }
+    if (!wire_transmitting_) {
+        return 4;
+    }
+    wire_transmitting_ = false;
+    if (wire_tx_overflow_) {
+        record_failure(Status::BadArgument, "Wire.endTransmission");
+        wire_tx_len_ = 0;
+        wire_tx_overflow_ = false;
+        return 1;
+    }
+    if (!send_stop) {
+        if (wire_tx_address_ > 0x7F) {
+            record_failure(Status::BadArgument, "Wire.endTransmission");
+            wire_tx_len_ = 0;
+            return 2;
+        }
+        wire_pending_write_read_ = true;
+        return 0;
+    }
+    wire_pending_write_read_ = false;
+    const auto st = mm::mcu::i2c_write(board.i2c->instance, wire_tx_address_,
+                                       std::span<const std::byte>(wire_tx_buf_, wire_tx_len_));
+    wire_tx_len_ = 0;
+    if (st != mm::mcu::Status::Ok) {
+        record_failure(from(st), "Wire.endTransmission");
+        switch (st) {
+            case mm::mcu::Status::BadArgument: return 2;
+            case mm::mcu::Status::Timeout: return 5;
+            default: return 4;
+        }
+    }
+    return 0;
+}
+
+std::size_t TwoWire::requestFrom(byte address, std::size_t quantity, bool send_stop) {
+    CallScope scope{"Wire.requestFrom"};
+    (void)send_stop;
+    if (!wire_begun_) {
+        record_failure(Status::NotInitialized, "Wire.requestFrom");
+        return 0;
+    }
+    const auto board = mm::mcu::board();
+    if (!board.i2c) {
+        record_failure(Status::Unsupported, "Wire.requestFrom");
+        return 0;
+    }
+    if (quantity == 0) return 0;
+    const std::size_t count = std::min(quantity, wire_buffer_capacity);
+    wire_rx_len_ = 0;
+    wire_rx_head_ = 0;
+
+    mm::mcu::Status st;
+    if (wire_pending_write_read_ && wire_tx_address_ == static_cast<unsigned int>(address)) {
+        wire_pending_write_read_ = false;
+        st = mm::mcu::i2c_write_read(
+            board.i2c->instance, address,
+            std::span<const std::byte>(wire_tx_buf_, wire_tx_len_),
+            std::span<std::byte>(wire_rx_buf_, count));
+        wire_tx_len_ = 0;
+    } else {
+        flush_pending_wire_write();
+        st = mm::mcu::i2c_read(board.i2c->instance, address,
+                               std::span<std::byte>(wire_rx_buf_, count));
+    }
+
+    if (st != mm::mcu::Status::Ok) {
+        record_failure(from(st), "Wire.requestFrom");
+        return 0;
+    }
+    wire_rx_len_ = count;
+    return count;
+}
+
+std::size_t TwoWire::requestFrom(int address, int quantity, int send_stop) {
+    if (address < 0 || quantity <= 0) return 0;
+    return requestFrom(static_cast<byte>(address), static_cast<std::size_t>(quantity), send_stop != 0);
+}
+
+int TwoWire::available() {
+    CallScope scope{"Wire.available"};
+    return static_cast<int>(wire_rx_len_ - wire_rx_head_);
+}
+
+int TwoWire::read() {
+    CallScope scope{"Wire.read"};
+    if (wire_rx_head_ >= wire_rx_len_) return -1;
+    return static_cast<int>(static_cast<byte>(wire_rx_buf_[wire_rx_head_++]));
+}
+
+int TwoWire::peek() {
+    CallScope scope{"Wire.peek"};
+    if (wire_rx_head_ >= wire_rx_len_) return -1;
+    return static_cast<int>(static_cast<byte>(wire_rx_buf_[wire_rx_head_]));
+}
+
+void TwoWire::flush() {
+    CallScope scope{"Wire.flush"};
+}
+
+TwoWire Wire;
 
 } // namespace mm::sketch

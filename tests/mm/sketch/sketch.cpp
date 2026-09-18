@@ -33,6 +33,19 @@ extern void test_set_console_read_fail(bool fail);
 extern void test_setup_pulse(unsigned int pin, std::initializer_list<bool> levels, unsigned long step_us);
 extern void test_clear_pulse();
 
+extern void test_set_spi_present(bool present);
+extern void test_set_spi_fail(bool fail);
+extern void test_set_spi_xor_mask(unsigned char mask);
+extern void test_reset_spi();
+
+extern void test_set_i2c_present(bool present);
+extern void test_set_i2c_fail(bool fail);
+extern void test_set_i2c_read_data(const unsigned char* data, std::size_t size);
+extern std::size_t test_get_i2c_written_size();
+extern unsigned char test_get_i2c_written_byte(std::size_t idx);
+extern unsigned int test_get_i2c_written_address();
+extern void test_reset_i2c();
+
 namespace {
 
 using mm::test::expect;
@@ -1030,6 +1043,259 @@ void interrupt_preserved_across_runs() {
     clearError();
 }
 
+void spi_communication() {
+    clearError();
+    test_reset_spi();
+
+    // SPI on unsupported board
+    test_set_spi_present(false);
+    run([]{
+        clearError();
+        expect(!SPI.begin(), "SPI.begin fails on board without SPI");
+        expect(lastError() == Status::Unsupported, "SPI.begin latches Unsupported");
+        requestExit(0);
+    }, nullptr);
+    test_set_spi_present(true);
+    clearError();
+
+    // SPI begin, transfer, end
+    run([]{
+        clearError();
+        expect(SPI.begin(), "SPI.begin succeeds");
+        expect(lastError() == Status::Ok, "no error after SPI.begin");
+
+        // 8-bit transfer with xor_mask=0 is loopback
+        byte result = SPI.transfer(static_cast<byte>(0xA5));
+        expect(result == 0xA5, "SPI.transfer 8-bit loopback");
+
+        SPI.endTransaction();
+        expect(SPI.end(), "SPI.end succeeds");
+        requestExit(0);
+    }, nullptr);
+    clearError();
+
+    // SPI transfer before begin
+    run([]{
+        clearError();
+        byte r = SPI.transfer(static_cast<byte>(0x42));
+        expect(r == 0, "SPI.transfer returns 0 before begin");
+        expect(lastError() == Status::NotInitialized, "SPI.transfer latches NotInitialized");
+        requestExit(0);
+    }, nullptr);
+    clearError();
+
+    // SPI 16-bit transfer MSB first
+    run([]{
+        clearError();
+        expect(SPI.begin(), "SPI.begin for transfer16");
+        SPI.beginTransaction(SPISettings(1000000, MSBFIRST, SPI_MODE0));
+        word r16 = SPI.transfer16(static_cast<word>(0x1234));
+        expect(r16 == 0x1234, "SPI.transfer16 MSB loopback");
+        SPI.endTransaction();
+        expect(SPI.end(), "SPI.end after transfer16");
+        requestExit(0);
+    }, nullptr);
+    clearError();
+
+    // SPI 16-bit transfer LSB first
+    run([]{
+        clearError();
+        expect(SPI.begin(), "SPI.begin for LSB transfer16");
+        SPI.beginTransaction(SPISettings(1000000, LSBFIRST, SPI_MODE0));
+        word r16 = SPI.transfer16(static_cast<word>(0xABCD));
+        expect(r16 == 0xABCD, "SPI.transfer16 LSB loopback");
+        SPI.endTransaction();
+        expect(SPI.end(), "SPI.end after LSB transfer16");
+        requestExit(0);
+    }, nullptr);
+    clearError();
+
+    // SPI buffer transfer
+    test_set_spi_xor_mask(0xFF);
+    run([]{
+        clearError();
+        expect(SPI.begin(), "SPI.begin for buffer transfer");
+        byte buf[4] = {0x00, 0x55, 0xAA, 0xFF};
+        SPI.transfer(buf, 4);
+        expect(buf[0] == 0xFF, "buffer[0] xor 0xFF");
+        expect(buf[1] == 0xAA, "buffer[1] xor 0xFF");
+        expect(buf[2] == 0x55, "buffer[2] xor 0xFF");
+        expect(buf[3] == 0x00, "buffer[3] xor 0xFF");
+        expect(SPI.end(), "SPI.end after buffer transfer");
+        requestExit(0);
+    }, nullptr);
+    test_set_spi_xor_mask(0);
+    clearError();
+
+    // beginTransaction before begin
+    run([]{
+        clearError();
+        SPI.beginTransaction(SPISettings{});
+        expect(lastError() == Status::NotInitialized, "beginTransaction before begin");
+        requestExit(0);
+    }, nullptr);
+    clearError();
+
+    test_reset_spi();
+}
+
+void wire_communication() {
+    clearError();
+    test_reset_i2c();
+
+    // Wire on unsupported board
+    test_set_i2c_present(false);
+    run([]{
+        clearError();
+        expect(!Wire.begin(), "Wire.begin fails without I2C");
+        expect(lastError() == Status::Unsupported, "Wire.begin latches Unsupported");
+        requestExit(0);
+    }, nullptr);
+    test_set_i2c_present(true);
+    clearError();
+
+    // Wire begin, write, endTransmission
+    run([]{
+        clearError();
+        expect(Wire.begin(), "Wire.begin succeeds");
+        expect(lastError() == Status::Ok, "no error after Wire.begin");
+
+        Wire.beginTransmission(static_cast<byte>(0x50));
+        expect(Wire.write(static_cast<byte>(0x10)) == 1, "Wire.write byte");
+        expect(Wire.write(static_cast<byte>(0x20)) == 1, "Wire.write byte 2");
+        expect(Wire.endTransmission() == 0, "endTransmission succeeds");
+
+        requestExit(0);
+    }, nullptr);
+    expect(test_get_i2c_written_address() == 0x50, "i2c written to address 0x50");
+    expect(test_get_i2c_written_size() == 2, "i2c wrote 2 bytes");
+    expect(test_get_i2c_written_byte(0) == 0x10, "i2c byte 0 is 0x10");
+    expect(test_get_i2c_written_byte(1) == 0x20, "i2c byte 1 is 0x20");
+    clearError();
+    test_reset_i2c();
+
+    // Wire requestFrom and read
+    const unsigned char read_data[] = {0xAA, 0xBB, 0xCC};
+    test_set_i2c_read_data(read_data, 3);
+    run([]{
+        clearError();
+        expect(Wire.begin(), "Wire.begin for read");
+        const std::size_t count = Wire.requestFrom(static_cast<byte>(0x68), static_cast<std::size_t>(3));
+        expect(count == 3, "requestFrom returned 3");
+        expect(Wire.available() == 3, "3 bytes available");
+
+        expect(Wire.peek() == 0xAA, "peek first byte");
+        expect(Wire.available() == 3, "peek does not consume");
+        expect(Wire.read() == 0xAA, "read byte 0");
+        expect(Wire.available() == 2, "2 bytes remaining");
+        expect(Wire.read() == 0xBB, "read byte 1");
+        expect(Wire.read() == 0xCC, "read byte 2");
+        expect(Wire.available() == 0, "0 bytes remaining");
+        expect(Wire.read() == -1, "read past end returns -1");
+        expect(Wire.peek() == -1, "peek past end returns -1");
+
+        expect(Wire.end(), "Wire.end succeeds");
+        requestExit(0);
+    }, nullptr);
+    clearError();
+    test_reset_i2c();
+
+    // Wire buffer overflow (32-byte boundary)
+    run([]{
+        clearError();
+        expect(Wire.begin(), "Wire.begin for overflow test");
+        Wire.beginTransmission(static_cast<byte>(0x50));
+        for (int i = 0; i < 32; ++i) {
+            expect(Wire.write(static_cast<byte>(i)) == 1, "write within 32");
+        }
+        expect(Wire.write(static_cast<byte>(0xFF)) == 0, "write byte 33 returns 0");
+        byte result = Wire.endTransmission();
+        expect(result == 1, "endTransmission returns 1 on overflow");
+        expect(lastError() == Status::BadArgument, "overflow latches BadArgument");
+
+        expect(Wire.end(), "Wire.end after overflow");
+        requestExit(0);
+    }, nullptr);
+    clearError();
+    test_reset_i2c();
+
+    // Wire buffer write with array
+    run([]{
+        clearError();
+        expect(Wire.begin(), "Wire.begin for array write");
+        Wire.beginTransmission(static_cast<byte>(0x50));
+        const byte data[] = {0x01, 0x02, 0x03, 0x04};
+        const std::size_t written = Wire.write(data, 4);
+        expect(written == 4, "wrote 4 bytes");
+        expect(Wire.endTransmission() == 0, "endTransmission ok");
+        expect(Wire.end(), "Wire.end");
+        requestExit(0);
+    }, nullptr);
+    expect(test_get_i2c_written_size() == 4, "i2c array wrote 4 bytes");
+    clearError();
+    test_reset_i2c();
+
+    // Wire setClock before begin
+    run([]{
+        clearError();
+        Wire.setClock(400000);
+        expect(lastError() == Status::NotInitialized, "setClock before begin");
+        requestExit(0);
+    }, nullptr);
+    clearError();
+
+    // Wire endTransmission before begin
+    run([]{
+        clearError();
+        Wire.beginTransmission(static_cast<byte>(0x50));
+        Wire.write(static_cast<byte>(0x00));
+        byte result = Wire.endTransmission();
+        expect(result == 4, "endTransmission returns 4 before begin");
+        expect(lastError() == Status::NotInitialized, "endTransmission latches NotInitialized");
+        requestExit(0);
+    }, nullptr);
+    clearError();
+
+    // Wire write_read via endTransmission(false) then requestFrom
+    const unsigned char wr_read_data[] = {0xDE, 0xAD};
+    test_set_i2c_read_data(wr_read_data, 2);
+    run([]{
+        clearError();
+        expect(Wire.begin(), "Wire.begin for write_read");
+        Wire.beginTransmission(static_cast<byte>(0x68));
+        Wire.write(static_cast<byte>(0x0F));
+        expect(Wire.endTransmission(false) == 0, "endTransmission(false) ok");
+        const std::size_t count = Wire.requestFrom(static_cast<byte>(0x68), static_cast<std::size_t>(2));
+        expect(count == 2, "requestFrom returned 2");
+        expect(Wire.read() == 0xDE, "write_read byte 0");
+        expect(Wire.read() == 0xAD, "write_read byte 1");
+        expect(Wire.end(), "Wire.end after write_read");
+        requestExit(0);
+    }, nullptr);
+    expect(test_get_i2c_written_address() == 0x68, "write_read to address 0x68");
+    expect(test_get_i2c_written_size() == 1, "write_read command was 1 byte");
+    expect(test_get_i2c_written_byte(0) == 0x0F, "write_read command byte");
+    clearError();
+    test_reset_i2c();
+
+    // Wire write(const char*) overload
+    run([]{
+        clearError();
+        expect(Wire.begin(), "Wire.begin for string write");
+        Wire.beginTransmission(static_cast<byte>(0x50));
+        const std::size_t written = Wire.write("Hi");
+        expect(written == 2, "write string 2 bytes");
+        expect(Wire.endTransmission() == 0, "endTransmission ok");
+        expect(Wire.end(), "Wire.end");
+        requestExit(0);
+    }, nullptr);
+    expect(test_get_i2c_written_size() == 2, "string wrote 2 bytes");
+    expect(test_get_i2c_written_byte(0) == 'H', "string byte 0");
+    expect(test_get_i2c_written_byte(1) == 'i', "string byte 1");
+    clearError();
+    test_reset_i2c();
+}
+
 const mm::test::case_ cases[] = {
     {"runner clean start twice", &runner_clean_start_twice},
     {"status latch first failure", &status_latch_first_failure},
@@ -1055,6 +1321,8 @@ const mm::test::case_ cases[] = {
     {"interrupt edge latched during handler", &interrupt_edge_latched_during_handler},
     {"interrupt dispatch request exit", &interrupt_dispatch_request_exit},
     {"interrupt preserved across runs", &interrupt_preserved_across_runs},
+    {"spi communication", &spi_communication},
+    {"wire communication", &wire_communication},
 };
 
 const mm::test::registrar reg{"mm.sketch", cases};

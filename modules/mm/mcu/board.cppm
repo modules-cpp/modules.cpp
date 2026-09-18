@@ -26,6 +26,21 @@ struct Led {
     bool active_high = true;
 };
 
+// Default SPI wiring on the board.
+struct SpiWiring {
+    unsigned int instance = 0;
+    unsigned int clock_gpio = 0;
+    unsigned int transmit_gpio = 0;
+    std::optional<unsigned int> receive_gpio;
+};
+
+// Default I2C wiring on the board.
+struct I2cWiring {
+    unsigned int instance = 0;
+    unsigned int data_gpio = 0;
+    unsigned int clock_gpio = 0;
+};
+
 // A runtime description supplied by the selected platform provider. gpios is
 // the authoritative inventory: every GPIO the board exposes occurs once. New
 // board-specific device classes can be added as further inventories while
@@ -34,6 +49,8 @@ struct Board {
     std::string_view name;
     std::span<const Gpio> gpios;
     std::optional<Led> led;
+    std::optional<SpiWiring> spi;
+    std::optional<I2cWiring> i2c;
 };
 
 // The selected platform's board description, or an empty description from the

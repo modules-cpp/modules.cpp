@@ -52,7 +52,8 @@ public:
             if (gpio < count)
                 led = mm::mcu::Led{"LED", gpio, mm_pico_mcu_led_active_high() != 0};
         }
-        return {mm_pico_mcu_board_name(), std::span<const mm::mcu::Gpio>{gpios, count}, led};
+        return {mm_pico_mcu_board_name(), std::span<const mm::mcu::Gpio>{gpios, count}, led,
+                mm::mcu::SpiWiring{0, 18, 19, 16}, mm::mcu::I2cWiring{0, 4, 5}};
     }
 
     [[nodiscard]] mm::mcu::Status gpio_configure(unsigned int pin, mm::mcu::Direction direction,

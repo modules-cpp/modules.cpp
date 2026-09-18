@@ -266,6 +266,61 @@ extern SerialPort Serial;
 
 void onSerial(void (*fn)());
 
+enum class SpiMode { Mode0, Mode1, Mode2, Mode3 };
+inline constexpr SpiMode SPI_MODE0 = SpiMode::Mode0;
+inline constexpr SpiMode SPI_MODE1 = SpiMode::Mode1;
+inline constexpr SpiMode SPI_MODE2 = SpiMode::Mode2;
+inline constexpr SpiMode SPI_MODE3 = SpiMode::Mode3;
+
+class SPISettings {
+public:
+    unsigned long clock = 4'000'000;
+    BitOrder bit_order = BitOrder::MsbFirst;
+    SpiMode data_mode = SpiMode::Mode0;
+
+    constexpr SPISettings() = default;
+    constexpr SPISettings(unsigned long clock_speed, BitOrder order, SpiMode mode)
+        : clock(clock_speed), bit_order(order), data_mode(mode) {}
+};
+
+class SPIClass {
+public:
+    bool begin();
+    bool end();
+
+    void beginTransaction(SPISettings settings);
+    void endTransaction();
+
+    byte transfer(byte val);
+    word transfer16(word val);
+    void transfer(void* buffer, std::size_t size);
+    void transfer(byte* buffer, std::size_t size);
+};
+
+extern SPIClass SPI;
+
+class TwoWire {
+public:
+    bool begin();
+    bool end();
+    void setClock(unsigned long clock_speed);
+
+    void beginTransmission(byte address);
+    void beginTransmission(int address);
+    std::size_t write(byte val);
+    std::size_t write(const byte* buffer, std::size_t size);
+    std::size_t write(const char* s);
+    byte endTransmission(bool send_stop = true);
+
+    std::size_t requestFrom(byte address, std::size_t quantity, bool send_stop = true);
+    std::size_t requestFrom(int address, int quantity, int send_stop = 1);
+
+    [[nodiscard]] int available();
+    int read();
+    int peek();
+    void flush();
+};
+
+extern TwoWire Wire;
+
 } // namespace mm::sketch
-
-

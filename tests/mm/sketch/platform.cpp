@@ -46,9 +46,20 @@ public:
     unsigned char feed_byte = 0;
     bool feed_lsb_first = true;
     unsigned int feed_bit_index = 0;
+    bool spi_present = true;
+    bool i2c_present = true;
 
     [[nodiscard]] mm::mcu::Board board() const override {
-        return {"test-board", gpios, mm::mcu::Led{"status", 25, true}};
+        std::optional<mm::mcu::SpiWiring> spi_wiring;
+        std::optional<mm::mcu::I2cWiring> i2c_wiring;
+        if (spi_present) {
+            spi_wiring = mm::mcu::SpiWiring{0, 18, 19, 16};
+        }
+        if (i2c_present) {
+            i2c_wiring = mm::mcu::I2cWiring{0, 4, 5};
+        }
+        return {"test-board", gpios, mm::mcu::Led{"status", 25, true},
+                spi_wiring, i2c_wiring};
     }
 
     [[nodiscard]] mm::mcu::Status gpio_configure(unsigned int pin, mm::mcu::Direction direction,
@@ -153,6 +164,87 @@ public:
     [[nodiscard]] mm::mcu::Status ticks_us(unsigned long& ticks) override {
         if (ticks_fail) return mm::mcu::Status::Unsupported;
         ticks = clock_ticks_us;
+        return mm::mcu::Status::Ok;
+    }
+
+    // SPI mock: loopback (rx = tx ^ spi_xor_mask)
+    bool spi_configured = false;
+    unsigned char spi_xor_mask = 0;
+    bool spi_fail = false;
+    mm::mcu::SpiConfiguration last_spi_config{};
+
+    [[nodiscard]] mm::mcu::Status spi_configure(const mm::mcu::SpiConfiguration& config) override {
+        if (spi_fail) return mm::mcu::Status::TransportError;
+        last_spi_config = config;
+        spi_configured = true;
+        return mm::mcu::Status::Ok;
+    }
+
+    [[nodiscard]] mm::mcu::Status spi_transfer(unsigned int /*instance*/,
+                                               std::span<const std::byte> transmit,
+                                               std::span<std::byte> receive) override {
+        if (spi_fail) return mm::mcu::Status::TransportError;
+        if (!spi_configured) return mm::mcu::Status::BadArgument;
+        if (transmit.size() != receive.size()) return mm::mcu::Status::BadArgument;
+        for (std::size_t i = 0; i < transmit.size(); ++i) {
+            receive[i] = static_cast<std::byte>(
+                static_cast<unsigned char>(transmit[i]) ^ spi_xor_mask);
+        }
+        return mm::mcu::Status::Ok;
+    }
+
+    // I2C mock: buffer-based
+    bool i2c_configured = false;
+    bool i2c_fail = false;
+    std::vector<std::byte> i2c_written;
+    unsigned int i2c_written_address = 0;
+    std::vector<std::byte> i2c_read_data;
+    mm::mcu::I2cConfiguration last_i2c_config{};
+
+    [[nodiscard]] mm::mcu::Status i2c_configure(const mm::mcu::I2cConfiguration& config) override {
+        if (i2c_fail) return mm::mcu::Status::TransportError;
+        last_i2c_config = config;
+        i2c_configured = true;
+        return mm::mcu::Status::Ok;
+    }
+
+    [[nodiscard]] mm::mcu::Status i2c_write(unsigned int /*instance*/, unsigned int address,
+                                            std::span<const std::byte> data) override {
+        if (i2c_fail) return mm::mcu::Status::TransportError;
+        if (!i2c_configured) return mm::mcu::Status::BadArgument;
+        i2c_written_address = address;
+        i2c_written.assign(data.begin(), data.end());
+        return mm::mcu::Status::Ok;
+    }
+
+    [[nodiscard]] mm::mcu::Status i2c_read(unsigned int /*instance*/, unsigned int /*address*/,
+                                           std::span<std::byte> data) override {
+        if (i2c_fail) return mm::mcu::Status::TransportError;
+        if (!i2c_configured) return mm::mcu::Status::BadArgument;
+        const std::size_t count = std::min(data.size(), i2c_read_data.size());
+        for (std::size_t i = 0; i < count; ++i) {
+            data[i] = i2c_read_data[i];
+        }
+        for (std::size_t i = count; i < data.size(); ++i) {
+            data[i] = std::byte{0xFF};
+        }
+        return mm::mcu::Status::Ok;
+    }
+
+    [[nodiscard]] mm::mcu::Status i2c_write_read(unsigned int /*instance*/, unsigned int address,
+                                                 std::span<const std::byte> command,
+                                                 std::span<std::byte> data) override {
+        if (i2c_fail) return mm::mcu::Status::TransportError;
+        if (!i2c_configured) return mm::mcu::Status::BadArgument;
+        i2c_written_address = address;
+        i2c_written.assign(command.begin(), command.end());
+        const std::size_t count = std::min(data.size(), i2c_read_data.size());
+        for (std::size_t i = 0; i < count; ++i) {
+            data[i] = i2c_read_data[i];
+        }
+        for (std::size_t i = count; i < data.size(); ++i) {
+            data[i] = std::byte{0xFF};
+        }
         return mm::mcu::Status::Ok;
     }
 };
@@ -340,4 +432,59 @@ void test_setup_pulse(unsigned int pin, std::initializer_list<bool> levels, unsi
 void test_clear_pulse() {
     platform_instance.feed_pulse = false;
     platform_instance.feed_pulse_levels.clear();
+}
+
+void test_set_spi_present(bool present) {
+    platform_instance.spi_present = present;
+}
+
+void test_set_spi_fail(bool fail) {
+    platform_instance.spi_fail = fail;
+}
+
+void test_set_spi_xor_mask(unsigned char mask) {
+    platform_instance.spi_xor_mask = mask;
+}
+
+void test_reset_spi() {
+    platform_instance.spi_configured = false;
+    platform_instance.spi_xor_mask = 0;
+    platform_instance.spi_fail = false;
+    platform_instance.spi_present = true;
+}
+
+void test_set_i2c_present(bool present) {
+    platform_instance.i2c_present = present;
+}
+
+void test_set_i2c_fail(bool fail) {
+    platform_instance.i2c_fail = fail;
+}
+
+void test_set_i2c_read_data(const unsigned char* data, std::size_t size) {
+    platform_instance.i2c_read_data.clear();
+    for (std::size_t i = 0; i < size; ++i) {
+        platform_instance.i2c_read_data.push_back(static_cast<std::byte>(data[i]));
+    }
+}
+
+std::size_t test_get_i2c_written_size() {
+    return platform_instance.i2c_written.size();
+}
+
+unsigned char test_get_i2c_written_byte(std::size_t idx) {
+    return static_cast<unsigned char>(platform_instance.i2c_written[idx]);
+}
+
+unsigned int test_get_i2c_written_address() {
+    return platform_instance.i2c_written_address;
+}
+
+void test_reset_i2c() {
+    platform_instance.i2c_configured = false;
+    platform_instance.i2c_fail = false;
+    platform_instance.i2c_present = true;
+    platform_instance.i2c_written.clear();
+    platform_instance.i2c_written_address = 0;
+    platform_instance.i2c_read_data.clear();
 }

@@ -10,7 +10,7 @@ release: v1.2.3
 
 # Status and authority
 
-This document specifies mm.sketch, the module providing Arduino sketch compatibility for modules.cpp applications. It describes implemented behavior for stages 1, 2, 3, and 4 (release v1.2.3). Features scheduled for later stages are explicitly identified as planned.
+This document specifies mm.sketch, the module providing Arduino sketch compatibility for modules.cpp applications. It describes implemented behavior for stages 1, 2, 3, 4, and 6 (release v1.2.3). Features scheduled for later stages are explicitly identified as planned.
 
 docs/modules-ino.mdy specifies the mm.ino preprocessor that transforms sketch source files into an application translation unit; docs/modules-c++20.mdy owns the language dialect, include permissions, and linkage rules; docs/modules-platform-mcu.mdy owns the underlying MCU facilities; docs/modules-stdio.mdy owns the platform console interface; docs/modules-execution.mdy owns the execution model and loop scheduling.
 
@@ -424,6 +424,93 @@ setTimeout configures the read timeout in milliseconds (defaulting to 1000 milli
 find and findUntil perform streaming Knuth-Morris-Pratt pattern matching, supporting overlapping prefixes across stream slices without backtrack. parseInt parses signed integers into a signed long; values overflowing the representable range [LONG_MIN, LONG_MAX] are clamped to LONG_MAX or LONG_MIN and latch Status::BadArgument.
 
 onSerial registers a callback invoked from dispatch once per pass whenever unread bytes remain in the receive ring buffer.
+
+### SPI
+
+Opening fence
+enum class SpiMode { Mode0, Mode1, Mode2, Mode3 };
+
+inline constexpr SpiMode SPI_MODE0 = SpiMode::Mode0;
+inline constexpr SpiMode SPI_MODE1 = SpiMode::Mode1;
+inline constexpr SpiMode SPI_MODE2 = SpiMode::Mode2;
+inline constexpr SpiMode SPI_MODE3 = SpiMode::Mode3;
+
+class SPISettings {
+public:
+    unsigned long clock = 4'000'000;
+    BitOrder bit_order = BitOrder::MsbFirst;
+    SpiMode data_mode = SpiMode::Mode0;
+
+    constexpr SPISettings() = default;
+    constexpr SPISettings(unsigned long clock_speed, BitOrder order, SpiMode mode);
+};
+
+class SPIClass {
+public:
+    bool begin();
+    bool end();
+    void beginTransaction(SPISettings settings);
+    void endTransaction();
+    byte transfer(byte val);
+    word transfer16(word val);
+    void transfer(void* buffer, std::size_t size);
+    void transfer(byte* buffer, std::size_t size);
+};
+
+extern SPIClass SPI;
+Closing fence
+
+SPI provides Arduino-compatible SPI master communication over mm.mcu's spi_configure and spi_transfer.
+
+begin initializes the SPI bus using the board's default SPI wiring (clock, transmit, and optional receive GPIOs) with default settings of 4 MHz, MSBFIRST, SPI_MODE0. If the board declares no SPI wiring, begin returns false and latches Status::Unsupported. end releases the bus; the object may be restarted with begin.
+
+beginTransaction applies a new SPISettings (clock speed, bit order, and SPI mode) by reconfiguring the underlying SPI peripheral via mm.mcu spi_configure. If begin has not been called, beginTransaction latches Status::NotInitialized. endTransaction is a no-op placeholder for symmetry.
+
+transfer(byte) performs a full-duplex single-byte exchange and returns the received byte. transfer16(word) performs a two-byte full-duplex exchange, serializing and deserializing according to the current bit order. transfer(void*, size) and transfer(byte*, size) perform in-place full-duplex buffer exchanges: the buffer is overwritten with received data.
+
+SPISettings bundles clock speed, bit order, and SPI mode. The three SPI mode constants (SPI_MODE0 through SPI_MODE3) map to mm::mcu::SpiMode::Mode0 through Mode3.
+
+### Wire (I2C)
+
+Opening fence
+class TwoWire {
+public:
+    bool begin();
+    bool end();
+    void setClock(unsigned long clock_speed);
+
+    void beginTransmission(byte address);
+    void beginTransmission(int address);
+    std::size_t write(byte val);
+    std::size_t write(const byte* buffer, std::size_t size);
+    std::size_t write(const char* s);
+    byte endTransmission(bool send_stop = true);
+
+    std::size_t requestFrom(byte address, std::size_t quantity, bool send_stop = true);
+    std::size_t requestFrom(int address, int quantity, int send_stop = 1);
+
+    [[nodiscard]] int available();
+    int read();
+    int peek();
+    void flush();
+};
+
+extern TwoWire Wire;
+Closing fence
+
+Wire provides Arduino-compatible I2C master communication over mm.mcu's i2c_configure, i2c_write, i2c_read, and i2c_write_read.
+
+begin initializes the I2C bus using the board's default I2C wiring (data and clock GPIOs) at 100 kHz. If the board declares no I2C wiring, begin returns false and latches Status::Unsupported. Wire.begin(addr) and the slave callbacks onReceive/onRequest are declined: mm.mcu is a master-only interface. end releases the bus.
+
+setClock reconfigures the I2C clock speed. If begin has not been called, setClock latches Status::NotInitialized.
+
+beginTransmission prepares a write transaction to the given seven-bit address. write buffers bytes into an internal thirty-two-byte transmit buffer. Writing beyond the buffer capacity returns 0 and sets an overflow flag. write(const char*) writes the string without its null terminator.
+
+endTransmission executes the buffered write via mm.mcu i2c_write. It returns an Arduino-compatible status code: 0 on success, 1 if the transmit buffer overflowed, 2 on address NACK (BadArgument), 4 on other error, 5 on timeout. If send_stop is false, the write is deferred so that a subsequent requestFrom to the same address executes the combined write-then-read as a single mm.mcu i2c_write_read transaction, preserving bus arbitration.
+
+requestFrom reads up to min(quantity, 32) bytes from the given address into an internal receive buffer. If a deferred write is pending for the same address, the operation becomes a combined write-then-read. Returns the number of bytes received.
+
+available returns the count of unread bytes in the receive buffer. read returns the next byte and advances the read head, or -1 if the buffer is exhausted. peek returns the next byte without advancing the head, or -1. flush is a no-op.
 
 ## Variables, types, and constants
 
