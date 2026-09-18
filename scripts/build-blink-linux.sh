@@ -1,8 +1,8 @@
 #!/bin/sh
-# Build apps/blink for a native Linux lane, and verify what came out.
+# Build apps/ino/blink for a native Linux lane, and verify what came out.
 #
 # Like the other Linux scripts, this proves provider injection resolves the
-# application's closure: apps/blink uses mm.sketch, which uses mm.mcu and
+# application's closure: apps/ino/blink uses mm.sketch, which uses mm.mcu and
 # mm.stdio. On Linux, this resolves to platform.linux.mcu, platform.linux.stdio,
 # and platform.linux.defaults (or the board map). The four unused providers
 # (display, touch, imu, rtc) must be absent from the image.
@@ -13,7 +13,7 @@ script_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$script_dir"
 
 app=blink
-app_path=apps/blink
+app_path=apps/ino/blink
 control_app=target-smoke-any
 run_app=no
 compiler=

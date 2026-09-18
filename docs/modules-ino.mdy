@@ -35,19 +35,19 @@ When the target directory contains mm.mdy:
 ## Directory without a manifest
 
 When the target directory contains no mm.mdy:
-1. The tool searches for a primary sketch whose filename matches the directory name: <directory>/<directory>.ino (for example, apps/blink/blink.ino).
+1. The tool searches for a primary sketch whose filename matches the directory name: <directory>/<directory>.ino (for example, apps/ino/blink/blink.ino).
 2. If this file is absent, or if additional .ino files exist in the directory, the tool reports an error explaining the naming convention.
 3. The tool generates an initial manifest (mm.mdy) specifying mm: 1.3, kind: app, name set to the directory basename, use: mm.sketch, and sketch: naming the single sketch file.
 4. Subsequent invocations follow the manifest-driven rule above.
 
 ## Parent registration check
 
-An application must be declared via folder: in its parent manifest (such as apps/mm.mdy) for the build system and test runners to discover it.
+An application must be declared via folder: in its parent manifest (such as apps/ino/mm.mdy) for the build system and test runners to discover it.
 
 When generating code for an application not yet registered in its parent manifest, sketch outputs a diagnostic on its final line:
 
 Opening fence
-apps/mm.mdy does not name blink; add folder: blink
+apps/ino/mm.mdy does not name blink; add folder: blink
 Closing fence
 
 The generation succeeds and exits zero, alerting the developer to add the folder declaration. Under sketch --check, however, an unregistered folder causes the check to fail with exit code 65.
@@ -129,7 +129,7 @@ main.cpp is committed to version control beside its source sketch, allowing code
 The integrity of generated files is verified via:
 
 Opening fence
-./sketch --check apps/blink/
+./sketch --check apps/ino/blink/
 Closing fence
 
 The check mode regenerates the content in memory, compares it byte-for-byte with main.cpp on disk, and verifies parent registration in mm.mdy. Any discrepancy produces an error message and a non-zero exit code.

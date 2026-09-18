@@ -1,5 +1,5 @@
 #!/bin/sh
-# Build apps/blink through the Pico SDK bridge and inspect the resulting image.
+# Build apps/ino/blink through the Pico SDK bridge and inspect the resulting image.
 # This proves provider selection (platform.pico.mcu, platform.pico.stdio), link,
 # and UF2 structure.
 set -eu
@@ -59,6 +59,7 @@ esac
 nm_command="$target-nm"
 readelf_command="$target-readelf"
 app=blink
+app_path=apps/ino/blink
 control_app=target-smoke-any
 
 mm_pico_tools=${MM_PICO_TOOLS:-"$script_dir/platforms/pico/pico-sdk"}
@@ -130,9 +131,9 @@ echo "  app    $app"
     --board "$board" \
     --build debug
 
-picotool_DIR="$mm_picotool_dir" ./build --target "apps/$app/"
+picotool_DIR="$mm_picotool_dir" ./build --target "$app_path/"
 
-binary="out-target-$target/apps/$app/$app"
+binary="out-target-$target/$app_path/$app"
 for artifact in \
     "$binary" \
     "$binary.bin" \
@@ -220,4 +221,4 @@ fi
 trap - 0
 
 echo "PASS: $test_name"
-echo "Hardware check: flash apps/$app/ and observe LED blinking and USB CDC output"
+echo "Hardware check: flash $app_path/ and observe LED blinking and USB CDC output"
