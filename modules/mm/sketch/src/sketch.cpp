@@ -226,14 +226,14 @@ static unsigned int analog_write_resolution_ = 8;
 
 constexpr std::uint64_t arduino_pwm_period_ns = 2'040'816; // 490 Hz
 
-constexpr std::size_t max_pwm_outputs = 32;
+constexpr std::size_t max_pwm_outputs = 64;
 struct PwmState {
     bool configured = false;
     std::uint64_t period_ns = 0;
 };
 static PwmState pwm_states_[max_pwm_outputs]{};
 
-constexpr std::size_t max_adc_channels = 32;
+constexpr std::size_t max_adc_channels = 64;
 static bool adc_configured_[max_adc_channels]{};
 
 struct ActiveTone {
@@ -241,7 +241,8 @@ struct ActiveTone {
     unsigned int pin = 0;
     unsigned int output = 0;
     bool has_deadline = false;
-    unsigned long end_ms = 0;
+    unsigned long start_ms = 0;
+    unsigned long duration_ms = 0;
 };
 constexpr std::size_t max_tones = 8;
 static ActiveTone active_tones_[max_tones]{};
@@ -251,7 +252,8 @@ void check_tones() {
     if (mm::mcu::ticks_ms(now) == mm::mcu::Status::Ok) {
         for (std::size_t i = 0; i < max_tones; ++i) {
             if (active_tones_[i].active && active_tones_[i].has_deadline) {
-                if (static_cast<long>(now - active_tones_[i].end_ms) >= 0) {
+                const unsigned long elapsed = now - active_tones_[i].start_ms;
+                if (elapsed >= active_tones_[i].duration_ms) {
                     const char* const saved_call = active_call_;
                     active_call_ = nullptr;
                     noTone(active_tones_[i].pin);
@@ -397,19 +399,32 @@ int run(Setup setup, Loop loop) {
     analog_read_resolution_ = 10;
     analog_write_resolution_ = 8;
 
-    for (std::size_t i = 0; i < max_tones; ++i) {
-        active_tones_[i] = {};
-    }
     for (std::size_t i = 0; i < max_pwm_outputs; ++i) {
         if (pwm_states_[i].configured) {
-            (void)mm::mcu::pwm_release(i);
-            pwm_states_[i] = {};
+            const auto st = mm::mcu::pwm_release(i);
+            if (st == mm::mcu::Status::Ok) {
+                pwm_states_[i] = {};
+            } else {
+                record_failure(from(st), "run");
+            }
         }
     }
     for (std::size_t i = 0; i < max_adc_channels; ++i) {
         if (adc_configured_[i]) {
-            (void)mm::mcu::adc_release(i);
-            adc_configured_[i] = false;
+            const auto st = mm::mcu::adc_release(i);
+            if (st == mm::mcu::Status::Ok) {
+                adc_configured_[i] = false;
+            } else {
+                record_failure(from(st), "run");
+            }
+        }
+    }
+    for (std::size_t i = 0; i < max_tones; ++i) {
+        if (active_tones_[i].active) {
+            if (active_tones_[i].output < max_pwm_outputs &&
+                !pwm_states_[active_tones_[i].output].configured) {
+                active_tones_[i] = {};
+            }
         }
     }
 
@@ -435,19 +450,32 @@ int run(Setup setup, Loop loop) {
     }
 
     flush_pending_wire_write();
-    for (std::size_t i = 0; i < max_tones; ++i) {
-        active_tones_[i] = {};
-    }
     for (std::size_t i = 0; i < max_pwm_outputs; ++i) {
         if (pwm_states_[i].configured) {
-            (void)mm::mcu::pwm_release(i);
-            pwm_states_[i] = {};
+            const auto st = mm::mcu::pwm_release(i);
+            if (st == mm::mcu::Status::Ok) {
+                pwm_states_[i] = {};
+            } else {
+                record_failure(from(st), "run");
+            }
         }
     }
     for (std::size_t i = 0; i < max_adc_channels; ++i) {
         if (adc_configured_[i]) {
-            (void)mm::mcu::adc_release(i);
-            adc_configured_[i] = false;
+            const auto st = mm::mcu::adc_release(i);
+            if (st == mm::mcu::Status::Ok) {
+                adc_configured_[i] = false;
+            } else {
+                record_failure(from(st), "run");
+            }
+        }
+    }
+    for (std::size_t i = 0; i < max_tones; ++i) {
+        if (active_tones_[i].active) {
+            if (active_tones_[i].output < max_pwm_outputs &&
+                !pwm_states_[active_tones_[i].output].configured) {
+                active_tones_[i] = {};
+            }
         }
     }
     const int code = exit_code_;
@@ -571,15 +599,17 @@ int analogRead(unsigned int pin) {
         record_failure(Status::BadArgument, "analogRead");
         return 0;
     }
+    if (channel >= max_adc_channels) {
+        record_failure(Status::Unsupported, "analogRead");
+        return 0;
+    }
 
     const auto status = mm::mcu::adc_configure(channel);
     if (status != mm::mcu::Status::Ok) {
         record_failure(from(status), "analogRead");
         return 0;
     }
-    if (channel < max_adc_channels) {
-        adc_configured_[channel] = true;
-    }
+    adc_configured_[channel] = true;
 
     unsigned int raw_count = 0;
     const auto read_status = mm::mcu::adc_read(channel, raw_count);
@@ -623,20 +653,29 @@ void analogWrite(unsigned int pin, int value) {
         record_failure(Status::BadArgument, "analogWrite");
         return;
     }
-
-    for (std::size_t i = 0; i < max_tones; ++i) {
-        if (active_tones_[i].active && active_tones_[i].output == output) {
-            active_tones_[i].active = false;
-        }
+    if (output >= max_pwm_outputs) {
+        record_failure(Status::Unsupported, "analogWrite");
+        return;
     }
 
     bool need_configure = true;
-    if (output < max_pwm_outputs && pwm_states_[output].configured) {
+    if (pwm_states_[output].configured) {
         if (pwm_states_[output].period_ns == arduino_pwm_period_ns) {
             need_configure = false;
         } else {
-            (void)mm::mcu::pwm_release(output);
+            const auto st = mm::mcu::pwm_release(output);
+            if (st != mm::mcu::Status::Ok) {
+                record_failure(from(st), "analogWrite");
+                return;
+            }
             pwm_states_[output].configured = false;
+            pwm_states_[output].period_ns = 0;
+        }
+    }
+
+    for (std::size_t i = 0; i < max_tones; ++i) {
+        if (active_tones_[i].active && active_tones_[i].output == output) {
+            active_tones_[i] = {};
         }
     }
 
@@ -646,10 +685,8 @@ void analogWrite(unsigned int pin, int value) {
             record_failure(from(st), "analogWrite");
             return;
         }
-        if (output < max_pwm_outputs) {
-            pwm_states_[output].configured = true;
-            pwm_states_[output].period_ns = arduino_pwm_period_ns;
-        }
+        pwm_states_[output].configured = true;
+        pwm_states_[output].period_ns = arduino_pwm_period_ns;
     }
 
     std::uint64_t actual_period_ns = 0;
@@ -704,6 +741,10 @@ void tone(unsigned int pin, unsigned int frequency, unsigned long duration) {
         noTone(pin);
         return;
     }
+    if (duration > (ULONG_MAX / 2UL)) {
+        record_failure(Status::BadArgument, "tone");
+        return;
+    }
     const auto desc = mm::mcu::pwm_description();
     if (desc.outputs.empty()) {
         record_failure(Status::Unsupported, "tone");
@@ -715,46 +756,14 @@ void tone(unsigned int pin, unsigned int frequency, unsigned long duration) {
         record_failure(Status::BadArgument, "tone");
         return;
     }
+    if (output >= max_pwm_outputs) {
+        record_failure(Status::Unsupported, "tone");
+        return;
+    }
 
     const std::uint64_t period_ns = 1'000'000'000ULL / frequency;
     if (period_ns == 0) {
         record_failure(Status::BadArgument, "tone");
-        return;
-    }
-
-    bool need_configure = true;
-    if (output < max_pwm_outputs && pwm_states_[output].configured) {
-        if (pwm_states_[output].period_ns == period_ns) {
-            need_configure = false;
-        } else {
-            (void)mm::mcu::pwm_release(output);
-            pwm_states_[output].configured = false;
-        }
-    }
-
-    if (need_configure) {
-        const auto st = mm::mcu::pwm_configure(output, period_ns);
-        if (st != mm::mcu::Status::Ok) {
-            record_failure(from(st), "tone");
-            return;
-        }
-        if (output < max_pwm_outputs) {
-            pwm_states_[output].configured = true;
-            pwm_states_[output].period_ns = period_ns;
-        }
-    }
-
-    std::uint64_t actual_period_ns = 0;
-    auto st = mm::mcu::pwm_period(output, actual_period_ns);
-    if (st != mm::mcu::Status::Ok) {
-        record_failure(from(st), "tone");
-        return;
-    }
-
-    const std::uint64_t duty_ns = actual_period_ns / 2;
-    st = mm::mcu::pwm_write(output, duty_ns);
-    if (st != mm::mcu::Status::Ok) {
-        record_failure(from(st), "tone");
         return;
     }
 
@@ -773,20 +782,80 @@ void tone(unsigned int pin, unsigned int frequency, unsigned long duration) {
             }
         }
     }
+
+    unsigned long now = 0;
+    if (duration > 0) {
+        if (slot == max_tones) {
+            record_failure(Status::Busy, "tone");
+            return;
+        }
+        const auto clk_st = mm::mcu::ticks_ms(now);
+        if (clk_st != mm::mcu::Status::Ok) {
+            record_failure(from(clk_st), "tone");
+            return;
+        }
+    }
+
+    bool need_configure = true;
+    if (pwm_states_[output].configured) {
+        if (pwm_states_[output].period_ns == period_ns) {
+            need_configure = false;
+        } else {
+            const auto st = mm::mcu::pwm_release(output);
+            if (st != mm::mcu::Status::Ok) {
+                record_failure(from(st), "tone");
+                return;
+            }
+            pwm_states_[output].configured = false;
+            pwm_states_[output].period_ns = 0;
+        }
+    }
+
+    if (need_configure) {
+        const auto st = mm::mcu::pwm_configure(output, period_ns);
+        if (st != mm::mcu::Status::Ok) {
+            if (slot < max_tones && active_tones_[slot].output == output) {
+                active_tones_[slot] = {};
+            }
+            record_failure(from(st), "tone");
+            return;
+        }
+        pwm_states_[output].configured = true;
+        pwm_states_[output].period_ns = period_ns;
+    }
+
+    std::uint64_t actual_period_ns = 0;
+    auto st = mm::mcu::pwm_period(output, actual_period_ns);
+    if (st != mm::mcu::Status::Ok) {
+        if (slot < max_tones && active_tones_[slot].output == output) {
+            active_tones_[slot] = {};
+        }
+        record_failure(from(st), "tone");
+        return;
+    }
+
+    const std::uint64_t duty_ns = actual_period_ns / 2;
+    st = mm::mcu::pwm_write(output, duty_ns);
+    if (st != mm::mcu::Status::Ok) {
+        if (slot < max_tones && active_tones_[slot].output == output) {
+            active_tones_[slot] = {};
+        }
+        record_failure(from(st), "tone");
+        return;
+    }
+
     if (slot < max_tones) {
         active_tones_[slot].active = true;
         active_tones_[slot].pin = pin;
         active_tones_[slot].output = output;
         if (duration > 0) {
-            unsigned long now = 0;
-            if (mm::mcu::ticks_ms(now) == mm::mcu::Status::Ok) {
-                active_tones_[slot].has_deadline = true;
-                active_tones_[slot].end_ms = now + duration;
-            } else {
-                active_tones_[slot].has_deadline = false;
-            }
+            active_tones_[slot].has_deadline = true;
+            active_tones_[slot].start_ms = now;
+            active_tones_[slot].duration_ms = duration;
         } else {
             active_tones_[slot].has_deadline = false;
+            active_tones_[slot].start_ms = 0;
+            active_tones_[slot].duration_ms = 0;
         }
     }
 }
@@ -804,23 +873,24 @@ void noTone(unsigned int pin) {
         record_failure(Status::BadArgument, "noTone");
         return;
     }
+    if (output >= max_pwm_outputs) {
+        record_failure(Status::Unsupported, "noTone");
+        return;
+    }
 
-    if (output < max_pwm_outputs) {
-        if (pwm_states_[output].configured) {
-            const auto st = mm::mcu::pwm_release(output);
-            if (st != mm::mcu::Status::Ok) {
-                record_failure(from(st), "noTone");
-            }
-            pwm_states_[output].configured = false;
-            pwm_states_[output].period_ns = 0;
+    if (pwm_states_[output].configured) {
+        const auto st = mm::mcu::pwm_release(output);
+        if (st != mm::mcu::Status::Ok) {
+            record_failure(from(st), "noTone");
+            return;
         }
-    } else {
-        (void)mm::mcu::pwm_release(output);
+        pwm_states_[output].configured = false;
+        pwm_states_[output].period_ns = 0;
     }
 
     for (std::size_t i = 0; i < max_tones; ++i) {
         if (active_tones_[i].active && active_tones_[i].output == output) {
-            active_tones_[i].active = false;
+            active_tones_[i] = {};
         }
     }
 }

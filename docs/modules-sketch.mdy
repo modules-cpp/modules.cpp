@@ -207,7 +207,7 @@ shiftIn and shiftOut provide bit-banged synchronous serial communication over di
 
 pulseIn and pulseInLong measure the duration of a pulse on pin in microseconds, timing out after timeout microseconds (defaulting to 1 second) and returning 0 if the pulse does not transition or complete within the deadline.
 
-tone generates a 50% duty cycle square wave of the specified frequency in Hertz on pin via mm.mcu PWM. If frequency is 0, tone acts as noTone. An optional duration in milliseconds specifies playback length; when duration > 0, tone expiration is evaluated during dispatch and terminates automatically once the deadline is reached. noTone stops wave generation and releases the PWM output. Calling noTone on an idle pin is a safe no-op.
+tone generates a 50% duty cycle square wave of the specified frequency in Hertz on pin via mm.mcu PWM. If frequency is 0, tone acts as noTone. An optional duration in milliseconds specifies playback length; when duration > 0, tone expiration is evaluated during dispatch and terminates automatically once the deadline is reached. Durations exceeding half the unsigned long range are rejected with Status::BadArgument. Timed tones require an available slot in the concurrent tone table (up to 8 concurrent timed tones) and an operational clock; if no slot is available, Status::Busy is recorded without claiming or starting the output. noTone stops wave generation and releases the PWM output. Calling noTone on an idle pin is a safe no-op.
 
 ## Time
 

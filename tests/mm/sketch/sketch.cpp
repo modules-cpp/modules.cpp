@@ -51,6 +51,7 @@ extern void test_adc_set_count(unsigned int channel, unsigned int count);
 extern bool test_adc_is_configured(unsigned int channel);
 extern void test_set_adc_present(bool present);
 extern void test_set_adc_fail(bool fail);
+extern void test_set_adc_release_fail(bool fail);
 extern void test_reset_adc();
 
 extern bool test_pwm_is_configured(unsigned int output);
@@ -58,6 +59,7 @@ extern std::uint64_t test_pwm_get_duty(unsigned int output);
 extern std::uint64_t test_pwm_get_actual_period(unsigned int output);
 extern void test_set_pwm_present(bool present);
 extern void test_set_pwm_fail(bool fail);
+extern void test_set_pwm_release_fail(bool fail);
 extern void test_reset_pwm();
 
 namespace {
@@ -1513,6 +1515,32 @@ void analog_write_operations() {
     expect(lastError() == Status::Ok, "no error on analogWrite(LED_BUILTIN, 128)");
     noTone(25);
 
+    // Output 40 (Pico outputs 32..47)
+    analogWrite(20, 128);
+    expect(test_pwm_is_configured(40), "PWM output 40 configured");
+    expect(lastError() == Status::Ok, "no error on output 40");
+    noTone(20);
+
+    // Output >= 64 rejected
+    analogWrite(21, 128);
+    expect(lastError() == Status::Unsupported, "analogWrite on output >= 64 is Unsupported");
+    expect(lastCall() == std::string_view{"analogWrite"}, "lastCall is analogWrite");
+    expect(!test_pwm_is_configured(64), "output 64 not configured");
+    clearError();
+
+    // Release failure in analogWrite
+    tone(0, 1000);
+    expect(test_pwm_is_configured(0), "tone configured on pin 0");
+    test_set_pwm_release_fail(true);
+    analogWrite(0, 128);
+    expect(lastError() == Status::TransportError, "analogWrite release failure is TransportError");
+    expect(lastCall() == std::string_view{"analogWrite"}, "lastCall is analogWrite");
+    expect(test_pwm_is_configured(0), "claim kept after release failure");
+    clearError();
+    test_set_pwm_release_fail(false);
+    noTone(0);
+    expect(!test_pwm_is_configured(0), "released after fail cleared");
+
     // Invalid pin
     analogWrite(99, 128);
     expect(lastError() == Status::BadArgument, "analogWrite on invalid pin is BadArgument");
@@ -1593,6 +1621,98 @@ void tone_and_no_tone_operations() {
     expect(test_pwm_get_actual_period(0) == 2'040'816, "period is 490 Hz again");
     noTone(0);
 
+    // Release failure in tone
+    analogWrite(0, 128);
+    expect(test_pwm_is_configured(0), "analogWrite configured on pin 0");
+    test_set_pwm_release_fail(true);
+    tone(0, 1000);
+    expect(lastError() == Status::TransportError, "tone release failure is TransportError");
+    expect(lastCall() == std::string_view{"tone"}, "lastCall is tone");
+    expect(test_pwm_is_configured(0), "claim kept after release failure in tone");
+    clearError();
+    test_set_pwm_release_fail(false);
+    noTone(0);
+
+    // Release failure in noTone
+    tone(0, 1000);
+    test_set_pwm_release_fail(true);
+    noTone(0);
+    expect(lastError() == Status::TransportError, "noTone release failure is TransportError");
+    expect(lastCall() == std::string_view{"noTone"}, "lastCall is noTone");
+    expect(test_pwm_is_configured(0), "claim kept after release failure in noTone");
+    clearError();
+    test_set_pwm_release_fail(false);
+    noTone(0);
+    expect(!test_pwm_is_configured(0), "released after fail cleared in noTone");
+
+    // Output 40 and output 64 in tone / noTone
+    tone(20, 1000);
+    expect(test_pwm_is_configured(40), "output 40 configured for tone");
+    noTone(20);
+    expect(!test_pwm_is_configured(40), "output 40 released");
+
+    tone(21, 1000);
+    expect(lastError() == Status::Unsupported, "tone on output >= 64 is Unsupported");
+    expect(lastCall() == std::string_view{"tone"}, "lastCall is tone");
+    expect(!test_pwm_is_configured(64), "output 64 not configured");
+    clearError();
+
+    noTone(21);
+    expect(lastError() == Status::Unsupported, "noTone on output >= 64 is Unsupported");
+    expect(lastCall() == std::string_view{"noTone"}, "lastCall is noTone");
+    clearError();
+
+    // 9 concurrent timed tones (table capacity is 8)
+    for (unsigned int p = 0; p < 8; ++p) {
+        tone(p, 500 + p * 50, 10000);
+        expect(test_pwm_is_configured(p), "tone on pin configured");
+        expect(lastError() == Status::Ok, "tone Ok");
+    }
+    tone(8, 1000, 10000);
+    expect(lastError() == Status::Busy, "9th timed tone is Busy");
+    expect(lastCall() == std::string_view{"tone"}, "lastCall is tone");
+    expect(!test_pwm_is_configured(8), "9th output not configured");
+    clearError();
+
+    noTone(0);
+    expect(!test_pwm_is_configured(0), "slot 0 freed");
+    tone(8, 1000, 10000);
+    expect(lastError() == Status::Ok, "pin 8 now succeeds");
+    expect(test_pwm_is_configured(8), "pin 8 configured");
+    for (unsigned int p = 1; p <= 8; ++p) {
+        noTone(p);
+    }
+
+    // Clock failure on timed tone
+    test_set_ticks_fail(true);
+    tone(0, 1000, 50);
+    expect(lastError() == Status::Unsupported, "timed tone with clock fail is Unsupported");
+    expect(lastCall() == std::string_view{"tone"}, "lastCall is tone");
+    expect(!test_pwm_is_configured(0), "output not claimed when clock fails");
+    clearError();
+    test_set_ticks_fail(false);
+
+    // Duration bounds (> ULONG_MAX / 2)
+    tone(0, 1000, (ULONG_MAX / 2UL) + 1UL);
+    expect(lastError() == Status::BadArgument, "tone duration > ULONG_MAX/2 is BadArgument");
+    expect(lastCall() == std::string_view{"tone"}, "lastCall is tone");
+    expect(!test_pwm_is_configured(0), "output not configured on invalid duration");
+    clearError();
+
+    tone(0, 1000, ULONG_MAX);
+    expect(lastError() == Status::BadArgument, "tone duration ULONG_MAX is BadArgument");
+    expect(lastCall() == std::string_view{"tone"}, "lastCall is tone");
+    expect(!test_pwm_is_configured(0), "output not configured on invalid duration");
+    clearError();
+
+    // Large duration within safe half-range does not immediately expire
+    tone(0, 1000, ULONG_MAX / 2UL);
+    expect(lastError() == Status::Ok, "tone with ULONG_MAX/2 is Ok");
+    expect(test_pwm_is_configured(0), "tone configured");
+    delay(10);
+    expect(test_pwm_is_configured(0), "tone still active after 10ms");
+    noTone(0);
+
     // Invalid pin
     tone(99, 440);
     expect(lastError() == Status::BadArgument, "tone on invalid pin is BadArgument");
@@ -1636,6 +1756,38 @@ void runner_releases_analog_on_exit() {
     expect(!test_pwm_is_configured(0), "PWM is released when run exits");
     expect(!test_adc_is_configured(0), "ADC is released when run exits");
     expect(lastError() == Status::Ok, "no error during runner analog test");
+
+    // Test PWM release failure in run()
+    test_set_pwm_release_fail(true);
+    run([]{
+        analogWrite(0, 128);
+        expect(test_pwm_is_configured(0), "PWM is configured during run");
+        requestExit(0);
+    }, nullptr);
+    expect(test_pwm_is_configured(0), "PWM output claim kept when release failed in run");
+    expect(lastError() == Status::TransportError, "lastError is TransportError from run release failure");
+    expect(lastCall() == std::string_view{"run"}, "lastCall is run");
+    clearError();
+    test_set_pwm_release_fail(false);
+    noTone(0);
+    expect(!test_pwm_is_configured(0), "PWM released after clearing failure");
+
+    // Test ADC release failure in run()
+    test_set_adc_release_fail(true);
+    run([]{
+        test_adc_set_count(0, 500);
+        int v = analogRead(26);
+        expect(v > 0, "analogRead succeeds during run");
+        expect(test_adc_is_configured(0), "ADC configured during run");
+        requestExit(0);
+    }, nullptr);
+    expect(test_adc_is_configured(0), "ADC channel claim kept when release failed in run");
+    expect(lastError() == Status::TransportError, "lastError is TransportError from run ADC release failure");
+    expect(lastCall() == std::string_view{"run"}, "lastCall is run");
+    clearError();
+    test_set_adc_release_fail(false);
+    run([]{ requestExit(0); }, nullptr);
+    expect(!test_adc_is_configured(0), "ADC released after clean run");
 }
 
 const mm::test::case_ cases[] = {

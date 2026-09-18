@@ -38,10 +38,17 @@ constexpr std::uint64_t pwm_longest = 134'000'000;
 
 constexpr mm::mcu::PwmOutput test_pwm_outputs[] = {
     {0, "PWM0", 0, 0, 0, pwm_shortest, pwm_longest},
-    {1, "PWM1", 1, 0, 1, pwm_shortest, pwm_longest},
-    {2, "PWM2", 2, 1, 0, pwm_shortest, pwm_longest},
-    {3, "PWM3", 3, 2, 0, 0, 0},
-    {9, "PWM9", 25, 4, 1, pwm_shortest, pwm_longest},
+    {1, "PWM1", 1, 1, 0, pwm_shortest, pwm_longest},
+    {2, "PWM2", 2, 2, 0, pwm_shortest, pwm_longest},
+    {3, "PWM3", 3, 3, 0, pwm_shortest, pwm_longest},
+    {4, "PWM4", 4, 4, 0, pwm_shortest, pwm_longest},
+    {5, "PWM5", 5, 5, 0, pwm_shortest, pwm_longest},
+    {6, "PWM6", 6, 6, 0, pwm_shortest, pwm_longest},
+    {7, "PWM7", 7, 7, 0, pwm_shortest, pwm_longest},
+    {8, "PWM8", 8, 8, 0, pwm_shortest, pwm_longest},
+    {9, "PWM9", 25, 9, 1, pwm_shortest, pwm_longest},
+    {40, "PWM40", 20, 10, 0, pwm_shortest, pwm_longest},
+    {64, "PWM64", 21, 11, 0, pwm_shortest, pwm_longest},
 };
 
 struct GpioEvent {
@@ -292,7 +299,10 @@ public:
         return mm::mcu::Status::Ok;
     }
 
+    bool adc_release_fail = false;
+
     [[nodiscard]] mm::mcu::Status adc_release(unsigned int channel) override {
+        if (adc_release_fail || adc_fail) return mm::mcu::Status::TransportError;
         if (channel >= std::size(test_adc_channels)) return mm::mcu::Status::BadArgument;
         adc_claimed[channel] = false;
         return mm::mcu::Status::Ok;
@@ -300,18 +310,19 @@ public:
 
     bool pwm_present = true;
     bool pwm_fail = false;
+    bool pwm_release_fail = false;
     struct PwmClaim {
         bool claimed = false;
         std::uint64_t requested = 0;
         std::uint64_t duty = 0;
     };
-    PwmClaim pwm_claims[5] = {};
+    PwmClaim pwm_claims[16] = {};
     struct PwmGroupState {
         unsigned int members = 0;
         std::uint64_t requested = 0;
         std::uint64_t actual = 0;
     };
-    PwmGroupState pwm_groups[5] = {};
+    PwmGroupState pwm_groups[16] = {};
 
     static const mm::mcu::PwmOutput* pwm_entry(unsigned int number) {
         for (const auto& out : test_pwm_outputs) {
@@ -384,7 +395,7 @@ public:
     }
 
     [[nodiscard]] mm::mcu::Status pwm_release(unsigned int number) override {
-        if (pwm_fail) return mm::mcu::Status::TransportError;
+        if (pwm_release_fail || pwm_fail) return mm::mcu::Status::TransportError;
         const auto* entry = pwm_entry(number);
         if (entry == nullptr) return mm::mcu::Status::BadArgument;
         auto& claim = pwm_claims[pwm_index(entry)];
@@ -654,9 +665,14 @@ void test_set_adc_fail(bool fail) {
     platform_instance.adc_fail = fail;
 }
 
+void test_set_adc_release_fail(bool fail) {
+    platform_instance.adc_release_fail = fail;
+}
+
 void test_reset_adc() {
     platform_instance.adc_present = true;
     platform_instance.adc_fail = false;
+    platform_instance.adc_release_fail = false;
     for (int i = 0; i < 4; ++i) {
         platform_instance.adc_claimed[i] = false;
         platform_instance.adc_count[i] = 0;
@@ -689,9 +705,14 @@ void test_set_pwm_fail(bool fail) {
     platform_instance.pwm_fail = fail;
 }
 
+void test_set_pwm_release_fail(bool fail) {
+    platform_instance.pwm_release_fail = fail;
+}
+
 void test_reset_pwm() {
     platform_instance.pwm_present = true;
     platform_instance.pwm_fail = false;
+    platform_instance.pwm_release_fail = false;
     for (auto& c : platform_instance.pwm_claims) c = {};
     for (auto& g : platform_instance.pwm_groups) g = {};
 }
