@@ -4,6 +4,8 @@ kind: app
 name: check
 use: mm.app
 use: mm.build
+use: mm.ino
+use: mm.mdy
 file: check.cpp
 ---
 

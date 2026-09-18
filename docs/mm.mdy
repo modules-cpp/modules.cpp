@@ -17,6 +17,7 @@ file: modules-flash.mdy
 file: modules-fonts.mdy
 file: modules-gfx.mdy
 file: modules-imu.mdy
+file: modules-ino.mdy
 file: modules-lcd.mdy
 file: modules-libraries.mdy
 file: modules-mm.mdy
@@ -27,6 +28,7 @@ file: modules-platform-pico.mdy
 file: modules-platforms.mdy
 file: modules-rtc.mdy
 file: modules-run.mdy
+file: modules-sketch.mdy
 file: modules-stdio.mdy
 file: modules-touch.mdy
 file: modules-test.mdy

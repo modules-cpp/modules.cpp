@@ -246,7 +246,9 @@ and the reason is recorded so it is not reconsidered by accident.
 Two shapes would fit if a need appears, and both sit above the latch rather
 than replacing it: a thread-mode dispatch that the loop calls and that
 invokes a function pointer with a context for each pin whose latch is set,
-and the signal option above.
+and the signal option above. A runner the application links and calls,
+such as `mm.sketch`'s, is the application's loop, and what it calls between
+iterations is the application's own.
 
 # Conformance
 

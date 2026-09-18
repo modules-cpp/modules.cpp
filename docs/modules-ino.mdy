@@ -1,0 +1,140 @@
+---
+mm: 1.0
+kind: doc
+name: modules.cpp ino preprocessor specification
+status: official
+release: v1.2.3
+---
+
+# Arduino sketch preprocessor specification
+
+# Status and authority
+
+This document specifies mm.ino and the sketch tool front end. It defines how Arduino .ino sketch files are transformed into standard ISO C++20 application translation units. It describes implemented behavior for release v1.2.3.
+
+docs/modules-sketch.mdy specifies the runtime environment and vocabulary provided by mm.sketch; docs/modules-c++20.mdy specifies language rules and include placement in ordinary translation units; docs/modules-mm.mdy specifies the manifest schema, including mm: 1.3 and the sketch: key.
+
+# Role
+
+Arduino sketches rely on toolchain preprocessing: standard headers and prototypes are inferred, and a main function is provided by the core library.
+
+mm.ino provides this transformation within modules.cpp. It generates a standard C++20 translation unit (main.cpp) containing the necessary module imports, hoisted includes, forward declarations, sketch bodies, and the main entry point that invokes mm::sketch::run.
+
+The transformation is implemented as a pure function in the mm.ino module and exposed via the tools/sketch command-line tool.
+
+# Discovery and manifest conventions
+
+The sketch tool processes an application directory according to two discovery rules:
+
+## Directory with an existing manifest
+
+When the target directory contains mm.mdy:
+1. The manifest is authoritative. The sketch files to transform are taken from its sketch: keys, in declared order.
+2. Every .ino file present in the directory must be listed in the manifest. If an unlisted .ino file is found, the tool halts with an error naming the unexpected file. This prevents sketches from being silently excluded from compilation.
+
+## Directory without a manifest
+
+When the target directory contains no mm.mdy:
+1. The tool searches for a primary sketch whose filename matches the directory name: <directory>/<directory>.ino (for example, apps/blink/blink.ino).
+2. If this file is absent, or if additional .ino files exist in the directory, the tool reports an error explaining the naming convention.
+3. The tool generates an initial manifest (mm.mdy) specifying mm: 1.3, kind: app, name set to the directory basename, use: mm.sketch, and sketch: naming the single sketch file.
+4. Subsequent invocations follow the manifest-driven rule above.
+
+## Parent registration check
+
+An application must be declared via folder: in its parent manifest (such as apps/mm.mdy) for the build system and test runners to discover it.
+
+When generating code for an application not yet registered in its parent manifest, sketch outputs a diagnostic on its final line:
+
+Opening fence
+apps/mm.mdy does not name blink; add folder: blink
+Closing fence
+
+The generation succeeds and exits zero, alerting the developer to add the folder declaration. Under sketch --check, however, an unregistered folder causes the check to fail with exit code 1.
+
+# Transformation steps
+
+mm.ino transforms the input sketch files into a single main.cpp translation unit across four stages:
+
+## 1. Prelude and hoisted includes
+
+Ordinary translation units in modules.cpp may include standard library headers at the top of the file before any import declarations.
+
+mm.ino scans the sketch text for standard include directives of the form #include <...>. All matching standard headers are hoisted to the very top of main.cpp.
+
+Sketches must not use local quoted includes (#include "..."). If a quoted include is encountered, the preprocessor halts with an error identifying the file and line number.
+
+Following any hoisted standard includes, the tool emits the module prelude:
+
+Opening fence
+import mm.sketch;
+
+using namespace mm::sketch;
+Closing fence
+
+## 2. Function prototypes
+
+To allow functions in the sketch to be referenced before their definitions, the preprocessor generates forward declarations for eligible function definitions.
+
+Because full C++ parsing is avoided, function definitions are recognized using a restricted syntax heuristic:
+- The line must begin at column zero (no leading whitespace).
+- The line must occur at brace depth zero (outside any enclosing class, struct, or namespace).
+- The signature must match type name(parameters), followed by an opening brace { on the same line or the immediately following line.
+- The return type must consist of identifiers with optional qualifiers (*, &, const, ::).
+
+Brace depth is tracked accurately outside string literals, character literals, and comments (both single-line // and block /* ... */).
+
+Definitions that span multiple lines before the function name, template functions, and operator overloads are not matched by the heuristic. Sketches utilizing these constructs must provide their own explicit forward declarations; the preprocessor preserves existing declarations without duplicating them.
+
+If a line at brace depth zero resembles a function definition but begins with leading whitespace, the preprocessor emits a diagnostic warning:
+
+Opening fence
+definition not at column zero; no prototype generated; indent it to column zero or declare it
+Closing fence
+
+Compilation succeeds if the indented helper is defined prior to its first use.
+
+## 3. Sketch source and line displacement comments
+
+The sketch files are appended in the order specified by the manifest.
+
+Prior to each file's content, the tool writes a comment documenting the source filename and the line displacement introduced by the generated prelude and prototypes:
+
+Opening fence
+// From blink.ino line displaced by 12 lines
+Closing fence
+
+This enables line numbers reported in compiler diagnostics to be converted back to the original .ino file locations by subtraction.
+
+## 4. Main function entry
+
+The generated translation unit concludes with the standard application entry point:
+
+Opening fence
+int main() {
+    return mm::sketch::run(setup, loop);
+}
+Closing fence
+
+If a sketch defines its own main function, the preprocessor reports an error identifying the line number.
+
+# Committed output and integrity checks
+
+The generated main.cpp begins with a header identifying the tool version and source files:
+
+Opening fence
+// Generated by mm.ino v1.3.0 from blink.ino
+// Do not edit by hand; run ./sketch apps/blink/ to regenerate.
+Closing fence
+
+main.cpp is committed to version control beside its source sketch. This avoids build-time code generation dependencies and allows code inspection without intermediate generation steps.
+
+The integrity of generated files is verified via:
+
+Opening fence
+./sketch --check apps/blink/
+Closing fence
+
+The check mode regenerates the content in memory, compares it byte-for-byte with main.cpp on disk, and verifies parent registration in mm.mdy. Any discrepancy produces an error message and a non-zero exit code.
+
+tools/check invokes this check across all registered applications containing sketch: declarations as part of repository verification (./check.sh).

@@ -1,0 +1,14 @@
+---
+mm: 1.0
+kind: module
+name: sketch
+module: mm.sketch
+use: mm.mcu
+use: mm.stdio
+file: sketch.cppm
+file: src/sketch.cpp
+---
+
+# mm.sketch
+
+The sketch module providing an Arduino-compatible programming model above mm.mcu and mm.stdio: run(), requestExit(), dispatch(), GPIO pinMode/digitalWrite/digitalRead, built-in LED overloads and ledOn/ledOff, delay/millis, the error latch, and Serial.

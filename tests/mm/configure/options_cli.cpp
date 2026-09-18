@@ -314,7 +314,7 @@ void installed_tools_support_common_help() {
     expect(!ec, "installed tool directory available");
 
     for (const auto tool : {"build", "configure", "test", "check", "model", "run", "flash",
-                            "debug", "shell"}) {
+                            "debug", "shell", "sketch"}) {
         const auto log = std::filesystem::temp_directory_path() /
                          (std::string("mm_help_") + tool + ".log");
         for (const auto flags : {"-h", "--help", "-v -h", "--verbose --help"}) {
@@ -327,10 +327,70 @@ void installed_tools_support_common_help() {
     }
 }
 
+void sketch_tool_four_runs() {
+    std::error_code ec;
+    const auto repository = std::filesystem::current_path(ec);
+    expect(!ec, "repository directory available");
+    const auto bin = repository / "out/bin";
+    const mm::test::scoped_tree tree{"sketch_cli"};
+
+    // Scratch directory's parent manifest does not name the folder "scratch"
+    tree.manifest_raw("", "mm: 1.3\nkind: project\nname: fixture\n");
+
+    const auto scratch_dir = tree.root() / "scratch";
+    std::filesystem::create_directories(scratch_dir, ec);
+    expect(!ec, "scratch directory created");
+
+    const auto log = tree.root() / "tool.log";
+    const auto scratch_arg = mm::build::shell_quote(scratch_dir);
+
+    // Write only scratch.ino
+    const std::string ino_content = "void setup() {}\nvoid loop() {}\n";
+    {
+        std::ofstream ino_file(scratch_dir / "scratch.ino");
+        ino_file << ino_content;
+    }
+
+    // Run 1: with only <name>.ino:
+    // Generates both mm.mdy and main.cpp, prints "add folder: scratch" last, and exits 0
+    expect(invoke(bin / "sketch", scratch_arg, log) == 0, "run 1: generating run on unregistered folder exits zero");
+    const auto log1 = read_text(log);
+    expect(log1.find("does not name scratch; add folder: scratch") != std::string::npos,
+           "run 1: output contains add folder diagnostic");
+    expect(std::filesystem::exists(scratch_dir / "mm.mdy"), "run 1: mm.mdy generated");
+    expect(std::filesystem::exists(scratch_dir / "main.cpp"), "run 1: main.cpp generated");
+
+    const auto main_content_first = read_text(scratch_dir / "main.cpp");
+    const auto mdy_content_first = read_text(scratch_dir / "mm.mdy");
+
+    // Run 2: again with manifest present:
+    // Must regenerate main.cpp byte for byte and leave manifest alone
+    expect(invoke(bin / "sketch", scratch_arg, log) == 0, "run 2: regenerates with manifest present");
+    expect(read_text(scratch_dir / "main.cpp") == main_content_first, "run 2: main.cpp identical byte for byte");
+    expect(read_text(scratch_dir / "mm.mdy") == mdy_content_first, "run 2: manifest untouched");
+
+    // Run 3: with a second .ino the manifest does not name: must refuse
+    {
+        std::ofstream extra_ino(scratch_dir / "extra.ino");
+        extra_ino << "void extra() {}\n";
+    }
+    expect(invoke(bin / "sketch", scratch_arg, log) == 65, "run 3: unmanifested .ino must be refused");
+    expect(read_text(log).find("unmanifested .ino file") != std::string::npos, "run 3: names unmanifested file");
+    std::filesystem::remove(scratch_dir / "extra.ino", ec);
+
+    // Run 4: with parent manifest naming no such folder, sketch --check on it:
+    // Must exit nonzero and print the "add folder:" diagnostic
+    expect(invoke(bin / "sketch", "--check " + scratch_arg, log) != 0, "run 4: targeted check of unregistered folder fails");
+    const auto log4 = read_text(log);
+    expect(log4.find("does not name scratch; add folder: scratch") != std::string::npos,
+           "run 4: check outputs add folder diagnostic");
+}
+
 const mm::test::case_ cases[] = {
     {"installed configure and cross-tool 1.1 compatibility", &installed_tools_support_11},
     {"installed tools select configured lanes", &installed_tools_select_configured_lanes},
     {"installed tools support common help", &installed_tools_support_common_help},
+    {"sketch tool four-run case", &sketch_tool_four_runs},
 };
 const mm::test::registrar reg{"mm.configure CLI", cases};
 }

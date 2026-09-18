@@ -275,6 +275,37 @@ void accepts_doc_without_files() {
     mm::test::expect(loaded.docs.size() == 1, "expected the doc target to be collected");
 }
 
+void accepts_mm_13_version() {
+    const mm::test::scoped_tree tree{"mm13version"};
+    tree.manifest_raw("", "mm: 1.3\nkind: project\nname: p\nfolder: a\n");
+    tree.manifest_raw("a", "mm: 1.3\nkind: app\nname: a\nfile: main.cpp\nsketch: a.ino\n");
+
+    const auto loaded = mm::build::load_tree(tree.root());
+
+    mm::test::expect(loaded.ok && loaded.targets.size() == 1,
+                     "expected mm: 1.3 and sketch: on kind: app to be accepted");
+}
+
+void rejects_sketch_key_under_mm_12() {
+    const mm::test::scoped_tree tree{"sketch12"};
+    tree.manifest_raw("", "mm: 1.2\nkind: project\nname: p\nfolder: a\n");
+    tree.manifest_raw("a", "mm: 1.2\nkind: app\nname: a\nfile: main.cpp\nsketch: a.ino\n");
+
+    const auto loaded = mm::build::load_tree(tree.root());
+
+    mm::test::expect(!loaded.ok, "expected sketch: under mm: 1.2 to be rejected");
+}
+
+void rejects_sketch_key_on_non_app_kind() {
+    const mm::test::scoped_tree tree{"sketchnonapp"};
+    tree.manifest_raw("", "mm: 1.3\nkind: project\nname: p\nfolder: m\n");
+    tree.manifest_raw("m", "mm: 1.3\nkind: module\nname: m\nmodule: p.m\nfile: m.cppm\nsketch: m.ino\n");
+
+    const auto loaded = mm::build::load_tree(tree.root());
+
+    mm::test::expect(!loaded.ok, "expected sketch: on kind: module to be rejected");
+}
+
 const mm::test::case_ cases[] = {
     { "walks a nested tree",                  &walks_a_nested_tree },
     { "separates tests and docs",             &separates_tests_and_docs_from_targets },
@@ -296,6 +327,9 @@ const mm::test::case_ cases[] = {
     { "rejects duplicate app name",           &rejects_duplicate_app_name },
     { "accepts duplicate name across kinds",  &rejects_duplicate_name_across_kinds },
     { "accepts doc without files",            &accepts_doc_without_files },
+    { "accepts mm: 1.3 version",              &accepts_mm_13_version },
+    { "rejects sketch: under mm: 1.2",        &rejects_sketch_key_under_mm_12 },
+    { "rejects sketch: on non-app kind",      &rejects_sketch_key_on_non_app_kind },
 };
 
 const mm::test::registrar reg{"mm.build walk", cases};

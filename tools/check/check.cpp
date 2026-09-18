@@ -34,8 +34,16 @@
 
 import mm.app;
 import mm.build;
+import mm.ino;
+import mm.mdy;
 
 namespace {
+
+const std::vector<std::string>* lookup(const mm::mdy::MDYDocument& doc, std::string_view key) {
+    auto it = doc.metadata.find(key);
+    if (it != doc.metadata.end()) return &it->second;
+    return nullptr;
+}
 
 // tests/main.cpp is the shared runner unit: entry in more than one kind:test
 // manifest, so collecting straight into a vector would hand cppcheck the
@@ -174,8 +182,24 @@ int main(int argc, char** argv) {
         return mm::build::exit_run;
     }
 
-    if (status == mm::build::exit_ok)
-        std::cout << "\ncheck: no violations found in " << files.size() << " file(s)\n";
+    if (status != mm::build::exit_ok) return status;
 
-    return status;
+    bool sketch_error = false;
+    for (std::size_t i = 0; i < project.nodes.size(); ++i) {
+        if (!beneath(project, i, scope) || project.nodes[i].kind != "app") continue;
+        const auto& doc = project.documents[i];
+        const auto* sketches = lookup(doc, "sketch");
+        if (sketches == nullptr || sketches->empty()) continue;
+
+        std::string error;
+        if (!mm::ino::check_application(project_root / project.nodes[i].dir, doc, error)) {
+            std::cerr << "check: " << project.nodes[i].name << ": " << error << "\n";
+            sketch_error = true;
+        }
+    }
+
+    if (sketch_error) return exit_violations;
+
+    std::cout << "\ncheck: no violations found in " << files.size() << " file(s)\n";
+    return mm::build::exit_ok;
 }

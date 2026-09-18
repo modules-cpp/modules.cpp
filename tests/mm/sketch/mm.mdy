@@ -1,0 +1,16 @@
+---
+mm: 1.0
+kind: test
+name: sketch
+use: mm.test
+use: mm.mcu
+use: mm.stdio
+use: mm.sketch
+unit: tests/mm/sketch/platform.cpp
+unit: tests/mm/sketch/sketch.cpp
+unit: tests/main.cpp
+---
+
+# mm.sketch test target
+
+Exercises the sketch runtime: run, requestExit, delay, millis, status latching, pinMode/digitalWrite/digitalRead, built-in LED and ledOn/ledOff, and Serial.

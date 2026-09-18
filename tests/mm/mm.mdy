@@ -19,7 +19,9 @@ folder: model
 folder: run
 folder: touch
 folder: imu
+folder: ino
 folder: lcd
 folder: rtc
+folder: sketch
 folder: linux
 ---

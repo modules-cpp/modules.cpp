@@ -49,12 +49,13 @@ docs/modules-platforms.mdy, and are read by a separate loader.
 
 # Versions
 
-Three versions are accepted.
+Four versions are accepted.
 
 Opening fence
 1.0   unknown keys are kept
 1.1   unknown keys are rejected
 1.2   unknown keys are rejected
+1.3   unknown keys are rejected
 Closing fence
 
 The mm key is required, appears exactly once, and must name an accepted version. A
@@ -125,6 +126,8 @@ Opening fence
 1.2  platform-interface  module
 1.2  platform-provider   sdk board
 1.2  derives-from        board
+
+1.3  sketch              app
 Closing fence
 
 Three placements are worth stating because their absence is load-bearing rather

@@ -13,6 +13,7 @@ folder: check
 folder: model
 folder: run
 folder: shell
+folder: sketch
 ---
 
 Every tool here executes on the machine running the build, so the whole

@@ -71,6 +71,7 @@ constexpr ManifestVersionRule manifest_versions[] = {
     {"1.0", 10, false},
     {"1.1", 11, true},
     {"1.2", 12, true},
+    {"1.3", 13, true},
 };
 
 const ManifestVersionRule* manifest_version(std::string_view version) {
@@ -152,6 +153,7 @@ const std::vector<ManifestKeyRule> manifest_key_rules = {
     {"platform-interface", 12, "module"},
     {"platform-provider", 12, "sdk board"},
     {"derives-from", 12, "board"},
+    {"sketch", 13, "app"},
 };
 
 const ManifestKeyRule* manifest_key_rule(std::string_view key) {
