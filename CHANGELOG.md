@@ -41,7 +41,9 @@ All notable changes to modules.cpp. Versions follow [semantic versioning](https:
   across GPIO, the edge latch, ADC, and PWM; the ADC reference is the selected
   board's own row in the bridge's `resolve-board.cmake`. `analog-smoke` and
   `scripts/build-analog-smoke-pico.sh` are the wired fixture: PWM through an
-  RC filter into the ADC, read as raw ratios.
+  RC filter into the ADC, read as raw ratios. The Linux provider implements
+  both over IIO and PWM sysfs from new `adc.*` and `pwm.*` device-map keys,
+  with the same one-owner-per-pad rule.
 - **GPIO edge latch in `mm.mcu`.** Portable `gpio_watch`, `gpio_take`,
   `gpio_unwatch`, and bounded `gpio_wait` report selected physical edges
   without running application callbacks inside interrupt handlers. Pico SDK

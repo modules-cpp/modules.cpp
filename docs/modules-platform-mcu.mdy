@@ -790,8 +790,8 @@ record a skipped qualification with the missing prerequisite named.
 - It does not choose individual UART instances, GPIO pin ownership, or clocks.
 - It does not promise that every provider supports every mm.mcu facility;
   Unsupported remains part of the interface, including SPI, I2C, ADC, and PWM.
-  The Pico SDK provider implements both; the Linux implementation is planned,
-  and every other provider inherits Unsupported for both.
+  The Pico SDK and Linux providers implement both; every other provider
+  inherits Unsupported for both.
 - It does not make attached displays or sensors MCU facilities. SPI is an
   implemented reusable transport; mm.display and mm.epaper.ssd1680 are layered
   above it as specified by docs/modules-display.mdy and
@@ -815,3 +815,10 @@ named missing path is BadArgument, and an auto-discovered missing device is
 Unsupported. A caller field rejected by a configuration ioctl is BadArgument;
 an internal ioctl rejecting its own argument is TransportError. Fields a Linux
 kernel API cannot apply are checked and rejected, never silently ignored.
+
+The analog facilities read IIO and PWM sysfs under the same rules; their map
+keys and sysfs sequences are docs/modules-platform-linux.mdy's. The pure
+parts -- the scale parser, the reference derivation, and the sysfs number
+parser -- are exported through the provider's mcu_detail namespace and pinned
+by tests/mm/linux, which also confirms that a map naming no channel or output
+makes every analog call answer Unsupported without touching an output.
