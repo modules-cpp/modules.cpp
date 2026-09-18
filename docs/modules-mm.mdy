@@ -67,11 +67,6 @@ one behaviour that does not carry forward: unknown keys in a 1.0 manifest are no
 diagnosed at all, while from 1.1 onward an unknown key is an error under a strict
 traversal and a warning elsewhere.
 
-1.3 and 1.4 are not accepted. Both existed during development, staging the library
-and external-build keys, and both were folded into 1.2 before release. A manifest
-declaring either is rejected as an unsupported version, which is asserted by test
-rather than left to convention.
-
 # Kinds
 
 Nine kinds exist: project, dir, module, app, test, doc, sdk, board, and library. A
@@ -259,7 +254,6 @@ Every schema failure is a manifest fault and exits 65.
 
 - A manifest with no mm key, with two, or with an unrecognised value is rejected,
   naming the supported versions.
-- mm: 1.3 and mm: 1.4 are rejected as unsupported versions.
 - A key declared before its introducing version is rejected naming that version;
   within one key that check precedes its kinds check.
 - The key pass precedes the kind and name checks. A 1.1 library manifest with a

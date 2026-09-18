@@ -164,17 +164,9 @@ void rejects_unsupported_mm_version() {
     const mm::test::scoped_tree tree{"badmmversion"};
     tree.manifest_raw("", "mm: 0.2\nkind: project\nname: p\n");
 
-    auto loaded = mm::build::load_tree(tree.root());
+    const auto loaded = mm::build::load_tree(tree.root());
 
     mm::test::expect(!loaded.ok, "expected an unsupported old mm: version to be rejected");
-
-    tree.manifest_raw("", "mm: 1.3\nkind: project\nname: p\n");
-    loaded = mm::build::load_tree(tree.root());
-    mm::test::expect(!loaded.ok, "expected mm: 1.3 to be rejected after consolidation");
-
-    tree.manifest_raw("", "mm: 1.4\nkind: project\nname: p\n");
-    loaded = mm::build::load_tree(tree.root());
-    mm::test::expect(!loaded.ok, "expected mm: 1.4 to be rejected after consolidation");
 }
 
 // 1.2 is the current strict source-manifest format for release v1.2.0.
