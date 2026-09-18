@@ -288,6 +288,11 @@ already proves that project object initializers survive the CMake hand-off.
 
 ## GPIO edge latch
 
+This facility is the one addition model 2 of docs/modules-execution.mdy
+makes to the blocking execution model: an interrupt sets a flag, and the
+program asks for it. That document owns the rules the four calls below are
+instances of.
+
 `Edge` names Rising, Falling, or Both physical transitions, as `gpio_read`
 reports level. `gpio_watch(pin, pull, edge)` takes over an existing GPIO
 configuration or configures an input, and starts with an empty latch. One

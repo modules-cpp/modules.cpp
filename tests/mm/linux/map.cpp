@@ -71,6 +71,9 @@ void a_named_missing_file_is_an_error() {
                map, "/tmp/mm-linux-map-deliberately-absent", error) ==
                platform::linux::MapStatus::FileError,
            "a named file is never silently ignored");
+    expect(platform::linux::apply_override(map, "/dev/null", error) ==
+               platform::linux::MapStatus::FileError,
+           "a named path that is not a regular file is refused before it is read");
 }
 
 void gpio_inventory_and_led_validation() {

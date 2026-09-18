@@ -12,6 +12,7 @@ file: modules-configure.mdy
 file: modules-debug.mdy
 file: modules-display.mdy
 file: modules-epaper.mdy
+file: modules-execution.mdy
 file: modules-flash.mdy
 file: modules-fonts.mdy
 file: modules-gfx.mdy

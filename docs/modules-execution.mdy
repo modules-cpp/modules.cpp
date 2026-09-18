@@ -1,0 +1,291 @@
+---
+mm: 1.0
+kind: doc
+name: modules.cpp execution model specification
+status: official
+release: v1.2.3
+---
+
+# Execution model specification
+
+# Status and authority
+
+This document specifies how a modules.cpp program executes: what a portable
+interface call may do with the caller's thread of control, what a provider
+may do without it, and what an interrupt may and may not do. It states rules
+the interface documents already apply one at a time, so that a new driver,
+provider, or application is written against one contract rather than
+inferred from several.
+
+Each interface document owns its own calls and their answers:
+docs/modules-platform-mcu.mdy owns mm.mcu and the GPIO edge latch,
+docs/modules-display.mdy the display, docs/modules-stdio.mdy the console,
+and docs/modules-touch.mdy, docs/modules-imu.mdy, and docs/modules-rtc.mdy
+the device interfaces. docs/modules-c++20.mdy owns what code may say; this
+document owns what code may do with time. Where the two overlap, the
+language document's rules on exceptions, callbacks, and virtual dispatch are
+the reason several of the rules below hold, and are cited rather than
+restated.
+
+Conformance language follows docs/modules-c++20.mdy: MUST and MUST NOT are
+absolute, SHOULD needs a written reason to deviate, MAY is optional.
+
+# Decision
+
+A modules.cpp program is one thread of control that runs from main to
+return, on one core, and every call it makes returns to it. Nothing runs
+application code on the program's behalf: no callback, no handler, no
+thread. Where hardware acts on its own, a provider may record that it did
+in a latch, and the program asks the latch when it chooses.
+
+There are two models, and the second is the first with one addition.
+
+# Model 1: straight blocking execution
+
+The program is the sequence it is written as: initialize the devices it
+names, then loop, asking a device, computing, telling a device, and waiting.
+
+Opening fence
+auto& display = mm::display::selected_display();
+if (display.initialize() != mm::display::Status::Ok) return 1;
+for (;;) {
+    std::size_t count = 0;
+    if (touch.read(points, count) != mm::touch::Status::Ok) return 2;
+    if (count != 0) compose(points[0]);
+    if (display.write(area, frame) != mm::display::Status::Ok) return 3;
+    if (display.refresh(mm::display::Refresh::Full) != mm::display::Status::Ok)
+        return 4;
+    if (mm::mcu::delay_ms(hold_ms) != mm::mcu::Status::Ok) return 5;
+}
+Closing fence
+
+The rules that make this shape hold are these.
+
+- Every call MUST return. A call completes its work or answers a Status; it
+  does not wait on hardware for a time the caller did not bound. A wait a
+  provider or driver makes on the caller's behalf MUST be bounded by a
+  value the board's wiring declares, such as `busy_timeout_ms` and
+  `reset_hold_ms` in the SSD1680 and CST328 wiring. When the bound is
+  reached, the call MUST return rather than continue, and what it answers
+  depends on what the bound was for: a wait for work the call had to
+  finish -- a controller's busy line before a command it must send --
+  answers `Timeout`, because the work did not happen; a wait that was the
+  call's whole purpose -- `delay_ms` to its duration, `gpio_wait` to its
+  deadline with nothing pending -- answers `Ok`, because it did. `Timeout`
+  means required work did not finish, never that time passed.
+- A call with nothing to report MUST answer `Ok` with an empty result, not
+  an error and not a wait. `mm::touch::read` answers `Ok` with count zero
+  when nothing is touching; `mm::stdio::read` answers `Ok` with count zero
+  when no byte is waiting; `mm::mcu::gpio_take` answers `Ok` with pending
+  false when no edge is held. Nothing being there is an answer.
+- A query MUST NOT wait for state to change. `mm::stdio::connected` is the
+  stated example: it reports whether a host is attached now, and a caller
+  that wants to wait for one polls it and owns the stopping condition. The
+  same holds for `geometry`, `board`, and every other call that reports
+  state. A query MAY do work to produce its answer the first time it is
+  asked, provided that work ends without any external event: the Linux MCU
+  provider's `board` resolves the platform map on first use, which reads
+  the override file the operator named. The map opens it without blocking,
+  checks the descriptor it got is a regular file, and reads at most 64 KiB
+  of it, so the read is bounded by the limit whatever the path becomes
+  or the file does meanwhile. That is the one place a query does I/O.
+- Time passes only where the program spends it. `mm::mcu::delay_ms` is the
+  one call whose purpose is to let time pass; a transfer takes the time the
+  transfer takes; and a bounded wait inside a driver takes at most its
+  bound. A provider MUST NOT sleep, spin, or block in any other call, and
+  a transfer whose far end may stall -- a console pipe whose reader has
+  stopped reading, a terminal that has stopped draining, a socket whose
+  peer has stopped reading -- is itself bounded: the Linux console writes
+  such a far end through a nonblocking operation, gives up after a second,
+  and reports the partial count its contract allows. A transfer whose far
+  end is the machine -- the same console writing a regular file -- takes
+  the time the file system takes, which is the transfer's own time and not
+  a wait. docs/modules-platform-linux.mdy says which is which.
+- Nothing runs behind the program. A provider MUST NOT change state the
+  program can observe between two of the program's calls, except as the
+  hardware itself changes it. What the program read is what was there when
+  it asked; what it wrote is on the panel when `write` returned, or when
+  `refresh` returned on a panel that needs one.
+- An output parameter changes only on `Ok`. This is universal: a caller
+  that sees a failure knows its own variables are as they were. Every
+  interface document states it for its own calls; here it is the rule they
+  are instances of, and a provider that computes an output as it goes
+  keeps the running value aside and stores it only on the `Ok` path, as
+  the Linux console provider does. `mm::stdio::write` is the one interface
+  whose success answer is itself partial -- it reports how much it
+  accepted, possibly zero, and the caller resumes at that offset -- and its
+  document says so; that is a property of `Ok`, not an exception to the
+  rule.
+- A failed call MUST leave the provider's own record of the world true.
+  Whether it leaves the hardware as it was is a promise each operation
+  makes or does not, and the document of the operation says which: a
+  failed `gpio_configure` or `gpio_watch` leaves no half-configured pin and
+  no watch on one side of the seam, because each is one step the provider
+  can undo; a failed SSD1680 `write` may have moved the controller's
+  window and sent part of the data before a later transfer failed, because
+  a multi-transfer command has no undo, and its document says the
+  controller is then in the failed state its state machine records. The
+  rule is not "no external effect on failure" -- transports do not offer
+  that -- but "nothing the provider tells the caller afterwards is false".
+
+A provider MAY be concurrent inside itself, and several are: the Pico SDK
+services its USB interrupts under `mm.stdio`, the Linux display provider
+blocks in the kernel under `write`, the SDL provider pumps a window. None
+of that is visible above the seam. Each such call returns a Status to the
+caller, on the caller's thread, before the caller's next statement runs.
+
+Polling is therefore the native rhythm, and its cost is that a loop with
+nothing to do still runs, and that the program cannot be told something
+happened while it was in `delay_ms`. Model 2 is what the project does
+about that.
+
+# Model 2: the latch
+
+The GPIO edge facility in mm.mcu -- `gpio_watch`, `gpio_take`,
+`gpio_wait`, and `gpio_unwatch`, specified in docs/modules-platform-mcu.mdy
+-- adds interrupts to model 1 without changing its shape. The rule is that
+an interrupt may set a flag and may not run application code.
+
+Opening fence
+// A button on a pulled-up input: pressed is low, so a press is a falling
+// edge. The loop sleeps until one arrives or a second passes, and a press
+// that arrived while it was busy is held for it.
+if (mm::mcu::gpio_watch(button_pin, mm::mcu::Pull::Up, mm::mcu::Edge::Falling)
+    != mm::mcu::Status::Ok) return 1;
+for (;;) {
+    bool pressed = false;
+    if (mm::mcu::gpio_wait(button_pin, 1000, pressed) != mm::mcu::Status::Ok)
+        return 2;
+    if (pressed) advance();
+    show();
+}
+Closing fence
+
+The edge is the whole event here: a press is a transition and the latch
+reports transitions. It reports them without debounce, so a switch that
+bounces may be two presses; a program that cares reads the level after a
+short `delay_ms` and decides, as it would on any platform. A device whose
+state persists between transitions -- a finger that stays down -- is not
+read this way, and the next paragraph says how it is.
+
+What stays and what changes:
+
+- Control flow is still straight. The loop is the same loop. A step may be
+  skipped because the latch says nothing happened, and `delay_ms` may be
+  replaced by `gpio_wait`, which returns early when the edge arrives. The
+  wake is something the program asked for, not something done to it.
+- The handler belongs to the provider and is trivial. On the Pico it is the
+  SDK's GPIO callback setting one flag and signalling an event; on Linux it
+  is the kernel queueing an event on a descriptor. A handler MUST NOT call
+  portable code, allocate, log, or touch a bus. No portable code has an
+  interrupt context, so no driver need be re-entrant and no rule about
+  priorities or preemption enters any portable contract.
+- The latch coalesces. It reports at least one selected edge observed and
+  not yet reported: no count, no order, no timestamp, no debounce. That is
+  the whole promise, and it is what lets one contract hold on a one-flag
+  microcontroller and a queued kernel descriptor alike.
+- Blocking stays bounded and explicit. `gpio_wait` is the only call the
+  facility adds that blocks, it takes a deadline, and it never returns
+  early for any reason but an edge; an unrelated wake or an interrupted
+  sleep is resumed. On Linux the thread sleeps in the kernel. On the Pico
+  the core sleeps between edges when the SDK can arm an alarm for the
+  deadline, and busy-waits to the deadline when it cannot; the SDK's
+  `best_effort_wfe_or_timeout` chooses, and the answer is the same either
+  way. Nothing else in the facility waits.
+- The four calls run from ordinary application code. On the Pico they run
+  on the core that made the watch, because the read-and-clear that makes
+  `gpio_take` atomic against the handler masks that core's interrupts and
+  only that core's; a call from the other core answers `Unsupported`. On
+  Linux the calls are made from the program's thread, which the kernel may
+  schedule on any core; the provider's atomicity is the kernel's, and no
+  core rule applies.
+
+The consumer the model is for is a device driver that keeps its synchronous
+`read` and uses the latch only to skip work it can prove is unnecessary.
+Take the touch controller: if its interrupt line falls when a report is
+ready, as its datasheet says and the hardware check the plan requires must
+confirm, then a held finger produces no further edge and a release is the
+other edge, so a driver that read the controller only after a falling edge
+would report a held finger as released, which changes what `read` means.
+The shape that does not is: from a state the driver has verified as idle
+-- its last bus read found no contact -- consult the latch, and skip the
+bus while it is clear; from any other state -- contacts, an unsettled
+report, a failure -- read the bus every time, as today. The latch decides
+only whether an idle read touches the bus. Model 1's loop, cheaper, with
+`read` meaning what it meant.
+
+This is prospective. The CST328 driver polls the bus on every `read`
+today, and docs/modules-touch.mdy says so; drafts/plan-mm-interrupt-9.mdy
+stages the change behind a hardware check of the controller's interrupt
+behaviour, and that document changes when the driver does.
+
+# What is excluded
+
+These are not omissions. Each is a shape that was considered and declined,
+and the reason is recorded so it is not reconsidered by accident.
+
+- Callback registration by portable code. A callback runs in whatever
+  context the provider has, which on the Pico is an interrupt handler.
+  docs/modules-c++20.mdy forbids `std::function` and manual allocation, so
+  a stored callback would be a bare function pointer with a context the
+  caller keeps alive; the device drivers hold state machines that are not
+  re-entrant; and mm.mcu promises nothing about priorities or preemption.
+  A callback contract would have to say all of that, and every driver that
+  accepted one would have to be audited against it.
+- General interrupt access. No portable interface names a vector, sets a
+  priority, installs a handler, or receives timer, DMA, or bus interrupts.
+- Preemption and threads above the seam. A provider MAY use a thread
+  inside itself where its platform requires one; it MUST NOT run portable
+  code on it, and it MUST NOT expose it.
+- Signals as delivery. A provider MUST NOT install a process-wide signal
+  handler for a portable facility. The Linux signal path for GPIO edges is
+  designed, in drafts/plan-mm-interrupt-9.mdy, as a board-selected option
+  behind the same four calls, and is deferred until something in the tree
+  needs to be interrupted rather than to ask.
+
+Two shapes would fit if a need appears, and both sit above the latch rather
+than replacing it: a thread-mode dispatch that the loop calls and that
+invokes a function pointer with a context for each pin whose latch is set,
+and the signal option above.
+
+# Conformance
+
+A new interface, driver, provider, or application conforms when a reviewer
+can answer yes to each of these against its document and its code.
+
+- Every wait it makes on the caller's behalf is bounded by a value its
+  wiring or configuration declares; reaching the bound returns, with
+  `Timeout` if required work did not finish and `Ok` if the wait was the
+  work.
+- A call with nothing to report answers `Ok` with an empty result, and its
+  document says so.
+- No query waits for state to change.
+- No call sleeps, spins, or blocks except `delay_ms`, a transfer, a
+  declared bounded wait, and `gpio_wait`.
+- Output parameters change only on `Ok`, the provider's record stays true
+  after a failure, and its document says whether the hardware is left as
+  it was.
+- No handler, thread, or signal disposition exists outside a provider, and
+  a provider's handler sets a flag and nothing else.
+- Nothing the program can observe changes between two of its calls except
+  as the hardware changes it.
+
+The host tests are where the rules are pinned: each interface's recording
+stand-in exercises the empty answer and the unchanged output on failure,
+the provider tests exercise whatever hardware rollback an operation's
+document promises, and the GPIO latch's tests exercise the forwarding and
+the bound of the read step without hardware. Physical
+timing -- that a bounded wait ends, that an edge is latched -- is a board
+observation a person reads, as docs/modules-platform-mcu.mdy says of every
+provider.
+
+# What this does not settle
+
+Whether a program may run on more than one core, and what the seams would
+promise if it did. The Pico latch supports the core that made the watch,
+and Linux has no core rule at all; nothing else in the tree has an
+opinion. Whether a loop with nothing to do
+should sleep the core by default; `gpio_wait` is the one call that does,
+and only when asked. Whether a thread-mode dispatch is wanted at all, and
+if so what a handler's context argument should be. Each is a change to
+this document before it is a change to code.

@@ -56,7 +56,8 @@ Output parameters change only when the operation returns Ok. write may report
 fewer bytes than the input span, including zero; the caller resumes at that
 offset and must bound its retries. read returns Ok with count zero when no byte
 is waiting. connected is a query, never a wait. A caller that waits polls it and
-owns the stopping condition.
+owns the stopping condition. These are docs/modules-execution.mdy's rules for
+an empty answer and a query, applied to the console.
 
 The linkable fallback answers Unsupported. It lets the module and host tests
 exist without a selected target platform and never guesses that a listener is

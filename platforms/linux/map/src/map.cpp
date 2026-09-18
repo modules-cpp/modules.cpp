@@ -3,8 +3,12 @@
 module;
 
 #include <charconv>
+#include <cerrno>
 #include <cstdlib>
-#include <fstream>
+#include <fcntl.h>
+#include <sstream>
+#include <sys/stat.h>
+#include <unistd.h>
 #include <map>
 #include <set>
 #include <string>
@@ -189,9 +193,39 @@ MapStatus validate(Map& map, const std::string& path, ParseError& error) {
 
 void set_map(const Map& defaults) { registered = &defaults; }
 
+// The most an override may be: far beyond any map, small enough that reading
+// it is not a wait.
+constexpr std::size_t override_limit = 64 * 1024;
+
 MapStatus apply_override(Map& map, const std::string& path, ParseError& error) {
-    std::ifstream input(path);
-    if (!input) { error={path,0,0,{},"cannot open override"}; return MapStatus::FileError; }
+    // The override is read by the first board query, which must return: the
+    // path is opened without blocking, the descriptor -- not the name -- is
+    // checked to be a regular file, and at most override_limit bytes are
+    // read, so neither a FIFO put in the file's place nor a file that grows
+    // while it is read can hold the query.
+    const int fd = ::open(path.c_str(), O_RDONLY | O_NONBLOCK | O_CLOEXEC);
+    if (fd < 0) { error={path,0,0,{},"cannot open override"}; return MapStatus::FileError; }
+    struct stat about{};
+    if (::fstat(fd, &about) != 0 || !S_ISREG(about.st_mode)) {
+        ::close(fd);
+        error={path,0,0,{},"override is not a regular file"};
+        return MapStatus::FileError;
+    }
+    std::string text;
+    while (text.size() <= override_limit) {
+        char chunk[4096];
+        const auto got = ::read(fd, chunk, sizeof chunk);
+        if (got < 0 && errno == EINTR) continue;
+        if (got < 0) { ::close(fd); error={path,0,0,{},"cannot read override"}; return MapStatus::FileError; }
+        if (got == 0) break;
+        text.append(chunk, static_cast<std::size_t>(got));
+    }
+    ::close(fd);
+    if (text.size() > override_limit) {
+        error={path,0,0,{},"override exceeds the size limit"};
+        return MapStatus::FileError;
+    }
+    std::istringstream input(text);
     Map candidate = map;
     std::map<std::string,unsigned int,std::less<>> seen;
     std::string line;

@@ -45,6 +45,12 @@ Whitespace and blank lines are ignored, # begins a comment outside quotes,
 integers are decimal or hexadecimal, booleans are yes/no, and strings are
 double quoted with only backslash and quote escapes. A duplicate key names both
 lines; an unknown key, malformed value, or named missing file is an error.
+So is a path that is not a regular file, or one larger than 64 KiB: the
+first board query is what reads the override, and it must return. The path
+is opened without blocking, the descriptor itself is checked to be a
+regular file, and at most the limit is read, so a FIFO put in the file's
+place cannot hold the open and a file that grows while it is read cannot
+hold the read.
 Omitted fields retain compiled defaults. GPIO names default to gpio.N and an
 LED must name a GPIO in the authoritative inventory.
 
@@ -52,7 +58,29 @@ LED must name a GPIO in the authoritative inventory.
 
 - platform.linux.stdio uses descriptors zero and one with zero-timeout input
   polling, partial output counts, ignored SIGPIPE, and separate sticky input and
-  output loss.
+  output loss. A write must not wait on a reader or a terminal, and the
+  inherited descriptor shares its blocking flag with the shell that started
+  the program, so the provider does not change it. What a write does depends
+  on what descriptor one is, checked on every call so a redirection is
+  followed:
+  - a pipe, a FIFO, or a terminal is reopened through /proc as a private
+    nonblocking descriptor of the provider's own; a write there returns
+    what fitted, and the call gives up after one second with what it
+    managed, recomputing the time left after every interruption;
+  - a socket is written with MSG_DONTWAIT under the same one-second bound;
+  - a regular file is written plainly on the inherited descriptor, with no
+    bound: it waits on the file system and on no one else, and a write
+    there is done when it returns, so the console contract's partial count
+    arises only from a short write the file system itself made;
+  - anything else, or a reopen that fails for a reason other than a missing
+    reader, is refused with TransportError for that call and nothing is
+    recorded, so a later call may succeed; a reopen that fails because the
+    pipe has no reader records output as lost, as a broken pipe does.
+  Reopening through /proc can be denied, so an inherited pipe or terminal
+  that is writable may still be refused here; the provider prefers a refused
+  write to one it cannot bound. On the bounded paths the console contract's
+  partial count is how the caller learns that the deadline, not the data,
+  ended the call.
 - platform.linux.mcu uses GPIO-v2 line ioctls, spidev with SPI_NO_CS, I2C_RDWR,
   nonblocking termios writes with a deadline, and CLOCK_MONOTONIC.
 - platform.linux.rtc uses RTC_RD_TIME, RTC_SET_TIME, RTC_VL_READ and RTC_VL_CLR,
