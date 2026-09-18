@@ -1127,13 +1127,20 @@ void spi_communication() {
     test_set_spi_xor_mask(0);
     clearError();
 
-    // beginTransaction before begin
+    // SPI buffer transfer failure leaves buffer unmodified
     run([]{
         clearError();
-        SPI.beginTransaction(SPISettings{});
-        expect(lastError() == Status::NotInitialized, "beginTransaction before begin");
+        expect(SPI.begin(), "SPI.begin before failure test");
+        test_set_spi_fail(true);
+        byte buf[4] = {1, 2, 3, 4};
+        SPI.transfer(buf, 4);
+        expect(lastError() == Status::TransportError, "transfer failure latches error");
+        expect(buf[0] == 1 && buf[1] == 2 && buf[2] == 3 && buf[3] == 4, "buffer unmodified on failure");
+        test_set_spi_fail(false);
+        SPI.end();
         requestExit(0);
     }, nullptr);
+    test_set_spi_fail(false);
     clearError();
 
     test_reset_spi();
@@ -1292,6 +1299,65 @@ void wire_communication() {
     expect(test_get_i2c_written_size() == 2, "string wrote 2 bytes");
     expect(test_get_i2c_written_byte(0) == 'H', "string byte 0");
     expect(test_get_i2c_written_byte(1) == 'i', "string byte 1");
+    clearError();
+    test_reset_i2c();
+
+    // Wire out-of-range address rejected before narrowing
+    run([]{
+        clearError();
+        expect(Wire.begin(), "Wire.begin for range test");
+        Wire.beginTransmission(0x150);
+        expect(lastError() == Status::BadArgument, "beginTransmission(0x150) rejected");
+        expect(lastCall() == std::string_view{"Wire.beginTransmission"}, "lastCall is Wire.beginTransmission");
+        clearError();
+
+        Wire.beginTransmission(-1);
+        expect(lastError() == Status::BadArgument, "beginTransmission(-1) rejected");
+        clearError();
+
+        expect(Wire.requestFrom(0x150, 1) == 0, "requestFrom(0x150, 1) returns 0");
+        expect(lastError() == Status::BadArgument, "requestFrom(0x150, 1) rejected");
+        expect(lastCall() == std::string_view{"Wire.requestFrom"}, "lastCall is Wire.requestFrom");
+        clearError();
+
+        expect(Wire.requestFrom(-1, 1) == 0, "requestFrom(-1, 1) returns 0");
+        expect(lastError() == Status::BadArgument, "requestFrom(-1, 1) rejected");
+        clearError();
+
+        expect(Wire.end(), "Wire.end");
+        requestExit(0);
+    }, nullptr);
+    clearError();
+    test_reset_i2c();
+
+    // Wire deferred write failure latched on beginTransmission / end
+    run([]{
+        clearError();
+        expect(Wire.begin(), "Wire.begin for deferred write failure test");
+        Wire.beginTransmission(static_cast<byte>(0x50));
+        Wire.write(static_cast<byte>(0x42));
+        expect(Wire.endTransmission(false) == 0, "endTransmission(false) returns 0");
+
+        test_set_i2c_fail(true);
+        // Next beginTransmission flushes previous deferred write to 0x50 and fails
+        Wire.beginTransmission(static_cast<byte>(0x51));
+        expect(lastError() == Status::TransportError, "deferred write failure latched");
+        expect(lastCall() == std::string_view{"Wire.endTransmission"}, "lastCall is Wire.endTransmission");
+
+        test_set_i2c_fail(false);
+        clearError();
+
+        // Deferred write failure on end()
+        Wire.beginTransmission(static_cast<byte>(0x50));
+        Wire.write(static_cast<byte>(0x43));
+        expect(Wire.endTransmission(false) == 0, "endTransmission(false) returns 0");
+
+        test_set_i2c_fail(true);
+        expect(!Wire.end(), "Wire.end returns false when deferred write flush fails");
+        expect(lastError() == Status::TransportError, "deferred write failure on end latched");
+        test_set_i2c_fail(false);
+        requestExit(0);
+    }, nullptr);
     clearError();
     test_reset_i2c();
 }

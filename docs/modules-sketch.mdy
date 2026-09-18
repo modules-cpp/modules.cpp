@@ -462,7 +462,7 @@ Closing fence
 
 SPI provides Arduino-compatible SPI master communication over mm.mcu's spi_configure and spi_transfer.
 
-begin initializes the SPI bus using the board's default SPI wiring (clock, transmit, and optional receive GPIOs) with default settings of 4 MHz, MSBFIRST, SPI_MODE0. If the board declares no SPI wiring, begin returns false and latches Status::Unsupported. end releases the bus; the object may be restarted with begin.
+begin initializes the SPI bus using the board's default SPI wiring (clock, transmit, and optional receive GPIOs) with default settings of 4 MHz, MSBFIRST, SPI_MODE0. If the board declares no SPI wiring, begin returns false and latches Status::Unsupported. end resets the sketch SPI state without deconfiguring the underlying peripheral hardware; the object may be re-initialized with begin.
 
 beginTransaction applies a new SPISettings (clock speed, bit order, and SPI mode) by reconfiguring the underlying SPI peripheral via mm.mcu spi_configure. If begin has not been called, beginTransaction latches Status::NotInitialized. endTransaction is a no-op placeholder for symmetry.
 
@@ -500,13 +500,13 @@ Closing fence
 
 Wire provides Arduino-compatible I2C master communication over mm.mcu's i2c_configure, i2c_write, i2c_read, and i2c_write_read.
 
-begin initializes the I2C bus using the board's default I2C wiring (data and clock GPIOs) at 100 kHz. If the board declares no I2C wiring, begin returns false and latches Status::Unsupported. Wire.begin(addr) and the slave callbacks onReceive/onRequest are declined: mm.mcu is a master-only interface. end releases the bus.
+begin initializes the I2C bus using the board's default I2C wiring (data and clock GPIOs) at 100 kHz. If the board declares no I2C wiring, begin returns false and latches Status::Unsupported. Wire.begin(addr) and the slave callbacks onReceive/onRequest are declined: mm.mcu is a master-only interface. end resets the sketch Wire state without deconfiguring the underlying peripheral hardware; the object may be re-initialized with begin.
 
 setClock reconfigures the I2C clock speed. If begin has not been called, setClock latches Status::NotInitialized.
 
 beginTransmission prepares a write transaction to the given seven-bit address. write buffers bytes into an internal thirty-two-byte transmit buffer. Writing beyond the buffer capacity returns 0 and sets an overflow flag. write(const char*) writes the string without its null terminator.
 
-endTransmission executes the buffered write via mm.mcu i2c_write. It returns an Arduino-compatible status code: 0 on success, 1 if the transmit buffer overflowed, 2 on address NACK (BadArgument), 4 on other error, 5 on timeout. If send_stop is false, the write is deferred so that a subsequent requestFrom to the same address executes the combined write-then-read as a single mm.mcu i2c_write_read transaction, preserving bus arbitration.
+endTransmission executes the buffered write via mm.mcu i2c_write. It returns an Arduino-compatible status code: 0 on success, 1 if the transmit buffer overflowed, 2 on invalid argument (BadArgument, including an out-of-range address), 4 on other error (including transmission failures and NACKs), 5 on timeout. If send_stop is false, the write is deferred so that a subsequent requestFrom to the same address executes the combined write-then-read as a single mm.mcu i2c_write_read transaction, preserving bus arbitration.
 
 requestFrom reads up to min(quantity, 32) bytes from the given address into an internal receive buffer. If a deferred write is pending for the same address, the operation becomes a combined write-then-read. Returns the number of bytes received.
 

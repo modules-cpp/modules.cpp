@@ -201,15 +201,24 @@ static std::byte wire_rx_buf_[wire_buffer_capacity];
 static std::size_t wire_rx_len_ = 0;
 static std::size_t wire_rx_head_ = 0;
 
-void flush_pending_wire_write() {
-    if (!wire_pending_write_read_) return;
+bool flush_pending_wire_write() {
+    if (!wire_pending_write_read_) return true;
     wire_pending_write_read_ = false;
+    bool ok = true;
     const auto board = mm::mcu::board();
     if (board.i2c && wire_tx_len_ > 0) {
-        (void)mm::mcu::i2c_write(board.i2c->instance, wire_tx_address_,
-                                 std::span<const std::byte>(wire_tx_buf_, wire_tx_len_));
+        const auto st = mm::mcu::i2c_write(board.i2c->instance, wire_tx_address_,
+                                           std::span<const std::byte>(wire_tx_buf_, wire_tx_len_));
+        if (st != mm::mcu::Status::Ok) {
+            const char* const saved_call = active_call_;
+            active_call_ = nullptr;
+            record_failure(from(st), "Wire.endTransmission");
+            active_call_ = saved_call;
+            ok = false;
+        }
     }
     wire_tx_len_ = 0;
+    return ok;
 }
 
 } // namespace
@@ -1795,12 +1804,13 @@ void SPIClass::transfer(void* buffer, std::size_t size) {
     }
     std::vector<std::byte> tx(size);
     std::memcpy(tx.data(), buffer, size);
-    const auto st = mm::mcu::spi_transfer(
-        board.spi->instance, tx,
-        std::span<std::byte>(reinterpret_cast<std::byte*>(buffer), size));
+    std::vector<std::byte> rx(size);
+    const auto st = mm::mcu::spi_transfer(board.spi->instance, tx, rx);
     if (st != mm::mcu::Status::Ok) {
         record_failure(from(st), "SPI.transfer");
+        return;
     }
+    std::memcpy(buffer, rx.data(), size);
 }
 
 void SPIClass::transfer(byte* buffer, std::size_t size) {
@@ -1842,7 +1852,7 @@ bool TwoWire::begin() {
 
 bool TwoWire::end() {
     CallScope scope{"Wire.end"};
-    flush_pending_wire_write();
+    const bool flushed = flush_pending_wire_write();
     wire_begun_ = false;
     wire_transmitting_ = false;
     wire_tx_overflow_ = false;
@@ -1850,7 +1860,7 @@ bool TwoWire::end() {
     wire_tx_len_ = 0;
     wire_rx_len_ = 0;
     wire_rx_head_ = 0;
-    return true;
+    return flushed;
 }
 
 void TwoWire::setClock(unsigned long clock_speed) {
@@ -1879,6 +1889,10 @@ void TwoWire::setClock(unsigned long clock_speed) {
 
 void TwoWire::beginTransmission(byte address) {
     CallScope scope{"Wire.beginTransmission"};
+    if (address > 0x7F) {
+        record_failure(Status::BadArgument, "Wire.beginTransmission");
+        return;
+    }
     flush_pending_wire_write();
     wire_tx_address_ = static_cast<unsigned int>(address);
     wire_tx_len_ = 0;
@@ -1887,6 +1901,11 @@ void TwoWire::beginTransmission(byte address) {
 }
 
 void TwoWire::beginTransmission(int address) {
+    if (address < 0 || address > 0x7F) {
+        CallScope scope{"Wire.beginTransmission"};
+        record_failure(Status::BadArgument, "Wire.beginTransmission");
+        return;
+    }
     beginTransmission(static_cast<byte>(address));
 }
 
@@ -1973,6 +1992,10 @@ byte TwoWire::endTransmission(bool send_stop) {
 std::size_t TwoWire::requestFrom(byte address, std::size_t quantity, bool send_stop) {
     CallScope scope{"Wire.requestFrom"};
     (void)send_stop;
+    if (address > 0x7F) {
+        record_failure(Status::BadArgument, "Wire.requestFrom");
+        return 0;
+    }
     if (!wire_begun_) {
         record_failure(Status::NotInitialized, "Wire.requestFrom");
         return 0;
@@ -1996,7 +2019,9 @@ std::size_t TwoWire::requestFrom(byte address, std::size_t quantity, bool send_s
             std::span<std::byte>(wire_rx_buf_, count));
         wire_tx_len_ = 0;
     } else {
-        flush_pending_wire_write();
+        if (!flush_pending_wire_write()) {
+            return 0;
+        }
         st = mm::mcu::i2c_read(board.i2c->instance, address,
                                std::span<std::byte>(wire_rx_buf_, count));
     }
@@ -2010,7 +2035,12 @@ std::size_t TwoWire::requestFrom(byte address, std::size_t quantity, bool send_s
 }
 
 std::size_t TwoWire::requestFrom(int address, int quantity, int send_stop) {
-    if (address < 0 || quantity <= 0) return 0;
+    if (address < 0 || address > 0x7F) {
+        CallScope scope{"Wire.requestFrom"};
+        record_failure(Status::BadArgument, "Wire.requestFrom");
+        return 0;
+    }
+    if (quantity <= 0) return 0;
     return requestFrom(static_cast<byte>(address), static_cast<std::size_t>(quantity), send_stop != 0);
 }
 
