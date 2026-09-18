@@ -16,7 +16,8 @@ enum {
     MM_PICO_MCU_BAD_ARGUMENT = 1,
     MM_PICO_MCU_UNSUPPORTED = 2,
     MM_PICO_MCU_BUSY = 3,
-    MM_PICO_MCU_TIMEOUT = 4
+    MM_PICO_MCU_TIMEOUT = 4,
+    MM_PICO_MCU_TRANSPORT_ERROR = 5
 };
 
 enum { MM_PICO_MCU_DIRECTION_IN = 0, MM_PICO_MCU_DIRECTION_OUT = 1 };
@@ -50,6 +51,27 @@ int mm_pico_mcu_i2c_write_read(unsigned int instance, unsigned int address,
 int mm_pico_mcu_uart_write(unsigned int instance, const char* text);
 int mm_pico_mcu_delay_ms(unsigned long milliseconds);
 int mm_pico_mcu_ticks_ms(unsigned long* ticks);
+
+// The analog facilities. Channels and outputs are the SDK's own numbering:
+// ADC channel n is GPIO base + n up to the temperature channel, which has no
+// pin; a PWM output is its GPIO, and the slice and comparator queries say
+// which counter and compare register it lands on. The reference is the
+// selected board's row in resolve-board.cmake, zero for a board without one.
+// pwm_configure takes the plan the C++ side made -- top and a divider in
+// sixteenths -- because the arithmetic is portable and lives above this ABI.
+unsigned int mm_pico_mcu_adc_channel_count(void);
+unsigned int mm_pico_mcu_adc_base_pin(void);
+unsigned int mm_pico_mcu_adc_temperature_channel(void);
+unsigned int mm_pico_mcu_adc_reference_mv(void);
+int mm_pico_mcu_adc_configure(unsigned int channel);
+int mm_pico_mcu_adc_read(unsigned int channel, unsigned int* count);
+int mm_pico_mcu_adc_release(unsigned int channel);
+unsigned long mm_pico_mcu_system_clock_hz(void);
+unsigned int mm_pico_mcu_pwm_slice(unsigned int pin);
+unsigned int mm_pico_mcu_pwm_comparator(unsigned int pin);
+int mm_pico_mcu_pwm_configure(unsigned int pin, unsigned int top, unsigned int divider_x16);
+int mm_pico_mcu_pwm_write(unsigned int pin, unsigned int level);
+int mm_pico_mcu_pwm_release(unsigned int pin);
 const char* mm_pico_mcu_board_name(void);
 unsigned int mm_pico_mcu_gpio_count(void);
 int mm_pico_mcu_has_led(void);

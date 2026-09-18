@@ -46,10 +46,13 @@ set_source_files_properties(${MM_ADAPTER} PROPERTIES
   COMPILE_OPTIONS "-std=gnu11;-Wall;-Wextra;-Werror")
 target_compile_definitions(mm_external PRIVATE
   MM_SELECTED_BOARD="${MM_BOARD}"
+  MM_ADC_REFERENCE_MV=${MM_ADC_REFERENCE_MV}
   PICO_STDIO_USB_CONNECTION_WITHOUT_DTR=1)
 target_link_libraries(mm_external
   pico_stdlib
   pico_stdio_usb
+  hardware_adc
+  hardware_pwm
   hardware_spi
   hardware_i2c
   hardware_uart)

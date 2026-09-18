@@ -744,6 +744,9 @@ binding. Unrelated executables retain their ordinary closure.
 - mcu-blink links on rp2040-ram through platform.rp2040_ram.mcu.
 - With the corresponding external tools installed, mcu-blink links on Pico ARM
   and Pico RISC-V through platform.pico.mcu and the real external CMake bridge.
+- analog-smoke builds for the RP2040 and both RP2350 architectures with the
+  ADC and PWM adapter symbols present; its verdict on the wired fixture is a
+  physical run.
 - An explicit mcu-blink build on rp2350-ram or mps2-an385 reports the missing
   provider before compilation or linking.
 - A root build on either unsupported board skips mcu-blink and still builds
@@ -787,8 +790,8 @@ record a skipped qualification with the missing prerequisite named.
 - It does not choose individual UART instances, GPIO pin ownership, or clocks.
 - It does not promise that every provider supports every mm.mcu facility;
   Unsupported remains part of the interface, including SPI, I2C, ADC, and PWM.
-  The Pico and Linux ADC and PWM implementations are planned; until they land,
-  every provider inherits Unsupported for both.
+  The Pico SDK provider implements both; the Linux implementation is planned,
+  and every other provider inherits Unsupported for both.
 - It does not make attached displays or sensors MCU facilities. SPI is an
   implemented reusable transport; mm.display and mm.epaper.ssd1680 are layered
   above it as specified by docs/modules-display.mdy and

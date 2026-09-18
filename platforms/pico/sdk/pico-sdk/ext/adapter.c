@@ -3,6 +3,9 @@
 // rather than here: this file implements it, and the module calls it.
 #include "../mcu/mcu-c.h"
 #include "../stdio/stdio-c.h"
+#include "hardware/adc.h"
+#include "hardware/clocks.h"
+#include "hardware/pwm.h"
 #include "hardware/spi.h"
 #include "hardware/i2c.h"
 #include "hardware/irq.h"
@@ -135,6 +138,24 @@ static volatile int mm_pico_gpio_pending[NUM_BANK0_GPIOS];
 static unsigned int mm_pico_gpio_mask[NUM_BANK0_GPIOS];
 static int mm_pico_gpio_callback_ready;
 
+// Who holds a pad. A plain GPIO configuration yields to an analog claim; a
+// watch and an analog claim yield only to their own release. The watched mark
+// above is what the interrupt reads; this record is what the facilities
+// consult, and the two agree because every transition sets both.
+enum {
+    MM_PICO_OWNER_NONE = 0,
+    MM_PICO_OWNER_GPIO = 1,
+    MM_PICO_OWNER_WATCHED = 2,
+    MM_PICO_OWNER_ADC = 3,
+    MM_PICO_OWNER_PWM = 4
+};
+static unsigned char mm_pico_pin_owner[NUM_BANK0_GPIOS];
+
+static int mm_pico_analog_holds(unsigned int pin) {
+    return mm_pico_pin_owner[pin] == MM_PICO_OWNER_ADC ||
+           mm_pico_pin_owner[pin] == MM_PICO_OWNER_PWM;
+}
+
 static void mm_pico_gpio_callback(unsigned int pin, uint32_t events) {
     if (mm_pico_pin_valid(pin) && mm_pico_gpio_watched[pin] &&
         (events & mm_pico_gpio_mask[pin])) {
@@ -161,7 +182,7 @@ static int mm_pico_spi_pin_matches(unsigned int instance, unsigned int pin,
 
 int mm_pico_mcu_gpio_configure(unsigned int pin, int direction, int pull) {
     if (!mm_pico_pin_valid(pin)) return MM_PICO_MCU_BAD_ARGUMENT;
-    if (mm_pico_gpio_watched[pin]) return MM_PICO_MCU_BUSY;
+    if (mm_pico_gpio_watched[pin] || mm_pico_analog_holds(pin)) return MM_PICO_MCU_BUSY;
     if (direction != MM_PICO_MCU_DIRECTION_IN && direction != MM_PICO_MCU_DIRECTION_OUT)
         return MM_PICO_MCU_BAD_ARGUMENT;
     if (pull != MM_PICO_MCU_PULL_NONE && pull != MM_PICO_MCU_PULL_UP &&
@@ -176,17 +197,20 @@ int mm_pico_mcu_gpio_configure(unsigned int pin, int direction, int pull) {
         case MM_PICO_MCU_PULL_DOWN: gpio_pull_down(pin); break;
         default: return MM_PICO_MCU_BAD_ARGUMENT;
     }
+    mm_pico_pin_owner[pin] = MM_PICO_OWNER_GPIO;
     return MM_PICO_MCU_OK;
 }
 
 int mm_pico_mcu_gpio_write(unsigned int pin, int high) {
     if (!mm_pico_pin_valid(pin)) return MM_PICO_MCU_BAD_ARGUMENT;
+    if (mm_pico_analog_holds(pin)) return MM_PICO_MCU_BUSY;
     gpio_put(pin, high != 0);
     return MM_PICO_MCU_OK;
 }
 
 int mm_pico_mcu_gpio_read(unsigned int pin, int* high) {
     if (!mm_pico_pin_valid(pin) || high == NULL) return MM_PICO_MCU_BAD_ARGUMENT;
+    if (mm_pico_analog_holds(pin)) return MM_PICO_MCU_BUSY;
     *high = gpio_get(pin) ? 1 : 0;
     return MM_PICO_MCU_OK;
 }
@@ -199,7 +223,7 @@ int mm_pico_mcu_gpio_watch(unsigned int pin, int pull, int edge) {
         (edge != MM_PICO_MCU_EDGE_RISING && edge != MM_PICO_MCU_EDGE_FALLING &&
          edge != MM_PICO_MCU_EDGE_BOTH)) return MM_PICO_MCU_BAD_ARGUMENT;
     uint32_t saved = save_and_disable_interrupts();
-    if (mm_pico_gpio_watched[pin]) {
+    if (mm_pico_gpio_watched[pin] || mm_pico_analog_holds(pin)) {
         restore_interrupts(saved);
         return MM_PICO_MCU_BUSY;
     }
@@ -223,6 +247,7 @@ int mm_pico_mcu_gpio_watch(unsigned int pin, int pull, int edge) {
     mm_pico_gpio_mask[pin] = mask;
     mm_pico_gpio_pending[pin] = 0;
     mm_pico_gpio_watched[pin] = 1;
+    mm_pico_pin_owner[pin] = MM_PICO_OWNER_WATCHED;
     gpio_set_irq_enabled(pin, mask, true);
     restore_interrupts(saved);
     return MM_PICO_MCU_OK;
@@ -253,6 +278,7 @@ int mm_pico_mcu_gpio_unwatch(unsigned int pin) {
         return MM_PICO_MCU_BAD_ARGUMENT;
     }
     mm_pico_gpio_watched[pin] = 0;
+    mm_pico_pin_owner[pin] = MM_PICO_OWNER_NONE;
     gpio_set_irq_enabled(pin, mm_pico_gpio_mask[pin], false);
     mm_pico_gpio_pending[pin] = 0;
     gpio_deinit(pin);
@@ -440,6 +466,160 @@ int mm_pico_mcu_uart_write(unsigned int instance, const char* text) {
 
 int mm_pico_mcu_delay_ms(unsigned long milliseconds) {
     sleep_ms(milliseconds);
+    return MM_PICO_MCU_OK;
+}
+
+// The converter. adc_init runs once, on the first claim; each read selects
+// its input immediately before converting, since the selection is the
+// converter's one piece of shared state.
+#ifndef MM_ADC_REFERENCE_MV
+#define MM_ADC_REFERENCE_MV 0
+#endif
+
+static int mm_pico_adc_ready;
+static unsigned char mm_pico_adc_claimed[NUM_ADC_CHANNELS];
+
+static int mm_pico_adc_channel_valid(unsigned int channel) {
+    return channel < (unsigned int)NUM_ADC_CHANNELS;
+}
+
+static int mm_pico_adc_channel_has_pin(unsigned int channel) {
+    return channel != (unsigned int)ADC_TEMPERATURE_CHANNEL_NUM;
+}
+
+unsigned int mm_pico_mcu_adc_channel_count(void) {
+    return (unsigned int)NUM_ADC_CHANNELS;
+}
+
+unsigned int mm_pico_mcu_adc_base_pin(void) {
+    return (unsigned int)ADC_BASE_PIN;
+}
+
+unsigned int mm_pico_mcu_adc_temperature_channel(void) {
+    return (unsigned int)ADC_TEMPERATURE_CHANNEL_NUM;
+}
+
+unsigned int mm_pico_mcu_adc_reference_mv(void) {
+    return (unsigned int)MM_ADC_REFERENCE_MV;
+}
+
+int mm_pico_mcu_adc_configure(unsigned int channel) {
+    if (!mm_pico_adc_channel_valid(channel)) return MM_PICO_MCU_BAD_ARGUMENT;
+    if (mm_pico_adc_claimed[channel]) return MM_PICO_MCU_OK;
+    if (mm_pico_adc_channel_has_pin(channel)) {
+        const unsigned int pin = (unsigned int)ADC_BASE_PIN + channel;
+        if (!mm_pico_pin_valid(pin)) return MM_PICO_MCU_UNSUPPORTED;
+        if (mm_pico_pin_owner[pin] == MM_PICO_OWNER_WATCHED ||
+            mm_pico_pin_owner[pin] == MM_PICO_OWNER_PWM)
+            return MM_PICO_MCU_BUSY;
+        if (!mm_pico_adc_ready) {
+            adc_init();
+            mm_pico_adc_ready = 1;
+        }
+        // The takeover: whatever digital mode the pad had is gone with the
+        // input buffer and the pulls.
+        adc_gpio_init(pin);
+        mm_pico_pin_owner[pin] = MM_PICO_OWNER_ADC;
+    } else {
+        if (!mm_pico_adc_ready) {
+            adc_init();
+            mm_pico_adc_ready = 1;
+        }
+        adc_set_temp_sensor_enabled(true);
+    }
+    mm_pico_adc_claimed[channel] = 1;
+    return MM_PICO_MCU_OK;
+}
+
+int mm_pico_mcu_adc_read(unsigned int channel, unsigned int* count) {
+    if (!mm_pico_adc_channel_valid(channel) || count == NULL) return MM_PICO_MCU_BAD_ARGUMENT;
+    if (!mm_pico_adc_claimed[channel]) return MM_PICO_MCU_BAD_ARGUMENT;
+    adc_select_input(channel);
+    *count = (unsigned int)adc_read();
+    return MM_PICO_MCU_OK;
+}
+
+int mm_pico_mcu_adc_release(unsigned int channel) {
+    if (!mm_pico_adc_channel_valid(channel)) return MM_PICO_MCU_BAD_ARGUMENT;
+    if (!mm_pico_adc_claimed[channel]) return MM_PICO_MCU_OK;
+    if (mm_pico_adc_channel_has_pin(channel)) {
+        const unsigned int pin = (unsigned int)ADC_BASE_PIN + channel;
+        gpio_deinit(pin);
+        mm_pico_pin_owner[pin] = MM_PICO_OWNER_NONE;
+    } else {
+        adc_set_temp_sensor_enabled(false);
+    }
+    mm_pico_adc_claimed[channel] = 0;
+    return MM_PICO_MCU_OK;
+}
+
+// The modulator. The C++ side keeps the periods and decides who may join a
+// slice; the adapter keeps the pad and comparator ownership, programs the
+// slice the first time an output claims it, and stops it when the last one
+// leaves. A level of top + 1 is a steady high, which the plan above keeps
+// representable by never choosing a top of 65535.
+static unsigned char mm_pico_pwm_members[NUM_PWM_SLICES];
+static unsigned char mm_pico_pwm_comparator_claimed[NUM_PWM_SLICES][2];
+
+unsigned long mm_pico_mcu_system_clock_hz(void) {
+    return (unsigned long)clock_get_hz(clk_sys);
+}
+
+unsigned int mm_pico_mcu_pwm_slice(unsigned int pin) {
+    return mm_pico_pin_valid(pin) ? (unsigned int)pwm_gpio_to_slice_num(pin) : 0u;
+}
+
+unsigned int mm_pico_mcu_pwm_comparator(unsigned int pin) {
+    return mm_pico_pin_valid(pin) ? (unsigned int)pwm_gpio_to_channel(pin) : 0u;
+}
+
+int mm_pico_mcu_pwm_configure(unsigned int pin, unsigned int top, unsigned int divider_x16) {
+    if (!mm_pico_pin_valid(pin)) return MM_PICO_MCU_BAD_ARGUMENT;
+    if (top > 65534u || divider_x16 < 16u || divider_x16 > 4095u) return MM_PICO_MCU_BAD_ARGUMENT;
+    if (mm_pico_pin_owner[pin] == MM_PICO_OWNER_PWM) return MM_PICO_MCU_OK;
+    if (mm_pico_pin_owner[pin] == MM_PICO_OWNER_WATCHED ||
+        mm_pico_pin_owner[pin] == MM_PICO_OWNER_ADC)
+        return MM_PICO_MCU_BUSY;
+    const unsigned int slice = (unsigned int)pwm_gpio_to_slice_num(pin);
+    const unsigned int comparator = (unsigned int)pwm_gpio_to_channel(pin);
+    if (slice >= (unsigned int)NUM_PWM_SLICES) return MM_PICO_MCU_UNSUPPORTED;
+    // Two GPIOs sixteen apart share a comparator; the second is an alias of
+    // the first's signal, not a second output.
+    if (mm_pico_pwm_comparator_claimed[slice][comparator]) return MM_PICO_MCU_BUSY;
+
+    if (mm_pico_pwm_members[slice] == 0) {
+        pwm_set_enabled(slice, false);
+        pwm_set_clkdiv_int_frac4(slice, (uint8_t)(divider_x16 >> 4), (uint8_t)(divider_x16 & 15u));
+        pwm_set_wrap(slice, (uint16_t)top);
+        pwm_set_counter(slice, 0);
+    }
+    pwm_set_chan_level(slice, comparator, 0);
+    gpio_set_function(pin, GPIO_FUNC_PWM);
+    if (mm_pico_pwm_members[slice] == 0) pwm_set_enabled(slice, true);
+    mm_pico_pwm_members[slice]++;
+    mm_pico_pwm_comparator_claimed[slice][comparator] = 1;
+    mm_pico_pin_owner[pin] = MM_PICO_OWNER_PWM;
+    return MM_PICO_MCU_OK;
+}
+
+int mm_pico_mcu_pwm_write(unsigned int pin, unsigned int level) {
+    if (!mm_pico_pin_valid(pin) || level > 65535u) return MM_PICO_MCU_BAD_ARGUMENT;
+    if (mm_pico_pin_owner[pin] != MM_PICO_OWNER_PWM) return MM_PICO_MCU_BAD_ARGUMENT;
+    pwm_set_gpio_level(pin, (uint16_t)level);
+    return MM_PICO_MCU_OK;
+}
+
+int mm_pico_mcu_pwm_release(unsigned int pin) {
+    if (!mm_pico_pin_valid(pin)) return MM_PICO_MCU_BAD_ARGUMENT;
+    if (mm_pico_pin_owner[pin] != MM_PICO_OWNER_PWM) return MM_PICO_MCU_OK;
+    const unsigned int slice = (unsigned int)pwm_gpio_to_slice_num(pin);
+    const unsigned int comparator = (unsigned int)pwm_gpio_to_channel(pin);
+    pwm_set_chan_level(slice, comparator, 0);
+    gpio_deinit(pin);
+    mm_pico_pwm_comparator_claimed[slice][comparator] = 0;
+    mm_pico_pin_owner[pin] = MM_PICO_OWNER_NONE;
+    if (mm_pico_pwm_members[slice] > 0 && --mm_pico_pwm_members[slice] == 0)
+        pwm_set_enabled(slice, false);
     return MM_PICO_MCU_OK;
 }
 

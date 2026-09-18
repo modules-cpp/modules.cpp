@@ -36,7 +36,12 @@ All notable changes to modules.cpp. Versions follow [semantic versioning](https:
   and an analog claim yield only to their own release. Every provider inherits
   `Unsupported` for both until its implementation lands; the host stand-in
   and `tests/mm/mcu` pin the contracts and the planner against an independent
-  rational model.
+  rational model. The Pico SDK provider implements both over `hardware_adc`
+  and `hardware_pwm` through its adapter, which now keeps one owner per pad
+  across GPIO, the edge latch, ADC, and PWM; the ADC reference is the selected
+  board's own row in the bridge's `resolve-board.cmake`. `analog-smoke` and
+  `scripts/build-analog-smoke-pico.sh` are the wired fixture: PWM through an
+  RC filter into the ADC, read as raw ratios.
 - **GPIO edge latch in `mm.mcu`.** Portable `gpio_watch`, `gpio_take`,
   `gpio_unwatch`, and bounded `gpio_wait` report selected physical edges
   without running application callbacks inside interrupt handlers. Pico SDK

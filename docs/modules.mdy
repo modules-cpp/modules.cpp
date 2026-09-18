@@ -111,6 +111,7 @@ The source tree is organized by responsibility.
 |   +-- display-demo/         colour bars on any bound display
 |   +-- font-demo/            the committed font tables, turned and coloured
 |   +-- gfx-demo/             the drawing primitives, turned and coloured
+|   +-- analog-smoke/         PWM through an RC filter into the ADC
 +-- boards/                   this project's own hardware; see docs/modules-platforms.mdy
 |   +-- widget-rp2040/        custom board derived from rp2040-ram, with its provider
 |   +-- pico_epaper/          Pico plus Waveshare Pico-ePaper-2.66
