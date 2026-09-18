@@ -10,7 +10,7 @@ release: v1.2.3
 
 # Status and authority
 
-This document specifies mm.sketch, the module providing Arduino sketch compatibility for modules.cpp applications. It describes implemented behavior for stages 1, 2, 3, 4, 6, and 7 (release v1.2.3). Features scheduled for later stages are explicitly identified as planned.
+This document specifies mm.sketch, the module providing Arduino sketch compatibility for modules.cpp applications. It describes implemented behavior for stages 1, 2, 3, 4, 5, 6, and 7 (release v1.2.3). Features scheduled for later stages are explicitly identified as planned.
 
 docs/modules-ino.mdy specifies the mm.ino preprocessor that transforms sketch source files into an application translation unit; docs/modules-c++20.mdy owns the language dialect, include permissions, and linkage rules; docs/modules-platform-mcu.mdy owns the underlying MCU facilities; docs/modules-stdio.mdy owns the platform console interface; docs/modules-execution.mdy owns the execution model and loop scheduling.
 
@@ -163,7 +163,24 @@ pinMode configures GPIO direction and internal pull resistors. digitalWrite sets
 
 ## Analog I/O
 
-analogRead, analogWrite, analogReadResolution, and analogWriteResolution are deferred to stage 5, pending ADC and PWM support in mm.mcu. analogReference is declined; reference voltage configuration is a board property managed through hardware configuration.
+Opening fence
+[[nodiscard]] int analogRead(unsigned int pin);
+void analogReadResolution(int bits);
+
+void analogWrite(unsigned int pin, int value);
+void analogWrite(Led, int value);
+void analogWriteResolution(int bits);
+Closing fence
+
+analogRead samples the analog voltage on pin via mm.mcu adc_read. If pin corresponds to an attached ADC channel via adc_channel_for_gpio or matches an ADC channel number directly, the channel is claimed and sampled. The reading is scaled to the resolution configured by analogReadResolution (defaulting to 10 bits, range [0, 1023]). On failure or unsupported platforms, analogRead returns 0 and records the error status.
+
+analogReadResolution sets the resolution of values returned by analogRead in bits (range [1, 31], default 10). Invalid bit values record Status::BadArgument and leave the resolution unchanged.
+
+analogWrite generates a pulse-width modulated (PWM) wave on pin at 490 Hz (period 2,040,816 ns) via mm.mcu pwm_configure and pwm_write. value specifies the duty cycle, scaled by the write resolution (default 8 bits, [0, 255]). A value <= 0 drives steady LOW (duty 0); a value >= max drives steady HIGH (100% duty). The LED_BUILTIN overload resolves the board's configured LED pin via mm::mcu::board(). If the pin or platform does not support PWM, analogWrite records Status::BadArgument or Status::Unsupported.
+
+analogWriteResolution sets the duty cycle resolution for analogWrite in bits (range [1, 31], default 8). Invalid bit values record Status::BadArgument and leave the resolution unchanged.
+
+analogReference is declined; reference voltage configuration is a board property managed through hardware configuration.
 
 ## Advanced I/O
 
@@ -181,11 +198,16 @@ void shiftOut(unsigned int data_pin, unsigned int clock_pin, BitOrder bit_order,
 
 [[nodiscard]] unsigned long pulseIn(unsigned int pin, Level value, unsigned long timeout = 1000000UL);
 [[nodiscard]] unsigned long pulseInLong(unsigned int pin, Level value, unsigned long timeout = 1000000UL);
+
+void tone(unsigned int pin, unsigned int frequency, unsigned long duration = 0);
+void noTone(unsigned int pin);
 Closing fence
 
 shiftIn and shiftOut provide bit-banged synchronous serial communication over digitalWrite and digitalRead. In shiftIn, the clock pin is pulsed HIGH to read each of eight bits from the data pin. In shiftOut, each of eight bits is driven onto the data pin before pulsing the clock pin HIGH and LOW. The bit order is governed by BitOrder: LSBFIRST shifts the least-significant bit first, and MSBFIRST shifts the most-significant bit first.
 
-pulseIn and pulseInLong measure the duration of a pulse on pin in microseconds, timing out after timeout microseconds (defaulting to 1 second) and returning 0 if the pulse does not transition or complete within the deadline. tone and noTone are deferred to stage 5.
+pulseIn and pulseInLong measure the duration of a pulse on pin in microseconds, timing out after timeout microseconds (defaulting to 1 second) and returning 0 if the pulse does not transition or complete within the deadline.
+
+tone generates a 50% duty cycle square wave of the specified frequency in Hertz on pin via mm.mcu PWM. If frequency is 0, tone acts as noTone. An optional duration in milliseconds specifies playback length; when duration > 0, tone expiration is evaluated during dispatch and terminates automatically once the deadline is reached. noTone stops wave generation and releases the PWM output. Calling noTone on an idle pin is a safe no-op.
 
 ## Time
 

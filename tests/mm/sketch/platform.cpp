@@ -1,6 +1,7 @@
 // Pawel Wodnicki (C) 2026
 // 32bitmicro LLC (C) 2026
 #include <cstddef>
+#include <cstdint>
 #include <optional>
 #include <span>
 #include <string>
@@ -23,6 +24,24 @@ constexpr mm::mcu::Gpio gpios[] = {
     {20, "GPIO20"}, {21, "GPIO21"}, {22, "GPIO22"}, {23, "GPIO23"},
     {24, "GPIO24"}, {25, "GPIO25"}, {26, "GPIO26"}, {27, "GPIO27"},
     {28, "GPIO28"}, {29, "GPIO29"}, {30, "GPIO30"}, {31, "GPIO31"},
+};
+
+constexpr mm::mcu::AdcChannel test_adc_channels[] = {
+    {0, "ADC0", 26, 12, 3300},
+    {1, "ADC1", 27, 10, 3300},
+    {2, "ADC2", 28, 12, 0},
+    {3, "TEMP", std::nullopt, 12, 3300},
+};
+
+constexpr std::uint64_t pwm_shortest = 16;
+constexpr std::uint64_t pwm_longest = 134'000'000;
+
+constexpr mm::mcu::PwmOutput test_pwm_outputs[] = {
+    {0, "PWM0", 0, 0, 0, pwm_shortest, pwm_longest},
+    {1, "PWM1", 1, 0, 1, pwm_shortest, pwm_longest},
+    {2, "PWM2", 2, 1, 0, pwm_shortest, pwm_longest},
+    {3, "PWM3", 3, 2, 0, 0, 0},
+    {9, "PWM9", 25, 4, 1, pwm_shortest, pwm_longest},
 };
 
 struct GpioEvent {
@@ -245,6 +264,135 @@ public:
         for (std::size_t i = count; i < data.size(); ++i) {
             data[i] = std::byte{0xFF};
         }
+        return mm::mcu::Status::Ok;
+    }
+
+    bool adc_present = true;
+    bool adc_fail = false;
+    bool adc_claimed[4] = {};
+    unsigned int adc_count[4] = {};
+
+    [[nodiscard]] mm::mcu::AdcDescription adc_description() const override {
+        if (!adc_present) return {};
+        return {test_adc_channels};
+    }
+
+    [[nodiscard]] mm::mcu::Status adc_configure(unsigned int channel) override {
+        if (adc_fail) return mm::mcu::Status::TransportError;
+        if (channel >= std::size(test_adc_channels)) return mm::mcu::Status::BadArgument;
+        adc_claimed[channel] = true;
+        return mm::mcu::Status::Ok;
+    }
+
+    [[nodiscard]] mm::mcu::Status adc_read(unsigned int channel, unsigned int& count) override {
+        if (adc_fail) return mm::mcu::Status::TransportError;
+        if (channel >= std::size(test_adc_channels) || !adc_claimed[channel])
+            return mm::mcu::Status::BadArgument;
+        count = adc_count[channel];
+        return mm::mcu::Status::Ok;
+    }
+
+    [[nodiscard]] mm::mcu::Status adc_release(unsigned int channel) override {
+        if (channel >= std::size(test_adc_channels)) return mm::mcu::Status::BadArgument;
+        adc_claimed[channel] = false;
+        return mm::mcu::Status::Ok;
+    }
+
+    bool pwm_present = true;
+    bool pwm_fail = false;
+    struct PwmClaim {
+        bool claimed = false;
+        std::uint64_t requested = 0;
+        std::uint64_t duty = 0;
+    };
+    PwmClaim pwm_claims[5] = {};
+    struct PwmGroupState {
+        unsigned int members = 0;
+        std::uint64_t requested = 0;
+        std::uint64_t actual = 0;
+    };
+    PwmGroupState pwm_groups[5] = {};
+
+    static const mm::mcu::PwmOutput* pwm_entry(unsigned int number) {
+        for (const auto& out : test_pwm_outputs) {
+            if (out.number == number) return &out;
+        }
+        return nullptr;
+    }
+
+    static std::size_t pwm_index(const mm::mcu::PwmOutput* entry) {
+        for (std::size_t i = 0; i < std::size(test_pwm_outputs); ++i) {
+            if (&test_pwm_outputs[i] == entry) return i;
+        }
+        return 0;
+    }
+
+    [[nodiscard]] mm::mcu::PwmDescription pwm_description() const override {
+        if (!pwm_present) return {};
+        return {test_pwm_outputs};
+    }
+
+    [[nodiscard]] mm::mcu::Status pwm_configure(unsigned int number,
+                                                std::uint64_t period_ns) override {
+        if (pwm_fail) return mm::mcu::Status::TransportError;
+        const auto* entry = pwm_entry(number);
+        if (entry == nullptr || period_ns == 0) return mm::mcu::Status::BadArgument;
+        if (entry->minimum_period_ns != 0 && entry->maximum_period_ns != 0 &&
+            (period_ns < entry->minimum_period_ns || period_ns > entry->maximum_period_ns))
+            return mm::mcu::Status::BadArgument;
+        auto& claim = pwm_claims[pwm_index(entry)];
+        if (claim.claimed) {
+            return claim.requested == period_ns ? mm::mcu::Status::Ok : mm::mcu::Status::Busy;
+        }
+        auto& group = pwm_groups[entry->group];
+        if (group.members != 0) {
+            if (group.requested != period_ns) return mm::mcu::Status::Busy;
+            for (std::size_t i = 0; i < std::size(test_pwm_outputs); ++i)
+                if (pwm_claims[i].claimed && test_pwm_outputs[i].group == entry->group &&
+                    test_pwm_outputs[i].comparator == entry->comparator)
+                    return mm::mcu::Status::Busy;
+        } else {
+            group.requested = period_ns;
+            group.actual = ((period_ns + 4) / 8) * 8;
+            if (group.actual == 0) group.actual = 8;
+        }
+        ++group.members;
+        claim.claimed = true;
+        claim.requested = period_ns;
+        claim.duty = 0;
+        return mm::mcu::Status::Ok;
+    }
+
+    [[nodiscard]] mm::mcu::Status pwm_period(unsigned int number,
+                                             std::uint64_t& actual_ns) override {
+        if (pwm_fail) return mm::mcu::Status::TransportError;
+        const auto* entry = pwm_entry(number);
+        if (entry == nullptr || !pwm_claims[pwm_index(entry)].claimed)
+            return mm::mcu::Status::BadArgument;
+        actual_ns = pwm_groups[entry->group].actual;
+        return mm::mcu::Status::Ok;
+    }
+
+    [[nodiscard]] mm::mcu::Status pwm_write(unsigned int number, std::uint64_t duty_ns) override {
+        if (pwm_fail) return mm::mcu::Status::TransportError;
+        const auto* entry = pwm_entry(number);
+        if (entry == nullptr || !pwm_claims[pwm_index(entry)].claimed)
+            return mm::mcu::Status::BadArgument;
+        if (duty_ns > pwm_groups[entry->group].actual) return mm::mcu::Status::BadArgument;
+        pwm_claims[pwm_index(entry)].duty = duty_ns;
+        return mm::mcu::Status::Ok;
+    }
+
+    [[nodiscard]] mm::mcu::Status pwm_release(unsigned int number) override {
+        if (pwm_fail) return mm::mcu::Status::TransportError;
+        const auto* entry = pwm_entry(number);
+        if (entry == nullptr) return mm::mcu::Status::BadArgument;
+        auto& claim = pwm_claims[pwm_index(entry)];
+        if (!claim.claimed) return mm::mcu::Status::Ok;
+        claim.claimed = false;
+        claim.duty = 0;
+        auto& group = pwm_groups[entry->group];
+        if (--group.members == 0) group = {};
         return mm::mcu::Status::Ok;
     }
 };
@@ -488,3 +636,63 @@ void test_reset_i2c() {
     platform_instance.i2c_written_address = 0;
     platform_instance.i2c_read_data.clear();
 }
+
+void test_adc_set_count(unsigned int channel, unsigned int count) {
+    if (channel < 4) platform_instance.adc_count[channel] = count;
+}
+
+bool test_adc_is_configured(unsigned int channel) {
+    if (channel < 4) return platform_instance.adc_claimed[channel];
+    return false;
+}
+
+void test_set_adc_present(bool present) {
+    platform_instance.adc_present = present;
+}
+
+void test_set_adc_fail(bool fail) {
+    platform_instance.adc_fail = fail;
+}
+
+void test_reset_adc() {
+    platform_instance.adc_present = true;
+    platform_instance.adc_fail = false;
+    for (int i = 0; i < 4; ++i) {
+        platform_instance.adc_claimed[i] = false;
+        platform_instance.adc_count[i] = 0;
+    }
+}
+
+bool test_pwm_is_configured(unsigned int output) {
+    const auto* entry = platform_instance.pwm_entry(output);
+    if (!entry) return false;
+    return platform_instance.pwm_claims[platform_instance.pwm_index(entry)].claimed;
+}
+
+std::uint64_t test_pwm_get_duty(unsigned int output) {
+    const auto* entry = platform_instance.pwm_entry(output);
+    if (!entry) return 0;
+    return platform_instance.pwm_claims[platform_instance.pwm_index(entry)].duty;
+}
+
+std::uint64_t test_pwm_get_actual_period(unsigned int output) {
+    const auto* entry = platform_instance.pwm_entry(output);
+    if (!entry) return 0;
+    return platform_instance.pwm_groups[entry->group].actual;
+}
+
+void test_set_pwm_present(bool present) {
+    platform_instance.pwm_present = present;
+}
+
+void test_set_pwm_fail(bool fail) {
+    platform_instance.pwm_fail = fail;
+}
+
+void test_reset_pwm() {
+    platform_instance.pwm_present = true;
+    platform_instance.pwm_fail = false;
+    for (auto& c : platform_instance.pwm_claims) c = {};
+    for (auto& g : platform_instance.pwm_groups) g = {};
+}
+

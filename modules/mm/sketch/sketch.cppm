@@ -64,6 +64,16 @@ bool ledOn();
 bool ledOff();
 [[nodiscard]] bool hasBuiltinLed();
 
+[[nodiscard]] int analogRead(unsigned int pin);
+void analogReadResolution(int bits);
+
+void analogWrite(unsigned int pin, int value);
+void analogWrite(Led, int value);
+void analogWriteResolution(int bits);
+
+void tone(unsigned int pin, unsigned int frequency, unsigned long duration = 0);
+void noTone(unsigned int pin);
+
 bool delay(unsigned long ms);
 bool delayMicroseconds(unsigned int us);
 [[nodiscard]] unsigned long millis();

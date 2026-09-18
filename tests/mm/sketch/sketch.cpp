@@ -2,6 +2,7 @@
 // 32bitmicro LLC (C) 2026
 #include <climits>
 #include <cstddef>
+#include <cstdint>
 #include <string>
 #include <string_view>
 
@@ -45,6 +46,19 @@ extern std::size_t test_get_i2c_written_size();
 extern unsigned char test_get_i2c_written_byte(std::size_t idx);
 extern unsigned int test_get_i2c_written_address();
 extern void test_reset_i2c();
+
+extern void test_adc_set_count(unsigned int channel, unsigned int count);
+extern bool test_adc_is_configured(unsigned int channel);
+extern void test_set_adc_present(bool present);
+extern void test_set_adc_fail(bool fail);
+extern void test_reset_adc();
+
+extern bool test_pwm_is_configured(unsigned int output);
+extern std::uint64_t test_pwm_get_duty(unsigned int output);
+extern std::uint64_t test_pwm_get_actual_period(unsigned int output);
+extern void test_set_pwm_present(bool present);
+extern void test_set_pwm_fail(bool fail);
+extern void test_reset_pwm();
 
 namespace {
 
@@ -1362,6 +1376,268 @@ void wire_communication() {
     test_reset_i2c();
 }
 
+void analog_read_operations() {
+    clearError();
+    test_reset_adc();
+
+    // Default resolution: 10 bits. Hardware channel 0 is on GPIO 26, 12 bits, max count 4095.
+    test_adc_set_count(0, 4095);
+    int val = analogRead(26);
+    expect(val == 1023, "default 10-bit resolution scales 4095 to 1023");
+    expect(test_adc_is_configured(0), "channel 0 should be configured after analogRead");
+    expect(lastError() == Status::Ok, "no error on successful analogRead");
+
+    test_adc_set_count(0, 2048);
+    val = analogRead(26);
+    expect(val == 512, "default 10-bit resolution scales 2048 to 512");
+
+    test_adc_set_count(0, 0);
+    val = analogRead(26);
+    expect(val == 0, "default 10-bit resolution scales 0 to 0");
+
+    // Reading by channel number directly (channel 1 on GPIO 27, 10 bits)
+    test_adc_set_count(1, 1023);
+    val = analogRead(27);
+    expect(val == 1023, "channel 1 on GPIO 27 reads 1023");
+
+    // Internal channel 3 (TEMP) has no GPIO, read by channel number 3
+    test_adc_set_count(3, 2048);
+    val = analogRead(3);
+    expect(val == 512, "internal channel 3 reads by channel number");
+
+    // analogReadResolution
+    analogReadResolution(12);
+    test_adc_set_count(0, 4095);
+    val = analogRead(26);
+    expect(val == 4095, "12-bit resolution preserves 4095");
+
+    analogReadResolution(8);
+    val = analogRead(26);
+    expect(val == 255, "8-bit resolution downscales 4095 to 255");
+
+    analogReadResolution(14);
+    val = analogRead(26);
+    expect(val == 16380, "14-bit resolution upscales 4095 to 16380");
+
+    // Invalid resolution rejected
+    analogReadResolution(0);
+    expect(lastError() == Status::BadArgument, "analogReadResolution(0) is BadArgument");
+    expect(lastCall() == std::string_view{"analogReadResolution"}, "lastCall is analogReadResolution");
+    clearError();
+
+    analogReadResolution(32);
+    expect(lastError() == Status::BadArgument, "analogReadResolution(32) is BadArgument");
+    clearError();
+
+    analogReadResolution(-5);
+    expect(lastError() == Status::BadArgument, "analogReadResolution(-5) is BadArgument");
+    clearError();
+
+    // Invalid pin
+    val = analogRead(99);
+    expect(val == 0, "analogRead on invalid pin returns 0");
+    expect(lastError() == Status::BadArgument, "analogRead on invalid pin is BadArgument");
+    expect(lastCall() == std::string_view{"analogRead"}, "lastCall is analogRead");
+    clearError();
+
+    // Hardware failure
+    test_set_adc_fail(true);
+    val = analogRead(26);
+    expect(val == 0, "analogRead on failed hardware returns 0");
+    expect(lastError() == Status::TransportError, "analogRead on failed hardware is TransportError");
+    clearError();
+    test_set_adc_fail(false);
+
+    // Unsupported platform
+    test_set_adc_present(false);
+    val = analogRead(26);
+    expect(val == 0, "analogRead on unsupported platform returns 0");
+    expect(lastError() == Status::Unsupported, "analogRead on unsupported platform is Unsupported");
+    clearError();
+    test_set_adc_present(true);
+
+    analogReadResolution(10);
+    test_reset_adc();
+}
+
+void analog_write_operations() {
+    clearError();
+    test_reset_pwm();
+
+    // Default resolution: 8 bits (0..255).
+    // Pin GPIO 0 maps to PWM output 0.
+    analogWrite(0, 0);
+    expect(test_pwm_is_configured(0), "PWM output 0 is configured");
+    expect(test_pwm_get_duty(0) == 0, "analogWrite(0, 0) sets duty to 0");
+    expect(lastError() == Status::Ok, "no error on analogWrite(0, 0)");
+
+    const auto actual_period = test_pwm_get_actual_period(0);
+    expect(actual_period > 0, "actual period should be positive");
+
+    analogWrite(0, 255);
+    expect(test_pwm_get_duty(0) == actual_period, "analogWrite(0, 255) sets 100% duty");
+
+    analogWrite(0, 128);
+    expect(test_pwm_get_duty(0) == (actual_period * 128) / 255, "analogWrite(0, 128) sets ~50% duty");
+
+    // Clamping values
+    analogWrite(0, -10);
+    expect(test_pwm_get_duty(0) == 0, "negative value clamped to 0");
+
+    analogWrite(0, 500);
+    expect(test_pwm_get_duty(0) == actual_period, "value > max clamped to actual period");
+
+    // analogWriteResolution
+    analogWriteResolution(10);
+    analogWrite(0, 1023);
+    expect(test_pwm_get_duty(0) == actual_period, "10-bit analogWrite(1023) sets 100% duty");
+    analogWrite(0, 512);
+    expect(test_pwm_get_duty(0) == (actual_period * 512) / 1023, "10-bit analogWrite(512) sets ~50% duty");
+
+    // Invalid resolution
+    analogWriteResolution(0);
+    expect(lastError() == Status::BadArgument, "analogWriteResolution(0) is BadArgument");
+    expect(lastCall() == std::string_view{"analogWriteResolution"}, "lastCall is analogWriteResolution");
+    clearError();
+
+    analogWriteResolution(35);
+    expect(lastError() == Status::BadArgument, "analogWriteResolution(35) is BadArgument");
+    clearError();
+
+    // LED_BUILTIN overload: built-in LED is on GPIO 25, which maps to PWM output 9
+    analogWriteResolution(8);
+    analogWrite(LED_BUILTIN, 128);
+    expect(test_pwm_is_configured(9), "PWM output 9 for LED_BUILTIN is configured");
+    const auto led_period = test_pwm_get_actual_period(9);
+    expect(test_pwm_get_duty(9) == (led_period * 128) / 255, "analogWrite(LED_BUILTIN, 128) sets ~50% duty");
+    expect(lastError() == Status::Ok, "no error on analogWrite(LED_BUILTIN, 128)");
+    noTone(25);
+
+    // Invalid pin
+    analogWrite(99, 128);
+    expect(lastError() == Status::BadArgument, "analogWrite on invalid pin is BadArgument");
+    expect(lastCall() == std::string_view{"analogWrite"}, "lastCall is analogWrite");
+    clearError();
+
+    // Unsupported platform
+    test_set_pwm_present(false);
+    analogWrite(0, 128);
+    expect(lastError() == Status::Unsupported, "analogWrite on unsupported platform is Unsupported");
+    clearError();
+    test_set_pwm_present(true);
+
+    // Hardware failure
+    test_set_pwm_fail(true);
+    analogWrite(0, 128);
+    expect(lastError() == Status::TransportError, "analogWrite on failed hardware is TransportError");
+    clearError();
+    test_set_pwm_fail(false);
+
+    noTone(0);
+    test_reset_pwm();
+}
+
+void tone_and_no_tone_operations() {
+    clearError();
+    test_reset_pwm();
+
+    // tone(pin, frequency)
+    // GPIO 0 maps to PWM output 0.
+    tone(0, 440);
+    expect(test_pwm_is_configured(0), "PWM output 0 is configured for tone");
+    const auto actual_period = test_pwm_get_actual_period(0);
+    expect(actual_period > 2'270'000 && actual_period < 2'275'000, "actual period is ~2.27 ms for 440 Hz");
+    expect(test_pwm_get_duty(0) == actual_period / 2, "tone duty is 50%");
+    expect(lastError() == Status::Ok, "no error on tone(0, 440)");
+
+    // Changing frequency on same pin
+    tone(0, 1000);
+    const auto period_1k = test_pwm_get_actual_period(0);
+    expect(period_1k > 999'000 && period_1k < 1'001'000, "actual period is ~1 ms for 1000 Hz");
+    expect(test_pwm_get_duty(0) == period_1k / 2, "tone duty is 50% for 1000 Hz");
+
+    // tone(pin, 0) acts as noTone(pin)
+    tone(0, 0);
+    expect(!test_pwm_is_configured(0), "PWM output 0 is released after tone(0, 0)");
+    expect(lastError() == Status::Ok, "no error on tone(0, 0)");
+
+    // noTone on already stopped pin is safe no-op
+    noTone(0);
+    expect(lastError() == Status::Ok, "noTone on idle pin is Ok");
+
+    // noTone releases active tone
+    tone(0, 880);
+    expect(test_pwm_is_configured(0), "PWM output 0 is configured");
+    noTone(0);
+    expect(!test_pwm_is_configured(0), "PWM output 0 is released after noTone(0)");
+    expect(lastError() == Status::Ok, "no error on noTone(0)");
+
+    // tone with duration: automatically expires during dispatch / delay
+    tone(0, 440, 50);
+    expect(test_pwm_is_configured(0), "PWM output 0 is playing tone with duration");
+    delay(60);
+    expect(!test_pwm_is_configured(0), "tone automatically expired after duration elapsed");
+    expect(lastError() == Status::Ok, "no error on tone expiration");
+
+    // Interleaving analogWrite and tone
+    analogWrite(0, 128);
+    expect(test_pwm_is_configured(0), "PWM output 0 configured for analogWrite");
+    expect(test_pwm_get_actual_period(0) == 2'040'816, "period is 490 Hz for analogWrite");
+
+    tone(0, 1000);
+    expect(test_pwm_is_configured(0), "PWM output 0 reconfigured for tone");
+    expect(test_pwm_get_actual_period(0) < 1'001'000, "period updated to 1000 Hz");
+
+    analogWrite(0, 64);
+    expect(test_pwm_is_configured(0), "PWM output 0 reconfigured back to analogWrite");
+    expect(test_pwm_get_actual_period(0) == 2'040'816, "period is 490 Hz again");
+    noTone(0);
+
+    // Invalid pin
+    tone(99, 440);
+    expect(lastError() == Status::BadArgument, "tone on invalid pin is BadArgument");
+    expect(lastCall() == std::string_view{"tone"}, "lastCall is tone");
+    clearError();
+
+    noTone(99);
+    expect(lastError() == Status::BadArgument, "noTone on invalid pin is BadArgument");
+    expect(lastCall() == std::string_view{"noTone"}, "lastCall is noTone");
+    clearError();
+
+    // Unsupported platform
+    test_set_pwm_present(false);
+    tone(0, 440);
+    expect(lastError() == Status::Unsupported, "tone on unsupported platform is Unsupported");
+    clearError();
+
+    noTone(0);
+    expect(lastError() == Status::Unsupported, "noTone on unsupported platform is Unsupported");
+    clearError();
+    test_set_pwm_present(true);
+
+    test_reset_pwm();
+}
+
+void runner_releases_analog_on_exit() {
+    clearError();
+    test_reset_adc();
+    test_reset_pwm();
+
+    run([]{
+        analogWrite(0, 128);
+        expect(test_pwm_is_configured(0), "PWM is configured during run");
+        test_adc_set_count(0, 1000);
+        int v = analogRead(26);
+        expect(v > 0, "analogRead succeeds during run");
+        expect(test_adc_is_configured(0), "ADC is configured during run");
+        requestExit(0);
+    }, nullptr);
+
+    expect(!test_pwm_is_configured(0), "PWM is released when run exits");
+    expect(!test_adc_is_configured(0), "ADC is released when run exits");
+    expect(lastError() == Status::Ok, "no error during runner analog test");
+}
+
 const mm::test::case_ cases[] = {
     {"runner clean start twice", &runner_clean_start_twice},
     {"status latch first failure", &status_latch_first_failure},
@@ -1389,9 +1665,14 @@ const mm::test::case_ cases[] = {
     {"interrupt preserved across runs", &interrupt_preserved_across_runs},
     {"spi communication", &spi_communication},
     {"wire communication", &wire_communication},
+    {"analog read operations", &analog_read_operations},
+    {"analog write operations", &analog_write_operations},
+    {"tone and no tone operations", &tone_and_no_tone_operations},
+    {"runner releases analog on exit", &runner_releases_analog_on_exit},
 };
 
 const mm::test::registrar reg{"mm.sketch", cases};
 
 } // namespace
+
 
