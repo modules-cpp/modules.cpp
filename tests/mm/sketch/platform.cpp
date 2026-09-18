@@ -111,9 +111,12 @@ public:
         return mm::stdio::Status::Ok;
     }
 
+    bool write_fail = false;
+
     [[nodiscard]] mm::stdio::Status write(std::span<const std::byte> data,
                                           std::size_t& written) override {
         if (!initialized) return mm::stdio::Status::NotInitialized;
+        if (write_fail) return mm::stdio::Status::TransportError;
         written_data.insert(written_data.end(), data.begin(), data.end());
         written = data.size();
         return mm::stdio::Status::Ok;
@@ -201,5 +204,9 @@ void test_setup_shift_in(unsigned int data_pin, unsigned int clock_pin, unsigned
 
 void test_clear_shift_in() {
     platform_instance.feed_shift_in = false;
+}
+
+void test_set_console_write_fail(bool fail) {
+    console_instance.write_fail = fail;
 }
 

@@ -1,5 +1,6 @@
 // Pawel Wodnicki (C) 2026
 // 32bitmicro LLC (C) 2026
+#include <climits>
 #include <cstddef>
 #include <string_view>
 
@@ -8,6 +9,7 @@ import mm.test;
 
 extern int test_console_read_calls();
 extern void reset_test_console_read_calls();
+extern void test_set_console_write_fail(bool fail);
 
 extern void test_start_gpio_log();
 extern std::size_t test_gpio_log_size();
@@ -165,6 +167,19 @@ void serial_communication() {
     expect(Serial.println("world") == 7, "println world should write 7 bytes");
     expect(Serial.println() == 2, "println() should write 2 bytes");
     expect(Serial.end(), "Serial.end should succeed");
+
+    clearError();
+    test_set_console_write_fail(true);
+    expect(Serial.print("fail") == 0, "Serial.print fails when console write fails");
+    expect(lastError() == Status::TransportError, "Serial.print failure latches TransportError");
+    expect(std::string_view(lastCall()) == "Serial.print", "Serial.print records Serial.print, not Serial.write");
+
+    clearError();
+    expect(Serial.println("fail") == 0, "Serial.println fails when console write fails");
+    expect(lastError() == Status::TransportError, "Serial.println failure latches TransportError");
+    expect(std::string_view(lastCall()) == "Serial.println", "Serial.println records Serial.println, not Serial.write");
+    test_set_console_write_fail(false);
+    clearError();
 }
 
 void math_operations() {
@@ -200,6 +215,8 @@ void math_operations() {
     expect(map(25L, 0L, 100L, 200L, 300L) == 225L, "map integer offset");
     expect(map(50.0, 0.0, 100.0, 0.0, 1000.0) == 500.0, "map double scale");
     expect(map(10L, 5L, 5L, 100L, 200L) == 100L, "map equal range returns out_min");
+    expect(map(LONG_MAX, 0L, LONG_MAX, 0L, LONG_MAX) == LONG_MAX, "map LONG_MAX without overflow");
+    expect(map(LONG_MIN, LONG_MIN, LONG_MAX, LONG_MIN, LONG_MAX) == LONG_MIN, "map LONG_MIN without overflow");
 }
 
 void character_classifiers() {
@@ -283,6 +300,9 @@ void random_numbers() {
     expect(random(-5) == 0, "random(negative) is 0");
     expect(random(10, 10) == 10, "random(min, min) is min");
     expect(random(20, 10) == 20, "random(min > max) is min");
+
+    const long r_span = random(LONG_MIN, LONG_MAX);
+    expect(r_span >= LONG_MIN && r_span < LONG_MAX, "random(LONG_MIN, LONG_MAX) within range");
 }
 
 void bits_and_bytes() {
@@ -384,6 +404,17 @@ void shift_in_and_shift_out() {
     const byte in_msb = shiftIn(2, 3, MSBFIRST);
     test_clear_shift_in();
     expect(in_msb == 0xB4, "shiftIn MSBFIRST should read 0xB4");
+
+    clearError();
+    shiftOut(999, 3, LSBFIRST, 0x55);
+    expect(lastError() == Status::BadArgument, "shiftOut on invalid pin fails");
+    expect(std::string_view(lastCall()) == "shiftOut", "shiftOut failure records shiftOut, not digitalWrite");
+
+    clearError();
+    shiftIn(999, 3, LSBFIRST);
+    expect(lastError() == Status::BadArgument, "shiftIn on invalid pin fails");
+    expect(std::string_view(lastCall()) == "shiftIn", "shiftIn failure records shiftIn, not digitalRead");
+    clearError();
 }
 
 const mm::test::case_ cases[] = {
