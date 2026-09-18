@@ -3,7 +3,7 @@ mm: 1.0
 kind: doc
 name: modules.cpp inertial measurement interface
 status: official
-release: v1.2.1
+release: v1.2.2
 ---
 
 # modules.cpp inertial measurement interface

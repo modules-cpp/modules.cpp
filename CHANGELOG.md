@@ -2,6 +2,130 @@
 
 All notable changes to modules.cpp. Versions follow [semantic versioning](https://semver.org/).
 
+## [v1.2.2] — 2026-09-17
+
+Something to draw with. v1.2.1 bound colour and e-paper panels to portable
+interfaces and proved the closure links. v1.2.2 puts pictures on them: a
+bitmap font module with committed IBM Plex Mono tables, a graphics module of
+caller-owned packed surfaces, drawing primitives, quarter-turn rotation, and
+palette expansion, and two demonstration applications that run unchanged on
+the one-bit e-paper, the RP2350 colour LCD, and both Linux emulations. It
+also opens the Linux lanes to Clang and the whole build to GCC 14.
+
+16 commits since v1.2.1; 55 files changed, 6045 insertions, 45 deletions.
+
+### Added
+
+- **`mm.gfx`.** A software rasterizer above `mm.display` and below everything
+  that draws. `Surface` is a caller-owned packed frame in the display's own
+  layout — one bit per pixel, MSB left, one is white, or big-endian RGB565 —
+  with total `row_bytes`, `size`, and `valid` that return zero or false
+  rather than a wrapped number on any dimensions. `fill`, `pixel`, `line`,
+  `rectangle`, and `fill_rectangle` clip to the surface, take
+  `mm::display::Color` on one-bit surfaces (`Red` is `Unsupported` before any
+  pixel changes) and `Rgb565` on sixteen-bit ones, and never touch a one-bit
+  row's padding bits. `rotate` turns a one-bit surface clockwise by quarter
+  turns, and a `constexpr` overload turns a rectangle with it. `expand_row`
+  maps a packed row to RGB565 through a `Palette` of ink and paper. Two
+  `write` overloads carry a surface to a display: same-depth, sending exactly
+  the surface's pixel bytes and enforcing the one-bit controller's byte-aligned
+  window rule before the provider sees it; and one-bit onto a sixteen-bit
+  panel, expanded a row at a time through a base palette and a list of
+  rectangular `Region`s with palettes of their own, so a one-bit composition
+  is the memory-sized path to a colour panel. Neither initializes, clears, or
+  refreshes.
+- **`mm.fonts`.** Monospace bitmap text on a `Surface`: `Glyph`, `Font`, and
+  `TextMetrics`; `measure`, which counts well-formed UTF-8 code points and
+  stops at a malformed one; and `render`, a transparent one-bit compositor
+  that inks glyph pixels and leaves every other bit alone, rejects a trailing
+  partial sequence, clips at the surface's right edge, and refuses text past
+  its bottom. Two committed tables, `kMono12` and `kMono16`, rasterized from
+  IBM Plex Mono (SIL Open Font License 1.1, `modules/mm/fonts/licenses/OFL.txt`)
+  over ASCII and the eighteen Polish letters, 113 code points each, with the
+  face's SHA-256 in the generated file's header.
+- **`font-demo` app.** Two lines at sixteen pixels and two at twelve, the last
+  in the Polish charset, then every glyph of the twelve pixel table wrapped to
+  the panel, shown upright and turned a quarter clockwise three times. A
+  sixteen-bit panel expands each line through its own palette, turned with
+  the frame; a one-bit panel gets the same bits black on white. Build scripts
+  for Linux SDL, Linux e-paper, Pico e-paper (both panels), and the RP2350
+  LCD, each asserting the provider closure and the presence of both tables.
+- **`gfx-demo` app.** Every drawing primitive in one scene: an ordered-dither
+  glow, nested frames, a haloed porthole with a starburst from a compile-time
+  sine table, and an orientation tick, turned through four orientations. On a
+  colour panel the expanding write runs through six hue-cycling regions that
+  turn with the scene, and a plasma drawn directly in RGB565 is written
+  through the porthole at the panel's depth. The same four build scripts.
+- **`epaper-linux-aarch64` board.** The emulated SSD1680 board existed only
+  for x86-64; the AArch64 board is the same two rebindings over
+  `generic-linux-aarch64`, so the e-paper lane runs on an ARM development
+  machine.
+- **Specifications.** `docs/modules-fonts.mdy` and `docs/modules-gfx.mdy`,
+  each marked with the release it governs.
+
+### Changed
+
+- **A hosted SDK may declare `compiler-family: any`.** The two Linux SDKs do:
+  they supply no specs file, linker script, or runtime prefix, so they own
+  none of the link and constrain none of the toolchain. A lane on them may
+  name GCC or Clang, and `configure` compares target triples by machine rather
+  than by spelling, since Clang writes the vendor field where GCC omits it.
+  The build's processor table gains the Clang rows for both hosted triples. A
+  bare-metal SDK cannot say `any`, and the loader rejects it there. The four
+  Linux build scripts take `--compiler` accordingly.
+- **The GCC target-option probe no longer passes `-c`.** `--help=target` is
+  answered by compiling a synthetic input named `help-dummy`; with `-c` the
+  driver also assembled it, leaving `help-dummy.o` in the working directory
+  after every target-lane build. The listing is identical without it, for
+  ARM, RISC-V, and m68k. `clean.sh` removes a stale one.
+
+### Fixed
+
+- Bootstrap and `configure` under GCC 14: two `const auto` bindings of
+  `options.values(...)` triggered an internal compiler error in
+  `simplify_aggr_init_expr`; both are spelled as `std::vector<std::string>`
+  now. GCC 14 bootstraps, builds, and passes the full host test suite.
+- The build refused Clang for Linux applications even after the SDK allowed
+  it, because the processor table had no Clang row for a hosted triple.
+
+### Known limitations
+
+- **The font table generator is not in the repository.** `data.cppm` says it
+  was produced by `tools/fonts/gen_font.py` from a pinned TTF, and the
+  specification describes regenerating it, but the script is not committed.
+  The tables can be used and verified against the golden bitmaps in the
+  tests; they cannot yet be regenerated from source.
+- Text and graphics on the physical panels have not been looked at. The
+  compositions are pinned by host tests and were viewed through the SDL and
+  emulated e-paper lanes; the RP2350 LCD and the Pico e-paper builds are
+  inspected images, not observed pictures.
+- `mm.fonts` composes one-bit only. Colour text goes through the expanding
+  write; there is no transparent glyph over an RGB565 surface, no stored
+  bitmap `blit`, no read-only surface view, no sixteen-bit `rotate`, and no
+  second plane for the tri-colour panel's red.
+- The gfx demo composes with per-pixel calls through the public API; that is
+  what it is for, and on an RP2040 the dithered glow costs tens of
+  milliseconds per orientation.
+- No tool converts a tuning option into a compiler or linker argument.
+  Carried from v1.2.0; unchanged.
+- Nothing automated asserts that a Pico image ran. Carried from v1.2.0;
+  unchanged.
+- RP2350 RISC-V hardware has not been exercised. Carried from v1.2.0;
+  unchanged.
+- Builds are full rather than incremental. Carried from v1.2.0; unchanged.
+
+### Compatibility
+
+- `mm: 1.0`, `mm: 1.1`, and `mm: 1.2` manifests are unchanged and still valid.
+- `compiler-family: any` is a new value for an existing `mm: 1.2` key on
+  hosted SDK manifests; the loader rejects it on bare-metal SDKs. No other
+  manifest key or value is introduced.
+- `mm.fonts` and `mm.gfx` are new modules; no existing module's interface
+  changes.
+- The configuration record stays `configuration-2`.
+- GCC 14 or newer, or a recent Clang, builds the project; GCC 15 or newer is
+  recommended.
+
 ## [v1.2.1] — 2026-09-15
 
 Hardware device interfaces and a native Linux target. v1.2.0 proved that one

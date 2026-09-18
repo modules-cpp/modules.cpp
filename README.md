@@ -34,9 +34,9 @@ see [docs/modules.mdy](docs/modules.mdy) for the full architecture.
 
 - A C++20 compiler with module support. Self-hosted builds support GCC and
   Clang; bootstrap remains the fixed GCC-oriented recovery path through `c++`.
-  GCC 15+ or a recent Clang release is recommended. GCC 14 is not usable: it
-  fails with an internal compiler error in `simplify_aggr_init_expr` while
-  compiling this project's own tools.
+  GCC 15+ or a recent Clang release is recommended. GCC 14 works since
+  v1.2.2, which routes two expressions around its internal compiler error in
+  `simplify_aggr_init_expr`; the full host test suite passes under it.
 - A POSIX shell (Linux or macOS; on Windows use WSL). The build and bootstrap
   scripts are plain `sh` scripts that shell out to the compiler directly —
   there is no CMake, Make, or other build system underneath them.
@@ -157,12 +157,12 @@ manifest format, every core module and tool in detail, and the TDD workflow
 for making changes. This README only covers getting the project running for
 the first time.
 
-[Configure specification for release v1.2.0](docs/modules-configure.mdy) defines
+[Configure specification for release v1.2.2](docs/modules-configure.mdy) defines
 the official manifest-option, reset, and read-only requirements. Its Current
 boundaries section describes the implemented structural-property scope;
 build, test, run, and debug consume lane capability and core declarations,
 while warning about tuning declarations whose values they do not apply yet.
 
-[Platforms specification for release v1.2.0](docs/modules-platforms.mdy) defines
+[Platforms specification for release v1.2.2](docs/modules-platforms.mdy) defines
 SDK and board manifests, target platform selection, responsibility ownership,
 and the strict configuration-2 record.
