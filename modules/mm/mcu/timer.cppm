@@ -16,4 +16,14 @@ export namespace mm::mcu {
     return platform().ticks_ms(ticks);
 }
 
+[[nodiscard]] inline Status delay_us(unsigned long microseconds) {
+    return platform().delay_us(microseconds);
 }
+
+// A monotonic microsecond counter whose zero point is the platform's business.
+[[nodiscard]] inline Status ticks_us(unsigned long& ticks) {
+    return platform().ticks_us(ticks);
+}
+
+}
+

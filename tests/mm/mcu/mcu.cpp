@@ -124,6 +124,14 @@ void timer_advances_and_reads_back() {
     unsigned long after = 0;
     expect(mm::mcu::ticks_ms(after) == Status::Ok && after == 750,
            "ticks advance by what was delayed");
+
+    unsigned long before_us = 1;
+    expect(mm::mcu::ticks_us(before_us) == Status::Ok && before_us == 750000,
+           "ticks_us tracks previous delay");
+    expect(mm::mcu::delay_us(500) == Status::Ok, "microsecond delay succeeds");
+    unsigned long after_us = 0;
+    expect(mm::mcu::ticks_us(after_us) == Status::Ok && after_us == 750500,
+           "ticks_us advances by microsecond delay");
 }
 
 void spi_configures_and_transfers_spans() {

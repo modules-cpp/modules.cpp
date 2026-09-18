@@ -74,6 +74,8 @@ public:
 
     [[nodiscard]] virtual Status delay_ms(unsigned long) { return Status::Unsupported; }
     [[nodiscard]] virtual Status ticks_ms(unsigned long&) { return Status::Unsupported; }
+    [[nodiscard]] virtual Status delay_us(unsigned long) { return Status::Unsupported; }
+    [[nodiscard]] virtual Status ticks_us(unsigned long&) { return Status::Unsupported; }
 };
 
 // Registered by the platform's module from a static initialiser, which runs

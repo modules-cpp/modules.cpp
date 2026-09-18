@@ -160,6 +160,7 @@ public:
     [[nodiscard]] mm::mcu::Status delay_ms(unsigned long milliseconds) override {
         if (forced != mm::mcu::Status::Ok) return forced;
         ticks += milliseconds;
+        ticks_us_val += milliseconds * 1000UL;
         return mm::mcu::Status::Ok;
     }
 
@@ -169,6 +170,21 @@ public:
         return mm::mcu::Status::Ok;
     }
 
+    [[nodiscard]] mm::mcu::Status delay_us(unsigned long microseconds) override {
+        if (forced != mm::mcu::Status::Ok) return forced;
+        ticks_us_val += microseconds;
+        ticks += microseconds / 1000UL;
+        return mm::mcu::Status::Ok;
+    }
+
+    [[nodiscard]] mm::mcu::Status ticks_us(unsigned long& out) override {
+        if (forced != mm::mcu::Status::Ok) return forced;
+        out = ticks_us_val;
+        return mm::mcu::Status::Ok;
+    }
+
+    unsigned long ticks_us_val = 0;
+
     void reset() {
         for (unsigned int pin = 0; pin < pin_count; ++pin) {
             configured[pin] = false;
@@ -177,6 +193,7 @@ public:
         }
         forced = mm::mcu::Status::Ok;
         ticks = 0;
+        ticks_us_val = 0;
         uart_instance = 0;
         uart_text = nullptr;
         spi_ready = false;

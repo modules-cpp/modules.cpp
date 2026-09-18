@@ -50,6 +50,8 @@ int mm_pico_mcu_i2c_write_read(unsigned int instance, unsigned int address,
 int mm_pico_mcu_uart_write(unsigned int instance, const char* text);
 int mm_pico_mcu_delay_ms(unsigned long milliseconds);
 int mm_pico_mcu_ticks_ms(unsigned long* ticks);
+int mm_pico_mcu_delay_us(unsigned long microseconds);
+int mm_pico_mcu_ticks_us(unsigned long* ticks);
 const char* mm_pico_mcu_board_name(void);
 unsigned int mm_pico_mcu_gpio_count(void);
 int mm_pico_mcu_has_led(void);

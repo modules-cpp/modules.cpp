@@ -27,6 +27,11 @@ extern void test_clear_shift_in();
 extern void test_gpio_set_edge(unsigned int pin, bool pending);
 extern bool test_gpio_is_watched(unsigned int pin);
 extern void test_gpio_clear_all_edges();
+extern void test_set_ticks_fail(bool fail);
+extern void test_set_delay_fail(bool fail);
+extern void test_set_console_read_fail(bool fail);
+extern void test_setup_pulse(unsigned int pin, std::initializer_list<bool> levels, unsigned long step_us);
+extern void test_clear_pulse();
 
 namespace {
 
@@ -168,6 +173,30 @@ void time_and_delay() {
     expect(delay(15), "delay 15ms should succeed");
     const unsigned long t2 = millis();
     expect(t2 >= t1 + 15, "millis should advance after delay");
+
+    const unsigned long u1 = micros();
+    expect(u1 > 0, "micros should return ticks");
+    expect(delayMicroseconds(500), "delayMicroseconds 500 should succeed");
+    const unsigned long u2 = micros();
+    expect(u2 >= u1 + 500, "micros should advance after delayMicroseconds");
+
+    // pulseIn test
+    test_setup_pulse(4, {false, true, false}, 250);
+    const unsigned long width = pulseIn(4, HIGH, 1000000UL);
+    expect(width == 250, "pulseIn measures 250us pulse");
+    test_clear_pulse();
+
+    // pulseInLong test
+    test_setup_pulse(4, {true, false, true}, 300);
+    const unsigned long width_long = pulseInLong(4, LOW, 1000000UL);
+    expect(width_long == 300, "pulseInLong measures 300us pulse");
+    test_clear_pulse();
+
+    // pulse timeout test
+    test_setup_pulse(4, {false}, 2000000UL);
+    const unsigned long timed_out = pulseIn(4, HIGH, 1000UL);
+    expect(timed_out == 0, "pulseIn times out when pin does not transition");
+    test_clear_pulse();
 }
 
 void serial_communication() {
@@ -249,6 +278,19 @@ void serial_formatting() {
     test_console_clear_written();
     Serial.println(42);
     expect(test_console_get_written() == "42\r\n", "println int");
+
+    // Invalid base validation
+    clearError();
+    expect(Serial.print(42, static_cast<Base>(5)) == 0, "print invalid base fails");
+    expect(lastError() == Status::BadArgument, "invalid base latches BadArgument");
+    expect(std::string_view(lastCall()) == "Serial.print", "lastCall is Serial.print");
+    clearError();
+
+    // Excessive double precision safety
+    expect(Serial.print(3.14159, 100) == 0, "print double huge precision fails safely");
+    expect(lastError() == Status::BadArgument, "huge precision latches BadArgument");
+    expect(std::string_view(lastCall()) == "Serial.print", "lastCall is Serial.print");
+    clearError();
 }
 
 void serial_input_and_waiting() {
@@ -299,6 +341,78 @@ void serial_input_and_waiting() {
     const double val = Serial.parseFloat();
     expect(val > 12.49 && val < 12.51, "parseFloat should parse 12.50");
     Serial.readString(); // drain
+
+    // Boundary testing for parseInt: LONG_MAX, LONG_MIN, and overflows
+    test_console_feed_input("9223372036854775807\n");
+    expect(Serial.parseInt() == LONG_MAX, "parseInt parses LONG_MAX exactly");
+    expect(lastError() == Status::Ok, "LONG_MAX does not latch error");
+    Serial.readString(); // drain
+
+    test_console_feed_input("-9223372036854775808\n");
+    expect(Serial.parseInt() == LONG_MIN, "parseInt parses LONG_MIN exactly");
+    expect(lastError() == Status::Ok, "LONG_MIN does not latch error");
+    Serial.readString(); // drain
+
+    clearError();
+    test_console_feed_input("9223372036854775808\n"); // LONG_MAX + 1
+    expect(Serial.parseInt() == LONG_MAX, "parseInt overflow clamps to LONG_MAX");
+    expect(lastError() == Status::BadArgument, "parseInt overflow latches BadArgument");
+    clearError();
+    Serial.readString(); // drain
+
+    test_console_feed_input("-9223372036854775809\n"); // LONG_MIN - 1
+    expect(Serial.parseInt() == LONG_MIN, "parseInt underflow clamps to LONG_MIN");
+    expect(lastError() == Status::BadArgument, "parseInt underflow latches BadArgument");
+    clearError();
+    Serial.readString(); // drain
+
+    // Overlapping pattern matching with KMP: "aaab" searching for "aab"
+    test_console_feed_input("aaab");
+    expect(Serial.find("aab"), "find matches overlapping pattern 'aab' in 'aaab'");
+    Serial.readString(); // drain
+
+    test_console_feed_input("ababa");
+    expect(Serial.findUntil("aba", "abb"), "findUntil matches 'aba' with overlapping prefix");
+    Serial.readString(); // drain
+
+    test_console_feed_input("aabaterm");
+    expect(!Serial.findUntil("xyz", "term"), "findUntil terminates on 'term'");
+    Serial.readString(); // drain
+
+    // fill_ring error latching on console read failure
+    clearError();
+    test_set_console_read_fail(true);
+    expect(Serial.available() == 0, "available reports 0 on read failure");
+    expect(lastError() == Status::TransportError, "available latches TransportError");
+    expect(std::string_view(lastCall()) == "Serial.available", "lastCall is Serial.available");
+    clearError();
+
+    expect(Serial.read() == -1, "read reports -1 on read failure");
+    expect(lastError() == Status::TransportError, "read latches TransportError");
+    expect(std::string_view(lastCall()) == "Serial.read", "lastCall is Serial.read");
+    clearError();
+
+    expect(Serial.peek() == -1, "peek reports -1 on read failure");
+    expect(lastError() == Status::TransportError, "peek latches TransportError");
+    expect(std::string_view(lastCall()) == "Serial.peek", "lastCall is Serial.peek");
+    clearError();
+    test_set_console_read_fail(false);
+
+    // Empty input when clock is unsupported must return immediately without hanging
+    clearError();
+    test_set_ticks_fail(true);
+    char empty_buf[4];
+    expect(Serial.readBytes(empty_buf, 4) == 0, "readBytes on unsupported clock returns 0 immediately");
+    expect(lastError() == Status::Unsupported, "unsupported clock latches Unsupported");
+    test_set_ticks_fail(false);
+    clearError();
+
+    // Delay failure during waiting operation must abort immediately
+    test_set_delay_fail(true);
+    expect(Serial.readString().empty(), "readString aborts on delay failure");
+    expect(lastError() == Status::TransportError, "delay failure latches TransportError");
+    test_set_delay_fail(false);
+    clearError();
 }
 
 void serial_event_callback() {
@@ -847,6 +961,75 @@ void interrupt_edge_latched_during_handler() {
     clearError();
 }
 
+static int int_exit_h1_calls = 0;
+static int int_exit_h2_calls = 0;
+
+void int_exit_handler1() {
+    ++int_exit_h1_calls;
+    requestExit(77);
+}
+
+void int_exit_handler2() {
+    ++int_exit_h2_calls;
+}
+
+void interrupt_dispatch_request_exit() {
+    test_gpio_clear_all_edges();
+    clearError();
+    int_exit_h1_calls = 0;
+    int_exit_h2_calls = 0;
+
+    expect(attachInterrupt(0, &int_exit_handler1, RISING), "attach exit handler pin 0");
+    expect(attachInterrupt(1, &int_exit_handler2, RISING), "attach secondary handler pin 1");
+
+    test_gpio_set_edge(0, true);
+    test_gpio_set_edge(1, true);
+
+    dispatch();
+
+    expect(int_exit_h1_calls == 1, "handler 1 ran and requested exit");
+    expect(int_exit_h2_calls == 0, "handler 2 aborted because requestExit was called");
+    expect(exitRequested(), "exit flag is raised");
+    expect(exitCode() == 77, "exit code is 77");
+
+    detachInterrupt(0);
+    detachInterrupt(1);
+    test_gpio_clear_all_edges();
+    run(&setup_nop, &loop_completes); // reset exit flag
+    clearError();
+}
+
+static int int_preserved_calls = 0;
+void int_preserved_handler() {
+    ++int_preserved_calls;
+}
+
+void setup_preserved_test() {}
+void loop_preserved_run1() {
+    requestExit(0);
+}
+void loop_preserved_run2() {
+    test_gpio_set_edge(2, true);
+    dispatch();
+    requestExit(0);
+}
+
+void interrupt_preserved_across_runs() {
+    test_gpio_clear_all_edges();
+    clearError();
+    int_preserved_calls = 0;
+
+    expect(attachInterrupt(2, &int_preserved_handler, RISING), "attach interrupt pin 2");
+
+    expect(run(&setup_preserved_test, &loop_preserved_run1) == 0, "run 1 succeeds");
+    expect(run(&setup_preserved_test, &loop_preserved_run2) == 0, "run 2 succeeds");
+    expect(int_preserved_calls == 1, "interrupt handler was preserved across run invocations");
+
+    detachInterrupt(2);
+    test_gpio_clear_all_edges();
+    clearError();
+}
+
 const mm::test::case_ cases[] = {
     {"runner clean start twice", &runner_clean_start_twice},
     {"status latch first failure", &status_latch_first_failure},
@@ -870,6 +1053,8 @@ const mm::test::case_ cases[] = {
     {"interrupt reentrancy guard", &interrupt_reentrancy_guard},
     {"interrupt table mutation during dispatch", &interrupt_table_mutation_during_dispatch},
     {"interrupt edge latched during handler", &interrupt_edge_latched_during_handler},
+    {"interrupt dispatch request exit", &interrupt_dispatch_request_exit},
+    {"interrupt preserved across runs", &interrupt_preserved_across_runs},
 };
 
 const mm::test::registrar reg{"mm.sketch", cases};

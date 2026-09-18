@@ -81,8 +81,18 @@ public:
         return mm::mcu::Status::Ok;
     }
 
+    bool feed_pulse = false;
+    unsigned int feed_pulse_pin = 0;
+    std::vector<bool> feed_pulse_levels;
+    std::size_t feed_pulse_index = 0;
+    unsigned long pulse_step_us = 100;
+
     [[nodiscard]] mm::mcu::Status gpio_read(unsigned int pin, bool& high) override {
         if (pin >= pin_count || !configured[pin]) return mm::mcu::Status::BadArgument;
+        if (feed_pulse && pin == feed_pulse_pin && feed_pulse_index < feed_pulse_levels.size()) {
+            level[pin] = feed_pulse_levels[feed_pulse_index++];
+            clock_ticks_us += pulse_step_us;
+        }
         high = level[pin];
         return mm::mcu::Status::Ok;
     }
@@ -116,13 +126,33 @@ public:
         return mm::mcu::Status::Ok;
     }
 
+    bool ticks_fail = false;
+    bool delay_fail = false;
+    unsigned long clock_ticks_us = 1'000'000;
+
     [[nodiscard]] mm::mcu::Status delay_ms(unsigned long ms) override {
+        if (delay_fail) return mm::mcu::Status::TransportError;
         clock_ticks += ms;
+        clock_ticks_us += ms * 1000UL;
         return mm::mcu::Status::Ok;
     }
 
     [[nodiscard]] mm::mcu::Status ticks_ms(unsigned long& ticks) override {
+        if (ticks_fail) return mm::mcu::Status::Unsupported;
         ticks = clock_ticks;
+        return mm::mcu::Status::Ok;
+    }
+
+    [[nodiscard]] mm::mcu::Status delay_us(unsigned long us) override {
+        if (delay_fail) return mm::mcu::Status::TransportError;
+        clock_ticks_us += us;
+        clock_ticks += us / 1000UL;
+        return mm::mcu::Status::Ok;
+    }
+
+    [[nodiscard]] mm::mcu::Status ticks_us(unsigned long& ticks) override {
+        if (ticks_fail) return mm::mcu::Status::Unsupported;
+        ticks = clock_ticks_us;
         return mm::mcu::Status::Ok;
     }
 };
@@ -142,6 +172,7 @@ public:
     }
 
     bool write_fail = false;
+    bool read_fail = false;
 
     [[nodiscard]] mm::stdio::Status write(std::span<const std::byte> data,
                                           std::size_t& written) override {
@@ -155,6 +186,7 @@ public:
     [[nodiscard]] mm::stdio::Status read(std::span<std::byte> data,
                                          std::size_t& count) override {
         if (!initialized) return mm::stdio::Status::NotInitialized;
+        if (read_fail) return mm::stdio::Status::TransportError;
         const auto available = pending_read.size() - read_offset;
         const auto taken = data.size() < available ? data.size() : available;
         for (std::size_t i = 0; i < taken; ++i) {
@@ -283,5 +315,29 @@ void test_gpio_clear_all_edges() {
     }
 }
 
+void test_set_ticks_fail(bool fail) {
+    platform_instance.ticks_fail = fail;
+}
 
+void test_set_delay_fail(bool fail) {
+    platform_instance.delay_fail = fail;
+}
 
+void test_set_console_read_fail(bool fail) {
+    console_instance.read_fail = fail;
+}
+
+void test_setup_pulse(unsigned int pin, std::initializer_list<bool> levels, unsigned long step_us) {
+    platform_instance.configured[pin] = true;
+    platform_instance.output[pin] = false;
+    platform_instance.feed_pulse = true;
+    platform_instance.feed_pulse_pin = pin;
+    platform_instance.feed_pulse_levels = levels;
+    platform_instance.feed_pulse_index = 0;
+    platform_instance.pulse_step_us = step_us;
+}
+
+void test_clear_pulse() {
+    platform_instance.feed_pulse = false;
+    platform_instance.feed_pulse_levels.clear();
+}

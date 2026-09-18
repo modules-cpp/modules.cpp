@@ -515,6 +515,36 @@ public:
         return Status::Ok;
     }
 
+    [[nodiscard]] Status delay_us(unsigned long microseconds) override {
+        const unsigned long seconds = microseconds / 1'000'000UL;
+        if (seconds >
+            static_cast<unsigned long>(std::numeric_limits<time_t>::max()))
+            return Status::BadArgument;
+        timespec request{
+            static_cast<time_t>(seconds),
+            static_cast<long>((microseconds % 1'000'000UL) * 1000L)};
+        while (true) {
+            timespec remaining{};
+            const int result =
+                ::clock_nanosleep(CLOCK_MONOTONIC, 0, &request, &remaining);
+            if (result == 0) return Status::Ok;
+            if (result == EINTR) {
+                request = remaining;
+                continue;
+            }
+            return error_status(result, false);
+        }
+    }
+
+    [[nodiscard]] Status ticks_us(unsigned long& ticks) override {
+        timespec value{};
+        if (::clock_gettime(CLOCK_MONOTONIC, &value) < 0)
+            return error_status(errno, false);
+        ticks = static_cast<unsigned long>(value.tv_sec) * 1'000'000UL +
+                static_cast<unsigned long>(value.tv_nsec / 1'000L);
+        return Status::Ok;
+    }
+
 private:
     void clear_gpio(unsigned int pin) {
         if (pin < gpio_lines_.size() && gpio_lines_[pin] >= 0) {

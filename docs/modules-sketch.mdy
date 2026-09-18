@@ -45,13 +45,13 @@ A raised exit flag immediately terminates any active wait. delay and waiting con
 
 Cancellation is not an error. An early return caused by exitRequested does not record a failure in the error latch; lastError retains the first actual failure, preserving any subsequent failure diagnostic within that same loop iteration.
 
-run inspects the exit flag after setup returns, before calling dispatch after each loop returns, and after each dispatched interrupt handler completes (when interrupt handlers land in stage 4). If requestExit is called during setup, loop never runs. If called during loop, the remainder of that loop iteration completes, dispatch is skipped, and run returns.
+run inspects the exit flag after setup returns, before calling dispatch after each loop returns, and after each dispatched interrupt handler completes. If requestExit is called during setup, loop never runs. If called during loop, the remainder of that loop iteration completes, dispatch is skipped, and run returns.
 
-run clears the exit flag and exit code on entry, allowing test suites to invoke run repeatedly within the same process. Console initialization runs on each invocation; the interrupt dispatch table (scheduled for stage 4) is preserved across runs.
+run clears the exit flag and exit code on entry, allowing test suites to invoke run repeatedly within the same process. Console initialization runs on each invocation; the interrupt dispatch table is preserved across runs.
 
 The cancellation function is named requestExit rather than exit to avoid collisions with the standard C library exit function introduced when sketches include headers such as <string> or <cstdlib>.
 
-Because run is invoked directly from main, its execution loop is the application's primary thread of execution. Handlers dispatched between iterations (scheduled for stage 4) run on the application thread, fulfilling the execution model requirement that dispatch occurs within thread mode.
+Because run is invoked directly from main, its execution loop is the application's primary thread of execution. Handlers dispatched between iterations run on the application thread, fulfilling the execution model requirement that dispatch occurs within thread mode.
 
 # LED_BUILTIN and electrical polarity
 
@@ -178,24 +178,31 @@ inline constexpr BitOrder MSBFIRST = BitOrder::MsbFirst;
 
 byte shiftIn(unsigned int data_pin, unsigned int clock_pin, BitOrder bit_order);
 void shiftOut(unsigned int data_pin, unsigned int clock_pin, BitOrder bit_order, byte val);
+
+[[nodiscard]] unsigned long pulseIn(unsigned int pin, Level value, unsigned long timeout = 1000000UL);
+[[nodiscard]] unsigned long pulseInLong(unsigned int pin, Level value, unsigned long timeout = 1000000UL);
 Closing fence
 
 shiftIn and shiftOut provide bit-banged synchronous serial communication over digitalWrite and digitalRead. In shiftIn, the clock pin is pulsed HIGH to read each of eight bits from the data pin. In shiftOut, each of eight bits is driven onto the data pin before pulsing the clock pin HIGH and LOW. The bit order is governed by BitOrder: LSBFIRST shifts the least-significant bit first, and MSBFIRST shifts the most-significant bit first.
 
-pulseIn and pulseInLong are deferred to stage 3, pending microsecond time resolution in mm.mcu. tone and noTone are deferred to stage 5.
+pulseIn and pulseInLong measure the duration of a pulse on pin in microseconds, timing out after timeout microseconds (defaulting to 1 second) and returning 0 if the pulse does not transition or complete within the deadline. tone and noTone are deferred to stage 5.
 
 ## Time
 
 Opening fence
 bool delay(unsigned long ms);
+bool delayMicroseconds(unsigned int us);
 [[nodiscard]] unsigned long millis();
+[[nodiscard]] unsigned long micros();
 Closing fence
 
 delay suspends execution for the specified number of milliseconds. It executes in slices of at most 10 milliseconds, invoking dispatch between slices. If requestExit is asserted, delay aborts immediately and returns false without latching an error.
 
+delayMicroseconds suspends execution for the specified number of microseconds via mm.mcu delay_us.
+
 millis returns monotonic elapsed milliseconds since system boot via mm.mcu ticks_ms. On platforms lacking a hardware timer, millis returns 0 and records Status::Unsupported.
 
-delayMicroseconds and micros are deferred to stage 3, pending microsecond clock support in mm.mcu.
+micros returns monotonic elapsed microseconds since system boot via mm.mcu ticks_us. On platforms lacking a hardware timer, micros returns 0 and records Status::Unsupported.
 
 ## Math and trigonometry
 
@@ -410,9 +417,11 @@ write outputs binary data or raw character buffers and returns the number of byt
 
 print and println format text, booleans, floating-point values, and integers across bases DEC (decimal), HEX (uppercase hexadecimal), OCT (octal), and BIN (binary) using std::to_chars into a stack buffer. println appends a carriage return and newline (\r\n).
 
-available, read, and peek operate on an internal 64-byte receive ring buffer drained from the platform console during dispatch. available returns the count of unread bytes in the ring buffer. read returns the next byte from the ring or -1 if empty. peek returns the next byte without removing it or -1 if empty.
+available, read, and peek operate on an internal 64-byte receive ring buffer drained from the platform console during dispatch. available returns the count of unread bytes in the ring buffer. read returns the next byte from the ring or -1 if empty. peek returns the next byte without removing it or -1 if empty. When the underlying console read fails, available, read, and peek latch the error in the error latch and return their failure fallbacks.
 
-setTimeout configures the read timeout in milliseconds (defaulting to 1000 milliseconds); getTimeout queries the configured timeout. The waiting operations readBytes, readBytesUntil, readString, readStringUntil, find, findUntil, parseInt, and parseFloat poll the receive ring and dispatch events until the requested condition is satisfied or the timeout expires. If requestExit is asserted during a waiting call, the operation aborts early and returns whatever count or partial result was accumulated.
+setTimeout configures the read timeout in milliseconds (defaulting to 1000 milliseconds); getTimeout queries the configured timeout. Each waiting operation (readBytes, readBytesUntil, readString, readStringUntil, find, findUntil, parseInt, and parseFloat) establishes a single overall deadline and polls the receive ring and dispatch events until the requested condition is satisfied or the timeout expires. If requestExit is asserted during a waiting call, the operation aborts early and returns whatever count or partial result was accumulated.
+
+find and findUntil perform streaming Knuth-Morris-Pratt pattern matching, supporting overlapping prefixes across stream slices without backtrack. parseInt parses signed integers into a signed long; values overflowing the representable range [LONG_MIN, LONG_MAX] are clamped to LONG_MAX or LONG_MIN and latch Status::BadArgument.
 
 onSerial registers a callback invoked from dispatch once per pass whenever unread bytes remain in the receive ring buffer.
 

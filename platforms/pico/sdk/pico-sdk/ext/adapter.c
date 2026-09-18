@@ -449,6 +449,17 @@ int mm_pico_mcu_ticks_ms(unsigned long* ticks) {
     return MM_PICO_MCU_OK;
 }
 
+int mm_pico_mcu_delay_us(unsigned long microseconds) {
+    sleep_us(microseconds);
+    return MM_PICO_MCU_OK;
+}
+
+int mm_pico_mcu_ticks_us(unsigned long* ticks) {
+    if (ticks == NULL) return MM_PICO_MCU_BAD_ARGUMENT;
+    *ticks = (unsigned long)to_us_since_boot(get_absolute_time());
+    return MM_PICO_MCU_OK;
+}
+
 const char* mm_pico_mcu_board_name(void) {
     return MM_SELECTED_BOARD;
 }

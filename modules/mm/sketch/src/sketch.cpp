@@ -4,12 +4,14 @@ module;
 
 #include <cctype>
 #include <charconv>
+#include <climits>
 #include <cstddef>
 #include <cstdint>
 #include <random>
 #include <span>
 #include <string>
 #include <string_view>
+#include <vector>
 
 module mm.sketch;
 
@@ -121,20 +123,25 @@ static std::size_t ring_head_ = 0;
 static std::size_t ring_tail_ = 0;
 static std::size_t ring_count_ = 0;
 
-void fill_ring() {
-    if (ring_count_ >= ring_capacity) return;
+bool fill_ring() {
+    if (ring_count_ >= ring_capacity) return true;
     auto& console = mm::stdio::selected_console();
     std::byte temp[ring_capacity];
     const std::size_t space = ring_capacity - ring_count_;
     std::size_t read_count = 0;
     const auto status = console.read(std::span{temp, space}, read_count);
-    if (status == mm::stdio::Status::Ok && read_count > 0) {
+    if (status != mm::stdio::Status::Ok) {
+        record_failure(from(status), "Serial.read");
+        return false;
+    }
+    if (read_count > 0) {
         for (std::size_t i = 0; i < read_count; ++i) {
             ring_buffer_[ring_head_] = temp[i];
             ring_head_ = (ring_head_ + 1) % ring_capacity;
             ++ring_count_;
         }
     }
+    return true;
 }
 
 static bool dispatching_ = false;
@@ -202,6 +209,7 @@ void dispatch() {
     }
 
     for (std::size_t i = 0; i < max_interrupts; ++i) {
+        if (exit_requested_) break;
         if (!interrupt_table_[i].active) {
             continue;
         }
@@ -223,11 +231,12 @@ void dispatch() {
                 active_call_ = nullptr;
                 handler();
                 active_call_ = saved_call;
+                if (exit_requested_) break;
             }
         }
     }
 
-    if (serial_callback_ && ring_count_ > 0) {
+    if (!exit_requested_ && serial_callback_ && ring_count_ > 0) {
         serial_callback_();
     }
 
@@ -244,15 +253,6 @@ int run(Setup setup, Loop loop) {
     timeout_ms_ = 1000;
     dispatching_ = false;
 
-    for (std::size_t i = 0; i < max_interrupts; ++i) {
-        if (interrupt_table_[i].active) {
-            static_cast<void>(mm::mcu::gpio_unwatch(interrupt_table_[i].pin));
-            interrupt_table_[i].active = false;
-            interrupt_table_[i].handler = nullptr;
-            interrupt_table_[i].pin = 0;
-        }
-        interrupt_table_[i].generation = 0;
-    }
     for (std::size_t i = 0; i < pin_pull_count; ++i) {
         pin_pulls_[i] = mm::mcu::Pull::None;
     }
@@ -272,15 +272,6 @@ int run(Setup setup, Loop loop) {
             break;
         }
         dispatch();
-    }
-
-    for (std::size_t i = 0; i < max_interrupts; ++i) {
-        if (interrupt_table_[i].active) {
-            static_cast<void>(mm::mcu::gpio_unwatch(interrupt_table_[i].pin));
-            interrupt_table_[i].active = false;
-            interrupt_table_[i].handler = nullptr;
-            interrupt_table_[i].pin = 0;
-        }
     }
 
     const int code = exit_code_;
@@ -422,6 +413,123 @@ unsigned long millis() {
         return 0;
     }
     return ticks;
+}
+
+bool delayMicroseconds(unsigned int us) {
+    CallScope scope{"delayMicroseconds"};
+    if (exit_requested_) return false;
+    const auto status = mm::mcu::delay_us(static_cast<unsigned long>(us));
+    if (status != mm::mcu::Status::Ok) {
+        record_failure(from(status), "delayMicroseconds");
+        return false;
+    }
+    return true;
+}
+
+unsigned long micros() {
+    CallScope scope{"micros"};
+    unsigned long ticks = 0;
+    const auto status = mm::mcu::ticks_us(ticks);
+    if (status != mm::mcu::Status::Ok) {
+        record_failure(from(status), "micros");
+        return 0;
+    }
+    return ticks;
+}
+
+namespace {
+unsigned long pulse_in_impl(const char* func_name, unsigned int pin, Level value, unsigned long timeout) {
+    CallScope scope{func_name};
+    if (exit_requested_) return 0;
+    unsigned long start_micros = 0;
+    const auto t_status = mm::mcu::ticks_us(start_micros);
+    if (t_status != mm::mcu::Status::Ok) {
+        record_failure(from(t_status), func_name);
+        return 0;
+    }
+
+    // 1. Wait for any previous pulse to finish (pin != value)
+    while (!exit_requested_) {
+        bool pin_state = false;
+        const auto r_status = mm::mcu::gpio_read(pin, pin_state);
+        if (r_status != mm::mcu::Status::Ok) {
+            record_failure(from(r_status), func_name);
+            return 0;
+        }
+        const Level cur = pin_state ? Level::High : Level::Low;
+        if (cur != value) break;
+
+        unsigned long now = 0;
+        if (mm::mcu::ticks_us(now) != mm::mcu::Status::Ok) {
+            record_failure(from(t_status), func_name);
+            return 0;
+        }
+        if (now - start_micros >= timeout) return 0;
+    }
+    if (exit_requested_) return 0;
+
+    // 2. Wait for pulse to start (pin == value)
+    unsigned long pulse_start = 0;
+    while (!exit_requested_) {
+        bool pin_state = false;
+        const auto r_status = mm::mcu::gpio_read(pin, pin_state);
+        if (r_status != mm::mcu::Status::Ok) {
+            record_failure(from(r_status), func_name);
+            return 0;
+        }
+        const Level cur = pin_state ? Level::High : Level::Low;
+        if (cur == value) {
+            if (mm::mcu::ticks_us(pulse_start) != mm::mcu::Status::Ok) {
+                record_failure(from(t_status), func_name);
+                return 0;
+            }
+            break;
+        }
+
+        unsigned long now = 0;
+        if (mm::mcu::ticks_us(now) != mm::mcu::Status::Ok) {
+            record_failure(from(t_status), func_name);
+            return 0;
+        }
+        if (now - start_micros >= timeout) return 0;
+    }
+    if (exit_requested_) return 0;
+
+    // 3. Wait for pulse to end (pin != value)
+    while (!exit_requested_) {
+        bool pin_state = false;
+        const auto r_status = mm::mcu::gpio_read(pin, pin_state);
+        if (r_status != mm::mcu::Status::Ok) {
+            record_failure(from(r_status), func_name);
+            return 0;
+        }
+        const Level cur = pin_state ? Level::High : Level::Low;
+        if (cur != value) {
+            unsigned long pulse_end = 0;
+            if (mm::mcu::ticks_us(pulse_end) != mm::mcu::Status::Ok) {
+                record_failure(from(t_status), func_name);
+                return 0;
+            }
+            return pulse_end - pulse_start;
+        }
+
+        unsigned long now = 0;
+        if (mm::mcu::ticks_us(now) != mm::mcu::Status::Ok) {
+            record_failure(from(t_status), func_name);
+            return 0;
+        }
+        if (now - start_micros >= timeout) return 0;
+    }
+    return 0;
+}
+} // namespace
+
+unsigned long pulseIn(unsigned int pin, Level value, unsigned long timeout) {
+    return pulse_in_impl("pulseIn", pin, value, timeout);
+}
+
+unsigned long pulseInLong(unsigned int pin, Level value, unsigned long timeout) {
+    return pulse_in_impl("pulseInLong", pin, value, timeout);
 }
 
 byte shiftIn(unsigned int data_pin, unsigned int clock_pin, BitOrder bit_order) {
@@ -875,37 +983,81 @@ std::size_t serial_write(const byte* buffer, std::size_t size) {
     return offset;
 }
 
-int timed_peek() {
-    const unsigned long start = millis();
+struct Deadline {
+    unsigned long start_ms = 0;
+    unsigned long timeout_ms = 0;
+    bool clock_ok = false;
+
+    explicit Deadline(unsigned long timeout) : timeout_ms(timeout) {
+        const auto status = mm::mcu::ticks_ms(start_ms);
+        if (status == mm::mcu::Status::Ok) {
+            clock_ok = true;
+        } else {
+            record_failure(from(status), "Serial.read");
+        }
+    }
+
+    [[nodiscard]] bool expired() const {
+        if (!clock_ok) return true;
+        unsigned long now = 0;
+        const auto status = mm::mcu::ticks_ms(now);
+        if (status != mm::mcu::Status::Ok) {
+            record_failure(from(status), "Serial.read");
+            return true;
+        }
+        return (now - start_ms) >= timeout_ms;
+    }
+};
+
+int timed_peek(const Deadline& deadline) {
     while (!exitRequested()) {
-        fill_ring();
+        if (!fill_ring()) {
+            return -1;
+        }
         if (ring_count_ > 0) {
+            if (deadline.clock_ok && deadline.timeout_ms > 0 && deadline.expired()) {
+                return -1;
+            }
             return static_cast<int>(static_cast<byte>(ring_buffer_[ring_tail_]));
         }
-        if (millis() - start >= timeout_ms_) {
+        if (deadline.expired()) {
             break;
         }
         dispatch();
-        static_cast<void>(mm::mcu::delay_ms(1));
+        if (exitRequested()) return -1;
+        const auto status = mm::mcu::delay_ms(1);
+        if (status != mm::mcu::Status::Ok) {
+            record_failure(from(status), "Serial.read");
+            return -1;
+        }
     }
     return -1;
 }
 
-int timed_read() {
-    const unsigned long start = millis();
+int timed_read(const Deadline& deadline) {
     while (!exitRequested()) {
-        fill_ring();
+        if (!fill_ring()) {
+            return -1;
+        }
         if (ring_count_ > 0) {
+            if (deadline.clock_ok && deadline.timeout_ms > 0 && deadline.expired()) {
+                return -1;
+            }
             const byte b = static_cast<byte>(ring_buffer_[ring_tail_]);
             ring_tail_ = (ring_tail_ + 1) % ring_capacity;
             --ring_count_;
             return static_cast<int>(b);
         }
-        if (millis() - start >= timeout_ms_) {
+        if (deadline.expired()) {
             break;
         }
         dispatch();
-        static_cast<void>(mm::mcu::delay_ms(1));
+        if (exitRequested()) return -1;
+        const auto status = mm::mcu::delay_ms(1);
+        if (status != mm::mcu::Status::Ok) {
+            record_failure(from(status), "Serial.read");
+            return -1;
+        }
     }
     return -1;
 }
@@ -956,14 +1108,32 @@ std::size_t SerialPort::print(bool b) {
     return serial_write(reinterpret_cast<const byte*>(&c), 1);
 }
 
+namespace {
+bool is_valid_base(Base b) {
+    return b == Base::Bin || b == Base::Oct || b == Base::Dec || b == Base::Hex;
+}
+} // namespace
+
 std::size_t SerialPort::print(int n, Base base) {
     CallScope scope{"Serial.print"};
+    if (!is_valid_base(base)) {
+        record_failure(Status::BadArgument, "Serial.print");
+        return 0;
+    }
     char buf[64];
     if (base == Base::Dec) {
         auto res = std::to_chars(buf, buf + sizeof(buf), n);
+        if (res.ec != std::errc{}) {
+            record_failure(Status::BadArgument, "Serial.print");
+            return 0;
+        }
         return serial_write(reinterpret_cast<const byte*>(buf), res.ptr - buf);
     }
     auto res = std::to_chars(buf, buf + sizeof(buf), static_cast<unsigned int>(n), static_cast<int>(base));
+    if (res.ec != std::errc{}) {
+        record_failure(Status::BadArgument, "Serial.print");
+        return 0;
+    }
     if (base == Base::Hex) {
         for (char* p = buf; p < res.ptr; ++p) {
             if (*p >= 'a' && *p <= 'f') {
@@ -976,8 +1146,16 @@ std::size_t SerialPort::print(int n, Base base) {
 
 std::size_t SerialPort::print(unsigned int n, Base base) {
     CallScope scope{"Serial.print"};
+    if (!is_valid_base(base)) {
+        record_failure(Status::BadArgument, "Serial.print");
+        return 0;
+    }
     char buf[64];
     auto res = std::to_chars(buf, buf + sizeof(buf), n, static_cast<int>(base));
+    if (res.ec != std::errc{}) {
+        record_failure(Status::BadArgument, "Serial.print");
+        return 0;
+    }
     if (base == Base::Hex) {
         for (char* p = buf; p < res.ptr; ++p) {
             if (*p >= 'a' && *p <= 'f') {
@@ -990,12 +1168,24 @@ std::size_t SerialPort::print(unsigned int n, Base base) {
 
 std::size_t SerialPort::print(long n, Base base) {
     CallScope scope{"Serial.print"};
+    if (!is_valid_base(base)) {
+        record_failure(Status::BadArgument, "Serial.print");
+        return 0;
+    }
     char buf[64];
     if (base == Base::Dec) {
         auto res = std::to_chars(buf, buf + sizeof(buf), n);
+        if (res.ec != std::errc{}) {
+            record_failure(Status::BadArgument, "Serial.print");
+            return 0;
+        }
         return serial_write(reinterpret_cast<const byte*>(buf), res.ptr - buf);
     }
     auto res = std::to_chars(buf, buf + sizeof(buf), static_cast<unsigned long>(n), static_cast<int>(base));
+    if (res.ec != std::errc{}) {
+        record_failure(Status::BadArgument, "Serial.print");
+        return 0;
+    }
     if (base == Base::Hex) {
         for (char* p = buf; p < res.ptr; ++p) {
             if (*p >= 'a' && *p <= 'f') {
@@ -1008,8 +1198,16 @@ std::size_t SerialPort::print(long n, Base base) {
 
 std::size_t SerialPort::print(unsigned long n, Base base) {
     CallScope scope{"Serial.print"};
+    if (!is_valid_base(base)) {
+        record_failure(Status::BadArgument, "Serial.print");
+        return 0;
+    }
     char buf[64];
     auto res = std::to_chars(buf, buf + sizeof(buf), n, static_cast<int>(base));
+    if (res.ec != std::errc{}) {
+        record_failure(Status::BadArgument, "Serial.print");
+        return 0;
+    }
     if (base == Base::Hex) {
         for (char* p = buf; p < res.ptr; ++p) {
             if (*p >= 'a' && *p <= 'f') {
@@ -1025,6 +1223,10 @@ std::size_t SerialPort::print(double n, int digits) {
     char buf[64];
     const int precision = digits >= 0 ? digits : 0;
     auto res = std::to_chars(buf, buf + sizeof(buf), n, std::chars_format::fixed, precision);
+    if (res.ec != std::errc{}) {
+        record_failure(Status::BadArgument, "Serial.print");
+        return 0;
+    }
     return serial_write(reinterpret_cast<const byte*>(buf), res.ptr - buf);
 }
 
@@ -1097,12 +1299,14 @@ std::size_t SerialPort::println() {
 }
 
 int SerialPort::available() {
-    fill_ring();
+    CallScope scope{"Serial.available"};
+    if (!fill_ring()) return 0;
     return static_cast<int>(ring_count_);
 }
 
 int SerialPort::read() {
-    fill_ring();
+    CallScope scope{"Serial.read"};
+    if (!fill_ring()) return -1;
     if (ring_count_ == 0) return -1;
     const byte b = static_cast<byte>(ring_buffer_[ring_tail_]);
     ring_tail_ = (ring_tail_ + 1) % ring_capacity;
@@ -1111,7 +1315,8 @@ int SerialPort::read() {
 }
 
 int SerialPort::peek() {
-    fill_ring();
+    CallScope scope{"Serial.peek"};
+    if (!fill_ring()) return -1;
     if (ring_count_ == 0) return -1;
     return static_cast<int>(static_cast<byte>(ring_buffer_[ring_tail_]));
 }
@@ -1150,9 +1355,10 @@ unsigned long SerialPort::getTimeout() const {
 std::size_t SerialPort::readBytes(char* buffer, std::size_t length) {
     CallScope scope{"Serial.readBytes"};
     if (!buffer || length == 0) return 0;
+    Deadline deadline{timeout_ms_};
     std::size_t count = 0;
     while (count < length && !exitRequested()) {
-        const int c = timed_read();
+        const int c = timed_read(deadline);
         if (c < 0) break;
         buffer[count++] = static_cast<char>(c);
     }
@@ -1167,9 +1373,10 @@ std::size_t SerialPort::readBytes(byte* buffer, std::size_t length) {
 std::size_t SerialPort::readBytesUntil(char terminator, char* buffer, std::size_t length) {
     CallScope scope{"Serial.readBytesUntil"};
     if (!buffer || length == 0) return 0;
+    Deadline deadline{timeout_ms_};
     std::size_t count = 0;
     while (count < length && !exitRequested()) {
-        const int c = timed_read();
+        const int c = timed_read(deadline);
         if (c < 0) break;
         if (static_cast<char>(c) == terminator) break;
         buffer[count++] = static_cast<char>(c);
@@ -1185,8 +1392,9 @@ std::size_t SerialPort::readBytesUntil(byte terminator, byte* buffer, std::size_
 std::string SerialPort::readString() {
     CallScope scope{"Serial.readString"};
     std::string result;
+    Deadline deadline{timeout_ms_};
     while (!exitRequested()) {
-        const int c = timed_read();
+        const int c = timed_read(deadline);
         if (c < 0) break;
         result.push_back(static_cast<char>(c));
     }
@@ -1196,8 +1404,9 @@ std::string SerialPort::readString() {
 std::string SerialPort::readStringUntil(char terminator) {
     CallScope scope{"Serial.readStringUntil"};
     std::string result;
+    Deadline deadline{timeout_ms_};
     while (!exitRequested()) {
-        const int c = timed_read();
+        const int c = timed_read(deadline);
         if (c < 0) break;
         if (static_cast<char>(c) == terminator) break;
         result.push_back(static_cast<char>(c));
@@ -1205,35 +1414,57 @@ std::string SerialPort::readStringUntil(char terminator) {
     return result;
 }
 
+namespace {
+std::vector<std::size_t> compute_kmp_table(std::string_view pattern) {
+    const std::size_t m = pattern.size();
+    std::vector<std::size_t> pi(m, 0);
+    for (std::size_t i = 1; i < m; ++i) {
+        std::size_t j = pi[i - 1];
+        while (j > 0 && pattern[i] != pattern[j]) {
+            j = pi[j - 1];
+        }
+        if (pattern[i] == pattern[j]) {
+            ++j;
+        }
+        pi[i] = j;
+    }
+    return pi;
+}
+
+void stream_kmp_step(char ch, std::string_view pattern, const std::vector<std::size_t>& pi, std::size_t& idx) {
+    while (idx > 0 && ch != pattern[idx]) {
+        idx = pi[idx - 1];
+    }
+    if (ch == pattern[idx]) {
+        ++idx;
+    }
+}
+} // namespace
+
 bool SerialPort::findUntil(const char* target, const char* terminator) {
     CallScope scope{"Serial.findUntil"};
     if (!target || target[0] == '\0') return true;
 
     const std::string_view tgt{target};
     const std::string_view trm{terminator ? terminator : ""};
+    const auto pi_tgt = compute_kmp_table(tgt);
+    const auto pi_trm = trm.empty() ? std::vector<std::size_t>{} : compute_kmp_table(trm);
 
+    Deadline deadline{timeout_ms_};
     std::size_t target_idx = 0;
     std::size_t term_idx = 0;
 
     while (!exitRequested()) {
-        const int c = timed_read();
+        const int c = timed_read(deadline);
         if (c < 0) return false;
         const char ch = static_cast<char>(c);
 
-        if (ch == tgt[target_idx]) {
-            ++target_idx;
-            if (target_idx == tgt.size()) return true;
-        } else {
-            target_idx = (ch == tgt[0]) ? 1 : 0;
-        }
+        stream_kmp_step(ch, tgt, pi_tgt, target_idx);
+        if (target_idx == tgt.size()) return true;
 
         if (!trm.empty()) {
-            if (ch == trm[term_idx]) {
-                ++term_idx;
-                if (term_idx == trm.size()) return false;
-            } else {
-                term_idx = (ch == trm[0]) ? 1 : 0;
-            }
+            stream_kmp_step(ch, trm, pi_trm, term_idx);
+            if (term_idx == trm.size()) return false;
         }
     }
     return false;
@@ -1258,78 +1489,107 @@ bool SerialPort::findUntil(const char* target, char terminator) {
 
 long SerialPort::parseInt() {
     CallScope scope{"Serial.parseInt"};
+    Deadline deadline{timeout_ms_};
     while (!exitRequested()) {
-        const int c = timed_peek();
+        const int c = timed_peek(deadline);
         if (c < 0) return 0;
         if ((c >= '0' && c <= '9') || c == '-' || c == '+') {
             break;
         }
-        timed_read();
+        timed_read(deadline);
     }
     if (exitRequested()) return 0;
 
     bool negative = false;
-    int c = timed_peek();
+    int c = timed_peek(deadline);
     if (c == '-' || c == '+') {
-        timed_read();
+        timed_read(deadline);
         if (c == '-') negative = true;
-        c = timed_peek();
+        c = timed_peek(deadline);
         if (c < '0' || c > '9') return 0;
     }
 
-    long value = 0;
+    uint64_t accum = 0;
+    bool has_digits = false;
+    bool overflow = false;
+    const uint64_t limit = negative ?
+        (static_cast<uint64_t>(-(LONG_MIN + 1)) + 1ULL) :
+        static_cast<uint64_t>(LONG_MAX);
+
     while (!exitRequested()) {
-        c = timed_peek();
+        c = timed_peek(deadline);
         if (c >= '0' && c <= '9') {
-            timed_read();
-            value = value * 10 + (c - '0');
+            timed_read(deadline);
+            has_digits = true;
+            const unsigned int digit = static_cast<unsigned int>(c - '0');
+            if (overflow) {
+                continue;
+            }
+            if (accum > (limit - digit) / 10ULL) {
+                overflow = true;
+                record_failure(Status::BadArgument, "Serial.parseInt");
+                continue;
+            }
+            accum = accum * 10ULL + digit;
         } else {
             break;
         }
     }
-    return negative ? -value : value;
+
+    if (!has_digits) return 0;
+    if (overflow) {
+        return negative ? LONG_MIN : LONG_MAX;
+    }
+    if (negative) {
+        if (accum == (static_cast<uint64_t>(-(LONG_MIN + 1)) + 1ULL)) {
+            return LONG_MIN;
+        }
+        return -static_cast<long>(accum);
+    }
+    return static_cast<long>(accum);
 }
 
 double SerialPort::parseFloat() {
     CallScope scope{"Serial.parseFloat"};
+    Deadline deadline{timeout_ms_};
     while (!exitRequested()) {
-        const int c = timed_peek();
+        const int c = timed_peek(deadline);
         if (c < 0) return 0.0;
         if ((c >= '0' && c <= '9') || c == '-' || c == '+' || c == '.') {
             break;
         }
-        timed_read();
+        timed_read(deadline);
     }
     if (exitRequested()) return 0.0;
 
     bool negative = false;
-    int c = timed_peek();
+    int c = timed_peek(deadline);
     if (c == '-' || c == '+') {
-        timed_read();
+        timed_read(deadline);
         if (c == '-') negative = true;
-        c = timed_peek();
+        c = timed_peek(deadline);
         if ((c < '0' || c > '9') && c != '.') return 0.0;
     }
 
     double value = 0.0;
     while (!exitRequested()) {
-        c = timed_peek();
+        c = timed_peek(deadline);
         if (c >= '0' && c <= '9') {
-            timed_read();
+            timed_read(deadline);
             value = value * 10.0 + (c - '0');
         } else {
             break;
         }
     }
 
-    c = timed_peek();
+    c = timed_peek(deadline);
     if (c == '.') {
-        timed_read();
+        timed_read(deadline);
         double frac = 1.0;
         while (!exitRequested()) {
-            const int d = timed_peek();
+            const int d = timed_peek(deadline);
             if (d >= '0' && d <= '9') {
-                timed_read();
+                timed_read(deadline);
                 frac *= 0.1;
                 value += (d - '0') * frac;
             } else {

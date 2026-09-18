@@ -65,7 +65,12 @@ bool ledOff();
 [[nodiscard]] bool hasBuiltinLed();
 
 bool delay(unsigned long ms);
+bool delayMicroseconds(unsigned int us);
 [[nodiscard]] unsigned long millis();
+[[nodiscard]] unsigned long micros();
+
+[[nodiscard]] unsigned long pulseIn(unsigned int pin, Level value, unsigned long timeout = 1000000UL);
+[[nodiscard]] unsigned long pulseInLong(unsigned int pin, Level value, unsigned long timeout = 1000000UL);
 
 using byte = unsigned char;
 using word = unsigned short;

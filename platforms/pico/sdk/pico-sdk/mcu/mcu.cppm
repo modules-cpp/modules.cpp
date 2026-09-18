@@ -165,6 +165,17 @@ public:
         if (status == mm::mcu::Status::Ok) ticks = raw;
         return status;
     }
+
+    [[nodiscard]] mm::mcu::Status delay_us(unsigned long microseconds) override {
+        return from(mm_pico_mcu_delay_us(microseconds));
+    }
+
+    [[nodiscard]] mm::mcu::Status ticks_us(unsigned long& ticks) override {
+        unsigned long raw = 0;
+        const auto status = from(mm_pico_mcu_ticks_us(&raw));
+        if (status == mm::mcu::Status::Ok) ticks = raw;
+        return status;
+    }
 };
 
 PicoPlatform pico_platform;
