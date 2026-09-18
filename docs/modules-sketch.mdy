@@ -10,7 +10,7 @@ release: v1.2.3
 
 # Status and authority
 
-This document specifies mm.sketch, the module providing Arduino sketch compatibility for modules.cpp applications. It describes implemented behavior for release v1.2.3.
+This document specifies mm.sketch, the module providing Arduino sketch compatibility for modules.cpp applications. It describes implemented behavior for stage 1 (release v1.2.3). Features scheduled for later stages are explicitly identified as planned.
 
 docs/modules-ino.mdy specifies the mm.ino preprocessor that transforms sketch source files into an application translation unit; docs/modules-c++20.mdy owns the language dialect, include permissions, and linkage rules; docs/modules-platform-mcu.mdy owns the underlying MCU facilities; docs/modules-stdio.mdy owns the platform console interface; docs/modules-execution.mdy owns the execution model and loop scheduling.
 
@@ -18,7 +18,7 @@ docs/modules-ino.mdy specifies the mm.ino preprocessor that transforms sketch so
 
 mm.sketch provides an Arduino-compatible programming model above mm.mcu and mm.stdio. It lets sketches written for Arduino run as standard ISO C++20 applications on any platform supported by modules.cpp.
 
-The module exports the complete Arduino sketch vocabulary in namespace mm::sketch. The generated application prelude introduces using namespace mm::sketch, so sketches access functions, types, and constants without qualification.
+The module exports the implemented Arduino sketch vocabulary in namespace mm::sketch. The generated application prelude introduces using namespace mm::sketch, so sketches access functions, types, and constants without qualification.
 
 # The runner
 
@@ -26,13 +26,14 @@ Opening fence
 int run(void (*setup)(), void (*loop)());
 void requestExit(int code = 0);
 [[nodiscard]] bool exitRequested();
+[[nodiscard]] int exitCode();
 Closing fence
 
 run is the application's main entry point, invoked from the generated main. It performs four steps in order:
 
 1. Initialize the console via mm::stdio and record the status, allowing Serial.begin to report the result.
 2. Call setup once.
-3. Execute the loop: call loop, then call dispatch, repeating until requestExit is called.
+3. Execute the loop: call loop, check exitRequested, and call dispatch if exit has not been requested, repeating until requestExit is called.
 4. Return the exit code passed to requestExit (defaulting to 0).
 
 requestExit records the requested status code and raises an exit flag. It does not throw an exception or invoke longjmp; execution continues until the current call returns.
@@ -41,7 +42,7 @@ A raised exit flag immediately terminates any active wait. delay and waiting con
 
 Cancellation is not an error. An early return caused by exitRequested does not record a failure in the error latch; lastError retains the first actual failure, preserving any subsequent failure diagnostic within that same loop iteration.
 
-run inspects the exit flag after setup returns, after each loop returns, and after each dispatched interrupt handler completes. If requestExit is called during setup, loop never runs. If called during loop, the remainder of that loop iteration completes.
+run inspects the exit flag after setup returns, before calling dispatch after each loop returns, and after each dispatched interrupt handler completes. If requestExit is called during setup, loop never runs. If called during loop, the remainder of that loop iteration completes, dispatch is skipped, and run returns.
 
 run clears the exit flag and exit code on entry, allowing test suites to invoke run repeatedly within the same process. Console initialization runs on each invocation; the interrupt dispatch table is preserved across runs.
 
@@ -92,13 +93,21 @@ Closing fence
 
 mm::sketch::Status unifies the status codes returned by mm.mcu and mm.stdio.
 
-Sketch functions that perform actions (pinMode, digitalWrite, delay, attachInterrupt, Serial.begin) return bool, where true indicates success. Functions that return readings or data (digitalRead, millis, Serial.read, Serial.available) return their value on success, and a defined fallback on failure: LOW, 0, or -1. Fallback values are not valid readings; they signify an operation that could not be completed.
+In stage 1, sketch functions that perform actions (pinMode, digitalWrite, delay, Serial.begin) return bool, where true indicates success. Functions that return readings (digitalRead, millis) return their value on success, and a defined fallback on failure: LOW or 0. Fallback values are not valid readings; they signify an operation that could not be completed. In stage 3, value-reading Serial operations will return corresponding fallbacks (-1 or 0).
 
 When any sketch operation fails, the module records the resulting Status and the name of the failing function in an internal error latch. lastError and lastCall report the first failure recorded since the latch was last cleared. Subsequent failures do not overwrite earlier ones.
 
-clearError resets the error latch to Status::Ok and nullptr. Nothing else clears the latch; neither a subsequent successful call, nor the start of a new loop iteration, nor entry into run will reset it. A sketch wishing to verify an iteration calls clearError at the start of loop and checks lastError at the end.
+clearError resets the error latch to Status::Ok and empty string. Nothing else clears the latch; neither a subsequent successful call, nor the start of a new loop iteration, nor entry into run will reset it. A sketch wishing to verify an iteration calls clearError at the start of loop and checks lastError at the end.
 
 # Dispatch and latency
+
+Opening fence
+void dispatch();
+Closing fence
+
+In stage 1, dispatch drains incoming bytes from the console into an internal receive ring buffer, while the interrupt table remains empty.
+
+Scheduled for stage 4:
 
 Opening fence
 enum class Trigger {
@@ -114,18 +123,16 @@ inline constexpr Trigger CHANGE = Trigger::Change;
 bool attachInterrupt(int pin, void (*handler)(), Trigger trigger);
 bool detachInterrupt(int pin);
 int digitalPinToInterrupt(int pin);
-
-void dispatch();
 Closing fence
 
-attachInterrupt registers a handler function for GPIO edge events on the specified pin, configuring the pin for edge detection via mm.mcu. The module maintains a fixed table of eight interrupt entries; attempting to attach a ninth returns false with Status::Busy. detachInterrupt removes the registration and unwatches the GPIO.
+When stage 4 lands, attachInterrupt will register a handler function for GPIO edge events on the specified pin, configuring the pin for edge detection via mm.mcu. The module will maintain a fixed table of eight interrupt entries; attempting to attach a ninth returns false with Status::Busy. detachInterrupt will remove the registration and unwatch the GPIO.
 
-Each table entry tracks a generation counter incremented upon registration. dispatch performs the following sequence:
+Each table entry tracks a generation counter incremented upon registration. In full operation, dispatch will perform the following sequence:
 
-1. Drains incoming bytes from the console into an internal receive ring buffer.
-2. Snapshots the generation numbers of all eight interrupt slots.
-3. Iterates over the slots in index order. For each slot whose generation matches the initial snapshot, dispatch queries mm.mcu for pending edges. If an edge occurred, the registered handler is invoked on the sketch thread.
-4. Invokes the serial callback if unread bytes remain in the ring buffer.
+1. Drain incoming bytes from the console into an internal receive ring buffer.
+2. Snapshot the generation numbers of all eight interrupt slots.
+3. Iterate over the slots in index order. For each slot whose generation matches the initial snapshot, dispatch queries mm.mcu for pending edges. If an edge occurred, the registered handler is invoked on the sketch thread.
+4. Invoke the serial callback if unread bytes remain in the ring buffer.
 
 dispatch is guarded against recursion. If a handler or nested call invokes dispatch directly or via delay, the nested dispatch returns immediately. Handlers run at most once per outer dispatch pass.
 
@@ -166,9 +173,9 @@ enum class Level {
 inline constexpr Level LOW = Level::Low;
 inline constexpr Level HIGH = Level::High;
 
-bool pinMode(int pin, Mode mode);
-bool digitalWrite(int pin, Level level);
-[[nodiscard]] Level digitalRead(int pin);
+bool pinMode(unsigned int pin, Mode mode);
+bool digitalWrite(unsigned int pin, Level level);
+[[nodiscard]] Level digitalRead(unsigned int pin);
 Closing fence
 
 pinMode configures GPIO direction and internal pull resistors. digitalWrite sets pin voltage. digitalRead queries pin voltage; on failure it returns LOW and records the error status.
@@ -212,7 +219,7 @@ bit, bitRead, bitSet, bitClear, bitWrite, lowByte, and highByte are scheduled fo
 
 ## External interrupts
 
-attachInterrupt, detachInterrupt, and digitalPinToInterrupt are mapped over the mm.mcu edge latch as described under Dispatch and latency.
+attachInterrupt, detachInterrupt, and digitalPinToInterrupt are scheduled for stage 4, mapped over the mm.mcu edge latch as described under Dispatch and latency.
 
 The legacy Arduino interrupts and noInterrupts functions are declined. The modules.cpp execution model runs sketch handlers in thread context without preemption; disabling global interrupts is neither necessary nor supported.
 
@@ -221,22 +228,27 @@ The legacy Arduino interrupts and noInterrupts functions are declined. The modul
 Opening fence
 class SerialPort {
 public:
-    bool begin(unsigned long baud = 115200);
-    void end();
-    bool print(const char* s);
-    bool println(const char* s);
-    bool print(char c);
-    bool println(char c);
+    bool begin(unsigned long baud = 9600);
+    bool end();
+
+    std::size_t print(const char* s);
+    std::size_t print(char c);
+    std::size_t print(std::string_view s);
+
+    std::size_t println(const char* s);
+    std::size_t println(char c);
+    std::size_t println(std::string_view s);
+    std::size_t println();
 };
 
-inline SerialPort Serial;
+extern SerialPort Serial;
 Closing fence
 
-Serial provides text and binary communication over mm.stdio.
+Serial provides text communication over mm.stdio.
 
-In stage 1, Serial supports begin, end, print, and println for string literals and characters. begin initializes the platform console; baud rate arguments are accepted for compatibility but ignored, as console transports manage baud rate at the platform layer.
+In stage 1, Serial supports begin, end, print, and println for string literals, characters, and string views. begin initializes the platform console; baud rate arguments (defaulting to 9600) are accepted for compatibility but ignored, as console transports manage baud rate at the platform layer. end is a no-op returning true. print and println write data to the console and return the number of bytes written.
 
-Full numeric formatting, binary read/write operations, ring buffer buffering, timeout handling, and string reading methods are scheduled for stage 3.
+Numeric formatting, binary write, read, peek, available, flush, timeout handling, and string reading methods are scheduled for stage 3.
 
 ## Variables, types, and constants
 

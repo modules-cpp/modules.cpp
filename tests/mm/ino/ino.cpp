@@ -52,6 +52,20 @@ void standard_include_in_middle() {
         pos += 17;
     }
     expect(count == 1, "expected hoisted include not duplicated in sketch body");
+
+    // Verify displacement accurately maps line after include
+    const auto disp_pos = result.output.find("(displaced by ");
+    expect(disp_pos != std::string::npos, "expected displacement comment");
+    const auto disp_num_start = disp_pos + 14;
+    const auto disp_num_end = result.output.find(" lines)", disp_num_start);
+    const int disp = std::stoi(result.output.substr(disp_num_start, disp_num_end - disp_num_start));
+
+    const auto loop_pos = result.output.find("void loop() {}");
+    int loop_line = 1;
+    for (std::size_t i = 0; i < loop_pos; ++i) {
+        if (result.output[i] == '\n') ++loop_line;
+    }
+    expect(loop_line - disp == 3, "line after hoisted include must retain exact displacement");
 }
 
 void sketch_with_main_is_rejected() {
@@ -118,6 +132,22 @@ void indented_helper_produces_warning() {
     expect(found_warning, "expected warning for indented helper");
 }
 
+void later_declaration_keeps_generated_prototype() {
+    const std::vector<mm::ino::SourceFile> sources = {
+        {"test.ino",
+         "void loop() { helper(); }\n"
+         "void helper() {}\n"
+         "void helper();\n"
+         "void setup() {}\n"}
+    };
+    const auto result = mm::ino::transform(sources);
+    expect(result.ok, "transform should succeed");
+    const auto proto_pos = result.output.find("void helper();");
+    const auto loop_pos = result.output.find("void loop() { helper(); }");
+    expect(proto_pos != std::string::npos, "helper prototype should be generated");
+    expect(proto_pos < loop_pos, "generated prototype must precede call in loop()");
+}
+
 const mm::test::case_ cases[] = {
     {"function used before definition", &function_used_before_definition},
     {"prototype already written", &prototype_already_written},
@@ -127,6 +157,7 @@ const mm::test::case_ cases[] = {
     {"two files transformation", &two_files_transformation},
     {"definition heuristic cannot see", &definition_heuristic_cannot_see},
     {"indented helper produces warning", &indented_helper_produces_warning},
+    {"later declaration keeps generated prototype", &later_declaration_keeps_generated_prototype},
 };
 
 const mm::test::registrar reg{"mm.ino", cases};

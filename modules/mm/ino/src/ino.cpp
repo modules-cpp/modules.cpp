@@ -291,12 +291,6 @@ TransformResult transform(std::span<const SourceFile> sources) {
                         // It's a prototype
                         if (std::find(existing_prototypes.begin(), existing_prototypes.end(), fn_name) == existing_prototypes.end()) {
                             existing_prototypes.push_back(fn_name);
-                            // If a generated prototype for this already exists, remove it
-                            auto it = std::remove_if(generated_prototypes.begin(), generated_prototypes.end(),
-                                                     [&fn_name](const std::string& p) {
-                                                         return p.find(" " + fn_name + "(") != std::string::npos;
-                                                     });
-                            generated_prototypes.erase(it, generated_prototypes.end());
                         }
                     }
                 }
@@ -392,7 +386,10 @@ TransformResult transform(std::span<const SourceFile> sources) {
         out += "// " + std::filesystem::path(pf.path).filename().string() +
                " (displaced by " + std::to_string(displacement) + " lines)\n";
         for (std::size_t i = 0; i < pf.lines.size(); ++i) {
-            if (pf.skip_line[i]) continue;
+            if (pf.skip_line[i]) {
+                out += "\n";
+                continue;
+            }
             out += pf.lines[i] + "\n";
         }
     }

@@ -2,7 +2,9 @@
 // 32bitmicro LLC (C) 2026
 module;
 
+#include <cctype>
 #include <cstddef>
+#include <random>
 #include <span>
 #include <string_view>
 
@@ -79,6 +81,8 @@ void fill_ring() {
 
 static bool dispatching_ = false;
 
+static std::minstd_rand random_engine_{1};
+
 } // namespace
 
 Status lastError() {
@@ -131,10 +135,16 @@ int run(Setup setup, Loop loop) {
         if (loop) {
             loop();
         }
+        if (exit_requested_) {
+            break;
+        }
         dispatch();
     }
 
-    return exit_code_;
+    const int code = exit_code_;
+    exit_requested_ = false;
+    exit_code_ = 0;
+    return code;
 }
 
 bool pinMode(unsigned int pin, Mode mode) {
@@ -259,6 +269,260 @@ unsigned long millis() {
     return ticks;
 }
 
+byte shiftIn(unsigned int data_pin, unsigned int clock_pin, BitOrder bit_order) {
+    byte value = 0;
+    for (unsigned int i = 0; i < 8; ++i) {
+        digitalWrite(clock_pin, HIGH);
+        const Level bit_val = digitalRead(data_pin);
+        if (bit_val == HIGH) {
+            if (bit_order == BitOrder::LsbFirst) {
+                value = static_cast<byte>(value | (1u << i));
+            } else {
+                value = static_cast<byte>(value | (1u << (7 - i)));
+            }
+        }
+        digitalWrite(clock_pin, LOW);
+    }
+    return value;
+}
+
+void shiftOut(unsigned int data_pin, unsigned int clock_pin, BitOrder bit_order, byte val) {
+    for (unsigned int i = 0; i < 8; ++i) {
+        Level bit_val = Level::Low;
+        if (bit_order == BitOrder::LsbFirst) {
+            bit_val = ((val & (1u << i)) != 0) ? HIGH : LOW;
+        } else {
+            bit_val = ((val & (1u << (7 - i))) != 0) ? HIGH : LOW;
+        }
+        digitalWrite(data_pin, bit_val);
+        digitalWrite(clock_pin, HIGH);
+        digitalWrite(clock_pin, LOW);
+    }
+}
+
+long sq(long x) {
+    return x * x;
+}
+
+double sq(double x) {
+    return x * x;
+}
+
+long constrain(long x, long a, long b) {
+    if (x < a) return a;
+    if (x > b) return b;
+    return x;
+}
+
+double constrain(double x, double a, double b) {
+    if (x < a) return a;
+    if (x > b) return b;
+    return x;
+}
+
+long map(long x, long in_min, long in_max, long out_min, long out_max) {
+    if (in_max == in_min) {
+        return out_min;
+    }
+    return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
+}
+
+double map(double x, double in_min, double in_max, double out_min, double out_max) {
+    if (in_max == in_min) {
+        return out_min;
+    }
+    return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
+}
+
+bool isAlpha(int c) {
+    return std::isalpha(static_cast<unsigned char>(c)) != 0;
+}
+
+bool isAlphaNumeric(int c) {
+    return std::isalnum(static_cast<unsigned char>(c)) != 0;
+}
+
+bool isAscii(int c) {
+    return c >= 0 && c <= 127;
+}
+
+bool isControl(int c) {
+    return std::iscntrl(static_cast<unsigned char>(c)) != 0;
+}
+
+bool isDigit(int c) {
+    return std::isdigit(static_cast<unsigned char>(c)) != 0;
+}
+
+bool isGraph(int c) {
+    return std::isgraph(static_cast<unsigned char>(c)) != 0;
+}
+
+bool isHexadecimalDigit(int c) {
+    return std::isxdigit(static_cast<unsigned char>(c)) != 0;
+}
+
+bool isLowerCase(int c) {
+    return std::islower(static_cast<unsigned char>(c)) != 0;
+}
+
+bool isPrintable(int c) {
+    return std::isprint(static_cast<unsigned char>(c)) != 0;
+}
+
+bool isPunct(int c) {
+    return std::ispunct(static_cast<unsigned char>(c)) != 0;
+}
+
+bool isSpace(int c) {
+    return std::isspace(static_cast<unsigned char>(c)) != 0;
+}
+
+bool isUpperCase(int c) {
+    return std::isupper(static_cast<unsigned char>(c)) != 0;
+}
+
+bool isWhitespace(int c) {
+    return std::isblank(static_cast<unsigned char>(c)) != 0;
+}
+
+long random(long max) {
+    if (max <= 0) return 0;
+    const unsigned long umax = static_cast<unsigned long>(max);
+    const unsigned long val = static_cast<unsigned long>(random_engine_()) % umax;
+    return static_cast<long>(val);
+}
+
+long random(long min, long max) {
+    if (min >= max) return min;
+    const long diff = max - min;
+    return min + random(diff);
+}
+
+void randomSeed(unsigned long seed) {
+    if (seed == 0) {
+        random_engine_.seed(1);
+    } else {
+        random_engine_.seed(seed);
+    }
+}
+
+unsigned long bit(unsigned int n) {
+    if (n >= sizeof(unsigned long) * 8) return 0;
+    return 1ul << n;
+}
+
+unsigned int bitRead(unsigned char x, unsigned int n) {
+    if (n >= 8) return 0;
+    return (static_cast<unsigned int>(x) >> n) & 1u;
+}
+
+unsigned int bitRead(unsigned int x, unsigned int n) {
+    if (n >= sizeof(unsigned int) * 8) return 0;
+    return (x >> n) & 1u;
+}
+
+unsigned int bitRead(unsigned long x, unsigned int n) {
+    if (n >= sizeof(unsigned long) * 8) return 0;
+    return static_cast<unsigned int>((x >> n) & 1u);
+}
+
+void bitSet(unsigned char& x, unsigned int n) {
+    if (n < 8) {
+        x = static_cast<unsigned char>(x | (1u << n));
+    }
+}
+
+void bitSet(unsigned int& x, unsigned int n) {
+    if (n < sizeof(unsigned int) * 8) {
+        x |= (1u << n);
+    }
+}
+
+void bitSet(unsigned long& x, unsigned int n) {
+    if (n < sizeof(unsigned long) * 8) {
+        x |= (1ul << n);
+    }
+}
+
+void bitClear(unsigned char& x, unsigned int n) {
+    if (n < 8) {
+        x = static_cast<unsigned char>(x & ~(1u << n));
+    }
+}
+
+void bitClear(unsigned int& x, unsigned int n) {
+    if (n < sizeof(unsigned int) * 8) {
+        x &= ~(1u << n);
+    }
+}
+
+void bitClear(unsigned long& x, unsigned int n) {
+    if (n < sizeof(unsigned long) * 8) {
+        x &= ~(1ul << n);
+    }
+}
+
+void bitWrite(unsigned char& x, unsigned int n, byte b) {
+    if (b != 0) {
+        bitSet(x, n);
+    } else {
+        bitClear(x, n);
+    }
+}
+
+void bitWrite(unsigned int& x, unsigned int n, byte b) {
+    if (b != 0) {
+        bitSet(x, n);
+    } else {
+        bitClear(x, n);
+    }
+}
+
+void bitWrite(unsigned long& x, unsigned int n, byte b) {
+    if (b != 0) {
+        bitSet(x, n);
+    } else {
+        bitClear(x, n);
+    }
+}
+
+void bitWrite(unsigned char& x, unsigned int n, Level b) {
+    bitWrite(x, n, b == Level::High ? static_cast<byte>(1) : static_cast<byte>(0));
+}
+
+void bitWrite(unsigned int& x, unsigned int n, Level b) {
+    bitWrite(x, n, b == Level::High ? static_cast<byte>(1) : static_cast<byte>(0));
+}
+
+void bitWrite(unsigned long& x, unsigned int n, Level b) {
+    bitWrite(x, n, b == Level::High ? static_cast<byte>(1) : static_cast<byte>(0));
+}
+
+byte lowByte(unsigned char x) {
+    return x;
+}
+
+byte lowByte(unsigned int x) {
+    return static_cast<byte>(x & 0xFFu);
+}
+
+byte lowByte(unsigned long x) {
+    return static_cast<byte>(x & 0xFFu);
+}
+
+byte highByte(unsigned char) {
+    return 0;
+}
+
+byte highByte(unsigned int x) {
+    return static_cast<byte>((x >> 8) & 0xFFu);
+}
+
+byte highByte(unsigned long x) {
+    return static_cast<byte>((x >> 8) & 0xFFu);
+}
+
 // Serial implementation
 SerialPort Serial;
 
@@ -277,11 +541,8 @@ bool SerialPort::end() {
     return true;
 }
 
-std::size_t SerialPort::write(byte b) {
-    return write(&b, 1);
-}
-
-std::size_t SerialPort::write(const byte* buffer, std::size_t size) {
+namespace {
+std::size_t serial_write(const byte* buffer, std::size_t size) {
     if (buffer == nullptr || size == 0) return 0;
     auto& console = mm::stdio::selected_console();
     std::span<const std::byte> bytes{reinterpret_cast<const std::byte*>(buffer), size};
@@ -301,19 +562,20 @@ std::size_t SerialPort::write(const byte* buffer, std::size_t size) {
     }
     return offset;
 }
+} // namespace
 
 std::size_t SerialPort::print(const char* s) {
     if (!s) return 0;
-    return write(reinterpret_cast<const byte*>(s), std::string_view(s).size());
+    return serial_write(reinterpret_cast<const byte*>(s), std::string_view(s).size());
 }
 
 std::size_t SerialPort::print(char c) {
     const byte b = static_cast<byte>(c);
-    return write(&b, 1);
+    return serial_write(&b, 1);
 }
 
 std::size_t SerialPort::print(std::string_view s) {
-    return write(reinterpret_cast<const byte*>(s.data()), s.size());
+    return serial_write(reinterpret_cast<const byte*>(s.data()), s.size());
 }
 
 std::size_t SerialPort::println(const char* s) {
@@ -336,40 +598,6 @@ std::size_t SerialPort::println(std::string_view s) {
 
 std::size_t SerialPort::println() {
     return print("\r\n");
-}
-
-int SerialPort::available() {
-    fill_ring();
-    return static_cast<int>(ring_count_);
-}
-
-int SerialPort::read() {
-    fill_ring();
-    if (ring_count_ == 0) return -1;
-    const int val = static_cast<unsigned char>(ring_buffer_[ring_tail_]);
-    ring_tail_ = (ring_tail_ + 1) % ring_capacity;
-    --ring_count_;
-    return val;
-}
-
-int SerialPort::peek() {
-    fill_ring();
-    if (ring_count_ == 0) return -1;
-    return static_cast<unsigned char>(ring_buffer_[ring_tail_]);
-}
-
-void SerialPort::flush() {
-    (void)mm::stdio::selected_console().flush();
-}
-
-bool SerialPort::connected() {
-    bool is_conn = false;
-    const auto status = mm::stdio::selected_console().connected(is_conn);
-    if (status != mm::stdio::Status::Ok) {
-        record_failure(from(status), "Serial.connected");
-        return false;
-    }
-    return is_conn;
 }
 
 } // namespace mm::sketch
