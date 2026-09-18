@@ -215,9 +215,7 @@ only whether an idle read touches the bus. Model 1's loop, cheaper, with
 `read` meaning what it meant.
 
 This is prospective. The CST328 driver polls the bus on every `read`
-today, and docs/modules-touch.mdy says so; drafts/plan-mm-interrupt-9.mdy
-stages the change behind a hardware check of the controller's interrupt
-behaviour, and that document changes when the driver does.
+today, and docs/modules-touch.mdy says so.
 
 # What is excluded
 
@@ -238,10 +236,10 @@ and the reason is recorded so it is not reconsidered by accident.
   inside itself where its platform requires one; it MUST NOT run portable
   code on it, and it MUST NOT expose it.
 - Signals as delivery. A provider MUST NOT install a process-wide signal
-  handler for a portable facility. The Linux signal path for GPIO edges is
-  designed, in drafts/plan-mm-interrupt-9.mdy, as a board-selected option
-  behind the same four calls, and is deferred until something in the tree
-  needs to be interrupted rather than to ask.
+  handler for a portable facility. A Linux signal path for GPIO edges has
+  been designed as a board-selected option behind the same four calls, and
+  is deferred until something in the tree needs to be interrupted rather
+  than to ask.
 
 Two shapes would fit if a need appears, and both sit above the latch rather
 than replacing it: a thread-mode dispatch that the loop calls and that

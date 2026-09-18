@@ -10,7 +10,7 @@ release: v1.2.3
 
 # Status and authority
 
-This document specifies the implemented libraries directory, the library manifest kind, the library key on SDK and module manifests, checkout observation, and the include interface a wrapper module receives at compile time, for release v1.2.0. Its drafting history is in drafts/plan-third-party-libraries and 2, and drafts/plan-libraries through 8, which it supersedes.
+This document specifies the implemented libraries directory, the library manifest kind, the library key on SDK and module manifests, checkout observation, and the include interface a wrapper module receives at compile time, for release v1.2.0. It supersedes every earlier proposal of third-party library support.
 
 status: official gives this document the same authority as the other implemented specifications in docs.
 

@@ -12,7 +12,7 @@ This is the configure and manifest-option specification for release v1.2.0. Mani
 
 configure validates named options declared in a manifest tree, resolves their inheritance, and writes a mirrored tree of resolved records beneath out. Build, test, run, flash, and debug consume buildable-host, buildable-target, and core through the same resolver and warn about the other options they do not yet consume. No tool converts an option into a compiler argument in this release.
 
-The mm field of this document remains 1.0 because it is prose using the existing document encoding; it declares no source-manifest options. The release field names the release this specification governs, and status marks it as normative rather than a draft. Its drafting history is in drafts/plan-manifest-configuration-options-2 through 4, which it supersedes.
+The mm field of this document remains 1.0 because it is prose using the existing document encoding; it declares no source-manifest options. The release field names the release this specification governs, and status marks it as normative rather than a draft. It supersedes every earlier proposal of manifest configuration options.
 
 Examples use Opening fence and Closing fence instead of literal front matter delimiters, following docs/mdy.mdy. Each example line is an independent MDY body block. Command output shown here is transcribed from real runs.
 
@@ -462,7 +462,7 @@ These requirements constrain the release that first turns a resolved option into
 - Keep a directory operand bound to its validated location when encoding it, avoid downstream reinterpretation of special prefixes, and preserve every intended operand boundary. Where a command goes through a shell, apply shell_quote to every emitted argument, including paths with punctuation.
 - If link inputs are added, keep them distinct from linker options and preserve their required order. Objects before libraries is the portable baseline for GNU-style archive linking; LLD resolves some backward archive references, so tests must not assume identical behavior. Dependencies among libraries need their own ordered representation and are not modeled here.
 - Build calls the resolver in mm.configure through the same neutral adapter configure uses. A second inheritance algorithm is not acceptable.
-- Static compiler and toolchain mapping documents remain a separate design. This registry neither implements nor supersedes them, and no target-specific output layout from the drafts is imported here.
+- Static compiler and toolchain mapping documents remain a separate design. This registry neither implements nor supersedes them, and no target-specific output layout from those designs is imported here.
 
 # Conformance
 
