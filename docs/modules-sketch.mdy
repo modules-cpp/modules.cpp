@@ -10,7 +10,7 @@ release: v1.2.3
 
 # Status and authority
 
-This document specifies mm.sketch, the module providing Arduino sketch compatibility for modules.cpp applications. It describes implemented behavior for stages 1, 2, 3, 4, and 6 (release v1.2.3). Features scheduled for later stages are explicitly identified as planned.
+This document specifies mm.sketch, the module providing Arduino sketch compatibility for modules.cpp applications. It describes implemented behavior for stages 1, 2, 3, 4, 6, and 7 (release v1.2.3). Features scheduled for later stages are explicitly identified as planned.
 
 docs/modules-ino.mdy specifies the mm.ino preprocessor that transforms sketch source files into an application translation unit; docs/modules-c++20.mdy owns the language dialect, include permissions, and linkage rules; docs/modules-platform-mcu.mdy owns the underlying MCU facilities; docs/modules-stdio.mdy owns the platform console interface; docs/modules-execution.mdy owns the execution model and loop scheduling.
 

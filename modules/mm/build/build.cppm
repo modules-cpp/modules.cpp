@@ -176,6 +176,7 @@ struct BuildableNode {
     std::string requires_board;                  // kind:app or kind:test only
     std::string library;                         // kind:module only
     bool platform_interface = false;             // kind:module only
+    std::vector<std::string> sketches;           // kind:app with sketch:
     std::vector<std::filesystem::path> objects;  // filled in by compile
 };
 

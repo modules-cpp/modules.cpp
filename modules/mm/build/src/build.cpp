@@ -1224,10 +1224,20 @@ void walk_project(const std::filesystem::path& dir, std::size_t parent, Project&
     for (const auto& file : all(doc, "file"))
         if (!push_source(file, true)) return;
 
+    if (kind == "app") {
+        for (const auto& sketch : all(doc, "sketch")) {
+            target.sketches.push_back(sketch);
+        }
+    }
+
     if (target.sources.empty()) {
-        std::cerr << state.policy.tool << ": manifest declares no file: entries: " << manifest.string() << "\n";
-        project.ok = false;
-        return;
+        if (kind == "app" && !target.sketches.empty()) {
+            if (!push_source("main.cpp", true)) return;
+        } else {
+            std::cerr << state.policy.tool << ": manifest declares no file: entries: " << manifest.string() << "\n";
+            project.ok = false;
+            return;
+        }
     }
     if (kind == "module" && target.module_name.empty()) {
         std::cerr << state.policy.tool << ": module manifest has no module: name: " << manifest.string() << "\n";
@@ -3459,6 +3469,54 @@ int compile(const Toolchain& toolchain, BuildableNode& target,
             std::cerr << "build: cannot create " << bmi_dir.string() << ": " << ec.message()
                       << "\n";
             return exit_compile;
+        }
+    }
+
+    if (target.kind == "app" && !target.sketches.empty()) {
+        const std::filesystem::path app_dir = target.dir;
+        const std::filesystem::path main_path = app_dir / "main.cpp";
+        const std::filesystem::path manifest_path = app_dir / "mm.mdy";
+
+        bool needs_generation = false;
+        if (!safe_exists(main_path)) {
+            needs_generation = true;
+        } else {
+            const auto main_time = std::filesystem::last_write_time(main_path, ec);
+            if (!ec) {
+                if (safe_exists(manifest_path)) {
+                    const auto manifest_time = std::filesystem::last_write_time(manifest_path, ec);
+                    if (!ec && main_time < manifest_time) {
+                        needs_generation = true;
+                    }
+                }
+                if (!needs_generation) {
+                    for (const auto& s : target.sketches) {
+                        const std::filesystem::path s_path = app_dir / s;
+                        if (safe_exists(s_path)) {
+                            const auto s_time = std::filesystem::last_write_time(s_path, ec);
+                            if (!ec && main_time < s_time) {
+                                needs_generation = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+            } else {
+                needs_generation = true;
+            }
+        }
+
+        if (needs_generation) {
+            std::filesystem::path sketch_exe = "out/bin/sketch";
+            if (!safe_exists(sketch_exe)) {
+                sketch_exe = "sketch";
+            }
+            const std::string command = shell_quote(sketch_exe) + " " + shell_quote(app_dir);
+            const int status = run(toolchain, command);
+            if (status != 0) {
+                std::cerr << "build: sketch generation failed for " << target.name << "\n";
+                return exit_compile;
+            }
         }
     }
 

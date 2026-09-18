@@ -135,3 +135,8 @@ Closing fence
 The check mode regenerates the content in memory, compares it byte-for-byte with main.cpp on disk, and verifies parent registration in mm.mdy. Any discrepancy produces an error message and a non-zero exit code.
 
 tools/check invokes this check across all registered applications containing sketch: declarations as part of repository verification (./check.sh).
+
+# Build integration
+
+When compiling an application target that declares sketch:, tools/build automatically checks whether main.cpp is absent or older than the application manifest or any declared .ino sketch file. If main.cpp is missing or out of date, the build invokes sketch on the application directory before proceeding with compilation. If file: is omitted in a sketch application's manifest, the build defaults the primary source translation unit to main.cpp.
+

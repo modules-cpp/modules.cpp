@@ -306,6 +306,34 @@ void rejects_sketch_key_on_non_app_kind() {
     mm::test::expect(!loaded.ok, "expected sketch: on kind: module to be rejected");
 }
 
+void accepts_sketch_app_and_records_sketches() {
+    const mm::test::scoped_tree tree{"sketchapp"};
+    tree.manifest_raw("", "mm: 1.3\nkind: project\nname: p\nfolder: a\n");
+    tree.manifest_raw("a", "mm: 1.3\nkind: app\nname: a\nfile: main.cpp\nsketch: a.ino\n");
+
+    const auto loaded = mm::build::load_tree(tree.root());
+
+    mm::test::expect(loaded.ok, "expected sketch app to load");
+    mm::test::expect(loaded.targets.size() == 1, "expected 1 target");
+    mm::test::expect(loaded.targets[0].sketches.size() == 1, "expected 1 sketch");
+    mm::test::expect(loaded.targets[0].sketches[0] == "a.ino", "expected a.ino");
+    mm::test::expect(loaded.targets[0].sources.size() == 1, "expected 1 source");
+}
+
+void defaults_main_cpp_when_file_omitted_for_sketch_app() {
+    const mm::test::scoped_tree tree{"sketchdefault"};
+    tree.manifest_raw("", "mm: 1.3\nkind: project\nname: p\nfolder: a\n");
+    tree.manifest_raw("a", "mm: 1.3\nkind: app\nname: a\nsketch: a.ino\n");
+
+    const auto loaded = mm::build::load_tree(tree.root());
+
+    mm::test::expect(loaded.ok, "expected sketch app without file: to load");
+    mm::test::expect(loaded.targets.size() == 1, "expected 1 target");
+    mm::test::expect(loaded.targets[0].sources.size() == 1, "expected default main.cpp source");
+    mm::test::expect(loaded.targets[0].sources[0].path == (tree.root() / "a" / "main.cpp").lexically_normal().string(),
+                     "expected main.cpp path");
+}
+
 const mm::test::case_ cases[] = {
     { "walks a nested tree",                  &walks_a_nested_tree },
     { "separates tests and docs",             &separates_tests_and_docs_from_targets },
@@ -330,6 +358,8 @@ const mm::test::case_ cases[] = {
     { "accepts mm: 1.3 version",              &accepts_mm_13_version },
     { "rejects sketch: under mm: 1.2",        &rejects_sketch_key_under_mm_12 },
     { "rejects sketch: on non-app kind",      &rejects_sketch_key_on_non_app_kind },
+    { "accepts sketch app and records sketches", &accepts_sketch_app_and_records_sketches },
+    { "defaults main.cpp when file omitted for sketch app", &defaults_main_cpp_when_file_omitted_for_sketch_app },
 };
 
 const mm::test::registrar reg{"mm.build walk", cases};
