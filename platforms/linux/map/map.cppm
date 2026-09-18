@@ -81,6 +81,27 @@ struct ImuEntry {
     unsigned long timeout_ms = 500;
 };
 
+// One ADC channel on the selected IIO device: in_voltage<channel>_raw. bits
+// is what the map says, since sysfs does not publish a raw channel's width;
+// a reference of zero means "derive it from the IIO scale, or report zero".
+struct AdcEntry {
+    unsigned int channel = 0;
+    std::optional<unsigned int> gpio;
+    std::string name;
+    unsigned int bits = 12;
+    unsigned int reference_millivolts = 0;
+};
+
+// One PWM output: /sys/class/pwm/pwmchip<chip>/pwm<channel>. group is a
+// known shared counter; an entry without one is its own group.
+struct PwmEntry {
+    unsigned int chip = 0;
+    unsigned int channel = 0;
+    std::optional<unsigned int> gpio;
+    std::string name;
+    std::optional<unsigned int> group;
+};
+
 struct Map {
     std::string board_name = "linux";
     std::optional<std::string> led_name;
@@ -94,6 +115,9 @@ struct Map {
     DisplayEntry display;
     TouchEntry touch;
     ImuEntry imu;
+    Selector adc_device;
+    std::vector<AdcEntry> adcs;
+    std::vector<PwmEntry> pwms;
 };
 
 struct ParseError {

@@ -1,0 +1,16 @@
+---
+mm: 1.1
+kind: app
+name: json
+use: mm.app
+use: mm.build
+use: mm.json
+file: json.cpp
+---
+
+# json tool
+
+The front end over mm.json: --check validates files and names the first fault
+by file, line, and column; --indent and --compact write a file back in the
+writer's two layouts; --scan prints the scanner's tokens. It does nothing the
+module does not already do. The target lock is inherited from tools/mm.mdy.

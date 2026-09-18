@@ -3,6 +3,7 @@
 module;
 
 #include <cstddef>
+#include <cstdint>
 #include <span>
 
 export module mm.mcu:platform;
@@ -11,6 +12,8 @@ import :status;
 import :board;
 import :spi_types;
 import :i2c_types;
+import :adc_types;
+import :pwm_types;
 
 export namespace mm::mcu {
 
@@ -76,6 +79,29 @@ public:
     [[nodiscard]] virtual Status ticks_ms(unsigned long&) { return Status::Unsupported; }
     [[nodiscard]] virtual Status delay_us(unsigned long) { return Status::Unsupported; }
     [[nodiscard]] virtual Status ticks_us(unsigned long&) { return Status::Unsupported; }
+
+    // The analog inventories are answered here rather than carried on Board
+    // because their facts are per channel and per output -- a reference, a
+    // period range -- where Board carries what is one fact for the whole
+    // board. An unserved platform has empty inventories.
+    [[nodiscard]] virtual AdcDescription adc_description() const { return {}; }
+    [[nodiscard]] virtual Status adc_configure(unsigned int) { return Status::Unsupported; }
+    [[nodiscard]] virtual Status adc_read(unsigned int, unsigned int&) {
+        return Status::Unsupported;
+    }
+    [[nodiscard]] virtual Status adc_release(unsigned int) { return Status::Unsupported; }
+
+    [[nodiscard]] virtual PwmDescription pwm_description() const { return {}; }
+    [[nodiscard]] virtual Status pwm_configure(unsigned int, std::uint64_t) {
+        return Status::Unsupported;
+    }
+    [[nodiscard]] virtual Status pwm_period(unsigned int, std::uint64_t&) {
+        return Status::Unsupported;
+    }
+    [[nodiscard]] virtual Status pwm_write(unsigned int, std::uint64_t) {
+        return Status::Unsupported;
+    }
+    [[nodiscard]] virtual Status pwm_release(unsigned int) { return Status::Unsupported; }
 };
 
 // Registered by the platform's module from a static initialiser, which runs

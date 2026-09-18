@@ -216,6 +216,7 @@ run_test_target tests/mm/model/ || exit $?
 run_test_target tests/mm/run/ || exit $?
 run_test_target tests/mm/touch/ || exit $?
 run_test_target tests/mm/imu/ || exit $?
+run_test_target tests/mm/json/ || exit $?
 run_test_target tests/mm/lcd/ || exit $?
 run_test_target tests/mm/rtc/ || exit $?
 run_test_target tests/mm/linux/ || exit $?

@@ -3,6 +3,7 @@
 module;
 
 #include <cerrno>
+#include <charconv>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -20,6 +21,8 @@ module;
 #include <span>
 #include <string>
 #include <sys/ioctl.h>
+#include <string_view>
+#include <sys/stat.h>
 #include <termios.h>
 #include <time.h>
 #include <unistd.h>
@@ -56,6 +59,20 @@ private:
     int value_;
 };
 
+// Who holds a pad, and one PWM claim's record. Here rather than in the
+// provider class because a module unit may not instantiate a standard
+// container over a TU-local type.
+enum class PadOwner { None, Adc, Pwm };
+
+struct PwmState {
+    bool claimed = false;
+    std::uint64_t requested = 0;
+    std::uint64_t actual = 0;
+    std::string directory;
+    std::string chip;
+    unsigned int channel = 0;
+};
+
 [[nodiscard]] mm::mcu::Status error_status(
     int value, bool explicit_path = true, bool caller_field = false);
 [[nodiscard]] mm::mcu::Status edge_error_status(int value);
@@ -66,6 +83,15 @@ private:
 [[nodiscard]] mm::mcu::Status gpio_access_status(
     const std::optional<mm::mcu::Direction>& direction, bool write);
 [[nodiscard]] mm::mcu::Status take_events(int descriptor, bool& pending);
+
+// The analog facilities' pure parts. An IIO scale is millivolts per raw
+// count as a decimal string; it is read into nanovolts per count so that
+// the reference is integer arithmetic. A sysfs number is a decimal with a
+// trailing newline.
+[[nodiscard]] bool adc_scale_nanovolts(std::string_view text, std::uint64_t& nanovolts);
+[[nodiscard]] unsigned int adc_reference_millivolts(std::uint64_t nanovolts_per_count,
+                                                    unsigned int bits);
+[[nodiscard]] bool sysfs_integer(std::string_view text, long long& value);
 
 }
 
@@ -157,6 +183,7 @@ public:
         if (!configured) return status;
         if (pin >= configured->gpios.size()) return Status::Unsupported;
         if (pin < gpio_watched_.size() && gpio_watched_[pin]) return Status::Busy;
+        if (analog_holds(pin)) return Status::Busy;
         const auto& gpio = configured->gpios[pin];
         Descriptor chip(::open(gpio.chip.c_str(), O_RDONLY | O_CLOEXEC));
         if (chip.get() < 0) return error_status(errno);
@@ -201,6 +228,7 @@ public:
         if (!configured) return status;
         if (pin >= configured->gpios.size()) return Status::Unsupported;
         if (pin < gpio_watched_.size() && gpio_watched_[pin]) return Status::Busy;
+        if (analog_holds(pin)) return Status::Busy;
         if (pull != mm::mcu::Pull::None && pull != mm::mcu::Pull::Up &&
             pull != mm::mcu::Pull::Down) return Status::BadArgument;
         gpio_v2_line_config config{};
@@ -545,7 +573,334 @@ public:
         return Status::Ok;
     }
 
+    // The inventories are the map's entries; the reference is the map's
+    // when it says one, else the IIO scale times the channel's range when
+    // the device can be found, else zero.
+    [[nodiscard]] mm::mcu::AdcDescription adc_description() const override {
+        Status status;
+        const auto* configured = map(status);
+        if (configured == nullptr) return {};
+        if (!adc_described_) {
+            adc_inventory_.clear();
+            adc_inventory_.reserve(configured->adcs.size());
+            std::string device;
+            const bool resolved = resolve_adc_device(*configured, device) == Status::Ok;
+            for (std::size_t i = 0; i < configured->adcs.size(); ++i) {
+                const auto& entry = configured->adcs[i];
+                unsigned int reference = entry.reference_millivolts;
+                if (reference == 0 && resolved) {
+                    std::string text;
+                    std::uint64_t nanovolts = 0;
+                    if ((read_sysfs(device + "/in_voltage" + std::to_string(entry.channel) +
+                                        "_scale", text) == Status::Ok ||
+                         read_sysfs(device + "/in_voltage_scale", text) == Status::Ok) &&
+                        platform::linux::mcu_detail::adc_scale_nanovolts(text, nanovolts))
+                        reference = platform::linux::mcu_detail::adc_reference_millivolts(
+                            nanovolts, entry.bits);
+                }
+                adc_inventory_.push_back({static_cast<unsigned int>(i), entry.name,
+                                          entry.gpio, entry.bits, reference});
+            }
+            adc_described_ = true;
+        }
+        return {adc_inventory_};
+    }
+
+    [[nodiscard]] Status adc_configure(unsigned int channel) override {
+        Status status;
+        const auto* configured = map(status);
+        if (!configured) return status;
+        if (channel >= configured->adcs.size()) return Status::Unsupported;
+        if (channel < adc_claimed_.size() && adc_claimed_[channel]) return Status::Ok;
+        const auto& entry = configured->adcs[channel];
+        if (entry.gpio) {
+            const auto claim = analog_claim_status(*entry.gpio);
+            if (claim != Status::Ok) return claim;
+        }
+        std::string device;
+        const auto resolved = resolve_adc_device(*configured, device);
+        if (resolved != Status::Ok) return resolved;
+        const auto raw = device + "/in_voltage" + std::to_string(entry.channel) + "_raw";
+        std::string text;
+        const auto readable = read_sysfs(raw, text, true);
+        if (readable != Status::Ok) return readable;
+        // Validated; now the takeover, and the record last.
+        if (entry.gpio) take_pad(*entry.gpio, Owner::Adc);
+        if (adc_claimed_.size() < configured->adcs.size())
+            adc_claimed_.resize(configured->adcs.size(), false);
+        adc_claimed_[channel] = true;
+        return Status::Ok;
+    }
+
+    [[nodiscard]] Status adc_read(unsigned int channel, unsigned int& count) override {
+        Status status;
+        const auto* configured = map(status);
+        if (!configured) return status;
+        if (channel >= configured->adcs.size()) return Status::Unsupported;
+        if (channel >= adc_claimed_.size() || !adc_claimed_[channel])
+            return Status::BadArgument;
+        const auto& entry = configured->adcs[channel];
+        std::string text;
+        const auto readable = read_sysfs(
+            adc_device_ + "/in_voltage" + std::to_string(entry.channel) + "_raw", text, true);
+        if (readable != Status::Ok) return readable;
+        long long value = 0;
+        if (!platform::linux::mcu_detail::sysfs_integer(text, value) || value < 0 ||
+            static_cast<unsigned long long>(value) > ((1ull << entry.bits) - 1))
+            return Status::TransportError;
+        count = static_cast<unsigned int>(value);
+        return Status::Ok;
+    }
+
+    [[nodiscard]] Status adc_release(unsigned int channel) override {
+        Status status;
+        const auto* configured = map(status);
+        if (!configured) return status;
+        if (channel >= configured->adcs.size()) return Status::Unsupported;
+        if (channel >= adc_claimed_.size() || !adc_claimed_[channel]) return Status::Ok;
+        const auto& entry = configured->adcs[channel];
+        if (entry.gpio) release_pad(*entry.gpio);
+        adc_claimed_[channel] = false;
+        return Status::Ok;
+    }
+
+    // sysfs publishes no period limits, so both are zero; an entry without a
+    // group is its own, numbered past any the map could name.
+    [[nodiscard]] mm::mcu::PwmDescription pwm_description() const override {
+        Status status;
+        const auto* configured = map(status);
+        if (configured == nullptr) return {};
+        if (!pwm_described_) {
+            pwm_inventory_.clear();
+            pwm_inventory_.reserve(configured->pwms.size());
+            for (std::size_t i = 0; i < configured->pwms.size(); ++i) {
+                const auto& entry = configured->pwms[i];
+                pwm_inventory_.push_back({static_cast<unsigned int>(i), entry.name, entry.gpio,
+                                          group_of(*configured, i), 0, 0, 0});
+            }
+            pwm_described_ = true;
+        }
+        return {pwm_inventory_};
+    }
+
+    // Validated in the contract's order -- inventory, period, this output's
+    // claim, the group, the pad -- then sysfs in the kernel's order: export,
+    // duty zero, period, enable. A step that fails undoes the claim's own
+    // export and nothing anyone else's.
+    [[nodiscard]] Status pwm_configure(unsigned int output, std::uint64_t period_ns) override {
+        Status status;
+        const auto* configured = map(status);
+        if (!configured) return status;
+        if (output >= configured->pwms.size()) return Status::Unsupported;
+        if (period_ns == 0) return Status::BadArgument;
+        if (pwm_state_.size() < configured->pwms.size())
+            pwm_state_.resize(configured->pwms.size());
+        auto& state = pwm_state_[output];
+        if (state.claimed)
+            return state.requested == period_ns ? Status::Ok : Status::Busy;
+        const auto& entry = configured->pwms[output];
+        const auto group = group_of(*configured, output);
+        for (std::size_t i = 0; i < configured->pwms.size(); ++i) {
+            if (i != output && pwm_state_[i].claimed && group_of(*configured, i) == group &&
+                pwm_state_[i].requested != period_ns)
+                return Status::Busy;
+        }
+        if (entry.gpio) {
+            const auto claim = analog_claim_status(*entry.gpio);
+            if (claim != Status::Ok) return claim;
+        }
+
+        const std::string chip = "/sys/class/pwm/pwmchip" + std::to_string(entry.chip);
+        struct stat info{};
+        if (::stat(chip.c_str(), &info) < 0) return error_status(errno, true);
+        const std::string directory = chip + "/pwm" + std::to_string(entry.channel);
+        // An output someone else exported is theirs; this provider never
+        // unexports what it did not export.
+        if (::stat(directory.c_str(), &info) == 0) return Status::Busy;
+        auto step = write_sysfs(chip + "/export", std::to_string(entry.channel), true);
+        if (step != Status::Ok) return step;
+        // The kernel creates the directory after export returns; wait a
+        // bounded time for its period attribute.
+        bool present = false;
+        for (unsigned int attempt = 0; attempt < 50 && !present; ++attempt) {
+            present = ::stat((directory + "/period").c_str(), &info) == 0;
+            if (!present) {
+                timespec pause{0, 10'000'000};
+                ::nanosleep(&pause, nullptr);
+            }
+        }
+        if (!present) {
+            (void)write_sysfs(chip + "/unexport", std::to_string(entry.channel), false);
+            return Status::TransportError;
+        }
+        step = write_sysfs(directory + "/duty_cycle", "0", true);
+        if (step == Status::Ok)
+            step = write_sysfs(directory + "/period", std::to_string(period_ns), true);
+        if (step == Status::Ok) step = write_sysfs(directory + "/enable", "1", true);
+        std::string text;
+        long long actual = 0;
+        if (step == Status::Ok) step = read_sysfs(directory + "/period", text, true);
+        if (step == Status::Ok &&
+            (!platform::linux::mcu_detail::sysfs_integer(text, actual) || actual <= 0))
+            step = Status::TransportError;
+        if (step != Status::Ok) {
+            (void)write_sysfs(directory + "/enable", "0", false);
+            (void)write_sysfs(chip + "/unexport", std::to_string(entry.channel), false);
+            return step;
+        }
+        if (entry.gpio) take_pad(*entry.gpio, Owner::Pwm);
+        state.claimed = true;
+        state.requested = period_ns;
+        state.actual = static_cast<std::uint64_t>(actual);
+        state.directory = directory;
+        state.chip = chip;
+        state.channel = entry.channel;
+        return Status::Ok;
+    }
+
+    [[nodiscard]] Status pwm_period(unsigned int output, std::uint64_t& actual_ns) override {
+        Status status;
+        const auto* configured = map(status);
+        if (!configured) return status;
+        if (output >= configured->pwms.size()) return Status::Unsupported;
+        if (output >= pwm_state_.size() || !pwm_state_[output].claimed)
+            return Status::BadArgument;
+        actual_ns = pwm_state_[output].actual;
+        return Status::Ok;
+    }
+
+    [[nodiscard]] Status pwm_write(unsigned int output, std::uint64_t duty_ns) override {
+        Status status;
+        const auto* configured = map(status);
+        if (!configured) return status;
+        if (output >= configured->pwms.size()) return Status::Unsupported;
+        if (output >= pwm_state_.size() || !pwm_state_[output].claimed)
+            return Status::BadArgument;
+        const auto& state = pwm_state_[output];
+        if (duty_ns > state.actual) return Status::BadArgument;
+        return write_sysfs(state.directory + "/duty_cycle", std::to_string(duty_ns), true);
+    }
+
+    [[nodiscard]] Status pwm_release(unsigned int output) override {
+        Status status;
+        const auto* configured = map(status);
+        if (!configured) return status;
+        if (output >= configured->pwms.size()) return Status::Unsupported;
+        if (output >= pwm_state_.size() || !pwm_state_[output].claimed) return Status::Ok;
+        auto& state = pwm_state_[output];
+        auto step = write_sysfs(state.directory + "/enable", "0", false);
+        const auto unexported =
+            write_sysfs(state.chip + "/unexport", std::to_string(state.channel), false);
+        if (step == Status::Ok) step = unexported;
+        const auto& entry = configured->pwms[output];
+        if (entry.gpio) release_pad(*entry.gpio);
+        state = {};
+        return step;
+    }
+
 private:
+    using Owner = platform::linux::mcu_detail::PadOwner;
+    using PwmState = platform::linux::mcu_detail::PwmState;
+    static constexpr unsigned int own_group = 0x10000;
+
+    [[nodiscard]] static unsigned int group_of(const platform::linux::Map& configured,
+                                               std::size_t index) {
+        const auto& entry = configured.pwms[index];
+        return entry.group ? *entry.group : own_group + static_cast<unsigned int>(index);
+    }
+
+    [[nodiscard]] bool analog_holds(unsigned int pin) const {
+        return pin < pad_owner_.size() && pad_owner_[pin] != Owner::None;
+    }
+
+    // A watched pad and an analog claim answer Busy; a plain GPIO line
+    // request is closed by the takeover, which take_pad performs.
+    [[nodiscard]] Status analog_claim_status(unsigned int pin) const {
+        if (pin < gpio_watched_.size() && gpio_watched_[pin]) return Status::Busy;
+        if (analog_holds(pin)) return Status::Busy;
+        return Status::Ok;
+    }
+
+    void take_pad(unsigned int pin, Owner owner) {
+        clear_gpio(pin);
+        if (pad_owner_.size() <= pin) pad_owner_.resize(pin + 1, Owner::None);
+        pad_owner_[pin] = owner;
+    }
+
+    void release_pad(unsigned int pin) {
+        if (pin < pad_owner_.size()) pad_owner_[pin] = Owner::None;
+    }
+
+    // The selected IIO device: the map's index or name, or the first device
+    // that has the first entry's raw channel. Cached once found.
+    Status resolve_adc_device(const platform::linux::Map& configured,
+                              std::string& device) const {
+        if (adc_resolved_) {
+            device = adc_device_;
+            return Status::Ok;
+        }
+        if (configured.adcs.empty()) return Status::Unsupported;
+        const auto& selector = configured.adc_device;
+        const bool explicit_selection = selector.kind != platform::linux::SelectorKind::Auto;
+        const auto sysfs = [](unsigned int index) {
+            return "/sys/bus/iio/devices/iio:device" + std::to_string(index);
+        };
+        const auto has_raw = [&](const std::string& candidate) {
+            struct stat info{};
+            return ::stat((candidate + "/in_voltage" +
+                           std::to_string(configured.adcs.front().channel) + "_raw").c_str(),
+                          &info) == 0;
+        };
+        std::optional<unsigned int> selected;
+        if (selector.kind == platform::linux::SelectorKind::Index) {
+            selected = selector.index;
+        } else if (selector.kind == platform::linux::SelectorKind::Name) {
+            for (unsigned int i = 0; i < 64 && !selected; ++i) {
+                std::string name;
+                if (read_sysfs(sysfs(i) + "/name", name) == Status::Ok && name == selector.name)
+                    selected = i;
+            }
+            if (!selected) return Status::BadArgument;
+        } else {
+            for (unsigned int i = 0; i < 64 && !selected; ++i)
+                if (has_raw(sysfs(i))) selected = i;
+            if (!selected) return Status::Unsupported;
+        }
+        const auto candidate = sysfs(*selected);
+        struct stat info{};
+        if (::stat(candidate.c_str(), &info) < 0)
+            return error_status(errno, explicit_selection);
+        adc_device_ = candidate;
+        adc_resolved_ = true;
+        device = candidate;
+        return Status::Ok;
+    }
+
+    // One line of a sysfs attribute, with the errno mapped as the map's
+    // other paths are: a missing file is BadArgument where the caller named
+    // it and Unsupported where it was discovered.
+    static Status read_sysfs(const std::string& path, std::string& text,
+                             bool explicit_path = false) {
+        Descriptor fd(::open(path.c_str(), O_RDONLY | O_CLOEXEC));
+        if (fd.get() < 0) return error_status(errno, explicit_path);
+        char buffer[64];
+        const auto count = ::read(fd.get(), buffer, sizeof(buffer) - 1);
+        if (count < 0) return error_status(errno, explicit_path);
+        text.assign(buffer, static_cast<std::size_t>(count));
+        while (!text.empty() && (text.back() == '\n' || text.back() == ' ')) text.pop_back();
+        return Status::Ok;
+    }
+
+    static Status write_sysfs(const std::string& path, const std::string& text,
+                              bool caller_field) {
+        Descriptor fd(::open(path.c_str(), O_WRONLY | O_CLOEXEC));
+        if (fd.get() < 0) return error_status(errno, true);
+        const auto count = ::write(fd.get(), text.data(), text.size());
+        if (count < 0) return error_status(errno, true, caller_field);
+        if (static_cast<std::size_t>(count) != text.size()) return Status::TransportError;
+        return Status::Ok;
+    }
+
     void clear_gpio(unsigned int pin) {
         if (pin < gpio_lines_.size() && gpio_lines_[pin] >= 0) {
             ::close(gpio_lines_[pin]);
@@ -560,6 +915,7 @@ private:
         const auto* configured = map(status);
         if (!configured) return status;
         if (pin >= configured->gpios.size()) return Status::Unsupported;
+        if (analog_holds(pin)) return Status::Busy;
         const auto access = platform::linux::mcu_detail::gpio_access_status(
             pin < gpio_direction_.size() ? gpio_direction_[pin]
                                          : std::optional<mm::mcu::Direction>{},
@@ -677,6 +1033,15 @@ private:
     std::vector<bool> gpio_watched_;
     std::vector<std::optional<mm::mcu::SpiConfiguration>> spi_configuration_;
     std::vector<std::optional<mm::mcu::I2cConfiguration>> i2c_configuration_;
+    mutable bool adc_described_ = false;
+    mutable std::vector<mm::mcu::AdcChannel> adc_inventory_;
+    mutable bool adc_resolved_ = false;
+    mutable std::string adc_device_;
+    std::vector<bool> adc_claimed_;
+    mutable bool pwm_described_ = false;
+    mutable std::vector<mm::mcu::PwmOutput> pwm_inventory_;
+    std::vector<PwmState> pwm_state_;
+    std::vector<Owner> pad_owner_;
 };
 
 LinuxPlatform linux_platform;
@@ -686,6 +1051,65 @@ const Register registered;
 }
 
 namespace platform::linux::mcu_detail {
+
+// "0.805664062" is millivolts per count; the answer is nanovolts per count,
+// the sixth fraction digit kept and the seventh rounded. No sign, no
+// exponent: IIO writes neither.
+bool adc_scale_nanovolts(std::string_view text, std::uint64_t& nanovolts) {
+    while (!text.empty() && (text.back() == '\n' || text.back() == ' ')) text.remove_suffix(1);
+    if (text.empty()) return false;
+    const auto point = text.find('.');
+    const auto whole = text.substr(0, point);
+    if (whole.empty()) return false;
+    std::uint64_t millivolts = 0;
+    const auto parsed = std::from_chars(whole.data(), whole.data() + whole.size(), millivolts);
+    if (parsed.ec != std::errc{} || parsed.ptr != whole.data() + whole.size()) return false;
+    if (millivolts > 1'000'000'000) return false;
+    std::uint64_t fraction = 0;
+    unsigned int digits = 0;
+    bool round_up = false;
+    if (point != std::string_view::npos) {
+        const auto rest = text.substr(point + 1);
+        if (rest.empty()) return false;
+        for (const char c : rest) {
+            if (c < '0' || c > '9') return false;
+            if (digits < 6) {
+                fraction = fraction * 10 + static_cast<unsigned int>(c - '0');
+                ++digits;
+            } else if (digits == 6) {
+                round_up = c >= '5';
+                ++digits;
+            }
+        }
+    }
+    while (digits < 6) {
+        fraction *= 10;
+        ++digits;
+    }
+    nanovolts = millivolts * 1'000'000 + fraction + (round_up ? 1 : 0);
+    return true;
+}
+
+// scale times the channel's full-scale count, rounded to a millivolt; zero
+// for a width outside [1, 31] or a product past 64 bits.
+unsigned int adc_reference_millivolts(std::uint64_t nanovolts_per_count, unsigned int bits) {
+    if (bits < 1 || bits > 31 || nanovolts_per_count == 0) return 0;
+    const std::uint64_t full_scale = (std::uint64_t{1} << bits) - 1;
+    if (nanovolts_per_count > std::numeric_limits<std::uint64_t>::max() / full_scale) return 0;
+    const std::uint64_t nanovolts = nanovolts_per_count * full_scale;
+    const std::uint64_t millivolts = (nanovolts + 500'000) / 1'000'000;
+    return millivolts > 0xffff'ffffu ? 0 : static_cast<unsigned int>(millivolts);
+}
+
+bool sysfs_integer(std::string_view text, long long& value) {
+    while (!text.empty() && (text.back() == '\n' || text.back() == ' ')) text.remove_suffix(1);
+    if (text.empty()) return false;
+    long long parsed = 0;
+    const auto result = std::from_chars(text.data(), text.data() + text.size(), parsed);
+    if (result.ec != std::errc{} || result.ptr != text.data() + text.size()) return false;
+    value = parsed;
+    return true;
+}
 
 mm::mcu::Status take_events(int descriptor, bool& pending) {
     gpio_v2_line_event events[16];

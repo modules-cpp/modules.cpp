@@ -1,0 +1,19 @@
+---
+mm: 1.0
+kind: test
+name: json
+use: mm.test
+use: mm.json
+unit: tests/mm/json/scan.cpp
+unit: tests/mm/json/value.cpp
+unit: tests/mm/json/corpus.cpp
+unit: tests/main.cpp
+---
+
+# mm.json test target
+
+Exercises both layers on the host: the scanner's grammar cases with their
+offsets and token sequences, the decoder and the numeric helpers, the value
+model with parse and write in both layouts, the unchanged-output rule on every
+failure path, and the JSON Parsing Test Suite corpus under fixtures/, whose
+y_ exceptions and i_ outcomes are tabulated in corpus.cpp.

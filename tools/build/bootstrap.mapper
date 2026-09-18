@@ -1,4 +1,8 @@
 $root out/bootstrap-bmi
 mm.build mm.build.gcm
 mm.configure mm.configure.gcm
+mm.json mm.json.gcm
+mm.json:scan mm.json-scan.gcm
+mm.json:status mm.json-status.gcm
+mm.json:value mm.json-value.gcm
 mm.mdy mm.mdy.gcm

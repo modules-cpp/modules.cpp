@@ -123,8 +123,8 @@ day to day, pointed at a manifest file (`mm.mdy`):
 ```
 
 `-v` prints extra diagnostic output and is supported by all of the project's
-tools (`build`, `configure`, `test`, `run`, `check`, `model`, `shell`, `mdy`); `--verbose` is
-also accepted by `build`, `configure`, `test`, `run`, `check`, `model`, and `shell`, but not by
+tools (`build`, `configure`, `test`, `run`, `check`, `model`, `json`, `shell`, `mdy`); `--verbose` is
+also accepted by `build`, `configure`, `test`, `run`, `check`, `model`, `json`, and `shell`, but not by
 `mdy`, which only recognizes `-v`.
 
 ## Layout
@@ -137,7 +137,7 @@ also accepted by `build`, `configure`, `test`, `run`, `check`, `model`, and `she
 - `modules/mm/` — the reusable core modules (parsing, build graph, test
   framework, application base class, the portable MCU and display interfaces).
 - `tools/` — command-line front ends (`build`, `configure`, `test`, `run`,
-  `check`, `model`, `debug`, `flash`, `shell`) that use those modules.
+  `check`, `model`, `json`, `debug`, `flash`, `shell`) that use those modules.
 - `tests/mm/` — public integration and regression tests.
 - `platforms/` — SDK and board manifests, board sources, linker scripts, and
   the vendored platform SDKs with their external build bridges.

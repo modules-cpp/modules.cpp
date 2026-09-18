@@ -60,10 +60,12 @@ int run(const std::string& command)
 }
 
 // Compiles and links build1 through the exact fixed steps as bootstrap.sh.
-// The mm.mdy, mm.build, and mm.configure module interfaces and their
-// implementation units, then tools/build/build.cpp (the same source
+// The mm.mdy, mm.configure, mm.json, and mm.build module interfaces and
+// their implementation units, then tools/build/build.cpp (the same source
 // tools/build/mm.mdy declares as the "build" app target), in the order
 // -fmodules-ts needs an interface compiled before whatever imports it.
+// mm.json precedes mm.build because build reads compile_commands.json
+// through it; its partitions precede its primary interface.
 //
 int build_1()
 {
@@ -77,6 +79,12 @@ int build_1()
         {"modules/mm/mdy/src/mdy.cpp",      "out/modules/mm/mdy/src/mdy.o"},
         {"modules/mm/configure/configure.cppm", "out/modules/mm/configure/configure.o"},
         {"modules/mm/configure/src/configure.cpp", "out/modules/mm/configure/src/configure.o"},
+        {"modules/mm/json/status.cppm",     "out/modules/mm/json/status.o"},
+        {"modules/mm/json/scan.cppm",       "out/modules/mm/json/scan.o"},
+        {"modules/mm/json/value.cppm",      "out/modules/mm/json/value.o"},
+        {"modules/mm/json/json.cppm",       "out/modules/mm/json/json.o"},
+        {"modules/mm/json/src/scan.cpp",    "out/modules/mm/json/src/scan.o"},
+        {"modules/mm/json/src/value.cpp",   "out/modules/mm/json/src/value.o"},
         {"modules/mm/build/build.cppm",     "out/modules/mm/build/build.o"},
         {"modules/mm/build/src/build.cpp",  "out/modules/mm/build/src/build.o"},
         {"tools/build/build.cpp",           "out/tools/build/build.o"},

@@ -58,6 +58,7 @@ if [ "${mm_build1_status}" -ne 0 ] || [ ! -x "${MM_BUILD}/build1" ]; then
     mkdir -p "${MM_BUILD}/modules/mm/mdy/src"
     mkdir -p "${MM_BUILD}/modules/mm/build/src"
     mkdir -p "${MM_BUILD}/modules/mm/configure/src"
+    mkdir -p "${MM_BUILD}/modules/mm/json/src"
     mkdir -p "${MM_BUILD}/tools/build"
 
     MCCP_MODULES="${MCCP} -fmodules-ts -fmodule-mapper=tools/build/bootstrap.mapper"
@@ -78,6 +79,32 @@ if [ "${mm_build1_status}" -ne 0 ] || [ ! -x "${MM_BUILD}/build1" ]; then
     ${MCCP_MODULES} ${MM_MODULE_FLAGS} \
         -c modules/mm/configure/src/configure.cpp \
         -o "${MM_BUILD}/modules/mm/configure/src/configure.o" || exit $?
+
+    # mm.build reads compile_commands.json through mm.json, so the json
+    # partitions, primary interface, and implementation units come first.
+    ${MCCP_MODULES} ${MM_MODULE_FLAGS} \
+        -c modules/mm/json/status.cppm \
+        -o "${MM_BUILD}/modules/mm/json/status.o" || exit $?
+
+    ${MCCP_MODULES} ${MM_MODULE_FLAGS} \
+        -c modules/mm/json/scan.cppm \
+        -o "${MM_BUILD}/modules/mm/json/scan.o" || exit $?
+
+    ${MCCP_MODULES} ${MM_MODULE_FLAGS} \
+        -c modules/mm/json/value.cppm \
+        -o "${MM_BUILD}/modules/mm/json/value.o" || exit $?
+
+    ${MCCP_MODULES} ${MM_MODULE_FLAGS} \
+        -c modules/mm/json/json.cppm \
+        -o "${MM_BUILD}/modules/mm/json/json.o" || exit $?
+
+    ${MCCP_MODULES} ${MM_MODULE_FLAGS} \
+        -c modules/mm/json/src/scan.cpp \
+        -o "${MM_BUILD}/modules/mm/json/src/scan.o" || exit $?
+
+    ${MCCP_MODULES} ${MM_MODULE_FLAGS} \
+        -c modules/mm/json/src/value.cpp \
+        -o "${MM_BUILD}/modules/mm/json/src/value.o" || exit $?
 
     ${MCCP_MODULES} ${MM_MODULE_FLAGS} \
         -c modules/mm/build/build.cppm \
@@ -101,6 +128,12 @@ if [ "${mm_build1_status}" -ne 0 ] || [ ! -x "${MM_BUILD}/build1" ]; then
         "${MM_BUILD}/modules/mm/build/src/build.o" \
         "${MM_BUILD}/modules/mm/configure/configure.o" \
         "${MM_BUILD}/modules/mm/configure/src/configure.o" \
+        "${MM_BUILD}/modules/mm/json/status.o" \
+        "${MM_BUILD}/modules/mm/json/scan.o" \
+        "${MM_BUILD}/modules/mm/json/value.o" \
+        "${MM_BUILD}/modules/mm/json/json.o" \
+        "${MM_BUILD}/modules/mm/json/src/scan.o" \
+        "${MM_BUILD}/modules/mm/json/src/value.o" \
         "${MM_BUILD}/tools/build/build.o" \
         -o "${MM_BUILD}/build1.tmp" || exit $?
 

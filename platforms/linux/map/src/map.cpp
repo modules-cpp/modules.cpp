@@ -120,6 +120,7 @@ bool apply(Map& map, std::string_view key, std::string_view text) {
     if (key == "imu.device") return selector(text, map.imu.device);
     if (key == "imu.trigger") return selector(text, map.imu.trigger);
     if (key == "imu.timeout-ms") return number(text, map.imu.timeout_ms) && map.imu.timeout_ms > 0;
+    if (key == "adc.device") return selector(text, map.adc_device);
 
     std::size_t index = 0; std::string_view field;
     if (indexed_key(key, "gpio", index, field)) {
@@ -153,6 +154,26 @@ bool apply(Map& map, std::string_view key, std::string_view text) {
         if(field=="baud-fixed")return boolean(text,e.baud_fixed);
         return false;
     }
+    if (indexed_key(key, "adc", index, field)) {
+        if (map.adcs.size() <= index) map.adcs.resize(index + 1);
+        auto& e = map.adcs[index]; unsigned long v=0;
+        if(field=="channel"){if(!number(text,v)||v>0xffffffffUL)return false;e.channel=static_cast<unsigned int>(v);return true;}
+        if(field=="gpio"){if(!number(text,v)||v>0xffffffffUL)return false;e.gpio=static_cast<unsigned int>(v);return true;}
+        if(field=="name")return quoted(text,e.name);
+        if(field=="bits"){if(!number(text,v)||v<1||v>31)return false;e.bits=static_cast<unsigned int>(v);return true;}
+        if(field=="reference-mv"){if(!number(text,v)||v>0xffffffffUL)return false;e.reference_millivolts=static_cast<unsigned int>(v);return true;}
+        return false;
+    }
+    if (indexed_key(key, "pwm", index, field)) {
+        if (map.pwms.size() <= index) map.pwms.resize(index + 1);
+        auto& e = map.pwms[index]; unsigned long v=0;
+        if(field=="chip"){if(!number(text,v)||v>0xffffffffUL)return false;e.chip=static_cast<unsigned int>(v);return true;}
+        if(field=="channel"){if(!number(text,v)||v>0xffffffffUL)return false;e.channel=static_cast<unsigned int>(v);return true;}
+        if(field=="gpio"){if(!number(text,v)||v>0xffffffffUL)return false;e.gpio=static_cast<unsigned int>(v);return true;}
+        if(field=="name")return quoted(text,e.name);
+        if(field=="group"){if(!number(text,v)||v>0xffffffffUL)return false;e.group=static_cast<unsigned int>(v);return true;}
+        return false;
+    }
     if (indexed_key(key, "uart", index, field)) {
         if (map.uarts.size() <= index) map.uarts.resize(index + 1);
         auto& e=map.uarts[index]; unsigned long v=0;
@@ -183,6 +204,36 @@ MapStatus validate(Map& map, const std::string& path, ParseError& error) {
             if (i==*map.led_gpio) found=true;
         if (!found) {
             error={path,0,0,"board.led.gpio","does not name a declared GPIO"};
+            return MapStatus::SyntaxError;
+        }
+    }
+    // An analog entry's pad must be a declared GPIO and attached once per
+    // inventory, as the LED's must; its name defaults like a GPIO's.
+    std::set<std::string> adc_names;
+    std::set<unsigned int> adc_pins;
+    for (std::size_t i=0;i<map.adcs.size();++i) {
+        auto& adc=map.adcs[i];
+        if (adc.name.empty()) adc.name="adc."+std::to_string(i);
+        if (!adc_names.insert(adc.name).second) {
+            error={path,0,0,"adc."+std::to_string(i),"duplicate ADC name"};
+            return MapStatus::SyntaxError;
+        }
+        if (adc.gpio && (*adc.gpio>=map.gpios.size() || !adc_pins.insert(*adc.gpio).second)) {
+            error={path,0,0,"adc."+std::to_string(i)+".gpio","does not name a declared GPIO once"};
+            return MapStatus::SyntaxError;
+        }
+    }
+    std::set<std::string> pwm_names;
+    std::set<unsigned int> pwm_pins;
+    for (std::size_t i=0;i<map.pwms.size();++i) {
+        auto& pwm=map.pwms[i];
+        if (pwm.name.empty()) pwm.name="pwm."+std::to_string(i);
+        if (!pwm_names.insert(pwm.name).second) {
+            error={path,0,0,"pwm."+std::to_string(i),"duplicate PWM name"};
+            return MapStatus::SyntaxError;
+        }
+        if (pwm.gpio && (*pwm.gpio>=map.gpios.size() || !pwm_pins.insert(*pwm.gpio).second)) {
+            error={path,0,0,"pwm."+std::to_string(i)+".gpio","does not name a declared GPIO once"};
             return MapStatus::SyntaxError;
         }
     }

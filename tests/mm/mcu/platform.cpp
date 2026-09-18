@@ -6,6 +6,8 @@
 // platform's module does, and nothing here is scaffolding a real platform would
 // not also have to provide.
 #include <cstddef>
+#include <cstdint>
+#include <iterator>
 #include <optional>
 #include <span>
 #include <string_view>
@@ -28,6 +30,36 @@ constexpr mm::mcu::Gpio gpios[] = {
     {28, "GPIO28"}, {29, "GPIO29"}, {30, "GPIO30"}, {31, "GPIO31"},
 };
 
+// The analog inventories. Three pin channels and an internal one; one channel
+// with no known reference, so the conversion's zero answer is exercised. The
+// PWM outputs are numbered by GPIO as the Pico numbers them: 0 and 1 are the
+// two comparators of one counter, 16 is the alias of 0's comparator, 2 has a
+// counter of its own, and 3 is an output whose limits the stand-in does not
+// know.
+constexpr mm::mcu::AdcChannel adc_channels[] = {
+    {0, "ADC0", 26, 12, 3300},
+    {1, "ADC1", 27, 12, 3300},
+    {2, "ADC2", 28, 12, 0},
+    {3, "TEMP", std::nullopt, 12, 3300},
+};
+
+constexpr std::uint64_t pwm_shortest = 16;
+constexpr std::uint64_t pwm_longest = 134'000'000;
+
+constexpr mm::mcu::PwmOutput pwm_outputs[] = {
+    {0, "PWM0", 0, 0, 0, pwm_shortest, pwm_longest},
+    {1, "PWM1", 1, 0, 1, pwm_shortest, pwm_longest},
+    {16, "PWM16", 16, 0, 0, pwm_shortest, pwm_longest},
+    {2, "PWM2", 2, 1, 0, pwm_shortest, pwm_longest},
+    {3, "PWM3", 3, 2, 0, 0, 0},
+};
+
+constexpr unsigned int group_count = 3;
+
+// Who holds a pad. A plain GPIO configuration yields to an analog claim; a
+// watch and an analog claim yield only to their own release.
+enum class Owner { None, Gpio, Watched, Adc, Pwm };
+
 class Stand : public mm::mcu::Platform {
 public:
     [[nodiscard]] mm::mcu::Board board() const override {
@@ -41,14 +73,17 @@ public:
         if (pull != mm::mcu::Pull::None && pull != mm::mcu::Pull::Up &&
             pull != mm::mcu::Pull::Down)
             return mm::mcu::Status::BadArgument;
+        if (analog_holds(pin)) return mm::mcu::Status::Busy;
         configured[pin] = true;
         output[pin] = direction == mm::mcu::Direction::Out;
+        owner[pin] = Owner::Gpio;
         return mm::mcu::Status::Ok;
     }
 
     [[nodiscard]] mm::mcu::Status gpio_write(unsigned int pin, bool high) override {
         if (forced != mm::mcu::Status::Ok) return forced;
         if (pin >= pin_count) return mm::mcu::Status::BadArgument;
+        if (analog_holds(pin)) return mm::mcu::Status::Busy;
         if (!configured[pin]) return mm::mcu::Status::BadArgument;
         if (!output[pin]) return mm::mcu::Status::Unsupported;
         level[pin] = high;
@@ -57,8 +92,163 @@ public:
 
     [[nodiscard]] mm::mcu::Status gpio_read(unsigned int pin, bool& high) override {
         if (forced != mm::mcu::Status::Ok) return forced;
-        if (pin >= pin_count || !configured[pin]) return mm::mcu::Status::BadArgument;
+        if (pin >= pin_count) return mm::mcu::Status::BadArgument;
+        if (analog_holds(pin)) return mm::mcu::Status::Busy;
+        if (!configured[pin]) return mm::mcu::Status::BadArgument;
         high = level[pin];
+        return mm::mcu::Status::Ok;
+    }
+
+    // The latch, as far as ownership needs it: a watched pad is one no
+    // analog claim may take, and nothing here delivers an edge.
+    [[nodiscard]] mm::mcu::Status gpio_watch(unsigned int pin, mm::mcu::Pull,
+                                              mm::mcu::Edge) override {
+        if (forced != mm::mcu::Status::Ok) return forced;
+        if (pin >= pin_count) return mm::mcu::Status::BadArgument;
+        if (analog_holds(pin)) return mm::mcu::Status::Busy;
+        configured[pin] = true;
+        output[pin] = false;
+        owner[pin] = Owner::Watched;
+        return mm::mcu::Status::Ok;
+    }
+
+    [[nodiscard]] mm::mcu::Status gpio_take(unsigned int pin, bool& pending) override {
+        if (forced != mm::mcu::Status::Ok) return forced;
+        if (pin >= pin_count || owner[pin] != Owner::Watched) return mm::mcu::Status::BadArgument;
+        pending = false;
+        return mm::mcu::Status::Ok;
+    }
+
+    [[nodiscard]] mm::mcu::Status gpio_unwatch(unsigned int pin) override {
+        if (forced != mm::mcu::Status::Ok) return forced;
+        if (pin >= pin_count) return mm::mcu::Status::BadArgument;
+        if (owner[pin] == Owner::Watched) {
+            owner[pin] = Owner::None;
+            configured[pin] = false;
+        }
+        return mm::mcu::Status::Ok;
+    }
+
+    [[nodiscard]] mm::mcu::AdcDescription adc_description() const override {
+        return {adc_channels};
+    }
+
+    [[nodiscard]] mm::mcu::Status adc_configure(unsigned int channel) override {
+        if (forced != mm::mcu::Status::Ok) return forced;
+        const auto* entry = adc_entry(channel);
+        if (entry == nullptr) return mm::mcu::Status::BadArgument;
+        if (adc_claimed[channel]) return mm::mcu::Status::Ok;
+        if (entry->gpio) {
+            const auto pin = *entry->gpio;
+            if (owner[pin] == Owner::Watched || owner[pin] == Owner::Pwm)
+                return mm::mcu::Status::Busy;
+            // The takeover: whatever digital mode the pad had is gone.
+            configured[pin] = false;
+            output[pin] = false;
+            owner[pin] = Owner::Adc;
+        }
+        adc_claimed[channel] = true;
+        return mm::mcu::Status::Ok;
+    }
+
+    [[nodiscard]] mm::mcu::Status adc_read(unsigned int channel, unsigned int& count) override {
+        if (forced != mm::mcu::Status::Ok) return forced;
+        if (adc_entry(channel) == nullptr || !adc_claimed[channel])
+            return mm::mcu::Status::BadArgument;
+        count = adc_count[channel];
+        return mm::mcu::Status::Ok;
+    }
+
+    [[nodiscard]] mm::mcu::Status adc_release(unsigned int channel) override {
+        if (forced != mm::mcu::Status::Ok) return forced;
+        const auto* entry = adc_entry(channel);
+        if (entry == nullptr) return mm::mcu::Status::BadArgument;
+        if (adc_claimed[channel] && entry->gpio) owner[*entry->gpio] = Owner::None;
+        adc_claimed[channel] = false;
+        return mm::mcu::Status::Ok;
+    }
+
+    [[nodiscard]] mm::mcu::PwmDescription pwm_description() const override {
+        return {pwm_outputs};
+    }
+
+    // Everything is validated before anything is recorded, in the order the
+    // contract lists: inventory, period, ownership, then group and alias.
+    [[nodiscard]] mm::mcu::Status pwm_configure(unsigned int number,
+                                                std::uint64_t period_ns) override {
+        if (forced != mm::mcu::Status::Ok) return forced;
+        const auto* entry = pwm_entry(number);
+        if (entry == nullptr || period_ns == 0) return mm::mcu::Status::BadArgument;
+        if (entry->minimum_period_ns != 0 && entry->maximum_period_ns != 0 &&
+            (period_ns < entry->minimum_period_ns || period_ns > entry->maximum_period_ns))
+            return mm::mcu::Status::BadArgument;
+        auto& claim = pwm_claims[index_of(entry)];
+        if (claim.claimed) {
+            return claim.requested == period_ns ? mm::mcu::Status::Ok : mm::mcu::Status::Busy;
+        }
+        if (entry->gpio) {
+            const auto pin = *entry->gpio;
+            if (owner[pin] == Owner::Watched || owner[pin] == Owner::Adc)
+                return mm::mcu::Status::Busy;
+        }
+        auto& group = pwm_groups[entry->group];
+        if (group.members != 0) {
+            if (group.requested != period_ns) return mm::mcu::Status::Busy;
+            for (std::size_t i = 0; i < std::size(pwm_outputs); ++i)
+                if (pwm_claims[i].claimed && pwm_outputs[i].group == entry->group &&
+                    pwm_outputs[i].comparator == entry->comparator)
+                    return mm::mcu::Status::Busy;
+        } else {
+            group.requested = period_ns;
+            // The nearest period this stand-in holds: a whole number of
+            // eight-nanosecond ticks, so that pwm_period has something to say
+            // that the request did not.
+            group.actual = ((period_ns + 4) / 8) * 8;
+            if (group.actual == 0) group.actual = 8;
+        }
+        if (entry->gpio) {
+            configured[*entry->gpio] = false;
+            output[*entry->gpio] = false;
+            owner[*entry->gpio] = Owner::Pwm;
+        }
+        ++group.members;
+        claim.claimed = true;
+        claim.requested = period_ns;
+        claim.duty = 0;
+        return mm::mcu::Status::Ok;
+    }
+
+    [[nodiscard]] mm::mcu::Status pwm_period(unsigned int number,
+                                             std::uint64_t& actual_ns) override {
+        if (forced != mm::mcu::Status::Ok) return forced;
+        const auto* entry = pwm_entry(number);
+        if (entry == nullptr || !pwm_claims[index_of(entry)].claimed)
+            return mm::mcu::Status::BadArgument;
+        actual_ns = pwm_groups[entry->group].actual;
+        return mm::mcu::Status::Ok;
+    }
+
+    [[nodiscard]] mm::mcu::Status pwm_write(unsigned int number, std::uint64_t duty_ns) override {
+        if (forced != mm::mcu::Status::Ok) return forced;
+        const auto* entry = pwm_entry(number);
+        if (entry == nullptr || !pwm_claims[index_of(entry)].claimed)
+            return mm::mcu::Status::BadArgument;
+        if (duty_ns > pwm_groups[entry->group].actual) return mm::mcu::Status::BadArgument;
+        pwm_claims[index_of(entry)].duty = duty_ns;
+        return mm::mcu::Status::Ok;
+    }
+
+    [[nodiscard]] mm::mcu::Status pwm_release(unsigned int number) override {
+        if (forced != mm::mcu::Status::Ok) return forced;
+        const auto* entry = pwm_entry(number);
+        if (entry == nullptr) return mm::mcu::Status::BadArgument;
+        auto& claim = pwm_claims[index_of(entry)];
+        if (!claim.claimed) return mm::mcu::Status::Ok;
+        claim.claimed = false;
+        claim.duty = 0;
+        if (entry->gpio) owner[*entry->gpio] = Owner::None;
+        auto& group = pwm_groups[entry->group];
+        if (--group.members == 0) group = {};
         return mm::mcu::Status::Ok;
     }
 
@@ -190,7 +380,12 @@ public:
             configured[pin] = false;
             output[pin] = false;
             level[pin] = false;
+            owner[pin] = Owner::None;
         }
+        for (auto& claimed : adc_claimed) claimed = false;
+        for (auto& count : adc_count) count = 0;
+        for (auto& claim : pwm_claims) claim = {};
+        for (auto& group : pwm_groups) group = {};
         forced = mm::mcu::Status::Ok;
         ticks = 0;
         ticks_us_val = 0;
@@ -218,9 +413,46 @@ public:
         return static_cast<std::byte>(i2c_reply++);
     }
 
+    [[nodiscard]] bool analog_holds(unsigned int pin) const {
+        return owner[pin] == Owner::Adc || owner[pin] == Owner::Pwm;
+    }
+
+    [[nodiscard]] static const mm::mcu::AdcChannel* adc_entry(unsigned int channel) {
+        for (const auto& entry : adc_channels)
+            if (entry.number == channel) return &entry;
+        return nullptr;
+    }
+
+    [[nodiscard]] static const mm::mcu::PwmOutput* pwm_entry(unsigned int number) {
+        for (const auto& entry : pwm_outputs)
+            if (entry.number == number) return &entry;
+        return nullptr;
+    }
+
+    [[nodiscard]] static std::size_t index_of(const mm::mcu::PwmOutput* entry) {
+        return static_cast<std::size_t>(entry - pwm_outputs);
+    }
+
+    struct PwmClaim {
+        bool claimed = false;
+        std::uint64_t requested = 0;
+        std::uint64_t duty = 0;
+    };
+
+    struct PwmGroup {
+        unsigned int members = 0;
+        std::uint64_t requested = 0;
+        std::uint64_t actual = 0;
+    };
+
     bool configured[pin_count] = {};
     bool output[pin_count] = {};
     bool level[pin_count] = {};
+    Owner owner[pin_count] = {};
+    bool adc_claimed[std::size(adc_channels)] = {};
+    unsigned int adc_count[std::size(adc_channels)] = {};
+    PwmClaim pwm_claims[std::size(pwm_outputs)] = {};
+    PwmGroup pwm_groups[group_count] = {};
     mm::mcu::Status forced = mm::mcu::Status::Ok;
     unsigned long ticks = 0;
     unsigned int uart_instance = 0;
@@ -284,3 +516,23 @@ unsigned int mm_test_i2c_byte(std::size_t index) {
                : 0;
 }
 std::size_t mm_test_i2c_write_reads() { return stand.i2c_write_reads; }
+void mm_test_adc_set_count(unsigned int channel, unsigned int count) {
+    if (channel < std::size(adc_channels)) stand.adc_count[channel] = count;
+}
+bool mm_test_adc_claimed(unsigned int channel) {
+    return channel < std::size(adc_channels) && stand.adc_claimed[channel];
+}
+// 0 none, 1 gpio, 2 watched, 3 adc, 4 pwm.
+int mm_test_pin_owner(unsigned int pin) {
+    return pin < pin_count ? static_cast<int>(stand.owner[pin]) : -1;
+}
+bool mm_test_gpio_configured(unsigned int pin) {
+    return pin < pin_count && stand.configured[pin];
+}
+std::uint64_t mm_test_pwm_duty(unsigned int number) {
+    const auto* entry = Stand::pwm_entry(number);
+    return entry == nullptr ? 0 : stand.pwm_claims[Stand::index_of(entry)].duty;
+}
+unsigned int mm_test_pwm_group_members(unsigned int group) {
+    return group < group_count ? stand.pwm_groups[group].members : 0;
+}

@@ -54,6 +54,29 @@ hold the read.
 Omitted fields retain compiled defaults. GPIO names default to gpio.N and an
 LED must name a GPIO in the authoritative inventory.
 
+The analog facilities are mapped the same way. adc.device selects the IIO
+device -- auto, index:K, or a quoted name -- and each adc.N names one of its
+raw voltage channels; each pwm.N names one channel of one pwmchip:
+
+Opening fence
+adc.device = auto | index:K | "name"
+adc.N.channel = C                  # in_voltage<C>_raw
+adc.N.gpio = G                     # optional; a declared GPIO, once
+adc.N.name = "..."                 # optional; default adc.N
+adc.N.bits = B                     # default 12; [1, 31]
+adc.N.reference-mv = V             # optional; else from the IIO scale
+pwm.N.chip = K                     # /sys/class/pwm/pwmchip<K>
+pwm.N.channel = C                  # pwm<C> under it
+pwm.N.gpio = G                     # optional; a declared GPIO, once
+pwm.N.name = "..."                 # optional; default pwm.N
+pwm.N.group = Q                    # optional; a known shared counter
+Closing fence
+
+A pad an analog entry names must be a declared GPIO and may be attached to
+one channel and one output at most; two entries in one inventory with one
+name are an error. bits is required from the map because sysfs does not
+publish a raw channel's width.
+
 # Providers
 
 - platform.linux.stdio uses descriptors zero and one with zero-timeout input
@@ -82,7 +105,24 @@ LED must name a GPIO in the authoritative inventory.
   partial count is how the caller learns that the deadline, not the data,
   ended the call.
 - platform.linux.mcu uses GPIO-v2 line ioctls, spidev with SPI_NO_CS, I2C_RDWR,
-  nonblocking termios writes with a deadline, and CLOCK_MONOTONIC.
+  nonblocking termios writes with a deadline, and CLOCK_MONOTONIC. Its ADC
+  reads IIO sysfs -- in_voltage<C>_raw for the count, in_voltage<C>_scale or
+  the device-wide in_voltage_scale for millivolts per count, parsed as a
+  decimal into nanovolts without floating point, so a channel's reference is
+  the scale times its full-scale count unless the map states one; a negative
+  or out-of-range raw value is TransportError. Its PWM drives
+  /sys/class/pwm: configure exports the channel unless the directory already
+  exists, in which case the output is someone else's and answers Busy, waits
+  a bounded half second for the attributes, writes duty_cycle zero, period,
+  and enable one in that order, and reads the period back as the actual; a
+  failed step disables and unexports only its own claim. Both period limits
+  are reported zero, since sysfs publishes none, and a period the kernel
+  refuses with EINVAL is BadArgument. A map entry without a group is its own.
+  The provider keeps one owner per pad across GPIO, the edge latch, ADC, and
+  PWM, as docs/modules-platform-mcu.mdy's pad-ownership section says: an
+  analog claim closes a plain GPIO line request and is refused on a watched
+  one; a pinmux the kernel or firmware changed outside the process is not in
+  that record and surfaces as the kernel's answer.
 - platform.linux.rtc uses RTC_RD_TIME, RTC_SET_TIME, RTC_VL_READ and RTC_VL_CLR,
   or CLOCK_REALTIME when no RTC path is configured.
 - platform.linux.display uses legacy DRM/KMS dumb buffers. It publishes RGB565

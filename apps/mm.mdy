@@ -5,6 +5,7 @@ name: apps
 folder: blink
 folder: echo
 folder: button
+folder: analog-smoke
 folder: board-smoke
 folder: display-demo
 folder: font-demo

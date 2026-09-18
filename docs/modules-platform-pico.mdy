@@ -174,7 +174,7 @@ spells as an ISA string. float-abi: soft is the soft-float integer ABI, emitted 
 ## GPIO, SPI, UART, and timer surface
 
 All six SDK-backed board declarations select platform.pico.mcu through their
-SDK. The provider exposes the four portable facilities implemented for this
+SDK. The provider exposes the six portable facilities implemented for this
 family:
 
 - GPIO configure, read, and write use Pico SDK's GPIO API and validate against
@@ -191,6 +191,27 @@ family:
   assignments.
 - delay_ms and ticks_ms use Pico SDK's monotonic timer. The timer's epoch remains
   platform-defined, as required by mm.mcu.
+- The ADC inventory is the SDK's: NUM_ADC_CHANNELS channels from ADC_BASE_PIN,
+  the last of them the temperature sensor with no pin -- channels 0 to 3 on
+  GP26 to GP29 and channel 4 the sensor on the RP2040 and RP2350A, 0 to 7 on
+  GP40 to GP47 and channel 8 on the RP2350B -- each twelve bits. The reference
+  is the selected board's row in the bridge's resolve-board.cmake, keyed on
+  the board the lane selected and not on its vendor ancestor, so a child board
+  has a row of its own or reports zero; the six vendor boards' rows say 3,300
+  millivolts, which is how their schematics feed ADC_VREF from the 3V3 rail.
+  adc_init runs on the first claim; a pin channel claims its pad through
+  adc_gpio_init, the sensor through adc_set_temp_sensor_enabled; each read
+  selects its input and converts once.
+- The PWM inventory is every Bank 0 GPIO, numbered by GPIO, with its slice from
+  pwm_gpio_to_slice_num as the group and its A or B channel as the comparator,
+  so two GPIOs sixteen apart on the RP2040 are aliases of one comparator. The
+  period limits are two counts at divider one and 65,535 counts at the largest
+  divider, at the clk_sys rate read from the running board. The provider plans
+  a period with mm.mcu's pwm_plan against the sixteen-bit, eight-and-four
+  counter and passes top and divider to the adapter, which programs a slice
+  the first time an output claims it and stops it when the last one leaves; a
+  duty is the level that is its share of top + 1, so a full duty is top + 1,
+  the steady high the planner keeps representable.
 
 The Board value reports the SDK board name and its RP GPIO inventory. Pico and
 Pico 2 report their GPIO-backed LED and polarity. Pico W and Pico 2 W report no
@@ -583,8 +604,14 @@ Three behaviours surprise people and are recorded here rather than rediscovered.
   suffixes, their UF2 family IDs match their platforms, and a declared artifact
   missing after the build is an external-build failure.
 - The adapter for each board compiles GPIO, both hardware SPI instances, the
-  default hardware UART, and monotonic timer support. W-board builds report no
-  GPIO-backed LED.
+  default hardware UART, monotonic timer, ADC, and PWM support. W-board builds
+  report no GPIO-backed LED.
+- scripts/build-analog-smoke-pico.sh builds apps/analog-smoke for a named board,
+  checks the ADC and PWM adapter symbols and the UF2, and prints the fixture:
+  GP16 through 10 kOhm to GP26 with 1 uF to ground. The image's own verdict --
+  the filtered level at a quarter, a half, and three quarters duty within a
+  tenth of full scale, the sibling and alias rules, and GPIO refusal on both
+  pins -- is a physical run a person reads, as the edge smoke's is.
 - A program using mm.stdio receives exactly one platform.pico.stdio provider in
   either Pico SDK lane. A program that does not use mm.stdio receives none.
 - The Pico console initializes the SDK stdio subsystem without an application
@@ -603,6 +630,18 @@ the same pin. The adapter cannot detect that conflict.
 Watches run on core zero only; all four edge calls on core one answer
 Unsupported. The generic callback and bank IRQ remain installed after the
 last unwatch so a later watch can use them again.
+
+The adapter keeps one owner per pad -- plain GPIO, watched, ADC, or PWM --
+and it is the record docs/modules-platform-mcu.mdy's pad-ownership section
+describes: a plain GPIO configuration yields to an analog claim, a watched pad
+and an analog claim answer Busy to everything but their own release, and a
+GPIO configure, watch, write, or read on a pad the ADC or PWM holds answers
+Busy. SPI, I2C, and UART pins are outside the record, as that section says.
+The PWM keeps the requested period per slice above the ABI and the comparator
+claims below it; a slice's counter is programmed once, so a sibling that joins
+at the group's period never disturbs the first output's waveform. Whether the
+filtered level and the steady ends read as the contract says is a hardware
+check the analog smoke makes and this document does not yet claim.
 
 - Nothing automated asserts that a Pico image ran. The OpenOCD profile programs,
   verifies, and resets, but defines no completion protocol, which is the same limit

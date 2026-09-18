@@ -1,0 +1,39 @@
+---
+mm: 1.2
+kind: app
+name: analog-smoke
+use: mm.mcu
+use: mm.stdio
+file: main.cpp
+---
+
+# analog-smoke
+
+Wire the PWM output named in main.cpp through a 10 kOhm resistor to the ADC
+pin, and place a 1 uF capacitor from the ADC pin to ground: on a Pico or
+Pico 2 that is GP16 through 10 kOhm to GP26, and 1 uF from GP26 to ground.
+GP17, the other comparator of GP16's slice, and GP0, the alias of GP16's
+comparator, stay unconnected; they are claimed and released only to prove the
+sibling and alias rules. The check drives a one-kilohertz waveform at a
+quarter, a half, and three quarters duty and reads the filtered level as a raw
+count, so it needs no calibrated reference and asserts no temperature.
+
+The application skips only when the first configure of either facility
+answers Unsupported; a supported facility with an unwired fixture fails. It
+releases what it claimed on every exit path. The firmware image build cannot
+prove the analog path; run it with the fixture and a USB CDC console to see
+the verdict.
+
+Exit codes:
+
+| Code | Meaning |
+| --- | --- |
+| 0 | All checks passed, or a facility was unavailable and skipped. |
+| 1–3 | ADC or PWM configure, or the period read, failed. |
+| 4–6 | Sibling at another period, sibling at the same period, or alias rule failed. |
+| 7–8 | GPIO ownership of the PWM or ADC pin was not refused. |
+| 9 | A duty past the period was accepted, or a refused call changed its output. |
+| 10 | A raw count fell outside the channel's range. |
+| 11–13 | Quarter, half, or three-quarter duty read outside a tenth of full scale; inspect the fixture. |
+| 14 | The temperature channel could not be read. |
+| 15–16 | Release failed, or the pins did not return to GPIO afterwards. |

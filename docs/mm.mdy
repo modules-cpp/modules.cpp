@@ -18,6 +18,7 @@ file: modules-fonts.mdy
 file: modules-gfx.mdy
 file: modules-imu.mdy
 file: modules-ino.mdy
+file: modules-json.mdy
 file: modules-lcd.mdy
 file: modules-libraries.mdy
 file: modules-mm.mdy

@@ -10,5 +10,6 @@ file: mcu.cppm
 
 # platform.linux.mcu
 
-Linux kernel implementations of mm.mcu GPIO, SPI, I2C, UART, and monotonic
-time. Device identity and applicable wiring come from platform.linux.map.
+Linux kernel implementations of mm.mcu GPIO, SPI, I2C, UART, monotonic time,
+ADC over IIO sysfs, and PWM over PWM sysfs. Device identity and applicable
+wiring come from platform.linux.map.

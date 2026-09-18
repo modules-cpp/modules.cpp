@@ -20,6 +20,7 @@ folder: run
 folder: touch
 folder: imu
 folder: ino
+folder: json
 folder: lcd
 folder: rtc
 folder: sketch

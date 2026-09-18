@@ -6,6 +6,44 @@ All notable changes to modules.cpp. Versions follow [semantic versioning](https:
 
 ### Added
 
+- **`mm.json`.** A core module reading and writing RFC 8259 JSON without
+  exceptions, templates, or, in its scanner, allocation. The `:status`
+  partition names the faults and where they are; the `:scan` partition is a
+  pull scanner that answers one token per call with strict grammar, UTF-8,
+  and surrogate checks, plus decoding into a caller's span and the two
+  numeric conversions; the `:value` partition is a document model with
+  `parse` over an explicit stack, `write` in compact and indented layouts,
+  and duplicate-key and wide-integer policies. Every output changes only on
+  Ok. `tests/mm/json` pins the grammar, the decoder, the numeric boundaries,
+  the value model, and the JSON Parsing Test Suite, vendored under
+  `tests/mm/json/fixtures` with its notice. docs/modules-json.mdy specifies
+  it.
+- **`json` tool.** `tools/json` with root launchers `json` and `json.sh`:
+  `--check` reports the first fault of each file as
+  `FILE:LINE:COLUMN: DESCRIPTION (STATUS)`, `--indent` and `--compact`
+  rewrite a document in either layout, and `--scan` lists the scanner's
+  tokens.
+- **ADC and PWM in `mm.mcu`.** Two facility partitions beside SPI and I2C,
+  with inventories the platform answers per channel and per output:
+  `adc_configure`, `adc_read`, `adc_release`, and `adc_channel_for_gpio` over
+  `AdcChannel` with its width and reference; `pwm_configure`, `pwm_period`,
+  `pwm_write`, `pwm_release`, and `pwm_output_for_gpio` over `PwmOutput` with
+  its counter group, comparator, and period limits. `adc_millivolts` converts a
+  count in integer arithmetic; `pwm_plan` turns a period into a divider and a
+  top for a prescaler-and-top counter such as the RP2040's and RP2350's,
+  reserving one count so full duty always fits the compare register. A pad is
+  one thing at a time: a plain GPIO yields to an analog claim, a watched GPIO
+  and an analog claim yield only to their own release. Every provider inherits
+  `Unsupported` for both until its implementation lands; the host stand-in
+  and `tests/mm/mcu` pin the contracts and the planner against an independent
+  rational model. The Pico SDK provider implements both over `hardware_adc`
+  and `hardware_pwm` through its adapter, which now keeps one owner per pad
+  across GPIO, the edge latch, ADC, and PWM; the ADC reference is the selected
+  board's own row in the bridge's `resolve-board.cmake`. `analog-smoke` and
+  `scripts/build-analog-smoke-pico.sh` are the wired fixture: PWM through an
+  RC filter into the ADC, read as raw ratios. The Linux provider implements
+  both over IIO and PWM sysfs from new `adc.*` and `pwm.*` device-map keys,
+  with the same one-owner-per-pad rule.
 - **GPIO edge latch in `mm.mcu`.** Portable `gpio_watch`, `gpio_take`,
   `gpio_unwatch`, and bounded `gpio_wait` report selected physical edges
   without running application callbacks inside interrupt handlers. Pico SDK
@@ -16,10 +54,28 @@ All notable changes to modules.cpp. Versions follow [semantic versioning](https:
 
 ### Changed
 
+- `mm.build` reads a bridge's `compile_commands.json` through `mm.json`; the
+  private reader it carried is gone, and the bootstrap compiles `mm.json`
+  before `mm.build`.
 - A watched GPIO is owned by its provider: another watch or configuration
   answers Busy, and unwatch leaves the pin unconfigured. Linux maps ENXIO and
   EOPNOTSUPP to Unsupported for edge requests while retaining the existing
   transport-error mapping for other MCU operations.
+
+### Fixed
+
+- The Linux providers' subclasses, registered objects, and registration
+  objects moved from unnamed namespaces to named non-exported ones
+  (`platform::linux::<name>_provider`). Clang emits an interface unit's
+  unnamed-namespace objects again in every importer, so `tests/mm/linux`,
+  which imports the DRM provider for its testing seam, failed to link under
+  Clang with `undefined reference to vtable for (anonymous
+  namespace)::LinuxDisplay`; GCC was unaffected. docs/modules-c++20.mdy
+  states the rule. This is the fix `main` carried since before v1.2.2.
+- A `\u` escape in a `compile_commands.json` path was copied through as
+  text and never matched the ABI probe; it is decoded now. A compile
+  database that is not JSON is reported with its line and column instead of
+  being read past.
 
 ## [v1.2.2] — 2026-09-17
 

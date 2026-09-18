@@ -314,7 +314,7 @@ void installed_tools_support_common_help() {
     expect(!ec, "installed tool directory available");
 
     for (const auto tool : {"build", "configure", "test", "check", "model", "run", "flash",
-                            "debug", "shell", "sketch"}) {
+                            "debug", "shell", "sketch", "json"}) {
         const auto log = std::filesystem::temp_directory_path() /
                          (std::string("mm_help_") + tool + ".log");
         for (const auto flags : {"-h", "--help", "-v -h", "--verbose --help"}) {
@@ -386,8 +386,51 @@ void sketch_tool_four_runs() {
            "run 4: check outputs add folder diagnostic");
 }
 
+// The json tool over the corpus fixtures: each command on a document the
+// module accepts, a document it refuses with the line the message names, a
+// missing file, and a missing command.
+void installed_json_tool() {
+    std::error_code ec;
+    const auto bin = std::filesystem::current_path(ec) / "out/bin/json";
+    const auto fixtures = std::filesystem::current_path(ec) / "tests/mm/json/fixtures";
+    const auto log = std::filesystem::temp_directory_path() / "mm_json_tool.log";
+    const auto accepted = mm::build::shell_quote(fixtures / "y_pass01.json");
+    const auto refused = mm::build::shell_quote(fixtures / "n_array_extra_comma.json");
+    const auto duplicate = mm::build::shell_quote(fixtures / "y_object_duplicated_key.json");
+
+    expect(invoke(bin, "--check " + accepted, log) == 0 && read_text(log).empty(),
+           "--check is silent and exits zero for an accepted document");
+    expect(invoke(bin, "--check " + refused, log) == 1 &&
+               read_text(log).find("n_array_extra_comma.json:1:") != std::string::npos &&
+               read_text(log).find("(Malformed)") != std::string::npos,
+           "--check names the file, line, and status for a refused document");
+    expect(invoke(bin, "--check " + duplicate, log) == 1 &&
+               read_text(log).find("(DuplicateKey)") != std::string::npos,
+           "--check exits one for a document a policy rejects, naming the policy");
+    expect(invoke(bin, "--check " + accepted + " " + refused, log) == 1,
+           "--check over several files exits one when any is refused");
+    expect(invoke(bin, "--indent " + accepted, log) == 0 && read_text(log).starts_with("[\n  "),
+           "--indent writes the indented layout");
+    expect(invoke(bin, "--compact " + accepted, log) == 0 && read_text(log).starts_with("[\"JSON"),
+           "--compact writes the compact layout");
+    expect(invoke(bin, "--scan " + accepted, log) == 0 && read_text(log).starts_with("0 0 array-begin"),
+           "--scan prints one token per line from the first");
+    expect(invoke(bin, "--scan " + refused, log) == 1 &&
+               read_text(log).find("(Malformed)") != std::string::npos,
+           "--scan stops at the scanner's fault with the same message");
+    expect(invoke(bin, "--check " + mm::build::shell_quote(fixtures / "absent.json"), log) ==
+                   mm::build::exit_manifest,
+           "a file that cannot be read is exit_manifest");
+    expect(invoke(bin, accepted, log) == mm::build::exit_usage,
+           "a missing command is exit_usage");
+    expect(invoke(bin, "--indent " + accepted + " " + refused, log) == mm::build::exit_usage,
+           "--indent with two files is exit_usage");
+    std::filesystem::remove(log, ec);
+}
+
 const mm::test::case_ cases[] = {
     {"installed configure and cross-tool 1.1 compatibility", &installed_tools_support_11},
+    {"installed json tool", &installed_json_tool},
     {"installed tools select configured lanes", &installed_tools_select_configured_lanes},
     {"installed tools support common help", &installed_tools_support_common_help},
     {"sketch tool four-run case", &sketch_tool_four_runs},

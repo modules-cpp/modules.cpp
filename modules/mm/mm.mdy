@@ -13,6 +13,7 @@ folder: gfx
 folder: flash
 folder: imu
 folder: ino
+folder: json
 folder: lcd
 folder: imu/qmi8658
 folder: mcu

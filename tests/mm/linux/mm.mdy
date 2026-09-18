@@ -27,6 +27,8 @@ unit: tests/mm/linux/evdev.cpp
 unit: tests/mm/linux/iio.cpp
 unit: tests/mm/linux/rtc.cpp
 unit: tests/mm/linux/mcu.cpp
+unit: tests/mm/linux/adc.cpp
+unit: tests/mm/linux/pwm.cpp
 unit: tests/main.cpp
 option: core no
 ---
