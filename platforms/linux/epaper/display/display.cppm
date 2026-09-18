@@ -19,7 +19,10 @@ import mm.display;
 import mm.epaper.ssd1680;
 import mm.mcu;
 
-namespace {
+// A named, non-exported namespace rather than an unnamed one: Clang emits an
+// interface unit's unnamed-namespace objects again in every importer, and a
+// provider object must exist exactly once.
+namespace platform::linux::epaper_display_provider {
 
 constexpr std::array border_data{std::byte{0x01}};
 constexpr std::array initialization{

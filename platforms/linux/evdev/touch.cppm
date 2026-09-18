@@ -51,7 +51,10 @@ void consume(Kind kind, int& slot, std::span<Contact> contacts,
 
 }
 
-namespace {
+// A named, non-exported namespace rather than an unnamed one: Clang emits an
+// interface unit's unnamed-namespace objects again in every importer, and a
+// provider object must exist exactly once.
+namespace platform::linux::evdev_provider {
 
 using Status = mm::touch::Status;
 constexpr std::size_t bits_per_word = sizeof(unsigned long) * 8;

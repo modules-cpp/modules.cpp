@@ -4,7 +4,10 @@ export module platform.linux.defaults;
 
 import platform.linux.map;
 
-namespace {
+// A named, non-exported namespace rather than an unnamed one: Clang emits an
+// interface unit's unnamed-namespace objects again in every importer, and a
+// provider object must exist exactly once.
+namespace platform::linux::defaults_provider {
 
 const platform::linux::Map defaults{};
 

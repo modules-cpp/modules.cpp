@@ -69,7 +69,10 @@ private:
 
 }
 
-namespace {
+// A named, non-exported namespace rather than an unnamed one: Clang emits an
+// interface unit's unnamed-namespace objects again in every importer, and a
+// provider object must exist exactly once.
+namespace platform::linux::mcu_provider {
 
 using platform::linux::mcu_detail::Descriptor;
 using Status = mm::mcu::Status;
@@ -669,13 +672,13 @@ mm::mcu::Status take_events(int descriptor, bool& pending) {
 
 mm::mcu::Status error_status(int value, bool explicit_path,
                              bool caller_field) {
-    return ::error_status(value, explicit_path, caller_field);
+    return mcu_provider::error_status(value, explicit_path, caller_field);
 }
 
 mm::mcu::Status edge_error_status(int value) {
     if (value == ENXIO || value == EOPNOTSUPP)
         return mm::mcu::Status::Unsupported;
-    return ::error_status(value, true, true);
+    return mcu_provider::error_status(value, true, true);
 }
 
 mm::mcu::Status spi_configuration_status(

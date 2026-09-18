@@ -34,7 +34,10 @@ import mm.display;
 import mm.touch;
 import platform.linux.map;
 
-namespace {
+// A named, non-exported namespace rather than an unnamed one: Clang emits an
+// interface unit's unnamed-namespace objects again in every importer, and a
+// provider object must exist exactly once.
+namespace platform::linux::sdl_provider {
 
 // The window when the map names no logical size. A panel-shaped default,
 // because the applications this exists to show are written for panels.

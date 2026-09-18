@@ -25,7 +25,10 @@ export namespace platform::linux::rtc_testing {
 
 }
 
-namespace {
+// A named, non-exported namespace rather than an unnamed one: Clang emits an
+// interface unit's unnamed-namespace objects again in every importer, and a
+// provider object must exist exactly once.
+namespace platform::linux::rtc_provider {
 
 using Status = mm::rtc::Status;
 
@@ -269,13 +272,13 @@ const Register registered;
 
 namespace platform::linux::rtc_testing {
 
-bool valid(const mm::rtc::DateTime& value) { return ::valid(value); }
+bool valid(const mm::rtc::DateTime& value) { return rtc_provider::valid(value); }
 
 bool convert(const mm::rtc::DateTime& value, RtcConvention convention,
              long long& epoch) {
     std::tm normalized{};
     time_t converted{};
-    if (!::convert(value, convention, normalized, converted)) return false;
+    if (!rtc_provider::convert(value, convention, normalized, converted)) return false;
     epoch = static_cast<long long>(converted);
     return true;
 }
