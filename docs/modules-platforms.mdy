@@ -10,7 +10,7 @@ release: v1.2.3
 
 # Status and authority
 
-This document specifies the implemented platforms directory, the sdk and board manifest kinds, platform selection at configure time, and the platform block of the configuration record for release v1.2.0. Its drafting history is in drafts/plan-platform-and-sdk-2 and drafts/plan-platforms-directory through 10, which it supersedes. Board derivation's drafting history is in drafts/plan-custom-boards through 5, which it also supersedes; where a draft and this document disagree, this document governs.
+This document specifies the implemented platforms directory, the sdk and board manifest kinds, platform selection at configure time, and the platform block of the configuration record for release v1.2.0. It supersedes every earlier proposal of the platforms directory and of board derivation.
 
 status: official gives this document the same authority as the other implemented specifications in docs.
 

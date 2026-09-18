@@ -12,9 +12,8 @@ release: v1.2.3
 
 This document specifies the implemented pure C++ platform-provider mechanism
 for mm.mcu in release v1.2.0. status: official gives it the same authority as
-the other implemented specifications in docs. Its drafting history is in
-drafts/plan-mcu-hal and in this document's own proposed revisions, which it
-supersedes; where a draft and this document disagree, this document governs.
+the other implemented specifications in docs, and it supersedes every earlier
+proposal of the same mechanism.
 
 docs/modules-mm.mdy remains authoritative for the implemented manifest schema.
 docs/modules-platforms.mdy remains authoritative for SDK and board selection,
