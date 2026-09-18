@@ -4320,6 +4320,8 @@ bool read_abi_probe_path(const std::filesystem::path& file,
     return true;
 }
 
+}  // namespace
+
 bool extract_probe_options(
     const std::filesystem::path& compile_commands_file,
     const std::filesystem::path& canonical_probe,
@@ -4416,8 +4418,6 @@ bool extract_probe_options(
     }
     return true;
 }
-
-}  // namespace
 
 bool query_driver_projection(
     const std::string& c_driver,

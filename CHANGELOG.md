@@ -6,6 +6,23 @@ All notable changes to modules.cpp. Versions follow [semantic versioning](https:
 
 ### Added
 
+- **`mm.json`.** A core module reading and writing RFC 8259 JSON without
+  exceptions, templates, or, in its scanner, allocation. The `:status`
+  partition names the faults and where they are; the `:scan` partition is a
+  pull scanner that answers one token per call with strict grammar, UTF-8,
+  and surrogate checks, plus decoding into a caller's span and the two
+  numeric conversions; the `:value` partition is a document model with
+  `parse` over an explicit stack, `write` in compact and indented layouts,
+  and duplicate-key and wide-integer policies. Every output changes only on
+  Ok. `tests/mm/json` pins the grammar, the decoder, the numeric boundaries,
+  the value model, and the JSON Parsing Test Suite, vendored under
+  `tests/mm/json/fixtures` with its notice. docs/modules-json.mdy specifies
+  it.
+- **`json` tool.** `tools/json` with root launchers `json` and `json.sh`:
+  `--check` reports the first fault of each file as
+  `FILE:LINE:COLUMN: DESCRIPTION (STATUS)`, `--indent` and `--compact`
+  rewrite a document in either layout, and `--scan` lists the scanner's
+  tokens.
 - **GPIO edge latch in `mm.mcu`.** Portable `gpio_watch`, `gpio_take`,
   `gpio_unwatch`, and bounded `gpio_wait` report selected physical edges
   without running application callbacks inside interrupt handlers. Pico SDK
@@ -16,10 +33,20 @@ All notable changes to modules.cpp. Versions follow [semantic versioning](https:
 
 ### Changed
 
+- `mm.build` reads a bridge's `compile_commands.json` through `mm.json`; the
+  private reader it carried is gone, and the bootstrap compiles `mm.json`
+  before `mm.build`.
 - A watched GPIO is owned by its provider: another watch or configuration
   answers Busy, and unwatch leaves the pin unconfigured. Linux maps ENXIO and
   EOPNOTSUPP to Unsupported for edge requests while retaining the existing
   transport-error mapping for other MCU operations.
+
+### Fixed
+
+- A `\u` escape in a `compile_commands.json` path was copied through as
+  text and never matched the ABI probe; it is decoded now. A compile
+  database that is not JSON is reported with its line and column instead of
+  being read past.
 
 ## [v1.2.2] — 2026-09-17
 

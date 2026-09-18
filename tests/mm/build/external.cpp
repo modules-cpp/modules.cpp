@@ -2,7 +2,9 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <iostream>
 #include <map>
+#include <sstream>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -442,6 +444,71 @@ void bridge_board_chain_resolution() {
     }
 }
 
+// The compile database is read through mm.json, so an escaped path
+// resolves to the file it names and a malformed document is refused where
+// it breaks rather than read past.
+void compile_database_escaped_probe_path() {
+    const mm::test::scoped_tree tree{"compile_database_escape"};
+    const auto driver = tree.root() / "bin/fixture-gcc";
+    std::filesystem::create_directories(driver.parent_path());
+    std::ofstream(driver) << "";
+    const auto probe = tree.root() / "probe.c";
+    std::ofstream(probe) << "int main(void) { return 0; }\n";
+    std::error_code ec;
+    const auto canonical_probe = std::filesystem::canonical(probe, ec);
+    expect(!ec, "probe fixture resolves");
+
+    // "pr\u006fbe.c" spells probe.c; a reader that copied the escape
+    // through as text would match no entry.
+    const auto database = tree.root() / "compile_commands.json";
+    std::ofstream(database)
+        << "[\n"
+        << "  {\n"
+        << "    \"directory\": \"" << tree.root().generic_string() << "\",\n"
+        << "    \"command\": \"" << driver.generic_string()
+        << " -mcpu=cortex-m33 -O2 -mthumb -c probe.c\",\n"
+        << "    \"file\": \"pr\\u006fbe.c\"\n"
+        << "  }\n"
+        << "]\n";
+
+    std::vector<std::string> options;
+    expect(mm::build::extract_probe_options(database, canonical_probe,
+                                            driver.string(), options, "test"),
+           "an escaped probe path matches its entry");
+    expect(options.size() == 2 && options[0] == "-mcpu=cortex-m33" &&
+               options[1] == "-mthumb",
+           "only the -m options of the matching command are kept");
+}
+
+void compile_database_malformed_is_reported() {
+    const mm::test::scoped_tree tree{"compile_database_malformed"};
+    const auto probe = tree.root() / "probe.c";
+    std::ofstream(probe) << "";
+    std::error_code ec;
+    const auto canonical_probe = std::filesystem::canonical(probe, ec);
+    expect(!ec, "probe fixture resolves");
+
+    const auto database = tree.root() / "compile_commands.json";
+    std::ofstream(database)
+        << "[\n"
+        << "  {\n"
+        << "    \"file\": \"probe.c\",\n"
+        << "  }\n"
+        << "]\n";
+
+    std::vector<std::string> options{"-mkept"};
+    std::ostringstream captured;
+    auto* prev = std::cerr.rdbuf(captured.rdbuf());
+    const bool accepted = mm::build::extract_probe_options(
+        database, canonical_probe, "fixture-gcc", options, "test");
+    std::cerr.rdbuf(prev);
+    expect(!accepted, "a malformed compile database is refused");
+    expect(captured.str().find("compile_commands.json:4:3: ") != std::string::npos,
+           "the refusal names the line and column of the fault");
+    expect(options.size() == 1 && options[0] == "-mkept",
+           "the options are unchanged when the database is refused");
+}
+
 const mm::test::case_ cases[] = {
     {"inputs cmake escaping and validation", &inputs_cmake_escaping_and_validation},
     {"bridge board chain resolution", &bridge_board_chain_resolution},
@@ -450,6 +517,8 @@ const mm::test::case_ cases[] = {
     {"query driver projection live", &query_driver_projection_live},
     {"projection accepts present empty value", &projection_accepts_present_empty_value},
     {"publish results validation", &publish_results_validation},
+    {"compile database escaped probe path", &compile_database_escaped_probe_path},
+    {"compile database malformed is reported", &compile_database_malformed_is_reported},
 };
 
 const mm::test::registrar reg{"mm.build external", cases};

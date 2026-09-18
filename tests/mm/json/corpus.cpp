@@ -9,7 +9,7 @@
 #include <cstddef>
 #include <filesystem>
 #include <fstream>
-#include <span>
+#include <iterator>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -91,9 +91,10 @@ constexpr Expected i_outcomes[] = {
     {"i_structure_UTF-8_BOM_empty_object.json", Status::Ok},
 };
 
-[[nodiscard]] const Expected* find(std::span<const Expected> table, std::string_view name) {
-    for (const auto& entry : table)
-        if (entry.name == name) return &entry;
+[[nodiscard]] const Expected* find(const Expected* table, std::size_t count,
+                                   std::string_view name) {
+    for (std::size_t i = 0; i < count; ++i)
+        if (table[i].name == name) return table + i;
     return nullptr;
 }
 
@@ -115,7 +116,7 @@ void accepted_documents() {
         const auto name = file.filename().string();
         Value value;
         const auto outcome = mm::json::parse(read(file), value);
-        if (const auto* exception = find(y_exceptions, name)) {
+        if (const auto* exception = find(y_exceptions, std::size(y_exceptions), name)) {
             ++exceptions;
             expect(outcome.status == exception->status, name + " is refused by policy");
             continue;
@@ -153,7 +154,7 @@ void implementation_defined_documents() {
            "every i_ file has a listed outcome");
     for (const auto& file : files) {
         const auto name = file.filename().string();
-        const auto* expected = find(i_outcomes, name);
+        const auto* expected = find(i_outcomes, std::size(i_outcomes), name);
         expect(expected != nullptr, name + " is in the table");
         if (expected == nullptr) continue;
         Value value;

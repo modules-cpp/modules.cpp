@@ -590,6 +590,18 @@ struct CMakePackageRequirement {
     std::vector<CMakePackageRequirement>& requirements,
     std::string_view tool = "build");
 
+// Reads the bridge's compile_commands.json through mm.json and finds the
+// one entry whose file resolves to canonical_probe. The entry must carry a
+// command string whose driver resolves to recorded_c_driver; its -m options
+// are kept in sanitised_options. A document that does not parse is reported
+// with its line and column.
+[[nodiscard]] bool extract_probe_options(
+    const std::filesystem::path& compile_commands_file,
+    const std::filesystem::path& canonical_probe,
+    std::string_view recorded_c_driver,
+    std::vector<std::string>& sanitised_options,
+    std::string_view tool);
+
 struct ProjectionSchema {
     std::string_view target_triple;
     std::vector<std::string_view> fields;
