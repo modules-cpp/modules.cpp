@@ -1,0 +1,267 @@
+---
+mm: 1.0
+kind: doc
+name: modules.cpp JSON module specification
+status: official
+release: v1.2.3
+---
+
+# JSON module specification
+
+# Status and authority
+
+This document specifies the implemented mm.json module and the json tool
+over it: the status vocabulary, the scanner, the value model with parse and
+write, the strict readings the module takes where RFC 8259 leaves a choice,
+and what its tests pin. docs/modules-c++20.mdy owns the language rules the
+module is written to; docs/modules-execution.mdy owns the rule that an
+output changes only on Ok, which every call here keeps; docs/modules-build.mdy
+owns how the build reads compile_commands.json, which it does through this
+module.
+
+mm.json is a core module with no use: edge. It reads and writes RFC 8259
+JSON without exceptions, without templates of its own, and -- in the scanner
+-- without allocation, so that the same module serves the host tools and a
+target application holding a document in a fixed buffer.
+
+# Status
+
+Opening fence
+enum class Status {
+    Ok, Malformed, Truncated, TooDeep, BadEscape, BadUnicode, BadNumber,
+    DuplicateKey, Overflow,
+};
+
+struct Issue {
+    std::size_t offset;          // byte offset of the fault
+    unsigned int line;           // counted from one
+    unsigned int column;         // counted from one, in bytes
+    Status status;
+    std::string_view description;   // fixed text for the status
+};
+
+[[nodiscard]] constexpr std::string_view describe(Status);
+Closing fence
+
+Ok is the only success. Malformed is a character the grammar does not allow
+where it stands; Truncated is input that ended inside a value or before one;
+TooDeep is nesting past maximum_depth; BadEscape is an escape the grammar
+does not name; BadUnicode is an unpaired surrogate escape or malformed UTF-8
+in a string; BadNumber is a number the type cannot hold; DuplicateKey is an
+object key repeated under the rejecting option; Overflow is an output span
+too small for a decoded string. An Issue says where and what; its
+description is describe(status) and is never built at runtime.
+
+# The scanner
+
+Opening fence
+enum class Token { ObjectBegin, ObjectEnd, ArrayBegin, ArrayEnd, Key, String,
+                   Integer, Number, True, False, Null, End };
+
+struct Event { Token token; std::size_t offset; std::size_t length;
+               unsigned int depth; };
+
+inline constexpr unsigned int maximum_depth = 64;
+
+class Scanner {
+public:
+    explicit Scanner(std::string_view text);
+    [[nodiscard]] Status next(Event& event);
+    [[nodiscard]] const Issue& issue() const;
+    [[nodiscard]] Status skip();
+};
+
+struct Decoded { Status status; std::size_t count; };
+[[nodiscard]] Decoded unescape(std::string_view escaped, std::span<char> out);
+[[nodiscard]] Status integer(std::string_view digits, long long& value);
+[[nodiscard]] Status number(std::string_view digits, double& value);
+Closing fence
+
+Scanner is a pull reader over a string view the caller owns. next answers
+one token per call and End after a complete document; event changes only
+on Ok, and on any other answer issue() names the fault, the scanner stays at
+it, and every later call answers the same status. A String or Key event
+spans the bytes between the quotes, still escaped; a number event spans its
+digits. depth is the number of containers enclosing the token.
+
+The scanner allocates nothing and recurses nowhere. Its state is the view,
+a cursor with its line and column, a depth, three sixty-four bit sets -- one
+bit per open level for whether it is an object, whether it holds a value so
+a comma or a close comes next, and whether it has read a key and awaits its
+colon and value -- and the last issue. A comma is not a token: next
+consumes it with the item that follows, so a trailing comma fails at the
+bracket. maximum_depth is the width of the sets, and a sixty-fifth opening
+bracket answers TooDeep.
+
+next implements RFC 8259 strictly: the four whitespace characters; the
+number production, so that -0, 1e5, and 1E+5 are numbers and 01, .5, 1.,
++1, NaN, and Infinity are Malformed; one top-level value, with a second
+Malformed; a leading UTF-8 byte order mark skipped. A number with no
+fraction and no exponent is an Integer token, any other a Number. Inside a
+string it validates as it passes: a raw control character is Malformed; an
+escape the grammar does not name is BadEscape; UTF-8 that is not well-formed
+-- a bad lead byte, a missing continuation, an overlong form, an encoded
+surrogate, a code point past U+10FFFF -- is BadUnicode; and surrogate
+escapes are paired as they are met, so an unpaired high or low surrogate is
+BadUnicode at the string, before any caller decodes it. skip, parse, and a
+scan-only reader therefore refuse the same documents.
+
+skip walks past the value the last token began: the contents of a container
+whose opening was just returned, or the value of a key just returned; after
+a scalar it does nothing.
+
+unescape decodes a String or Key event's bytes into out: every escape the
+grammar names, including \uXXXX and surrogate pairs, to UTF-8. It validates
+and counts first and writes second, so out changes only on Ok. Its answer
+carries the byte count: what was written on Ok, what would have been needed
+on Overflow, so a caller can size a buffer and try again, and zero otherwise.
+integer answers BadNumber for a fraction, an exponent, or a value outside
+long long; number answers BadNumber for a magnitude beyond double and zero,
+with the number's sign, for a magnitude beneath it. Each output changes only
+on Ok.
+
+# The value
+
+Opening fence
+enum class Type { Null, Boolean, Integer, Number, String, Array, Object };
+
+class Value {
+public:
+    Value();                                   // Null
+    explicit Value(bool);
+    explicit Value(long long);
+    explicit Value(double);
+    explicit Value(std::string_view);
+    static Value array();
+    static Value object();
+    [[nodiscard]] Type type() const;
+    [[nodiscard]] bool is_null() const;
+    [[nodiscard]] bool boolean(bool& out) const;
+    [[nodiscard]] bool integer(long long& out) const;
+    [[nodiscard]] bool number(double& out) const;      // true for Integer too
+    [[nodiscard]] std::string_view string() const;
+    [[nodiscard]] std::span<const Value> items() const;
+    [[nodiscard]] std::span<const Member> members() const;
+    [[nodiscard]] const Value* find(std::string_view key) const;
+    bool push(Value item);                             // Array only
+    bool set(std::string_view key, Value value);       // Object only
+    [[nodiscard]] bool equals(const Value& other) const;
+};
+
+struct Member { std::string key; Value value; };
+
+enum class Duplicates { Reject, KeepFirst, KeepLast };
+enum class WideIntegers { Reject, Approximate };
+struct ParseOptions { Duplicates duplicates; WideIntegers wide_integers; };
+struct Outcome { Status status; Issue issue; };
+
+[[nodiscard]] Outcome parse(std::string_view text, Value& out,
+                            ParseOptions options = {});
+
+enum class Layout { Compact, Indented };
+[[nodiscard]] Outcome write(const Value& value, std::string& out,
+                            Layout layout = Layout::Compact);
+Closing fence
+
+Value owns its string and its children in standard containers, one field per
+type rather than a variant. Members keep document order, so a document
+round-trips as it was written; find is a linear scan answering the first
+match. The accessors that answer a value answer false and leave the output
+alone for the wrong type; the string and span accessors answer empty. push
+and set answer false and change nothing on the wrong type; set replaces an
+existing key's value in place and appends a new key. equals compares by
+value, with -0.0 and 0.0 unequal.
+
+Integer is kept distinct from Number: 42 reads and writes as 42, 1.0 as 1.0.
+An integer token beyond long long is BadNumber under WideIntegers::Reject,
+the default, because converting 9223372036854775809 to a double yields
+9223372036854775808 and a reader that changed a digit of an identifier is
+worse than one that refused it; under Approximate it is a Number holding the
+nearest double. An integer -0 is 0. A magnitude beyond double is BadNumber;
+a magnitude beneath it is a Number zero with the number's sign, since that
+is what the number denotes to any precision a double has.
+
+parse drives the scanner to completion with an explicit stack, so the
+recursion the scanner avoids is not reintroduced, and moves the document
+into out only on Ok; on any failure out is as it was, and the Outcome
+carries the scanner's Issue or, for DuplicateKey, the offset of the repeated
+key's opening quote. Duplicates::Reject is this module's policy: RFC 8259
+recommends unique keys and does not require them. KeepFirst keeps the first
+member and walks the repeat with the scanner so its grammar is still
+checked; KeepLast replaces the value in place.
+
+write produces RFC 8259 text in one of two layouts and replaces out only on
+Ok. Strings are escaped with the short forms where they exist and \u00XX for
+other control characters, after UTF-8 validation that answers BadUnicode for
+a string the module could not read back. Numbers use std::to_chars in its
+shortest round-trip form, with .0 appended when that form has neither a
+point nor an exponent, so a Number reads back as a Number. A double that is
+infinite or not a number is BadNumber. write walks with a stack no deeper
+than maximum_depth and answers TooDeep beyond it, so the module never
+writes a document its scanner refuses. Indented is two spaces per level and
+a newline after each member and item; nothing else is configurable.
+
+# Policy and grammar
+
+Two of the module's refusals are the grammar's and two are its own, and the
+distinction is kept. A bad escape and malformed UTF-8 are outside what the
+RFC admits. An unpaired surrogate escape is admitted by the grammar, which
+says only that implementations handle it unpredictably; refusing it is this
+module's character limit, because a decoded string here is UTF-8, in which
+a lone surrogate has no encoding. Duplicate keys are recommended against and
+not forbidden; rejecting them is the default and an option relaxes it.
+Neither the scanner nor the writer has a lenient mode: a caller that wants
+to be forgiving writes its leniency above a reader that tells the truth.
+
+Declined, with reasons: comments and trailing commas, because a reader that
+accepts more than the grammar writes documents other readers refuse, and the
+hand-edited configuration format here is MDY; NaN, Infinity, and hexadecimal
+numbers; streaming from a descriptor, since the caller reads the file; a
+variant, templates, or a visitor, by the language document.
+
+# The json tool
+
+tools/json is the front end, with root launchers json and json.sh.
+
+Opening fence
+json --check FILE...      exit 0 when every file is accepted; for one that
+                          is not, FILE:LINE:COLUMN: DESCRIPTION (STATUS)
+                          on stderr and exit 1
+json --indent FILE        the document in the Indented layout on stdout
+json --compact FILE       the document in the Compact layout on stdout
+json --scan FILE          one scanner token per line: offset, depth, kind,
+                          bytes; stops at the scanner's first fault with the
+                          line --check would print
+Closing fence
+
+Exit 1 means mm.json rejected the document, which under its policies can be
+valid JSON; the message's STATUS says whether the grammar or a policy
+refused it. A file that cannot be read is exit 65 and an argument fault
+exit 64, as the other tools answer them. --scan reports the scanner's
+faults; the two only the value layer finds, DuplicateKey and a wide
+integer's BadNumber, it passes over, showing the tokens around the offset
+--check names.
+
+# Tests
+
+tests/mm/json pins the scanner's grammar cases with their statuses,
+offsets, and token sequences; the decoder, including a surrogate pair, an
+overlong sequence, and a span one byte short; the numeric helpers at the
+boundaries of long long and double, underflow included; the value model,
+wrong-type mutation, parsing, both layouts, and the type of a number across
+a round trip; every failure path's unchanged output; the depth limit in both
+layers; and the JSON Parsing Test Suite under tests/mm/json/fixtures, vendored
+as test data with its notice. Every y_ file parses and round-trips except
+the two a documented policy rejects, y_object_duplicated_key.json and
+y_object_duplicated_key_and_value.json, both DuplicateKey; every n_ file is
+refused; and every i_ file has the outcome the test lists, so that a change
+to one is a change someone made on purpose. tests/mm/configure runs the
+tool's commands on those fixtures.
+
+# Current boundaries
+
+There is no write into a caller's span for a target that reports state with
+no heap; the scanner's unescape has the shape it would take. There is no
+extraction command in the tool; the first script consumer will shape it.
+Whether a target application should ever hold a Value is for the first such
+consumer to say; the scanner is what this document recommends there.

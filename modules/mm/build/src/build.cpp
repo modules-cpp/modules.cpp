@@ -22,6 +22,7 @@ module;
 
 module mm.build;
 
+import mm.json;
 import mm.mdy;
 
 // POSIX pipe declarations are hidden by newlib's strict C++ feature profile.
@@ -4249,72 +4250,6 @@ bool write_cache_identity(const std::filesystem::path& path, std::string_view id
     return true;
 }
 
-std::string read_json_string(std::string_view s, std::size_t& pos) {
-    std::string result;
-    if (pos >= s.size() || s[pos] != '"') return result;
-    ++pos;
-    while (pos < s.size()) {
-        if (s[pos] == '"') {
-            ++pos;
-            return result;
-        }
-        if (s[pos] == '\\' && pos + 1 < s.size()) {
-            ++pos;
-            char c = s[pos];
-            if (c == '"' || c == '\\' || c == '/') result += c;
-            else if (c == 'b') result += '\b';
-            else if (c == 'f') result += '\f';
-            else if (c == 'n') result += '\n';
-            else if (c == 'r') result += '\r';
-            else if (c == 't') result += '\t';
-            else result += c;
-            ++pos;
-        } else {
-            result += s[pos];
-            ++pos;
-        }
-    }
-    return result;
-}
-
-void skip_json_whitespace(std::string_view s, std::size_t& pos) {
-    while (pos < s.size() && (s[pos] == ' ' || s[pos] == '\t' || s[pos] == '\n' || s[pos] == '\r'))
-        ++pos;
-}
-
-void skip_json_value(std::string_view s, std::size_t& pos) {
-    skip_json_whitespace(s, pos);
-    if (pos >= s.size()) return;
-    if (s[pos] == '"') {
-        read_json_string(s, pos);
-    } else if (s[pos] == '[') {
-        ++pos;
-        while (pos < s.size() && s[pos] != ']') {
-            skip_json_value(s, pos);
-            skip_json_whitespace(s, pos);
-            if (pos < s.size() && s[pos] == ',') ++pos;
-        }
-        if (pos < s.size() && s[pos] == ']') ++pos;
-    } else if (s[pos] == '{') {
-        ++pos;
-        while (pos < s.size() && s[pos] != '}') {
-            skip_json_value(s, pos);
-            skip_json_whitespace(s, pos);
-            if (pos < s.size() && s[pos] == ':') {
-                ++pos;
-                skip_json_value(s, pos);
-            }
-            skip_json_whitespace(s, pos);
-            if (pos < s.size() && s[pos] == ',') ++pos;
-        }
-        if (pos < s.size() && s[pos] == '}') ++pos;
-    } else {
-        while (pos < s.size() && s[pos] != ',' && s[pos] != '}' && s[pos] != ']' &&
-               s[pos] != ' ' && s[pos] != '\t' && s[pos] != '\n' && s[pos] != '\r')
-            ++pos;
-    }
-}
-
 bool split_command_string(std::string_view command,
                           std::vector<std::string>& tokens,
                           std::string_view tool) {
@@ -4397,107 +4332,52 @@ bool extract_probe_options(
         return false;
     }
     std::string json((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-    std::size_t pos = 0;
-    skip_json_whitespace(json, pos);
-    if (pos >= json.size() || json[pos] != '[') {
-        std::cerr << tool << ": invalid compile database in " << compile_commands_file.string() << "\n";
+
+    // The compile database through mm.json: a fault is reported with its
+    // line and column rather than read past, and \u escapes in a path are
+    // decoded rather than copied through as text.
+    mm::json::Value database;
+    const auto parsed = mm::json::parse(json, database);
+    if (parsed.status != mm::json::Status::Ok) {
+        std::cerr << tool << ": invalid compile database " << compile_commands_file.string()
+                  << ":" << parsed.issue.line << ":" << parsed.issue.column << ": "
+                  << parsed.issue.description << "\n";
         return false;
     }
-    ++pos;
+    if (database.type() != mm::json::Type::Array) {
+        std::cerr << tool << ": invalid compile database in " << compile_commands_file.string()
+                  << ": the top level is not an array\n";
+        return false;
+    }
 
     std::size_t matches = 0;
     std::string matching_command;
 
-    while (pos < json.size()) {
-        skip_json_whitespace(json, pos);
-        if (pos < json.size() && json[pos] == ']') {
-            ++pos;
-            break;
-        }
-        if (pos < json.size() && json[pos] == ',') {
-            ++pos;
-            skip_json_whitespace(json, pos);
-        }
-        if (pos >= json.size() || json[pos] != '{') {
+    for (const auto& entry : database.items()) {
+        if (entry.type() != mm::json::Type::Object) {
             std::cerr << tool << ": malformed compile database entry in "
                       << compile_commands_file.string() << "\n";
             return false;
         }
-        ++pos;
-
-        std::string directory;
-        std::string command;
-        std::string file;
-        bool has_arguments = false;
-
-        while (pos < json.size()) {
-            skip_json_whitespace(json, pos);
-            if (pos < json.size() && json[pos] == '}') {
-                ++pos;
-                break;
-            }
-            if (pos < json.size() && json[pos] == ',') {
-                ++pos;
-                skip_json_whitespace(json, pos);
-            }
-            if (pos >= json.size() || json[pos] != '"') {
-                std::cerr << tool << ": malformed compile database key in "
-                          << compile_commands_file.string() << "\n";
-                return false;
-            }
-            std::string key = read_json_string(json, pos);
-            skip_json_whitespace(json, pos);
-            if (pos >= json.size() || json[pos] != ':') {
-                std::cerr << tool << ": missing ':' in compile database in "
-                          << compile_commands_file.string() << "\n";
-                return false;
-            }
-            ++pos;
-            skip_json_whitespace(json, pos);
-
-            if (key == "arguments") {
-                has_arguments = true;
-                skip_json_value(json, pos);
-            } else if (key == "command") {
-                if (pos < json.size() && json[pos] == '"') {
-                    command = read_json_string(json, pos);
-                } else {
-                    has_arguments = true;
-                    skip_json_value(json, pos);
-                }
-            } else if (key == "file") {
-                if (pos < json.size() && json[pos] == '"') {
-                    file = read_json_string(json, pos);
-                } else {
-                    skip_json_value(json, pos);
-                }
-            } else if (key == "directory") {
-                if (pos < json.size() && json[pos] == '"') {
-                    directory = read_json_string(json, pos);
-                } else {
-                    skip_json_value(json, pos);
-                }
-            } else {
-                skip_json_value(json, pos);
-            }
-        }
-
-        if (has_arguments) {
+        const auto* arguments = entry.find("arguments");
+        const auto* command = entry.find("command");
+        const auto* file = entry.find("file");
+        const auto* directory = entry.find("directory");
+        if (arguments != nullptr ||
+            (command != nullptr && command->type() != mm::json::Type::String)) {
             std::cerr << tool << ": compile_commands.json entry uses arguments array; only command string is supported\n";
             return false;
         }
-
-        if (!file.empty()) {
-            std::filesystem::path fp(file);
-            if (fp.is_relative() && !directory.empty()) {
-                fp = std::filesystem::path(directory) / fp;
-            }
-            std::error_code ec;
-            auto can_fp = std::filesystem::canonical(fp, ec);
-            if (!ec && can_fp == canonical_probe) {
-                matches++;
-                matching_command = command;
-            }
+        if (file == nullptr || file->type() != mm::json::Type::String) continue;
+        std::filesystem::path fp(file->string());
+        if (fp.is_relative() && directory != nullptr &&
+            directory->type() == mm::json::Type::String)
+            fp = std::filesystem::path(directory->string()) / fp;
+        std::error_code ec;
+        auto can_fp = std::filesystem::canonical(fp, ec);
+        if (!ec && can_fp == canonical_probe) {
+            matches++;
+            if (command != nullptr) matching_command = std::string(command->string());
         }
     }
 

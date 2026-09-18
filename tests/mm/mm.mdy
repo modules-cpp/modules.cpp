@@ -19,6 +19,7 @@ folder: model
 folder: run
 folder: touch
 folder: imu
+folder: json
 folder: lcd
 folder: rtc
 folder: linux

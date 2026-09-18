@@ -1,0 +1,25 @@
+---
+mm: 1.2
+kind: module
+name: json
+module: mm.json
+file: status.cppm mm.json:status
+file: scan.cppm mm.json:scan
+file: value.cppm mm.json:value
+file: json.cppm mm.json
+file: src/scan.cpp
+file: src/value.cpp
+---
+
+# mm.json
+
+RFC 8259 JSON, read and written without exceptions, without templates of its
+own, and -- in the scanner -- without allocation. docs/modules-json.mdy
+specifies it.
+
+Three partitions, listed before the primary interface because source order is
+declared. :status is the vocabulary the other two share. :scan is a pull
+reader over a string view that a fixed-buffer caller can use as it is. :value
+is a document model, parse, and write above the scanner, for the host tools.
+The module has no use: edge: it needs the standard library and nothing in the
+tree.

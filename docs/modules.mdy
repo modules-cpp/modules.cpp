@@ -145,6 +145,7 @@ The source tree is organized by responsibility.
 |   +-- epaper/               ePaper controller modules
 |   +-- fonts/                mm.fonts bitmap font tables and compositor
 |   +-- gfx/                  mm.gfx packed drawing surfaces
+|   +-- json/                 mm.json RFC 8259 reader and writer
 |   +-- mcu/                  mm.mcu portable MCU interface
 +-- tools/
 |   +-- build/                bootstrap and build front ends
@@ -154,6 +155,7 @@ The source tree is organized by responsibility.
 |   +-- test/                 test front end
 |   +-- check/                cppcheck front end and addon; see check.sh
 |   +-- model/                consistency front end; see docs/modules-model.mdy
+|   +-- json/                 JSON validator and formatter over mm.json
 |   +-- run/                  configured application execution
 |   +-- shell/                system shell front end over mm.build and mm.shell
 +-- tests/mm/
@@ -164,6 +166,7 @@ The source tree is organized by responsibility.
 |   +-- epaper/               ePaper controller tests
 |   +-- fonts/                mm.fonts table and composition tests
 |   +-- gfx/                  mm.gfx drawing and write tests
+|   +-- json/                 mm.json scanner, value, and corpus tests
 |   +-- flash/                mm.flash tests
 |   +-- mcu/                  mm.mcu tests
 |   +-- mdy/                  mm.mdy public and regression tests
@@ -189,6 +192,7 @@ The source tree is organized by responsibility.
 |   +-- modules-fonts.mdy     bitmap font module and IBM Plex Mono tables
 |   +-- modules-gfx.mdy       packed graphics surfaces and drawing
 |   +-- modules-imu.mdy       portable inertial interface and QMI8658 driver
+|   +-- modules-json.mdy      RFC 8259 JSON: scanner, value model, json tool
 |   +-- modules-lcd.mdy       portable colour LCD controllers and ST7789
 |   +-- modules-libraries.mdy vendored library and wrapper specification
 |   +-- modules-mm.mdy        manifest schema specification, every mm: version
