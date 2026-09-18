@@ -35,7 +35,10 @@ import platform.linux.epaper.chip;
 using platform::linux::epaper::EmulationOptions;
 using platform::linux::epaper::EmulatedSsd1680;
 
-namespace {
+// A named, non-exported namespace rather than an unnamed one: Clang emits an
+// interface unit's unnamed-namespace objects again in every importer, and a
+// provider object must exist exactly once.
+namespace platform::linux::epaper_device_provider {
 
 // One bit per pixel is the panel's native resolution; the upscale is a
 // window convenience so the emulation is watchable at arm's length. The

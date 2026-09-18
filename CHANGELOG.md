@@ -64,6 +64,14 @@ All notable changes to modules.cpp. Versions follow [semantic versioning](https:
 
 ### Fixed
 
+- The Linux providers' subclasses, registered objects, and registration
+  objects moved from unnamed namespaces to named non-exported ones
+  (`platform::linux::<name>_provider`). Clang emits an interface unit's
+  unnamed-namespace objects again in every importer, so `tests/mm/linux`,
+  which imports the DRM provider for its testing seam, failed to link under
+  Clang with `undefined reference to vtable for (anonymous
+  namespace)::LinuxDisplay`; GCC was unaffected. docs/modules-c++20.mdy
+  states the rule. This is the fix `main` carried since before v1.2.2.
 - A `\u` escape in a `compile_commands.json` path was copied through as
   text and never matched the ABI probe; it is decoded now. A compile
   database that is not JSON is reported with its line and column instead of

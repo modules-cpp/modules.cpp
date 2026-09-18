@@ -42,7 +42,10 @@ mm::display::Display& display_for_testing();
 
 }
 
-namespace {
+// A named, non-exported namespace rather than an unnamed one: Clang emits an
+// interface unit's unnamed-namespace objects again in every importer, and a
+// provider object must exist exactly once.
+namespace platform::linux::drm_provider {
 
 using Status = mm::display::Status;
 constexpr std::uint32_t connected_connector = 1;
@@ -501,13 +504,13 @@ const Register registered;
 namespace platform::linux::drm_detail {
 
 std::uint32_t rgb565_to_xrgb8888(std::uint8_t high, std::uint8_t low) {
-    return ::rgb565_to_xrgb8888(high, low);
+    return drm_provider::rgb565_to_xrgb8888(high, low);
 }
 
 void set_operations_for_testing(const Operations* replacement) {
-    ::operations = replacement ? replacement : &::real_operations;
+    drm_provider::operations = replacement ? replacement : &drm_provider::real_operations;
 }
 
-mm::display::Display& display_for_testing() { return display; }
+mm::display::Display& display_for_testing() { return drm_provider::display; }
 
 }

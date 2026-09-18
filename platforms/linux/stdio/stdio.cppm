@@ -17,7 +17,10 @@ export module platform.linux.stdio;
 
 import mm.stdio;
 
-namespace {
+// A named, non-exported namespace rather than an unnamed one: Clang emits an
+// interface unit's unnamed-namespace objects again in every importer, and a
+// provider object must exist exactly once.
+namespace platform::linux::stdio_provider {
 
 // How long one write may spend before it returns with what it managed.
 constexpr unsigned long output_deadline_ms = 1000;

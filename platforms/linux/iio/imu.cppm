@@ -52,7 +52,10 @@ struct Channel {
 
 }
 
-namespace {
+// A named, non-exported namespace rather than an unnamed one: Clang emits an
+// interface unit's unnamed-namespace objects again in every importer, and a
+// provider object must exist exactly once.
+namespace platform::linux::iio_provider {
 
 using Status = mm::imu::Status;
 using Channel = platform::linux::iio_detail::Channel;
@@ -396,7 +399,7 @@ const Register registered;
 namespace platform::linux::iio_detail {
 
 bool parse_scan_type(std::string_view text, Channel& channel) {
-    return ::scan_type(text, channel);
+    return iio_provider::scan_type(text, channel);
 }
 
 std::optional<std::size_t> layout(std::span<Channel> channels) {
@@ -423,7 +426,7 @@ std::optional<std::size_t> layout(std::span<Channel> channels) {
 
 std::int64_t extract_value(std::span<const std::byte> record,
                            const Channel& channel) {
-    return ::extract(record, channel);
+    return iio_provider::extract(record, channel);
 }
 
 std::optional<unsigned int> physical_range(const Channel& channel,
