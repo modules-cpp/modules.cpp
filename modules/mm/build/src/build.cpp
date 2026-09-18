@@ -1228,16 +1228,24 @@ void walk_project(const std::filesystem::path& dir, std::size_t parent, Project&
         for (const auto& sketch : all(doc, "sketch")) {
             target.sketches.push_back(sketch);
         }
+        if (!target.sketches.empty()) {
+            bool has_main = false;
+            for (const auto& source : target.sources) {
+                if (std::filesystem::path(source.path).filename() == "main.cpp") {
+                    has_main = true;
+                    break;
+                }
+            }
+            if (!has_main) {
+                if (!push_source("main.cpp", true)) return;
+            }
+        }
     }
 
     if (target.sources.empty()) {
-        if (kind == "app" && !target.sketches.empty()) {
-            if (!push_source("main.cpp", true)) return;
-        } else {
-            std::cerr << state.policy.tool << ": manifest declares no file: entries: " << manifest.string() << "\n";
-            project.ok = false;
-            return;
-        }
+        std::cerr << state.policy.tool << ": manifest declares no file: entries: " << manifest.string() << "\n";
+        project.ok = false;
+        return;
     }
     if (kind == "module" && target.module_name.empty()) {
         std::cerr << state.policy.tool << ": module manifest has no module: name: " << manifest.string() << "\n";
@@ -3477,6 +3485,14 @@ int compile(const Toolchain& toolchain, BuildableNode& target,
         const std::filesystem::path main_path = app_dir / "main.cpp";
         const std::filesystem::path manifest_path = app_dir / "mm.mdy";
 
+        for (const auto& s : target.sketches) {
+            const std::filesystem::path s_path = app_dir / s;
+            if (!safe_exists(s_path)) {
+                std::cerr << "build: sketch source does not exist: " << s_path.string() << "\n";
+                return exit_manifest;
+            }
+        }
+
         bool needs_generation = false;
         if (!safe_exists(main_path)) {
             needs_generation = true;
@@ -3492,12 +3508,10 @@ int compile(const Toolchain& toolchain, BuildableNode& target,
                 if (!needs_generation) {
                     for (const auto& s : target.sketches) {
                         const std::filesystem::path s_path = app_dir / s;
-                        if (safe_exists(s_path)) {
-                            const auto s_time = std::filesystem::last_write_time(s_path, ec);
-                            if (!ec && main_time < s_time) {
-                                needs_generation = true;
-                                break;
-                            }
+                        const auto s_time = std::filesystem::last_write_time(s_path, ec);
+                        if (!ec && main_time < s_time) {
+                            needs_generation = true;
+                            break;
                         }
                     }
                 }

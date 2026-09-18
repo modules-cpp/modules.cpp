@@ -334,6 +334,60 @@ void defaults_main_cpp_when_file_omitted_for_sketch_app() {
                      "expected main.cpp path");
 }
 
+void includes_main_cpp_when_helper_files_explicit() {
+    const mm::test::scoped_tree tree{"sketchhelper"};
+    tree.manifest_raw("", "mm: 1.3\nkind: project\nname: p\nfolder: a\n");
+    tree.manifest_raw("a", "mm: 1.3\nkind: app\nname: a\nfile: helper.cpp\nsketch: a.ino\n");
+
+    const auto loaded = mm::build::load_tree(tree.root());
+
+    mm::test::expect(loaded.ok, "expected sketch app with helper file to load");
+    mm::test::expect(loaded.targets.size() == 1, "expected 1 target");
+    mm::test::expect(loaded.targets[0].sources.size() == 2, "expected helper.cpp and main.cpp");
+    bool found_main = false;
+    bool found_helper = false;
+    for (const auto& s : loaded.targets[0].sources) {
+        if (std::filesystem::path(s.path).filename() == "main.cpp") found_main = true;
+        if (std::filesystem::path(s.path).filename() == "helper.cpp") found_helper = true;
+    }
+    mm::test::expect(found_main, "expected main.cpp in sources");
+    mm::test::expect(found_helper, "expected helper.cpp in sources");
+}
+
+void avoids_duplicate_main_cpp_when_explicit() {
+    const mm::test::scoped_tree tree{"sketchdupmain"};
+    tree.manifest_raw("", "mm: 1.3\nkind: project\nname: p\nfolder: a\n");
+    tree.manifest_raw("a", "mm: 1.3\nkind: app\nname: a\nfile: main.cpp\nfile: helper.cpp\nsketch: a.ino\n");
+
+    const auto loaded = mm::build::load_tree(tree.root());
+
+    mm::test::expect(loaded.ok, "expected sketch app to load");
+    mm::test::expect(loaded.targets.size() == 1, "expected 1 target");
+    mm::test::expect(loaded.targets[0].sources.size() == 2, "expected exactly 2 sources without duplicate main");
+}
+
+void rejects_compilation_when_declared_sketch_missing() {
+    const mm::test::scoped_tree tree{"sketchmissing"};
+    tree.manifest_raw("", "mm: 1.3\nkind: project\nname: p\nfolder: a\n");
+    tree.manifest_raw("a", "mm: 1.3\nkind: app\nname: a\nfile: main.cpp\nsketch: missing.ino\n");
+
+    // Create existing main.cpp so absence of main.cpp does not trigger generation
+    std::filesystem::create_directories(tree.root() / "a");
+    {
+        std::ofstream out(tree.root() / "a" / "main.cpp");
+        out << "int main() { return 0; }\n";
+    }
+
+    auto loaded = mm::build::load_tree(tree.root());
+    mm::test::expect(loaded.ok, "manifest load succeeds");
+    mm::test::expect(loaded.targets.size() == 1, "expected 1 target");
+
+    // Missing declared sketch must cause compile() to fail with exit_manifest
+    const int status = mm::build::compile(mm::build::default_toolchain(), loaded.targets[0],
+                                          tree.root() / "build", {});
+    mm::test::expect(status == mm::build::exit_manifest, "expected compile to fail on missing sketch");
+}
+
 const mm::test::case_ cases[] = {
     { "walks a nested tree",                  &walks_a_nested_tree },
     { "separates tests and docs",             &separates_tests_and_docs_from_targets },
@@ -360,6 +414,9 @@ const mm::test::case_ cases[] = {
     { "rejects sketch: on non-app kind",      &rejects_sketch_key_on_non_app_kind },
     { "accepts sketch app and records sketches", &accepts_sketch_app_and_records_sketches },
     { "defaults main.cpp when file omitted for sketch app", &defaults_main_cpp_when_file_omitted_for_sketch_app },
+    { "includes main.cpp when helper files explicit", &includes_main_cpp_when_helper_files_explicit },
+    { "avoids duplicate main.cpp when explicit", &avoids_duplicate_main_cpp_when_explicit },
+    { "rejects compilation when declared sketch missing", &rejects_compilation_when_declared_sketch_missing },
 };
 
 const mm::test::registrar reg{"mm.build walk", cases};
