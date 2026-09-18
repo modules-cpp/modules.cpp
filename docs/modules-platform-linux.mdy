@@ -34,48 +34,175 @@ native lane wants no processor arguments at all.
 
 # Device map
 
-platform.linux.map is a platform interface, portable across Linux boards rather
-than across platforms. The selected SDK binds
+On a microcontroller the board is the wiring: the Pico provider knows which
+pad is ADC channel zero because the silicon says so. On Linux the same
+portable calls -- gpio_configure(3), spi_write(0, ...), adc_read(1, ...) --
+land on kernel devices whose names are facts about one machine: a gpiochip
+and a line offset, a spidev path, an I2C adapter number, an IIO device, a
+pwmchip. The device map is the one place those facts live, so that no
+provider hard-codes a path and no application names one.
+
+platform.linux.map is a platform interface, portable across Linux boards
+rather than across platforms. The selected SDK binds
 platform.linux.defaults, and each device provider depends on the interface so
-fixed-point provider injection selects that one map provider. The first call to
-resolve samples MM_LINUX_DEVICE_MAP and caches the result for the process.
+fixed-point provider injection selects that one map provider. The map has
+two layers:
+
+- Compiled defaults from the selected board. The SDK's default provider
+  registers an empty map, nothing wired. Each generic board binds its own
+  provider -- platform.linux.generic_aarch64.map registers a map whose one
+  fact is board.name -- and a board with real wiring registers a fuller
+  default, by the same static registration every provider uses.
+- An override file named by MM_LINUX_DEVICE_MAP, applied over the defaults.
+  Omitted fields retain compiled defaults.
+
+The first provider call resolves the map: the defaults are copied, the
+override applied if the variable is set, the result validated and cached for
+the process. Resolution happens once; a later change to the file changes
+nothing until the program is started again. A map that fails to parse or
+validate leaves board() empty and makes every provider operation answer
+BadArgument, and the resolution carries the fault: the file, the line, the
+offending key, the reason, and for a duplicate the earlier line as well.
+
+## Override grammar
 
 The override is one `facility.instance.field = value` assignment per line.
 Whitespace and blank lines are ignored, # begins a comment outside quotes,
 integers are decimal or hexadecimal, booleans are yes/no, and strings are
-double quoted with only backslash and quote escapes. A duplicate key names both
-lines; an unknown key, malformed value, or named missing file is an error.
-So is a path that is not a regular file, or one larger than 64 KiB: the
-first board query is what reads the override, and it must return. The path
-is opened without blocking, the descriptor itself is checked to be a
-regular file, and at most the limit is read, so a FIFO put in the file's
-place cannot hold the open and a file that grows while it is read cannot
-hold the read.
-Omitted fields retain compiled defaults. GPIO names default to gpio.N and an
-LED must name a GPIO in the authoritative inventory.
+double quoted with only backslash and quote escapes. A selector is `auto`,
+`index:K`, or a quoted name. A duplicate key names both lines; an unknown
+key, malformed value, or named missing file is an error. So is a path that
+is not a regular file, or one larger than 64 KiB: the first board query is
+what reads the override, and it must return. The path is opened without
+blocking, the descriptor itself is checked to be a regular file, and at most
+the limit is read, so a FIFO put in the file's place cannot hold the open
+and a file that grows while it is read cannot hold the read.
 
-The analog facilities are mapped the same way. adc.device selects the IIO
-device -- auto, index:K, or a quoted name -- and each adc.N names one of its
-raw voltage channels; each pwm.N names one channel of one pwmchip:
+## Keys
+
+The facility number in a key -- the N of gpio.N -- is the number the
+portable interface accepts: gpio.3 is the GPIO that gpio_configure(3)
+configures, spi.0 is SPI instance zero. Numbers are dense from zero; naming
+gpio.5 alone declares six GPIOs, the first five with no chip, which
+validation refuses.
 
 Opening fence
-adc.device = auto | index:K | "name"
+board.name = "..."                 # what mm::mcu::board() reports
+board.led.name = "..."             # optional; default LED
+board.led.gpio = G                 # a declared GPIO
+board.led.active-high = yes|no     # default yes
+
+gpio.N.chip = "/dev/gpiochipK"     # required
+gpio.N.offset = L                  # the line on that chip
+gpio.N.name = "..."                # optional; default gpio.N; unique
+
+spi.N.path = "/dev/spidevB.C"      # opened with SPI_NO_CS
+spi.N.clock-gpio = G               # the wiring a caller must repeat
+spi.N.transmit-gpio = G            # in its SpiConfiguration
+spi.N.receive-gpio = G             # optional
+spi.N.max-speed = HZ               # a caller's baud may not exceed it
+spi.N.speed-fixed = yes|no         # yes: the baud must equal max-speed
+spi.N.mode = mode0..mode3
+spi.N.bit-order = msb|lsb
+
+i2c.N.adapter = K                  # /dev/i2c-K
+i2c.N.data-gpio = G                # the wiring a caller must repeat
+i2c.N.clock-gpio = G
+i2c.N.baud = HZ                    # default 400000
+i2c.N.baud-fixed = yes|no          # default yes: the caller's baud must
+                                   # equal it; no answers Unsupported,
+                                   # since i2c-dev cannot set a rate
+
+uart.N.path = "/dev/ttyXXX"
+uart.N.baud = HZ                   # default 115200; a termios rate
+uart.N.parity = none|even|odd
+uart.N.data-bits = 5..8            # default 8
+uart.N.stop-bits = 1|2             # default 1
+uart.N.write-deadline-ms = MS      # default 500; a write gives up after it
+
+rtc.path = "/dev/rtcK"             # empty: CLOCK_REALTIME stands in
+rtc.convention = utc|local         # what the RTC keeps; default utc
+rtc.allow-write = yes|no           # default no; with no path, a write of
+                                   # the system clock is refused
+
+display.card = SELECTOR            # the DRM card, connector, and mode
+display.connector = SELECTOR
+display.mode = SELECTOR
+display.width = W                  # optional; default the mode's
+display.height = H
+
+touch.device = SELECTOR            # the evdev device
+touch.invert-x = yes|no
+touch.invert-y = yes|no
+touch.swap-axes = yes|no
+
+imu.device = SELECTOR              # the IIO device and its trigger
+imu.trigger = SELECTOR
+imu.timeout-ms = MS                # default 500; nonzero
+
+adc.device = SELECTOR              # the IIO device the channels are on
 adc.N.channel = C                  # in_voltage<C>_raw
 adc.N.gpio = G                     # optional; a declared GPIO, once
-adc.N.name = "..."                 # optional; default adc.N
+adc.N.name = "..."                 # optional; default adc.N; unique
 adc.N.bits = B                     # default 12; [1, 31]
 adc.N.reference-mv = V             # optional; else from the IIO scale
-pwm.N.chip = K                     # /sys/class/pwm/pwmchip<K>
-pwm.N.channel = C                  # pwm<C> under it
+
+pwm.N.chip = K                     # /sys/class/pwm/pwmchipK
+pwm.N.channel = C                  # pwmC under it
 pwm.N.gpio = G                     # optional; a declared GPIO, once
-pwm.N.name = "..."                 # optional; default pwm.N
+pwm.N.name = "..."                 # optional; default pwm.N; unique
 pwm.N.group = Q                    # optional; a known shared counter
 Closing fence
 
-A pad an analog entry names must be a declared GPIO and may be attached to
-one channel and one output at most; two entries in one inventory with one
-name are an error. bits is required from the map because sysfs does not
-publish a raw channel's width.
+Validation, after every line has applied: every GPIO has a chip and a name
+unique among GPIOs; the LED, and any analog entry's pad, names a declared
+GPIO, and a pad is attached to at most one channel and at most one output;
+names are unique within each analog inventory; adc.N.bits is in [1, 31],
+because sysfs does not publish a raw channel's width and the map must say
+it. The SPI and I2C wiring fields exist so that a caller's configuration is
+checked against the board rather than trusted: a configuration naming other
+pins is BadArgument, as it would be on a microcontroller whose mux does not
+route the bus there.
+
+## An example
+
+A Raspberry Pi with an SPI e-paper on CE0, a PCF85063 clock on I2C 1, an
+ADS1015 converter on the same bus exposed through IIO, and a hardware PWM
+on GPIO 18:
+
+Opening fence
+# MM_LINUX_DEVICE_MAP=/etc/modules.cpp/pi.map
+board.name = "pi-bench"
+gpio.0.chip = "/dev/gpiochip0"
+gpio.0.offset = 17                 # e-paper data/command
+gpio.1.chip = "/dev/gpiochip0"
+gpio.1.offset = 27                 # e-paper reset
+gpio.2.chip = "/dev/gpiochip0"
+gpio.2.offset = 24                 # e-paper busy
+gpio.3.chip = "/dev/gpiochip0"
+gpio.3.offset = 18
+gpio.3.name = "pwm0"
+spi.0.path = "/dev/spidev0.0"
+spi.0.clock-gpio = 11
+spi.0.transmit-gpio = 10
+spi.0.max-speed = 4000000
+spi.0.mode = mode0
+i2c.0.adapter = 1
+i2c.0.data-gpio = 2
+i2c.0.clock-gpio = 3
+adc.device = "ads1015"
+adc.0.channel = 0
+adc.0.bits = 11
+pwm.0.chip = 0
+pwm.0.channel = 0
+pwm.0.gpio = 3
+Closing fence
+
+The SPI and I2C GPIO numbers here are Broadcom pin numbers the caller's
+configuration must repeat; they are checked, not driven, since spidev and
+i2c-dev own the pins. The e-paper's three control lines are GPIOs 0 to 2 of
+this map, the numbers a display driver's Wiring would name, and the PWM's
+pad is GPIO 3 so that pwm_output_for_gpio(3) finds output 0.
 
 # Providers
 
