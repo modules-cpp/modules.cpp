@@ -10,7 +10,7 @@ release: v1.2.3
 
 # Status and authority
 
-This document specifies mm.sketch, the module providing Arduino sketch compatibility for modules.cpp applications. It describes implemented behavior for stages 1 and 2 (release v1.2.3). Features scheduled for later stages are explicitly identified as planned.
+This document specifies mm.sketch, the module providing Arduino sketch compatibility for modules.cpp applications. It describes implemented behavior for stages 1, 2, 3, and 4 (release v1.2.3). Features scheduled for later stages are explicitly identified as planned.
 
 docs/modules-ino.mdy specifies the mm.ino preprocessor that transforms sketch source files into an application translation unit; docs/modules-c++20.mdy owns the language dialect, include permissions, and linkage rules; docs/modules-platform-mcu.mdy owns the underlying MCU facilities; docs/modules-stdio.mdy owns the platform console interface; docs/modules-execution.mdy owns the execution model and loop scheduling.
 
@@ -23,7 +23,10 @@ The module exports the implemented Arduino sketch vocabulary in namespace mm::sk
 # The runner
 
 Opening fence
-int run(void (*setup)(), void (*loop)());
+using Setup = void (*)();
+using Loop = void (*)();
+
+int run(Setup setup, Loop loop);
 void requestExit(int code = 0);
 [[nodiscard]] bool exitRequested();
 [[nodiscard]] int exitCode();
@@ -38,7 +41,7 @@ run is the application's main entry point, invoked from the generated main. It p
 
 requestExit records the requested status code and raises an exit flag. It does not throw an exception or invoke longjmp; execution continues until the current call returns.
 
-A raised exit flag immediately terminates any active wait. delay (and waiting console operations scheduled for stage 3) checks exitRequested between slices and returns early without completing its full duration or timeout. delay returns false, and waiting console operations will return whatever count was accumulated.
+A raised exit flag immediately terminates any active wait. delay and waiting console operations check exitRequested between slices and return early without completing their full duration or timeout. delay returns false, and waiting console operations return whatever count was accumulated.
 
 Cancellation is not an error. An early return caused by exitRequested does not record a failure in the error latch; lastError retains the first actual failure, preserving any subsequent failure diagnostic within that same loop iteration.
 
@@ -105,33 +108,11 @@ Opening fence
 void dispatch();
 Closing fence
 
-In stages 1 and 2, dispatch drains incoming bytes from the console into an internal receive ring buffer, while the interrupt table remains empty.
-
-Scheduled for stage 4:
-
-Opening fence
-enum class Trigger {
-    Rising,
-    Falling,
-    Change
-};
-
-inline constexpr Trigger RISING = Trigger::Rising;
-inline constexpr Trigger FALLING = Trigger::Falling;
-inline constexpr Trigger CHANGE = Trigger::Change;
-
-bool attachInterrupt(int pin, void (*handler)(), Trigger trigger);
-bool detachInterrupt(int pin);
-int digitalPinToInterrupt(int pin);
-Closing fence
-
-When stage 4 lands, attachInterrupt will register a handler function for GPIO edge events on the specified pin, configuring the pin for edge detection via mm.mcu. The module will maintain a fixed table of eight interrupt entries; attempting to attach a ninth returns false with Status::Busy. detachInterrupt will remove the registration and unwatch the GPIO.
-
-Each table entry tracks a generation counter incremented upon registration. In full operation, dispatch will perform the following sequence:
+dispatch executes on the sketch thread and performs four steps in order:
 
 1. Drain incoming bytes from the console into an internal receive ring buffer.
 2. Snapshot the generation numbers of all eight interrupt slots.
-3. Iterate over the slots in index order. For each slot whose generation matches the initial snapshot, dispatch queries mm.mcu for pending edges. If an edge occurred, the registered handler is invoked on the sketch thread.
+3. Iterate over the slots in index order. For each slot that is active and whose generation matches the initial snapshot, dispatch queries mm.mcu for pending edges via gpio_take. If an edge occurred, the registered handler is invoked on the sketch thread.
 4. Invoke the serial callback if unread bytes remain in the ring buffer.
 
 dispatch is guarded against recursion. If a handler or nested call invokes dispatch directly or via delay, the nested dispatch returns immediately. Handlers run at most once per outer dispatch pass.
@@ -316,36 +297,124 @@ bitRead, bitSet, bitClear, bitWrite, lowByte, and highByte are provided as overl
 
 ## External interrupts
 
-attachInterrupt, detachInterrupt, and digitalPinToInterrupt are scheduled for stage 4, mapped over the mm.mcu edge latch as described under Dispatch and latency.
+Opening fence
+enum class Trigger {
+    Rising,
+    Falling,
+    Change
+};
+
+inline constexpr Trigger RISING = Trigger::Rising;
+inline constexpr Trigger FALLING = Trigger::Falling;
+inline constexpr Trigger CHANGE = Trigger::Change;
+
+bool attachInterrupt(int pin, void (*handler)(), Trigger trigger);
+bool attachInterrupt(unsigned int pin, void (*handler)(), Trigger trigger);
+bool detachInterrupt(int pin);
+bool detachInterrupt(unsigned int pin);
+[[nodiscard]] int digitalPinToInterrupt(int pin);
+[[nodiscard]] unsigned int digitalPinToInterrupt(unsigned int pin);
+Closing fence
+
+attachInterrupt registers a handler function for GPIO edge events on the specified pin, configuring the pin for edge detection via mm.mcu. Trigger modes are RISING, FALLING, and CHANGE (mapped to mm::mcu::Edge::Rising, mm::mcu::Edge::Falling, and mm::mcu::Edge::Both). LOW and HIGH level interrupts are declined because level detection cannot be latched. The module maintains a fixed table of eight interrupt entries; attempting to attach a ninth returns false with Status::Busy. Re-attaching an already attached pin updates its handler and trigger, reusing the slot.
+
+detachInterrupt clears the interrupt registration and unwatches the pin via mm.mcu gpio_unwatch.
+
+digitalPinToInterrupt is the identity mapping: every GPIO pin that the latch supports serves directly as its own interrupt identifier.
 
 The legacy Arduino interrupts and noInterrupts functions are declined. The modules.cpp execution model runs sketch handlers in thread context without preemption; disabling global interrupts is neither necessary nor supported.
 
 ## Communication
 
 Opening fence
+enum class Base {
+    Dec = 10,
+    Hex = 16,
+    Oct = 8,
+    Bin = 2
+};
+
+inline constexpr Base DEC = Base::Dec;
+inline constexpr Base HEX = Base::Hex;
+inline constexpr Base OCT = Base::Oct;
+inline constexpr Base BIN = Base::Bin;
+
 class SerialPort {
 public:
     bool begin(unsigned long baud = 9600);
     bool end();
 
+    std::size_t write(byte b);
+    std::size_t write(const byte* buffer, std::size_t size);
+    std::size_t write(const char* buffer, std::size_t size);
+    std::size_t write(const char* s);
+
     std::size_t print(const char* s);
     std::size_t print(char c);
     std::size_t print(std::string_view s);
+    std::size_t print(bool b);
+    std::size_t print(int n, Base base = DEC);
+    std::size_t print(unsigned int n, Base base = DEC);
+    std::size_t print(long n, Base base = DEC);
+    std::size_t print(unsigned long n, Base base = DEC);
+    std::size_t print(double n, int digits = 2);
 
     std::size_t println(const char* s);
     std::size_t println(char c);
     std::size_t println(std::string_view s);
+    std::size_t println(bool b);
+    std::size_t println(int n, Base base = DEC);
+    std::size_t println(unsigned int n, Base base = DEC);
+    std::size_t println(long n, Base base = DEC);
+    std::size_t println(unsigned long n, Base base = DEC);
+    std::size_t println(double n, int digits = 2);
     std::size_t println();
+
+    [[nodiscard]] int available();
+    int read();
+    int peek();
+    bool flush();
+    [[nodiscard]] bool connected();
+    explicit operator bool();
+
+    void setTimeout(unsigned long ms);
+    [[nodiscard]] unsigned long getTimeout() const;
+
+    std::size_t readBytes(char* buffer, std::size_t length);
+    std::size_t readBytes(byte* buffer, std::size_t length);
+    std::size_t readBytesUntil(char terminator, char* buffer, std::size_t length);
+    std::size_t readBytesUntil(byte terminator, byte* buffer, std::size_t length);
+
+    std::string readString();
+    std::string readStringUntil(char terminator);
+
+    bool find(const char* target);
+    bool find(char target);
+    bool findUntil(const char* target, const char* terminator);
+    bool findUntil(const char* target, char terminator);
+
+    long parseInt();
+    double parseFloat();
 };
 
 extern SerialPort Serial;
+
+void onSerial(void (*fn)());
 Closing fence
 
-Serial provides text communication over mm.stdio.
+Serial provides bidirectional serial communication over mm.stdio.
 
-In stage 1, Serial supports begin, end, print, and println for string literals, characters, and string views. begin initializes the platform console; baud rate arguments (defaulting to 9600) are accepted for compatibility but ignored, as console transports manage baud rate at the platform layer. end is a no-op returning true. print and println write data to the console and return the number of bytes written.
+begin initializes the platform console; baud rate arguments (defaulting to 9600) are accepted for compatibility but ignored, as console transports manage baud rate at the platform layer. end is a no-op returning true. connected returns true if the console transport is connected to a host, and the explicit operator bool overload allows expressions such as while (!Serial);. flush flushes any buffered outgoing data to the underlying transport.
 
-Numeric formatting, binary write, read, peek, available, flush, timeout handling, and string reading methods are scheduled for stage 3.
+write outputs binary data or raw character buffers and returns the number of bytes written.
+
+print and println format text, booleans, floating-point values, and integers across bases DEC (decimal), HEX (uppercase hexadecimal), OCT (octal), and BIN (binary) using std::to_chars into a stack buffer. println appends a carriage return and newline (\r\n).
+
+available, read, and peek operate on an internal 64-byte receive ring buffer drained from the platform console during dispatch. available returns the count of unread bytes in the ring buffer. read returns the next byte from the ring or -1 if empty. peek returns the next byte without removing it or -1 if empty.
+
+setTimeout configures the read timeout in milliseconds (defaulting to 1000 milliseconds); getTimeout queries the configured timeout. The waiting operations readBytes, readBytesUntil, readString, readStringUntil, find, findUntil, parseInt, and parseFloat poll the receive ring and dispatch events until the requested condition is satisfied or the timeout expires. If requestExit is asserted during a waiting call, the operation aborts early and returns whatever count or partial result was accumulated.
+
+onSerial registers a callback invoked from dispatch once per pass whenever unread bytes remain in the receive ring buffer.
 
 ## Variables, types, and constants
 

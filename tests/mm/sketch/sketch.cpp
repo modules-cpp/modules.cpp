@@ -2,6 +2,7 @@
 // 32bitmicro LLC (C) 2026
 #include <climits>
 #include <cstddef>
+#include <string>
 #include <string_view>
 
 import mm.sketch;
@@ -10,6 +11,10 @@ import mm.test;
 extern int test_console_read_calls();
 extern void reset_test_console_read_calls();
 extern void test_set_console_write_fail(bool fail);
+extern void test_console_feed_input(std::string_view input);
+extern void test_console_clear_input();
+extern std::string test_console_get_written();
+extern void test_console_clear_written();
 
 extern void test_start_gpio_log();
 extern std::size_t test_gpio_log_size();
@@ -18,6 +23,10 @@ extern bool test_gpio_log_high(std::size_t idx);
 extern void test_stop_gpio_log();
 extern void test_setup_shift_in(unsigned int data_pin, unsigned int clock_pin, unsigned char val, bool lsb_first);
 extern void test_clear_shift_in();
+
+extern void test_gpio_set_edge(unsigned int pin, bool pending);
+extern bool test_gpio_is_watched(unsigned int pin);
+extern void test_gpio_clear_all_edges();
 
 namespace {
 
@@ -182,6 +191,137 @@ void serial_communication() {
     clearError();
 }
 
+static int serial_callback_count = 0;
+void test_on_serial_handler() {
+    ++serial_callback_count;
+    if (Serial.available() > 0) {
+        Serial.read();
+    }
+}
+
+void serial_formatting() {
+    test_console_clear_written();
+    expect(Serial.begin(115200), "Serial.begin");
+    expect(Serial.connected(), "Serial.connected should be true");
+    expect(bool(Serial), "operator bool(Serial) should be true");
+    expect(Serial.flush(), "Serial.flush should succeed");
+
+    test_console_clear_written();
+    Serial.print(true);
+    expect(test_console_get_written() == "1", "print bool true");
+
+    test_console_clear_written();
+    Serial.print(false);
+    expect(test_console_get_written() == "0", "print bool false");
+
+    test_console_clear_written();
+    Serial.print(123);
+    expect(test_console_get_written() == "123", "print int dec");
+
+    test_console_clear_written();
+    Serial.print(255, HEX);
+    expect(test_console_get_written() == "FF", "print hex uppercase");
+
+    test_console_clear_written();
+    Serial.print(12, OCT);
+    expect(test_console_get_written() == "14", "print oct");
+
+    test_console_clear_written();
+    Serial.print(5, BIN);
+    expect(test_console_get_written() == "101", "print bin");
+
+    test_console_clear_written();
+    Serial.print(-42L, DEC);
+    expect(test_console_get_written() == "-42", "print negative long");
+
+    test_console_clear_written();
+    Serial.print(3.14159, 2);
+    expect(test_console_get_written() == "3.14", "print double 2 digits");
+
+    test_console_clear_written();
+    Serial.write(static_cast<byte>('Z'));
+    expect(test_console_get_written() == "Z", "write byte");
+
+    test_console_clear_written();
+    Serial.write("data", 4);
+    expect(test_console_get_written() == "data", "write buffer");
+
+    test_console_clear_written();
+    Serial.println(42);
+    expect(test_console_get_written() == "42\r\n", "println int");
+}
+
+void serial_input_and_waiting() {
+    test_console_clear_input();
+    Serial.setTimeout(50);
+    expect(Serial.getTimeout() == 50, "getTimeout should return 50");
+
+    test_console_feed_input("hello world\n");
+    expect(Serial.available() == 12, "available should report 12 bytes");
+    expect(Serial.peek() == 'h', "peek should return 'h'");
+    expect(Serial.available() == 12, "peek does not consume byte");
+    expect(Serial.read() == 'h', "read should return 'h'");
+    expect(Serial.available() == 11, "read consumes byte");
+
+    char buf[16] = {0};
+    const std::size_t n1 = Serial.readBytes(buf, 4);
+    expect(n1 == 4, "readBytes 4 bytes");
+    expect(std::string_view(buf, 4) == "ello", "readBytes content");
+
+    char line[16] = {0};
+    const std::size_t n2 = Serial.readBytesUntil('\n', line, 16);
+    expect(n2 == 6, "readBytesUntil newline read 6 bytes");
+    expect(std::string_view(line, 6) == " world", "readBytesUntil content");
+    expect(Serial.available() == 0, "stream should be empty after newline consumed");
+
+    // Test readString and readStringUntil
+    test_console_feed_input("first\nsecond");
+    const std::string s1 = Serial.readStringUntil('\n');
+    expect(s1 == "first", "readStringUntil should return first");
+    const std::string s2 = Serial.readString();
+    expect(s2 == "second", "readString should return remaining until timeout");
+
+    // Test find and findUntil
+    test_console_feed_input("123TARGET456");
+    expect(Serial.find("TARGET"), "find TARGET should succeed");
+    expect(Serial.read() == '4', "next byte after target is '4'");
+    Serial.readString(); // drain remaining
+
+    test_console_feed_input("prefix TERM target");
+    expect(!Serial.findUntil("target", "TERM"), "findUntil stops on terminator");
+    Serial.readString(); // drain
+
+    // Test parseInt and parseFloat
+    test_console_feed_input("   -789, 12.50\n");
+    expect(Serial.parseInt() == -789, "parseInt should parse -789");
+    expect(Serial.peek() == ',', "comma remains after parseInt");
+    Serial.read(); // consume comma
+    const double val = Serial.parseFloat();
+    expect(val > 12.49 && val < 12.51, "parseFloat should parse 12.50");
+    Serial.readString(); // drain
+}
+
+void serial_event_callback() {
+    test_console_clear_input();
+    serial_callback_count = 0;
+    onSerial(&test_on_serial_handler);
+
+    test_console_feed_input("AB");
+    dispatch();
+    expect(serial_callback_count == 1, "dispatch should invoke onSerial once when bytes present");
+    expect(Serial.available() == 1, "handler consumed 'A', 1 byte remaining");
+
+    dispatch();
+    expect(serial_callback_count == 2, "dispatch should invoke onSerial again for remaining byte");
+    expect(Serial.available() == 0, "handler consumed 'B', 0 bytes remaining");
+
+    dispatch();
+    expect(serial_callback_count == 2, "dispatch should NOT invoke onSerial when ring is empty");
+
+    onSerial(nullptr);
+}
+
+
 void math_operations() {
     expect(min(10, 20) == 10, "min(10, 20) should be 10");
     expect(min(3.5, 1.2) == 1.2, "min(3.5, 1.2) should be 1.2");
@@ -217,6 +357,10 @@ void math_operations() {
     expect(map(10L, 5L, 5L, 100L, 200L) == 100L, "map equal range returns out_min");
     expect(map(LONG_MAX, 0L, LONG_MAX, 0L, LONG_MAX) == LONG_MAX, "map LONG_MAX without overflow");
     expect(map(LONG_MIN, LONG_MIN, LONG_MAX, LONG_MIN, LONG_MAX) == LONG_MIN, "map LONG_MIN without overflow");
+    expect(map(0L, LONG_MIN, LONG_MAX, LONG_MIN, LONG_MAX) == 0L, "map midpoint across full signed range");
+    expect(map(LONG_MAX, LONG_MIN, LONG_MAX, LONG_MIN, LONG_MAX) == LONG_MAX, "map max across full signed range");
+    expect(map(LONG_MIN, LONG_MIN, LONG_MAX, 0L, 100L) == 0L, "map LONG_MIN to 0");
+    expect(map(LONG_MAX, LONG_MIN, LONG_MAX, 0L, 100L) == 100L, "map LONG_MAX to 100");
 }
 
 void character_classifiers() {
@@ -417,6 +561,292 @@ void shift_in_and_shift_out() {
     clearError();
 }
 
+static int int_test_h1_count = 0;
+void int_test_h1() {
+    ++int_test_h1_count;
+}
+
+static int int_test_h2_count = 0;
+void int_test_h2() {
+    ++int_test_h2_count;
+}
+
+void interrupt_registration_and_errors() {
+    test_gpio_clear_all_edges();
+    clearError();
+
+    expect(digitalPinToInterrupt(4) == 4, "digitalPinToInterrupt int identity");
+    expect(digitalPinToInterrupt(7u) == 7u, "digitalPinToInterrupt unsigned int identity");
+
+    // Invalid handler
+    expect(!attachInterrupt(2, nullptr, RISING), "attachInterrupt null handler fails");
+    expect(lastError() == Status::BadArgument, "null handler sets BadArgument");
+    expect(std::string_view(lastCall()) == "attachInterrupt", "lastCall is attachInterrupt");
+    clearError();
+
+    // Invalid negative pin
+    expect(!attachInterrupt(-1, &int_test_h1, RISING), "attachInterrupt negative pin fails");
+    expect(lastError() == Status::BadArgument, "negative pin sets BadArgument");
+    expect(std::string_view(lastCall()) == "attachInterrupt", "lastCall is attachInterrupt");
+    clearError();
+
+    // Invalid trigger
+    expect(!attachInterrupt(2, &int_test_h1, static_cast<Trigger>(99)), "attachInterrupt invalid trigger fails");
+    expect(lastError() == Status::BadArgument, "invalid trigger sets BadArgument");
+    expect(std::string_view(lastCall()) == "attachInterrupt", "lastCall is attachInterrupt");
+    clearError();
+
+    // Invalid negative detach
+    expect(!detachInterrupt(-1), "detachInterrupt negative pin fails");
+    expect(lastError() == Status::BadArgument, "negative detach sets BadArgument");
+    expect(std::string_view(lastCall()) == "detachInterrupt", "lastCall is detachInterrupt");
+    clearError();
+
+    // Successful attach
+    expect(pinMode(2, INPUT_PULLUP), "pinMode 2 INPUT_PULLUP succeeds");
+    expect(attachInterrupt(2, &int_test_h1, FALLING), "attachInterrupt pin 2 succeeds");
+    expect(test_gpio_is_watched(2), "pin 2 is watched by platform");
+
+    // Re-attaching same pin succeeds and updates handler/trigger
+    expect(attachInterrupt(2, &int_test_h2, RISING), "re-attaching pin 2 succeeds");
+    expect(test_gpio_is_watched(2), "pin 2 remains watched");
+
+    // Successful detach
+    expect(detachInterrupt(2), "detachInterrupt pin 2 succeeds");
+    expect(!test_gpio_is_watched(2), "pin 2 is no longer watched");
+
+    // Detaching already detached pin returns true
+    expect(detachInterrupt(2), "detachInterrupt unattached pin returns true");
+
+    test_gpio_clear_all_edges();
+    clearError();
+}
+
+void interrupt_table_capacity() {
+    test_gpio_clear_all_edges();
+    clearError();
+
+    // Attach 8 distinct pins (pins 0 through 7)
+    for (unsigned int p = 0; p < 8; ++p) {
+        expect(attachInterrupt(p, &int_test_h1, RISING), "attach interrupt slot succeeds");
+    }
+
+    // 9th pin must return false with Busy
+    expect(!attachInterrupt(8, &int_test_h1, RISING), "9th interrupt slot must fail");
+    expect(lastError() == Status::Busy, "9th interrupt sets Busy");
+    expect(std::string_view(lastCall()) == "attachInterrupt", "lastCall is attachInterrupt");
+    clearError();
+
+    // Detach slot for pin 3
+    expect(detachInterrupt(3), "detach pin 3 succeeds");
+
+    // Now pin 8 can be attached into the freed slot
+    expect(attachInterrupt(8, &int_test_h1, RISING), "attach pin 8 after detach succeeds");
+
+    // Cleanup
+    for (unsigned int p = 0; p < 9; ++p) {
+        detachInterrupt(p);
+    }
+    test_gpio_clear_all_edges();
+    clearError();
+}
+
+void interrupt_dispatch_and_edge_trigger() {
+    test_gpio_clear_all_edges();
+    clearError();
+    int_test_h1_count = 0;
+
+    expect(attachInterrupt(2, &int_test_h1, RISING), "attach pin 2");
+
+    // Without edge, dispatch does not call handler
+    dispatch();
+    expect(int_test_h1_count == 0, "no handler call without edge");
+
+    // Signal edge on pin 2
+    test_gpio_set_edge(2, true);
+    dispatch();
+    expect(int_test_h1_count == 1, "handler called once on edge");
+
+    // Without another edge, dispatch does not re-invoke
+    dispatch();
+    expect(int_test_h1_count == 1, "edge was consumed");
+
+    // Signal another edge
+    test_gpio_set_edge(2, true);
+    dispatch();
+    expect(int_test_h1_count == 2, "handler called again on new edge");
+
+    detachInterrupt(2);
+    test_gpio_clear_all_edges();
+    clearError();
+}
+
+static int reentrant_h_calls = 0;
+void reentrant_handler() {
+    ++reentrant_h_calls;
+    dispatch();
+    delay(10);
+}
+
+void interrupt_reentrancy_guard() {
+    test_gpio_clear_all_edges();
+    clearError();
+    reentrant_h_calls = 0;
+
+    expect(attachInterrupt(2, &reentrant_handler, RISING), "attach reentrant handler");
+
+    test_gpio_set_edge(2, true);
+    dispatch();
+    expect(reentrant_h_calls == 1, "handler runs exactly once despite nested dispatch and delay");
+
+    detachInterrupt(2);
+    test_gpio_clear_all_edges();
+    clearError();
+}
+
+static int mut_h0_calls = 0;
+static int mut_h1_calls = 0;
+
+void mut_detach_later_h0() {
+    ++mut_h0_calls;
+    detachInterrupt(1);
+}
+
+void mut_target_h1() {
+    ++mut_h1_calls;
+}
+
+void mut_detach_earlier_h1() {
+    ++mut_h1_calls;
+    detachInterrupt(0);
+}
+
+void mut_attach_later_h0() {
+    ++mut_h0_calls;
+    attachInterrupt(1, &mut_target_h1, RISING);
+    test_gpio_set_edge(1, true);
+}
+
+void mut_attach_earlier_h1() {
+    ++mut_h1_calls;
+    attachInterrupt(0, &mut_target_h1, RISING);
+    test_gpio_set_edge(0, true);
+}
+
+static int mut_self_calls = 0;
+void mut_self_detach_h0() {
+    ++mut_self_calls;
+    detachInterrupt(0);
+}
+
+void interrupt_table_mutation_during_dispatch() {
+    test_gpio_clear_all_edges();
+    clearError();
+
+    // 1. Detach later slot during pass
+    mut_h0_calls = 0;
+    mut_h1_calls = 0;
+    expect(attachInterrupt(0, &mut_detach_later_h0, RISING), "attach slot 0");
+    expect(attachInterrupt(1, &mut_target_h1, RISING), "attach slot 1");
+    test_gpio_set_edge(0, true);
+    test_gpio_set_edge(1, true);
+
+    dispatch();
+    expect(mut_h0_calls == 1, "slot 0 ran");
+    expect(mut_h1_calls == 0, "slot 1 skipped because it was detached during pass");
+    detachInterrupt(0);
+
+    // 2. Detach earlier slot during pass
+    mut_h0_calls = 0;
+    mut_h1_calls = 0;
+    expect(attachInterrupt(0, &mut_target_h1, RISING), "attach slot 0");
+    expect(attachInterrupt(1, &mut_detach_earlier_h1, RISING), "attach slot 1");
+    test_gpio_set_edge(0, true);
+    test_gpio_set_edge(1, true);
+
+    dispatch();
+    expect(mut_h1_calls == 2, "slot 0 ran (via target_h1) and slot 1 ran");
+
+    test_gpio_set_edge(0, true);
+    test_gpio_set_edge(1, true);
+    dispatch();
+    expect(mut_h1_calls == 3, "only slot 1 ran in pass 2; slot 0 was detached");
+    detachInterrupt(1);
+
+    // 3. Attach later slot during pass
+    mut_h0_calls = 0;
+    mut_h1_calls = 0;
+    expect(attachInterrupt(0, &mut_attach_later_h0, RISING), "attach slot 0");
+    test_gpio_set_edge(0, true);
+
+    dispatch();
+    expect(mut_h0_calls == 1, "slot 0 ran in pass 1");
+    expect(mut_h1_calls == 0, "slot 1 does not run in pass 1");
+
+    dispatch();
+    expect(mut_h1_calls == 1, "slot 1 runs in pass 2");
+    detachInterrupt(0);
+    detachInterrupt(1);
+
+    // 4. Attach earlier slot during pass
+    mut_h0_calls = 0;
+    mut_h1_calls = 0;
+    expect(attachInterrupt(0, &mut_target_h1, RISING), "fill slot 0");
+    expect(attachInterrupt(1, &mut_attach_earlier_h1, RISING), "fill slot 1");
+    expect(detachInterrupt(0), "empty slot 0");
+
+    test_gpio_set_edge(1, true);
+    dispatch();
+    expect(mut_h1_calls == 1, "slot 1 ran in pass 1");
+    expect(mut_h0_calls == 0, "slot 0 did not run in pass 1");
+
+    dispatch();
+    expect(mut_h1_calls == 2, "slot 0 ran in pass 2");
+    detachInterrupt(0);
+    detachInterrupt(1);
+
+    // 5. Self-detach
+    mut_self_calls = 0;
+    expect(attachInterrupt(0, &mut_self_detach_h0, RISING), "attach self-detach");
+    test_gpio_set_edge(0, true);
+    dispatch();
+    expect(mut_self_calls == 1, "self-detach handler ran in pass 1");
+
+    test_gpio_set_edge(0, true);
+    dispatch();
+    expect(mut_self_calls == 1, "self-detached handler does not run in pass 2");
+
+    test_gpio_clear_all_edges();
+    clearError();
+}
+
+static int edge_latch_calls = 0;
+void edge_latch_handler() {
+    ++edge_latch_calls;
+    if (edge_latch_calls == 1) {
+        test_gpio_set_edge(2, true);
+    }
+}
+
+void interrupt_edge_latched_during_handler() {
+    test_gpio_clear_all_edges();
+    clearError();
+    edge_latch_calls = 0;
+
+    expect(attachInterrupt(2, &edge_latch_handler, RISING), "attach handler");
+
+    test_gpio_set_edge(2, true);
+    dispatch();
+    expect(edge_latch_calls == 1, "handler ran once in pass 1");
+
+    dispatch();
+    expect(edge_latch_calls == 2, "latched edge reported in pass 2");
+
+    detachInterrupt(2);
+    test_gpio_clear_all_edges();
+    clearError();
+}
+
 const mm::test::case_ cases[] = {
     {"runner clean start twice", &runner_clean_start_twice},
     {"status latch first failure", &status_latch_first_failure},
@@ -426,11 +856,20 @@ const mm::test::case_ cases[] = {
     {"digital io and led", &digital_io_and_led},
     {"time and delay", &time_and_delay},
     {"serial communication", &serial_communication},
+    {"serial formatting", &serial_formatting},
+    {"serial input and waiting", &serial_input_and_waiting},
+    {"serial event callback", &serial_event_callback},
     {"math operations", &math_operations},
     {"character classifiers", &character_classifiers},
     {"random numbers", &random_numbers},
     {"bits and bytes", &bits_and_bytes},
     {"shift in and shift out", &shift_in_and_shift_out},
+    {"interrupt registration and errors", &interrupt_registration_and_errors},
+    {"interrupt table capacity", &interrupt_table_capacity},
+    {"interrupt dispatch and edge trigger", &interrupt_dispatch_and_edge_trigger},
+    {"interrupt reentrancy guard", &interrupt_reentrancy_guard},
+    {"interrupt table mutation during dispatch", &interrupt_table_mutation_during_dispatch},
+    {"interrupt edge latched during handler", &interrupt_edge_latched_during_handler},
 };
 
 const mm::test::registrar reg{"mm.sketch", cases};

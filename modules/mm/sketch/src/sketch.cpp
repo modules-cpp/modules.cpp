@@ -3,10 +3,12 @@
 module;
 
 #include <cctype>
+#include <charconv>
 #include <cstddef>
 #include <cstdint>
 #include <random>
 #include <span>
+#include <string>
 #include <string_view>
 
 module mm.sketch;
@@ -76,8 +78,9 @@ uint64_t div128_64(uint64_t hi, uint64_t lo, uint64_t w) {
     uint64_t rem = hi;
     uint64_t quot = 0;
     for (int i = 63; i >= 0; --i) {
-        rem = (rem << 1) | ((lo >> i) & 1u);
-        if (rem >= w) {
+        const uint64_t carry = rem >> 63;
+        rem = (rem << 1) | ((lo >> i) & 1ULL);
+        if (carry != 0 || rem >= w) {
             rem -= w;
             quot |= (1ULL << i);
         }
@@ -138,6 +141,23 @@ static bool dispatching_ = false;
 
 static std::minstd_rand random_engine_{1};
 
+using SerialCallback = void (*)();
+static SerialCallback serial_callback_ = nullptr;
+static unsigned long timeout_ms_ = 1000;
+
+struct InterruptEntry {
+    bool active = false;
+    unsigned int pin = 0;
+    void (*handler)() = nullptr;
+    unsigned int generation = 0;
+};
+
+constexpr std::size_t max_interrupts = 8;
+static InterruptEntry interrupt_table_[max_interrupts]{};
+
+constexpr std::size_t pin_pull_count = 64;
+static mm::mcu::Pull pin_pulls_[pin_pull_count]{};
+
 } // namespace
 
 Status lastError() {
@@ -166,11 +186,50 @@ int exitCode() {
     return exit_code_;
 }
 
+void onSerial(void (*fn)()) {
+    serial_callback_ = fn;
+}
+
 void dispatch() {
     if (dispatching_) return;
     dispatching_ = true;
 
     fill_ring();
+
+    unsigned int snapshot_generations[max_interrupts];
+    for (std::size_t i = 0; i < max_interrupts; ++i) {
+        snapshot_generations[i] = interrupt_table_[i].generation;
+    }
+
+    for (std::size_t i = 0; i < max_interrupts; ++i) {
+        if (!interrupt_table_[i].active) {
+            continue;
+        }
+        if (interrupt_table_[i].generation != snapshot_generations[i]) {
+            continue;
+        }
+        const unsigned int pin = interrupt_table_[i].pin;
+        bool pending = false;
+        const auto status = mm::mcu::gpio_take(pin, pending);
+        if (status != mm::mcu::Status::Ok) {
+            record_failure(from(status), "dispatch");
+            continue;
+        }
+        if (pending && interrupt_table_[i].active &&
+            interrupt_table_[i].generation == snapshot_generations[i]) {
+            auto handler = interrupt_table_[i].handler;
+            if (handler) {
+                const char* const saved_call = active_call_;
+                active_call_ = nullptr;
+                handler();
+                active_call_ = saved_call;
+            }
+        }
+    }
+
+    if (serial_callback_ && ring_count_ > 0) {
+        serial_callback_();
+    }
 
     dispatching_ = false;
 }
@@ -178,6 +237,25 @@ void dispatch() {
 int run(Setup setup, Loop loop) {
     exit_requested_ = false;
     exit_code_ = 0;
+    ring_head_ = 0;
+    ring_tail_ = 0;
+    ring_count_ = 0;
+    serial_callback_ = nullptr;
+    timeout_ms_ = 1000;
+    dispatching_ = false;
+
+    for (std::size_t i = 0; i < max_interrupts; ++i) {
+        if (interrupt_table_[i].active) {
+            static_cast<void>(mm::mcu::gpio_unwatch(interrupt_table_[i].pin));
+            interrupt_table_[i].active = false;
+            interrupt_table_[i].handler = nullptr;
+            interrupt_table_[i].pin = 0;
+        }
+        interrupt_table_[i].generation = 0;
+    }
+    for (std::size_t i = 0; i < pin_pull_count; ++i) {
+        pin_pulls_[i] = mm::mcu::Pull::None;
+    }
 
     auto& console = mm::stdio::selected_console();
     console_init_status_ = console.initialize();
@@ -194,6 +272,15 @@ int run(Setup setup, Loop loop) {
             break;
         }
         dispatch();
+    }
+
+    for (std::size_t i = 0; i < max_interrupts; ++i) {
+        if (interrupt_table_[i].active) {
+            static_cast<void>(mm::mcu::gpio_unwatch(interrupt_table_[i].pin));
+            interrupt_table_[i].active = false;
+            interrupt_table_[i].handler = nullptr;
+            interrupt_table_[i].pin = 0;
+        }
     }
 
     const int code = exit_code_;
@@ -220,6 +307,9 @@ bool pinMode(unsigned int pin, Mode mode) {
     if (status != mm::mcu::Status::Ok) {
         record_failure(from(status), "pinMode");
         return false;
+    }
+    if (pin < pin_pull_count) {
+        pin_pulls_[pin] = pull;
     }
     return true;
 }
@@ -630,6 +720,120 @@ byte highByte(unsigned long x) {
     return static_cast<byte>((x >> 8) & 0xFFu);
 }
 
+bool attachInterrupt(unsigned int pin, void (*handler)(), Trigger trigger) {
+    CallScope scope{"attachInterrupt"};
+    if (!handler) {
+        record_failure(Status::BadArgument, "attachInterrupt");
+        return false;
+    }
+    mm::mcu::Edge edge = mm::mcu::Edge::Both;
+    if (trigger == Trigger::Rising) {
+        edge = mm::mcu::Edge::Rising;
+    } else if (trigger == Trigger::Falling) {
+        edge = mm::mcu::Edge::Falling;
+    } else if (trigger == Trigger::Change) {
+        edge = mm::mcu::Edge::Both;
+    } else {
+        record_failure(Status::BadArgument, "attachInterrupt");
+        return false;
+    }
+
+    const mm::mcu::Pull pull = (pin < pin_pull_count) ? pin_pulls_[pin] : mm::mcu::Pull::None;
+
+    int existing_slot = -1;
+    int free_slot = -1;
+    for (std::size_t i = 0; i < max_interrupts; ++i) {
+        if (interrupt_table_[i].active && interrupt_table_[i].pin == pin) {
+            existing_slot = static_cast<int>(i);
+            break;
+        }
+        if (!interrupt_table_[i].active && free_slot == -1) {
+            free_slot = static_cast<int>(i);
+        }
+    }
+
+    if (existing_slot >= 0) {
+        static_cast<void>(mm::mcu::gpio_unwatch(pin));
+        const auto status = mm::mcu::gpio_watch(pin, pull, edge);
+        if (status != mm::mcu::Status::Ok) {
+            interrupt_table_[existing_slot].active = false;
+            interrupt_table_[existing_slot].handler = nullptr;
+            interrupt_table_[existing_slot].pin = 0;
+            record_failure(from(status), "attachInterrupt");
+            return false;
+        }
+        interrupt_table_[existing_slot].generation++;
+        interrupt_table_[existing_slot].handler = handler;
+        interrupt_table_[existing_slot].active = true;
+        return true;
+    }
+
+    if (free_slot < 0) {
+        record_failure(Status::Busy, "attachInterrupt");
+        return false;
+    }
+
+    const auto status = mm::mcu::gpio_watch(pin, pull, edge);
+    if (status != mm::mcu::Status::Ok) {
+        record_failure(from(status), "attachInterrupt");
+        return false;
+    }
+    interrupt_table_[free_slot].pin = pin;
+    interrupt_table_[free_slot].handler = handler;
+    interrupt_table_[free_slot].generation++;
+    interrupt_table_[free_slot].active = true;
+    return true;
+}
+
+bool attachInterrupt(int pin, void (*handler)(), Trigger trigger) {
+    CallScope scope{"attachInterrupt"};
+    if (pin < 0) {
+        record_failure(Status::BadArgument, "attachInterrupt");
+        return false;
+    }
+    return attachInterrupt(static_cast<unsigned int>(pin), handler, trigger);
+}
+
+bool detachInterrupt(unsigned int pin) {
+    CallScope scope{"detachInterrupt"};
+    for (std::size_t i = 0; i < max_interrupts; ++i) {
+        if (interrupt_table_[i].active && interrupt_table_[i].pin == pin) {
+            interrupt_table_[i].active = false;
+            interrupt_table_[i].handler = nullptr;
+            interrupt_table_[i].pin = 0;
+            const auto status = mm::mcu::gpio_unwatch(pin);
+            if (status != mm::mcu::Status::Ok) {
+                record_failure(from(status), "detachInterrupt");
+                return false;
+            }
+            return true;
+        }
+    }
+    const auto status = mm::mcu::gpio_unwatch(pin);
+    if (status != mm::mcu::Status::Ok) {
+        record_failure(from(status), "detachInterrupt");
+        return false;
+    }
+    return true;
+}
+
+bool detachInterrupt(int pin) {
+    CallScope scope{"detachInterrupt"};
+    if (pin < 0) {
+        record_failure(Status::BadArgument, "detachInterrupt");
+        return false;
+    }
+    return detachInterrupt(static_cast<unsigned int>(pin));
+}
+
+int digitalPinToInterrupt(int pin) {
+    return pin;
+}
+
+unsigned int digitalPinToInterrupt(unsigned int pin) {
+    return pin;
+}
+
 // Serial implementation
 SerialPort Serial;
 
@@ -670,7 +874,64 @@ std::size_t serial_write(const byte* buffer, std::size_t size) {
     }
     return offset;
 }
+
+int timed_peek() {
+    const unsigned long start = millis();
+    while (!exitRequested()) {
+        fill_ring();
+        if (ring_count_ > 0) {
+            return static_cast<int>(static_cast<byte>(ring_buffer_[ring_tail_]));
+        }
+        if (millis() - start >= timeout_ms_) {
+            break;
+        }
+        dispatch();
+        static_cast<void>(mm::mcu::delay_ms(1));
+    }
+    return -1;
+}
+
+int timed_read() {
+    const unsigned long start = millis();
+    while (!exitRequested()) {
+        fill_ring();
+        if (ring_count_ > 0) {
+            const byte b = static_cast<byte>(ring_buffer_[ring_tail_]);
+            ring_tail_ = (ring_tail_ + 1) % ring_capacity;
+            --ring_count_;
+            return static_cast<int>(b);
+        }
+        if (millis() - start >= timeout_ms_) {
+            break;
+        }
+        dispatch();
+        static_cast<void>(mm::mcu::delay_ms(1));
+    }
+    return -1;
+}
+
 } // namespace
+
+std::size_t SerialPort::write(byte b) {
+    CallScope scope{"Serial.write"};
+    return serial_write(&b, 1);
+}
+
+std::size_t SerialPort::write(const byte* buffer, std::size_t size) {
+    CallScope scope{"Serial.write"};
+    return serial_write(buffer, size);
+}
+
+std::size_t SerialPort::write(const char* buffer, std::size_t size) {
+    CallScope scope{"Serial.write"};
+    return serial_write(reinterpret_cast<const byte*>(buffer), size);
+}
+
+std::size_t SerialPort::write(const char* s) {
+    CallScope scope{"Serial.write"};
+    if (!s) return 0;
+    return serial_write(reinterpret_cast<const byte*>(s), std::string_view(s).size());
+}
 
 std::size_t SerialPort::print(const char* s) {
     CallScope scope{"Serial.print"};
@@ -687,6 +948,84 @@ std::size_t SerialPort::print(char c) {
 std::size_t SerialPort::print(std::string_view s) {
     CallScope scope{"Serial.print"};
     return serial_write(reinterpret_cast<const byte*>(s.data()), s.size());
+}
+
+std::size_t SerialPort::print(bool b) {
+    CallScope scope{"Serial.print"};
+    const char c = b ? '1' : '0';
+    return serial_write(reinterpret_cast<const byte*>(&c), 1);
+}
+
+std::size_t SerialPort::print(int n, Base base) {
+    CallScope scope{"Serial.print"};
+    char buf[64];
+    if (base == Base::Dec) {
+        auto res = std::to_chars(buf, buf + sizeof(buf), n);
+        return serial_write(reinterpret_cast<const byte*>(buf), res.ptr - buf);
+    }
+    auto res = std::to_chars(buf, buf + sizeof(buf), static_cast<unsigned int>(n), static_cast<int>(base));
+    if (base == Base::Hex) {
+        for (char* p = buf; p < res.ptr; ++p) {
+            if (*p >= 'a' && *p <= 'f') {
+                *p = static_cast<char>(*p - 'a' + 'A');
+            }
+        }
+    }
+    return serial_write(reinterpret_cast<const byte*>(buf), res.ptr - buf);
+}
+
+std::size_t SerialPort::print(unsigned int n, Base base) {
+    CallScope scope{"Serial.print"};
+    char buf[64];
+    auto res = std::to_chars(buf, buf + sizeof(buf), n, static_cast<int>(base));
+    if (base == Base::Hex) {
+        for (char* p = buf; p < res.ptr; ++p) {
+            if (*p >= 'a' && *p <= 'f') {
+                *p = static_cast<char>(*p - 'a' + 'A');
+            }
+        }
+    }
+    return serial_write(reinterpret_cast<const byte*>(buf), res.ptr - buf);
+}
+
+std::size_t SerialPort::print(long n, Base base) {
+    CallScope scope{"Serial.print"};
+    char buf[64];
+    if (base == Base::Dec) {
+        auto res = std::to_chars(buf, buf + sizeof(buf), n);
+        return serial_write(reinterpret_cast<const byte*>(buf), res.ptr - buf);
+    }
+    auto res = std::to_chars(buf, buf + sizeof(buf), static_cast<unsigned long>(n), static_cast<int>(base));
+    if (base == Base::Hex) {
+        for (char* p = buf; p < res.ptr; ++p) {
+            if (*p >= 'a' && *p <= 'f') {
+                *p = static_cast<char>(*p - 'a' + 'A');
+            }
+        }
+    }
+    return serial_write(reinterpret_cast<const byte*>(buf), res.ptr - buf);
+}
+
+std::size_t SerialPort::print(unsigned long n, Base base) {
+    CallScope scope{"Serial.print"};
+    char buf[64];
+    auto res = std::to_chars(buf, buf + sizeof(buf), n, static_cast<int>(base));
+    if (base == Base::Hex) {
+        for (char* p = buf; p < res.ptr; ++p) {
+            if (*p >= 'a' && *p <= 'f') {
+                *p = static_cast<char>(*p - 'a' + 'A');
+            }
+        }
+    }
+    return serial_write(reinterpret_cast<const byte*>(buf), res.ptr - buf);
+}
+
+std::size_t SerialPort::print(double n, int digits) {
+    CallScope scope{"Serial.print"};
+    char buf[64];
+    const int precision = digits >= 0 ? digits : 0;
+    auto res = std::to_chars(buf, buf + sizeof(buf), n, std::chars_format::fixed, precision);
+    return serial_write(reinterpret_cast<const byte*>(buf), res.ptr - buf);
 }
 
 std::size_t SerialPort::println(const char* s) {
@@ -710,9 +1049,295 @@ std::size_t SerialPort::println(std::string_view s) {
     return written;
 }
 
+std::size_t SerialPort::println(bool b) {
+    CallScope scope{"Serial.println"};
+    std::size_t written = print(b);
+    written += print("\r\n");
+    return written;
+}
+
+std::size_t SerialPort::println(int n, Base base) {
+    CallScope scope{"Serial.println"};
+    std::size_t written = print(n, base);
+    written += print("\r\n");
+    return written;
+}
+
+std::size_t SerialPort::println(unsigned int n, Base base) {
+    CallScope scope{"Serial.println"};
+    std::size_t written = print(n, base);
+    written += print("\r\n");
+    return written;
+}
+
+std::size_t SerialPort::println(long n, Base base) {
+    CallScope scope{"Serial.println"};
+    std::size_t written = print(n, base);
+    written += print("\r\n");
+    return written;
+}
+
+std::size_t SerialPort::println(unsigned long n, Base base) {
+    CallScope scope{"Serial.println"};
+    std::size_t written = print(n, base);
+    written += print("\r\n");
+    return written;
+}
+
+std::size_t SerialPort::println(double n, int digits) {
+    CallScope scope{"Serial.println"};
+    std::size_t written = print(n, digits);
+    written += print("\r\n");
+    return written;
+}
+
 std::size_t SerialPort::println() {
     CallScope scope{"Serial.println"};
     return print("\r\n");
+}
+
+int SerialPort::available() {
+    fill_ring();
+    return static_cast<int>(ring_count_);
+}
+
+int SerialPort::read() {
+    fill_ring();
+    if (ring_count_ == 0) return -1;
+    const byte b = static_cast<byte>(ring_buffer_[ring_tail_]);
+    ring_tail_ = (ring_tail_ + 1) % ring_capacity;
+    --ring_count_;
+    return static_cast<int>(b);
+}
+
+int SerialPort::peek() {
+    fill_ring();
+    if (ring_count_ == 0) return -1;
+    return static_cast<int>(static_cast<byte>(ring_buffer_[ring_tail_]));
+}
+
+bool SerialPort::flush() {
+    CallScope scope{"Serial.flush"};
+    auto& console = mm::stdio::selected_console();
+    const auto status = console.flush();
+    if (status != mm::stdio::Status::Ok) {
+        record_failure(from(status), "Serial.flush");
+        return false;
+    }
+    return true;
+}
+
+bool SerialPort::connected() {
+    CallScope scope{"Serial.connected"};
+    auto& console = mm::stdio::selected_console();
+    bool value = false;
+    const auto status = console.connected(value);
+    if (status != mm::stdio::Status::Ok) {
+        record_failure(from(status), "Serial.connected");
+        return false;
+    }
+    return value;
+}
+
+void SerialPort::setTimeout(unsigned long ms) {
+    timeout_ms_ = ms;
+}
+
+unsigned long SerialPort::getTimeout() const {
+    return timeout_ms_;
+}
+
+std::size_t SerialPort::readBytes(char* buffer, std::size_t length) {
+    CallScope scope{"Serial.readBytes"};
+    if (!buffer || length == 0) return 0;
+    std::size_t count = 0;
+    while (count < length && !exitRequested()) {
+        const int c = timed_read();
+        if (c < 0) break;
+        buffer[count++] = static_cast<char>(c);
+    }
+    return count;
+}
+
+std::size_t SerialPort::readBytes(byte* buffer, std::size_t length) {
+    CallScope scope{"Serial.readBytes"};
+    return readBytes(reinterpret_cast<char*>(buffer), length);
+}
+
+std::size_t SerialPort::readBytesUntil(char terminator, char* buffer, std::size_t length) {
+    CallScope scope{"Serial.readBytesUntil"};
+    if (!buffer || length == 0) return 0;
+    std::size_t count = 0;
+    while (count < length && !exitRequested()) {
+        const int c = timed_read();
+        if (c < 0) break;
+        if (static_cast<char>(c) == terminator) break;
+        buffer[count++] = static_cast<char>(c);
+    }
+    return count;
+}
+
+std::size_t SerialPort::readBytesUntil(byte terminator, byte* buffer, std::size_t length) {
+    CallScope scope{"Serial.readBytesUntil"};
+    return readBytesUntil(static_cast<char>(terminator), reinterpret_cast<char*>(buffer), length);
+}
+
+std::string SerialPort::readString() {
+    CallScope scope{"Serial.readString"};
+    std::string result;
+    while (!exitRequested()) {
+        const int c = timed_read();
+        if (c < 0) break;
+        result.push_back(static_cast<char>(c));
+    }
+    return result;
+}
+
+std::string SerialPort::readStringUntil(char terminator) {
+    CallScope scope{"Serial.readStringUntil"};
+    std::string result;
+    while (!exitRequested()) {
+        const int c = timed_read();
+        if (c < 0) break;
+        if (static_cast<char>(c) == terminator) break;
+        result.push_back(static_cast<char>(c));
+    }
+    return result;
+}
+
+bool SerialPort::findUntil(const char* target, const char* terminator) {
+    CallScope scope{"Serial.findUntil"};
+    if (!target || target[0] == '\0') return true;
+
+    const std::string_view tgt{target};
+    const std::string_view trm{terminator ? terminator : ""};
+
+    std::size_t target_idx = 0;
+    std::size_t term_idx = 0;
+
+    while (!exitRequested()) {
+        const int c = timed_read();
+        if (c < 0) return false;
+        const char ch = static_cast<char>(c);
+
+        if (ch == tgt[target_idx]) {
+            ++target_idx;
+            if (target_idx == tgt.size()) return true;
+        } else {
+            target_idx = (ch == tgt[0]) ? 1 : 0;
+        }
+
+        if (!trm.empty()) {
+            if (ch == trm[term_idx]) {
+                ++term_idx;
+                if (term_idx == trm.size()) return false;
+            } else {
+                term_idx = (ch == trm[0]) ? 1 : 0;
+            }
+        }
+    }
+    return false;
+}
+
+bool SerialPort::find(const char* target) {
+    CallScope scope{"Serial.find"};
+    return findUntil(target, "");
+}
+
+bool SerialPort::find(char target) {
+    CallScope scope{"Serial.find"};
+    const char buf[2] = {target, '\0'};
+    return find(buf);
+}
+
+bool SerialPort::findUntil(const char* target, char terminator) {
+    CallScope scope{"Serial.findUntil"};
+    const char buf[2] = {terminator, '\0'};
+    return findUntil(target, buf);
+}
+
+long SerialPort::parseInt() {
+    CallScope scope{"Serial.parseInt"};
+    while (!exitRequested()) {
+        const int c = timed_peek();
+        if (c < 0) return 0;
+        if ((c >= '0' && c <= '9') || c == '-' || c == '+') {
+            break;
+        }
+        timed_read();
+    }
+    if (exitRequested()) return 0;
+
+    bool negative = false;
+    int c = timed_peek();
+    if (c == '-' || c == '+') {
+        timed_read();
+        if (c == '-') negative = true;
+        c = timed_peek();
+        if (c < '0' || c > '9') return 0;
+    }
+
+    long value = 0;
+    while (!exitRequested()) {
+        c = timed_peek();
+        if (c >= '0' && c <= '9') {
+            timed_read();
+            value = value * 10 + (c - '0');
+        } else {
+            break;
+        }
+    }
+    return negative ? -value : value;
+}
+
+double SerialPort::parseFloat() {
+    CallScope scope{"Serial.parseFloat"};
+    while (!exitRequested()) {
+        const int c = timed_peek();
+        if (c < 0) return 0.0;
+        if ((c >= '0' && c <= '9') || c == '-' || c == '+' || c == '.') {
+            break;
+        }
+        timed_read();
+    }
+    if (exitRequested()) return 0.0;
+
+    bool negative = false;
+    int c = timed_peek();
+    if (c == '-' || c == '+') {
+        timed_read();
+        if (c == '-') negative = true;
+        c = timed_peek();
+        if ((c < '0' || c > '9') && c != '.') return 0.0;
+    }
+
+    double value = 0.0;
+    while (!exitRequested()) {
+        c = timed_peek();
+        if (c >= '0' && c <= '9') {
+            timed_read();
+            value = value * 10.0 + (c - '0');
+        } else {
+            break;
+        }
+    }
+
+    c = timed_peek();
+    if (c == '.') {
+        timed_read();
+        double frac = 1.0;
+        while (!exitRequested()) {
+            const int d = timed_peek();
+            if (d >= '0' && d <= '9') {
+                timed_read();
+                frac *= 0.1;
+                value += (d - '0') * frac;
+            } else {
+                break;
+            }
+        }
+    }
+    return negative ? -value : value;
 }
 
 } // namespace mm::sketch

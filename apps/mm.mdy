@@ -3,6 +3,8 @@ mm: 1.0
 kind: dir
 name: apps
 folder: blink
+folder: echo
+folder: button
 folder: board-smoke
 folder: display-demo
 folder: font-demo

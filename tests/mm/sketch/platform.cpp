@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <optional>
 #include <span>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -83,6 +84,35 @@ public:
     [[nodiscard]] mm::mcu::Status gpio_read(unsigned int pin, bool& high) override {
         if (pin >= pin_count || !configured[pin]) return mm::mcu::Status::BadArgument;
         high = level[pin];
+        return mm::mcu::Status::Ok;
+    }
+
+    bool watched[pin_count] = {};
+    bool pending_edge[pin_count] = {};
+    mm::mcu::Pull watch_pull[pin_count] = {};
+    mm::mcu::Edge watch_edge[pin_count] = {};
+
+    [[nodiscard]] mm::mcu::Status gpio_watch(unsigned int pin, mm::mcu::Pull pull,
+                                             mm::mcu::Edge edge) override {
+        if (pin >= pin_count) return mm::mcu::Status::BadArgument;
+        if (watched[pin]) return mm::mcu::Status::Busy;
+        watched[pin] = true;
+        watch_pull[pin] = pull;
+        watch_edge[pin] = edge;
+        return mm::mcu::Status::Ok;
+    }
+
+    [[nodiscard]] mm::mcu::Status gpio_unwatch(unsigned int pin) override {
+        if (pin >= pin_count) return mm::mcu::Status::BadArgument;
+        watched[pin] = false;
+        pending_edge[pin] = false;
+        return mm::mcu::Status::Ok;
+    }
+
+    [[nodiscard]] mm::mcu::Status gpio_take(unsigned int pin, bool& pending) override {
+        if (pin >= pin_count || !watched[pin]) return mm::mcu::Status::BadArgument;
+        pending = pending_edge[pin];
+        pending_edge[pin] = false;
         return mm::mcu::Status::Ok;
     }
 
@@ -209,4 +239,49 @@ void test_clear_shift_in() {
 void test_set_console_write_fail(bool fail) {
     console_instance.write_fail = fail;
 }
+
+void test_console_feed_input(std::string_view input) {
+    for (char c : input) {
+        console_instance.pending_read.push_back(static_cast<std::byte>(c));
+    }
+}
+
+void test_console_clear_input() {
+    console_instance.pending_read.clear();
+    console_instance.read_offset = 0;
+}
+
+std::string test_console_get_written() {
+    std::string s;
+    for (auto b : console_instance.written_data) {
+        s.push_back(static_cast<char>(b));
+    }
+    return s;
+}
+
+void test_console_clear_written() {
+    console_instance.written_data.clear();
+}
+
+void test_gpio_set_edge(unsigned int pin, bool pending) {
+    if (pin < pin_count) {
+        platform_instance.pending_edge[pin] = pending;
+    }
+}
+
+bool test_gpio_is_watched(unsigned int pin) {
+    if (pin < pin_count) {
+        return platform_instance.watched[pin];
+    }
+    return false;
+}
+
+void test_gpio_clear_all_edges() {
+    for (unsigned int i = 0; i < pin_count; ++i) {
+        platform_instance.pending_edge[i] = false;
+        platform_instance.watched[i] = false;
+    }
+}
+
+
 

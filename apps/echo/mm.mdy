@@ -1,0 +1,13 @@
+---
+mm: 1.3
+kind: app
+name: echo
+option: buildable-host no
+use: mm.sketch
+file: main.cpp
+sketch: echo.ino
+---
+
+# echo
+
+An Arduino-style serial echo sketch built over mm.sketch.

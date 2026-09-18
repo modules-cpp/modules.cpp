@@ -5,6 +5,7 @@ module;
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <string>
 #include <string_view>
 
 export module mm.sketch;
@@ -163,22 +164,103 @@ byte highByte(unsigned long x);
 byte highByte(int) = delete;
 byte highByte(long) = delete;
 
+enum class Trigger {
+    Rising,
+    Falling,
+    Change
+};
+
+inline constexpr Trigger RISING = Trigger::Rising;
+inline constexpr Trigger FALLING = Trigger::Falling;
+inline constexpr Trigger CHANGE = Trigger::Change;
+
+bool attachInterrupt(int pin, void (*handler)(), Trigger trigger);
+bool attachInterrupt(unsigned int pin, void (*handler)(), Trigger trigger);
+bool detachInterrupt(int pin);
+bool detachInterrupt(unsigned int pin);
+[[nodiscard]] int digitalPinToInterrupt(int pin);
+[[nodiscard]] unsigned int digitalPinToInterrupt(unsigned int pin);
+
+enum class Base {
+    Dec = 10,
+    Hex = 16,
+    Oct = 8,
+    Bin = 2
+};
+
+inline constexpr Base DEC = Base::Dec;
+inline constexpr Base HEX = Base::Hex;
+inline constexpr Base OCT = Base::Oct;
+inline constexpr Base BIN = Base::Bin;
+
 class SerialPort {
 public:
     bool begin(unsigned long baud = 9600);
     bool end();
 
+    std::size_t write(byte b);
+    std::size_t write(const byte* buffer, std::size_t size);
+    std::size_t write(const char* buffer, std::size_t size);
+    std::size_t write(const char* s);
+
     std::size_t print(const char* s);
     std::size_t print(char c);
     std::size_t print(std::string_view s);
+    std::size_t print(bool b);
+    std::size_t print(int n, Base base = DEC);
+    std::size_t print(unsigned int n, Base base = DEC);
+    std::size_t print(long n, Base base = DEC);
+    std::size_t print(unsigned long n, Base base = DEC);
+    std::size_t print(double n, int digits = 2);
+    std::size_t print(unsigned char n, Base base = DEC) { return print(static_cast<unsigned int>(n), base); }
+    std::size_t print(short n, Base base = DEC) { return print(static_cast<int>(n), base); }
+    std::size_t print(unsigned short n, Base base = DEC) { return print(static_cast<unsigned int>(n), base); }
 
     std::size_t println(const char* s);
     std::size_t println(char c);
     std::size_t println(std::string_view s);
+    std::size_t println(bool b);
+    std::size_t println(int n, Base base = DEC);
+    std::size_t println(unsigned int n, Base base = DEC);
+    std::size_t println(long n, Base base = DEC);
+    std::size_t println(unsigned long n, Base base = DEC);
+    std::size_t println(double n, int digits = 2);
+    std::size_t println(unsigned char n, Base base = DEC) { return println(static_cast<unsigned int>(n), base); }
+    std::size_t println(short n, Base base = DEC) { return println(static_cast<int>(n), base); }
+    std::size_t println(unsigned short n, Base base = DEC) { return println(static_cast<unsigned int>(n), base); }
     std::size_t println();
+
+    [[nodiscard]] int available();
+    int read();
+    int peek();
+    bool flush();
+    [[nodiscard]] bool connected();
+    explicit operator bool() { return connected(); }
+
+    void setTimeout(unsigned long ms);
+    [[nodiscard]] unsigned long getTimeout() const;
+
+    std::size_t readBytes(char* buffer, std::size_t length);
+    std::size_t readBytes(byte* buffer, std::size_t length);
+    std::size_t readBytesUntil(char terminator, char* buffer, std::size_t length);
+    std::size_t readBytesUntil(byte terminator, byte* buffer, std::size_t length);
+
+    std::string readString();
+    std::string readStringUntil(char terminator);
+
+    bool find(const char* target);
+    bool find(char target);
+    bool findUntil(const char* target, const char* terminator);
+    bool findUntil(const char* target, char terminator);
+
+    long parseInt();
+    double parseFloat();
 };
 
 extern SerialPort Serial;
 
+void onSerial(void (*fn)());
+
 } // namespace mm::sketch
+
 
