@@ -8,14 +8,19 @@ file: status.cppm mm.mcu:status
 file: board.cppm mm.mcu:board
 file: spi-types.cppm mm.mcu:spi_types
 file: i2c-types.cppm mm.mcu:i2c_types
+file: adc-types.cppm mm.mcu:adc_types
+file: pwm-types.cppm mm.mcu:pwm_types
 file: platform.cppm mm.mcu:platform
 file: gpio.cppm mm.mcu:gpio
 file: spi.cppm mm.mcu:spi
 file: i2c.cppm mm.mcu:i2c
 file: uart.cppm mm.mcu:uart
 file: timer.cppm mm.mcu:timer
+file: adc.cppm mm.mcu:adc
+file: pwm.cppm mm.mcu:pwm
 file: mcu.cppm mm.mcu
 file: src/platform.cpp
+file: src/analog.cpp
 ---
 
 # mm.mcu
@@ -40,6 +45,17 @@ address selects the device, so every operation carries one and the configuration
 does not. Addresses are seven-bit. i2c_write_read is one operation rather than a
 write followed by a read, because a register read must not release the bus
 between the two halves.
+
+ADC and PWM are the analog facilities. Each addresses its own inventory by
+number, and each inventory entry names the GPIO it is attached to when it is
+attached to one, so a caller that knows a pin finds the channel or output in
+one lookup. Their inventories are answered by the platform per channel and per
+output, since a reference or a period range is a fact about one of them and not
+about the board. A pad is one thing at a time: a plain GPIO configuration
+yields to an analog claim, a watched GPIO and an analog claim yield only to
+their own release. The two type partitions precede the platform partition,
+whose description methods return their types, and the two call partitions
+follow it.
 
 A platform supplies an object rather than functions. A name declared in this
 module's purview is attached to it and cannot be defined from outside, so the seam

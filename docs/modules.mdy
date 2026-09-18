@@ -102,6 +102,7 @@ The source tree is organized by responsibility.
 +-- document.sh               HTML documentation
 +-- check.sh                  optional: docs/modules-c++20.mdy via cppcheck
 +-- model.sh                  optional: checks the manifest tree against itself
++-- json.sh                   utility: validates and formats JSON with mm.json
 +-- clean.sh                  generated-file cleanup
 +-- apps/
 |   +-- main/                 minimal application
@@ -146,7 +147,8 @@ The source tree is organized by responsibility.
 |   +-- fonts/                mm.fonts bitmap font tables and compositor
 |   +-- gfx/                  mm.gfx packed drawing surfaces
 |   +-- json/                 mm.json RFC 8259 reader and writer
-|   +-- mcu/                  mm.mcu portable MCU interface
+|   +-- mcu/                  mm.mcu portable MCU interface: GPIO, SPI, I2C,
+|                             UART, time, ADC, PWM
 +-- tools/
 |   +-- build/                bootstrap and build front ends
 |   +-- configure/            compiler, lane, and runner configuration
@@ -572,10 +574,10 @@ depends on nothing outside the project; it is optional because it is an
 additional cross-check, not because anything else is missing to run it.
 
 ## Shell tool wrapper scripts
-Each of the eleven scripts above (clean, bootstrap, configure, build, test,
-document, check, model, run, flash, debug) has a second, no-extension counterpart
+Each of the twelve scripts above (clean, bootstrap, configure, build, test,
+document, check, model, json, run, flash, debug) has a second, no-extension counterpart
 at the project root: `bootstrap`, `build`, `clean`, `check`, `document`, `model`,
-`test`, `configure`, `run`, `flash`, `debug`. Where the `.sh` version runs its work directly through the system
+`json`, `test`, `configure`, `run`, `flash`, `debug`. Where the `.sh` version runs its work directly through the system
 shell, the no-extension version routes the same command through
 out/bin/shell (mm.shell, tools/shell) instead. Before the first full build,
 the configure and build wrappers fall back to configure.sh and build.sh because

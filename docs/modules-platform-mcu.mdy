@@ -140,15 +140,24 @@ file: status.cppm mm.mcu:status
 file: board.cppm mm.mcu:board
 file: spi-types.cppm mm.mcu:spi_types
 file: i2c-types.cppm mm.mcu:i2c_types
+file: adc-types.cppm mm.mcu:adc_types
+file: pwm-types.cppm mm.mcu:pwm_types
 file: platform.cppm mm.mcu:platform
 file: gpio.cppm mm.mcu:gpio
 file: spi.cppm mm.mcu:spi
 file: i2c.cppm mm.mcu:i2c
 file: uart.cppm mm.mcu:uart
 file: timer.cppm mm.mcu:timer
+file: adc.cppm mm.mcu:adc
+file: pwm.cppm mm.mcu:pwm
 file: mcu.cppm mm.mcu
 file: src/platform.cpp
+file: src/analog.cpp
 Closing fence
+
+Source order is declared, and the order carries a fact: the type partitions
+precede the platform partition, whose description methods return their types,
+and the call partitions follow it, because they call through it.
 
 The declaration does not make the module itself unavailable. mm.mcu can be
 compiled, checked, modelled, and documented without selecting a platform. The
@@ -266,19 +275,21 @@ specific to the bridge and is not the portable mm.mcu contract.
 
 mm.mcu exports enum class types and a Platform base class. Unsupported remains a
 first-class result, so one provider may implement GPIO while inheriting honest
-Unsupported answers for SPI, I2C, UART, and time.
+Unsupported answers for SPI, I2C, UART, time, ADC, and PWM.
 
 The platform partition owns:
 
 - Platform with virtual facility operations and Unsupported defaults;
-- a virtual board description supplied on demand by the registered provider;
+- a virtual board description supplied on demand by the registered provider,
+  and the two analog inventories, answered the same way;
 - set_platform taking a Platform reference;
 - platform returning the registered object or an unserved fallback.
 
 The implementation unit owns the fallback object, the current pointer,
-set_platform, and platform. Public facility functions call platform and return
-typed Status values. An application sees no C declarations, integer status
-codes, adapter headers, or vendor types.
+set_platform, and platform; a second implementation unit, src/analog.cpp, owns
+the analog facilities' arithmetic and lookups. Public facility functions call
+platform and return typed Status values. An application sees no C
+declarations, integer status codes, adapter headers, or vendor types.
 
 The provider owns its subclass and registration object. The provider object is
 linked directly, not extracted from an archive, so its namespace-scope
@@ -333,11 +344,14 @@ startup. The unserved platform returns an empty name, empty GPIO span, and no
 LED.
 
 This is intentionally a board description rather than another platform-selection
-mechanism. Future board-specific sensors, displays, radios, storage devices, and
-buses belong as typed inventories or optional attachments on Board. Each device
-records the GPIOs, bus, or other resources it consumes by stable identifiers;
+mechanism. Board carries what is one fact for the whole board: its name, its
+GPIOs, its LED. An inventory whose entries each carry facts of their own -- an
+ADC channel with its reference and width, a PWM output with its counter and
+period limits -- is answered by a Platform description method instead, so
+that a per-entry fact never has to be promoted to a board-wide one that would
+be wrong for some entry. Both kinds record the GPIOs they attach to by number;
 facility operations remain on Platform, and applications continue importing
-only mm.mcu. Adding a device class therefore grows the description without
+only mm.mcu. Adding a device class therefore grows a description without
 creating provider module names in portable application manifests.
 
 The current direct RP2040 provider describes rp2040-ram, GPIOs GP0 through GP29,
@@ -384,6 +398,145 @@ through, so the interface does not offer them.
 A provider that implements the operation must hold the bus across it. The Pico
 provider does so through the SDK's nostop argument, which makes the read a
 repeated start rather than a second transaction.
+
+## Analog facilities
+
+ADC and PWM are the two analog facilities, partitions beside SPI and I2C with
+inventories the platform answers per channel and per output.
+
+Opening fence
+struct AdcChannel {
+    unsigned int number;                 // what the ADC functions accept
+    std::string_view name;
+    std::optional<unsigned int> gpio;    // absent for an internal source
+    unsigned int bits;                   // a count lies in [0, 2^bits)
+    unsigned int reference_millivolts;   // full scale, or zero if unknown
+};
+struct AdcDescription { std::span<const AdcChannel> channels; };
+
+struct PwmOutput {
+    unsigned int number;                 // what the PWM functions accept
+    std::string_view name;
+    std::optional<unsigned int> gpio;
+    unsigned int group;                  // the counter it shares a period with
+    unsigned int comparator;             // its compare register in that counter
+    std::uint64_t minimum_period_ns;     // both zero when the provider cannot
+    std::uint64_t maximum_period_ns;     // advertise them
+};
+struct PwmDescription { std::span<const PwmOutput> outputs; };
+
+[[nodiscard]] AdcDescription adc_description();
+[[nodiscard]] Status adc_configure(unsigned int channel);
+[[nodiscard]] Status adc_read(unsigned int channel, unsigned int& count);
+[[nodiscard]] Status adc_release(unsigned int channel);
+[[nodiscard]] Status adc_channel_for_gpio(unsigned int gpio,
+                                          unsigned int& channel);
+[[nodiscard]] unsigned int adc_millivolts(const AdcChannel&,
+                                           unsigned int count);
+
+[[nodiscard]] PwmDescription pwm_description();
+[[nodiscard]] Status pwm_configure(unsigned int output,
+                                   std::uint64_t period_ns);
+[[nodiscard]] Status pwm_period(unsigned int output, std::uint64_t& actual_ns);
+[[nodiscard]] Status pwm_write(unsigned int output, std::uint64_t duty_ns);
+[[nodiscard]] Status pwm_release(unsigned int output);
+[[nodiscard]] Status pwm_output_for_gpio(unsigned int gpio,
+                                         unsigned int& output);
+[[nodiscard]] Status pwm_plan(const PwmCounter&, std::uint64_t period_ns,
+                              PwmPlan&);
+Closing fence
+
+Each facility addresses its own inventory by number. An entry names the GPIO
+it is attached to when it is attached to one -- a temperature sensor is a
+channel with none -- and the two lookups find the number for a pin, so a layer
+that speaks in pins, a sketch's analogRead say, is one lookup and one call. A
+number outside the inventory is BadArgument; a number the inventory carries
+but the platform does not implement is Unsupported. The spans view
+provider-owned static storage, as Board::gpios does, and every output
+parameter changes only on Ok.
+
+adc_configure claims a channel: a pin channel's pad goes to the converter and
+an internal source is enabled; on a channel already claimed it is idempotent.
+adc_read performs one bounded conversion and answers a count in [0, 2^bits);
+on an unconfigured channel it is BadArgument. adc_release is idempotent,
+leaves a pin unconfigured, and disables an internal source. One-shot reading
+is the only timing mode. A channel's bits lie in [1, 31]; its reference is
+the full-scale voltage when the board knows it and zero when it does not,
+which does not prevent a raw read. adc_millivolts is count times reference
+over 2^bits - 1, rounded to nearest in 64-bit integer arithmetic, and zero
+for a zero reference, bits outside the range, or a count past full scale.
+Temperature conversion is not here: an internal temperature channel has no
+universal formula.
+
+pwm_configure claims an output, sets the nearest period the hardware holds,
+and starts it at zero duty; pwm_period answers that actual period, which is
+what a duty is measured against, because an approximated 490 Hz is not
+2,040,816 ns. A zero period is BadArgument, and so is one outside nonzero
+advertised limits, before any hardware changes; zero limits mean unknown, not
+unlimited, and the provider may still refuse. Outputs in one group share a
+counter: a second may join only at the group's requested period, and another
+request is Busy. Outputs with one group and one comparator are aliases of one
+compare register, and a second claim is Busy even at the same period. The
+same output at the same requested period is idempotent; at another it is
+Busy until released. pwm_write accepts a duty from zero through the actual
+period -- zero a steady low, the period a steady high -- and refuses more
+with BadArgument; a change takes effect no later than the next complete
+period without a runt pulse. pwm_release is idempotent, leaves the pin
+unconfigured, does not disturb a sibling, and stops the counter after the
+group's last output goes.
+
+pwm_plan is arithmetic for a counter whose period is clock ticks times a
+fixed-point divider times top + 1, with the compare register the counter's
+width -- the RP2040's and RP2350's shape. It takes the smallest divider at
+which the period fits, so the top is as large as it can be, and the nearest
+top; a divider fits when the period in counts at that divider, rounded to
+nearest with a half rounding up, is at most 2^counter_bits - 1. The top is
+therefore never more than 2^counter_bits - 2, so that top + 1, the steady
+high, fits the register: full duty is the ordinary path on every part. The
+cost is one count, except in the half-count interval at each divider's limit
+where a period that would have rounded to 2^counter_bits counts takes the
+next divider step and loses that step's fraction of its duty steps; at 125
+MHz and divider one that interval is 524,284 through 524,288 ns. It answers
+BadArgument for a zero clock or one past 2^32, a counter of fewer than two
+or more than thirty-two bits, a divider of more than twenty-four bits, a
+period under two ticks or beyond the counter's reach, or an intermediate
+that would overflow, and it commits its plan only on Ok. It uses no 128-bit
+integer. A counter of another shape plans for itself.
+
+Polarity, phase-correct counting, capture, DMA-fed sequences, servo, and
+tone are outside these facilities; a tone belongs above PWM.
+
+## Pad ownership
+
+The selected platform owns GPIO, ADC, and PWM state together, and a pad is
+one thing at a time. A plain GPIO configuration is a replaceable claim:
+adc_configure or pwm_configure may take it over, and on success the digital
+mode -- and, for an output, its level -- is gone. A watched GPIO answers
+Busy, and its latch is untouched. An ADC or PWM claim blocks gpio_configure,
+gpio_watch, gpio_write, gpio_read, and a competing analog claim with Busy;
+a refused gpio_read leaves its output unchanged. Release returns the pad to
+an unconfigured state.
+
+The asymmetry is deliberate. A digital configuration is a mode and a level,
+and a caller that wants them back issues gpio_configure and then gpio_write,
+two calls between which the pad passes through the mux change and the
+configured default level, so a transition can appear on the wire: a
+consequence the caller can foresee and sequence. An analog claim carries
+running hardware -- a counter with a period and a duty, a converter with a
+selected input -- and a group another output may share, so replacing it
+silently would stop a waveform or move a sibling's period without the owner
+hearing. Digital therefore yields to analog and analog yields to nothing but
+release; a layer that stops a waveform by driving the pin, as Arduino's
+digitalWrite does after analogWrite, releases first.
+
+A takeover is transactional where hardware permits: the provider validates
+inventory, group, range, and ownership first, changes the mux and peripheral,
+and records the new owner last, so a failed call leaves its record true. If
+hardware cannot be restored, the provider records the pin as unconfigured and
+answers TransportError rather than claim a configuration it cannot verify.
+This is not a universal pin arbiter: SPI and I2C configuration registers no
+pad claim, and board wiring must not assign those signals to an analog pin at
+the same time.
 
 # Per-executable closure augmentation
 
@@ -566,6 +719,28 @@ binding. Unrelated executables retain their ordinary closure.
   observes one transaction rather than a write followed by a read.
 - An unserved platform answers Unsupported for every I2C operation rather than
   failing to link.
+- Both analog inventories reach the caller as the provider gave them, and the
+  two lookups find an attached pin, refuse an unattached one, and leave their
+  output alone when they refuse.
+- Every ADC and PWM operation routes to the provider with its arguments,
+  carries every status back, and leaves its output parameters unchanged on
+  any answer but Ok; an unserved platform answers Unsupported for all of them.
+- A plain GPIO yields to an analog claim and the GPIO facility answers Busy on
+  that pad until release; a watched pad refuses the claim and keeps its watch;
+  a takeover the hardware refuses leaves the GPIO claim recorded and drivable.
+- A sibling at another period, an alias of a claimed comparator, and a duty
+  past the period are refused; a sibling at the group's period joins; a
+  release disturbs neither a sibling's duty nor its period.
+- adc_millivolts is exact at zero, full scale, and the largest product the
+  bounds allow, rounds to nearest, and answers zero for an unknown reference,
+  bits outside the range, or a count past full scale.
+- pwm_plan matches an independent rational model at both nominal Pico clocks
+  for Arduino's 490 and 980 Hz, tone's 31 and 65,535 Hz, one kilohertz, and
+  both ends of the range; at 125 MHz 524,280 and 524,281 ns plan at divider
+  one and top 65,534 while 524,284, 524,286, and 524,288 ns plan at the next
+  divider step; it refuses a zero period, one under two ticks, one beyond the
+  counter's reach, a zero or over-wide clock, bit widths outside its bounds,
+  and an overflowing scaling, leaving its output untouched each time.
 - mcu-blink links on rp2040-ram through platform.rp2040_ram.mcu.
 - With the corresponding external tools installed, mcu-blink links on Pico ARM
   and Pico RISC-V through platform.pico.mcu and the real external CMake bridge.
@@ -611,7 +786,9 @@ record a skipped qualification with the missing prerequisite named.
 - It does not permit duplicate module names per lane.
 - It does not choose individual UART instances, GPIO pin ownership, or clocks.
 - It does not promise that every provider supports every mm.mcu facility;
-  Unsupported remains part of the interface, including SPI and I2C.
+  Unsupported remains part of the interface, including SPI, I2C, ADC, and PWM.
+  The Pico and Linux ADC and PWM implementations are planned; until they land,
+  every provider inherits Unsupported for both.
 - It does not make attached displays or sensors MCU facilities. SPI is an
   implemented reusable transport; mm.display and mm.epaper.ssd1680 are layered
   above it as specified by docs/modules-display.mdy and

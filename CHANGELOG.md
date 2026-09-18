@@ -23,6 +23,20 @@ All notable changes to modules.cpp. Versions follow [semantic versioning](https:
   `FILE:LINE:COLUMN: DESCRIPTION (STATUS)`, `--indent` and `--compact`
   rewrite a document in either layout, and `--scan` lists the scanner's
   tokens.
+- **ADC and PWM in `mm.mcu`.** Two facility partitions beside SPI and I2C,
+  with inventories the platform answers per channel and per output:
+  `adc_configure`, `adc_read`, `adc_release`, and `adc_channel_for_gpio` over
+  `AdcChannel` with its width and reference; `pwm_configure`, `pwm_period`,
+  `pwm_write`, `pwm_release`, and `pwm_output_for_gpio` over `PwmOutput` with
+  its counter group, comparator, and period limits. `adc_millivolts` converts a
+  count in integer arithmetic; `pwm_plan` turns a period into a divider and a
+  top for a prescaler-and-top counter such as the RP2040's and RP2350's,
+  reserving one count so full duty always fits the compare register. A pad is
+  one thing at a time: a plain GPIO yields to an analog claim, a watched GPIO
+  and an analog claim yield only to their own release. Every provider inherits
+  `Unsupported` for both until its implementation lands; the host stand-in
+  and `tests/mm/mcu` pin the contracts and the planner against an independent
+  rational model.
 - **GPIO edge latch in `mm.mcu`.** Portable `gpio_watch`, `gpio_take`,
   `gpio_unwatch`, and bounded `gpio_wait` report selected physical edges
   without running application callbacks inside interrupt handlers. Pico SDK

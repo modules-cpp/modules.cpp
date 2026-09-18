@@ -6,6 +6,8 @@ use: mm.test
 use: mm.mcu
 unit: tests/mm/mcu/platform.cpp
 unit: tests/mm/mcu/mcu.cpp
+unit: tests/mm/mcu/adc.cpp
+unit: tests/mm/mcu/pwm.cpp
 unit: tests/main.cpp
 ---
 
