@@ -556,13 +556,109 @@ void installed_external_sketch() {
            "sketch --check refuses orphan external sketch");
 }
 
+void installed_external_library_sketch() {
+    std::error_code ec;
+    const auto repository = std::filesystem::current_path(ec);
+    expect(!ec, "repository directory available");
+    const auto bin = repository / "out/bin";
+    const mm::test::scoped_tree external_tree{"ext_lib_sketch"};
+    const auto lib_root = external_tree.root() / "fixture_lib";
+    const auto examples_dir = lib_root / "examples";
+    const auto app_dir = examples_dir / "FixtureApp";
+    std::filesystem::create_directories(app_dir, ec);
+    expect(!ec, "library app directory created");
+
+    const auto log = external_tree.root() / "tool.log";
+    const auto lib_arg = mm::build::shell_quote(lib_root);
+    const auto app_arg = mm::build::shell_quote(app_dir);
+    const auto repo_arg = mm::build::shell_quote(repository);
+
+    // 1. Write library.properties
+    {
+        std::ofstream props(lib_root / "library.properties");
+        props << "name=FixtureLib\nversion=1.0.0\n";
+    }
+
+    // 2. Write FixtureLib.h using unqualified uint8_t and Arduino.h
+    {
+        std::ofstream header(lib_root / "FixtureLib.h");
+        header << "#pragma once\n"
+               << "#include \"Arduino.h\"\n"
+               << "inline uint8_t fixture_add(uint8_t a, uint8_t b) {\n"
+               << "    return a + b;\n"
+               << "}\n";
+    }
+
+    // 3. Write FixtureLib.cpp
+    {
+        std::ofstream cpp(lib_root / "FixtureLib.cpp");
+        cpp << "#include \"FixtureLib.h\"\n";
+    }
+
+    // 4. Write FixtureApp.ino
+    {
+        std::ofstream ino(app_dir / "FixtureApp.ino");
+        ino << "#include \"FixtureLib.h\"\n\n"
+            << "void setup() {\n"
+            << "    uint8_t res = fixture_add(10, 20);\n"
+            << "    if (res == 30) {\n"
+            << "        requestExit(0);\n"
+            << "    } else {\n"
+            << "        requestExit(1);\n"
+            << "    }\n"
+            << "}\n\n"
+            << "void loop() {}\n";
+    }
+
+    // 5. Generate library mode via sketch tool
+    expect(invoke(bin / "sketch", "--project " + repo_arg + " " + lib_arg,
+                  log) == 0,
+           "sketch generates library manifests and files");
+    expect(std::filesystem::exists(lib_root / "mm.mdy"),
+           "root mm.mdy generated");
+    expect(std::filesystem::exists(examples_dir / "mm.mdy"),
+           "examples mm.mdy generated");
+    expect(std::filesystem::exists(app_dir / "mm.mdy"),
+           "app mm.mdy generated");
+    expect(std::filesystem::exists(app_dir / "main.cpp"),
+           "main.cpp generated");
+    expect(std::filesystem::exists(app_dir / "Arduino.h"),
+           "Arduino.h generated");
+
+    // 6. Verify with --check
+    expect(invoke(bin / "sketch", "--check " + lib_arg, log) == 0,
+           "sketch --check passes on generated library");
+
+    // 7. Compile and link via build (exercises uint8_t without std::)
+    expect(invoke(bin / "build", app_arg, log) == 0,
+           "build succeeds for library sketch application");
+
+    // 8. Run executable
+    expect(invoke(bin / "run", "--host " + app_arg, log) == 0,
+           "run --host verifies sketch execution succeeds");
+
+    // 9. Build-time repair: delete Arduino.h and verify build restores it
+    const auto header_path = app_dir / "Arduino.h";
+    std::filesystem::remove(header_path, ec);
+    expect(!std::filesystem::exists(header_path),
+           "Arduino.h removed for repair test");
+    expect(invoke(bin / "build", app_arg, log) == 0,
+           "build restores missing Arduino.h via check-generate-check");
+    expect(std::filesystem::exists(header_path),
+           "Arduino.h restored by build");
+}
+
 const mm::test::case_ cases[] = {
-    {"installed configure and cross-tool 1.1 compatibility", &installed_tools_support_11},
+    {"installed configure and cross-tool 1.1 compatibility",
+     &installed_tools_support_11},
     {"installed json tool", &installed_json_tool},
-    {"installed tools select configured lanes", &installed_tools_select_configured_lanes},
-    {"installed tools support common help", &installed_tools_support_common_help},
+    {"installed tools select configured lanes",
+     &installed_tools_select_configured_lanes},
+    {"installed tools support common help",
+     &installed_tools_support_common_help},
     {"sketch tool four-run case", &sketch_tool_four_runs},
     {"installed external sketch", &installed_external_sketch},
+    {"installed external library sketch", &installed_external_library_sketch},
 };
 const mm::test::registrar reg{"mm.configure CLI", cases};
 }

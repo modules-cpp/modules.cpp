@@ -84,8 +84,9 @@ std::filesystem::path find_self_project(const char* argv0) {
 int main(int argc, char** argv) {
     mm::app::Options options("sketch");
     options.flag("--check");
+    options.flag("--library");
     options.option("--project", "DIR");
-    options.help("sketch [-v|--verbose] [-h|--help] [--check] "
+    options.help("sketch [-v|--verbose] [-h|--help] [--check] [--library] "
                  "[--project DIR] [directory]");
     const auto cli = options.parse(argc, argv);
     if (cli == mm::app::Cli::help) return 0;
@@ -230,6 +231,216 @@ int main(int argc, char** argv) {
             abs_dir / self_project_value, ec);
     } else {
         project_root = find_self_project(argv[0]);
+    }
+
+    const bool is_library =
+        options.seen("--library") || mm::ino::is_library_root(abs_dir);
+
+    if (is_library) {
+        if (tree_above && !parent_registers_child) {
+            std::cerr << parent_msg << "\n";
+            return 65;
+        }
+
+        const bool expect_project = !tree_above;
+        const std::string project_rel =
+            expect_project
+                ? project_root.lexically_relative(abs_dir).generic_string()
+                : "";
+
+        auto plan = mm::ino::discover_library(abs_dir);
+        if (!plan.ok) {
+            std::cerr << "sketch: " << plan.error << "\n";
+            return 65;
+        }
+
+        for (const auto& skip_msg : plan.skipped) {
+            std::cerr << "sketch: " << skip_msg << "\n";
+        }
+
+        if (std::filesystem::exists(abs_dir / "mm.mdy", ec)) {
+            const auto doc = mm::mdy::Parser::parse_file(abs_dir / "mm.mdy");
+            std::string err;
+            if (!mm::ino::validate_manifest_compatibility(
+                    doc, &plan.root_node, nullptr, expect_project,
+                    abs_dir, abs_dir / "mm.mdy", err)) {
+                std::cerr << "sketch: " << err << "\n";
+                return 65;
+            }
+        }
+        for (const auto& dir_node : plan.dir_nodes) {
+            const auto mpath = dir_node.dir / "mm.mdy";
+            if (std::filesystem::exists(mpath, ec)) {
+                const auto doc = mm::mdy::Parser::parse_file(mpath);
+                std::string err;
+                if (!mm::ino::validate_manifest_compatibility(
+                        doc, &dir_node, nullptr, false,
+                        abs_dir, mpath, err)) {
+                    std::cerr << "sketch: " << err << "\n";
+                    return 65;
+                }
+            }
+        }
+        for (const auto& app_node : plan.app_nodes) {
+            const auto mpath = app_node.dir / "mm.mdy";
+            if (std::filesystem::exists(mpath, ec)) {
+                const auto doc = mm::mdy::Parser::parse_file(mpath);
+                std::string err;
+                if (!mm::ino::validate_manifest_compatibility(
+                        doc, nullptr, &app_node, false,
+                        abs_dir, mpath, err)) {
+                    std::cerr << "sketch: " << err << "\n";
+                    return 65;
+                }
+            }
+        }
+
+        if (check_mode) {
+            bool check_failed = false;
+            if (!std::filesystem::exists(abs_dir / "mm.mdy", ec)) {
+                std::cerr << "sketch: manifest not found: "
+                          << (abs_dir / "mm.mdy").string() << "\n";
+                check_failed = true;
+            }
+            for (const auto& dir_node : plan.dir_nodes) {
+                const auto mpath = dir_node.dir / "mm.mdy";
+                if (!std::filesystem::exists(mpath, ec)) {
+                    std::cerr << "sketch: manifest not found: "
+                              << mpath.string() << "\n";
+                    check_failed = true;
+                }
+            }
+            for (const auto& app_node : plan.app_nodes) {
+                const auto mpath = app_node.dir / "mm.mdy";
+                if (!std::filesystem::exists(mpath, ec)) {
+                    std::cerr << "sketch: manifest not found: "
+                              << mpath.string() << "\n";
+                    check_failed = true;
+                }
+                const auto main_path = app_node.dir / "main.cpp";
+                if (!std::filesystem::exists(main_path, ec)) {
+                    std::cerr << "sketch: missing generated main.cpp in "
+                              << app_node.dir.string() << "\n";
+                    check_failed = true;
+                } else {
+                    std::vector<mm::ino::SourceFile> sources;
+                    for (const auto& s : app_node.sketches) {
+                        std::ifstream in(app_node.dir / s);
+                        if (in) {
+                            std::ostringstream ss;
+                            ss << in.rdbuf();
+                            sources.push_back({s, ss.str()});
+                        }
+                    }
+                    const auto tr = mm::ino::transform(sources);
+                    std::ifstream in_main(main_path);
+                    std::ostringstream ss_main;
+                    ss_main << in_main.rdbuf();
+                    if (!tr.ok || ss_main.str() != tr.output) {
+                        std::cerr
+                            << "sketch: committed main.cpp does not match"
+                               " sketch in "
+                            << app_node.dir.string() << "\n";
+                        check_failed = true;
+                    }
+                }
+                const auto header_path = app_node.dir / "Arduino.h";
+                if (!std::filesystem::exists(header_path, ec)) {
+                    std::cerr << "sketch: missing generated Arduino.h in "
+                              << app_node.dir.string() << "\n";
+                    check_failed = true;
+                } else {
+                    std::ifstream in_header(header_path);
+                    std::ostringstream ss_header;
+                    ss_header << in_header.rdbuf();
+                    if (ss_header.str() != mm::ino::sketch_header()) {
+                        std::cerr
+                            << "sketch: committed Arduino.h does not match"
+                               " this release in "
+                            << app_node.dir.string() << "\n";
+                        check_failed = true;
+                    }
+                }
+            }
+            if (check_failed) return 65;
+            return 0;
+        }
+
+        std::string err;
+        const auto root_manifest = abs_dir / "mm.mdy";
+        if (!std::filesystem::exists(root_manifest, ec)) {
+            const std::string content =
+                mm::ino::render_root_manifest(plan.root_node, project_rel);
+            if (!mm::ino::write_guarded(abs_dir, "mm.mdy", content, err,
+                                        "mm.mdy.tmp")) {
+                std::cerr << "sketch: cannot write " << root_manifest.string()
+                          << ": " << err << "\n";
+                return 65;
+            }
+        }
+        for (const auto& dir_node : plan.dir_nodes) {
+            const auto mpath = dir_node.dir / "mm.mdy";
+            if (!std::filesystem::exists(mpath, ec)) {
+                const std::string content =
+                    mm::ino::render_dir_manifest(dir_node);
+                if (!mm::ino::write_guarded(dir_node.dir, "mm.mdy", content,
+                                            err, "mm.mdy.tmp")) {
+                    std::cerr << "sketch: cannot write " << mpath.string()
+                              << ": " << err << "\n";
+                    return 65;
+                }
+            }
+        }
+        for (const auto& app_node : plan.app_nodes) {
+            const auto mpath = app_node.dir / "mm.mdy";
+            if (!std::filesystem::exists(mpath, ec)) {
+                const std::string content =
+                    mm::ino::render_app_manifest(app_node);
+                if (!mm::ino::write_guarded(app_node.dir, "mm.mdy", content,
+                                            err, "mm.mdy.tmp")) {
+                    std::cerr << "sketch: cannot write " << mpath.string()
+                              << ": " << err << "\n";
+                    return 65;
+                }
+            }
+            std::vector<mm::ino::SourceFile> sources;
+            for (const auto& s : app_node.sketches) {
+                std::ifstream in(app_node.dir / s);
+                if (!in) {
+                    std::cerr << "sketch: cannot open sketch file: "
+                              << (app_node.dir / s).string() << "\n";
+                    return 65;
+                }
+                std::ostringstream ss;
+                ss << in.rdbuf();
+                sources.push_back({s, ss.str()});
+            }
+            const auto tr = mm::ino::transform(sources);
+            if (!tr.ok) {
+                std::cerr << "sketch: transformation failed for "
+                          << app_node.name << "\n";
+                return 65;
+            }
+            if (!mm::ino::write_guarded(app_node.dir, "main.cpp", tr.output,
+                                        err, "main.cpp.tmp")) {
+                std::cerr << "sketch: cannot write main.cpp in "
+                          << app_node.dir.string() << ": " << err << "\n";
+                return 65;
+            }
+            if (!mm::ino::write_guarded(app_node.dir, "Arduino.h",
+                                        mm::ino::sketch_header(), err,
+                                        "Arduino.h.tmp")) {
+                std::cerr << "sketch: cannot write Arduino.h in "
+                          << app_node.dir.string() << ": " << err << "\n";
+                return 65;
+            }
+        }
+        if (!tree_above) {
+            std::cout << "external sketch; build with "
+                      << (project_root / "out/bin/build").string() << " "
+                      << abs_dir.string() << "\n";
+        }
+        return 0;
     }
 
     // Determine Case:

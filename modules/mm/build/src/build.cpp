@@ -4084,21 +4084,88 @@ int compile(const Toolchain& toolchain, BuildableNode& target,
         }
 
         if (needs_generation) {
-            std::filesystem::path sketch_exe = context.tools_dir().empty()
-                ? (std::filesystem::current_path() / "out/bin/sketch")
-                : (context.tools_dir() / "sketch");
+            std::filesystem::path sketch_exe =
+                context.tools_dir().empty()
+                    ? (std::filesystem::current_path()
+                       / "out/bin/sketch")
+                    : (context.tools_dir() / "sketch");
             std::error_code sec;
-            sketch_exe = std::filesystem::weakly_canonical(sketch_exe, sec);
+            sketch_exe = std::filesystem::weakly_canonical(
+                sketch_exe, sec);
             if (sec || !safe_exists(sketch_exe)) {
-                std::cerr << "build: sketch tool does not exist: "
-                          << sketch_exe.string() << "\n";
+                std::cerr
+                    << "build: sketch tool does not exist: "
+                    << sketch_exe.string() << "\n";
                 return exit_compile;
             }
-            const std::string command = shell_quote(sketch_exe) + " " + shell_quote(app_dir);
+            const std::string command =
+                shell_quote(sketch_exe) + " "
+                + shell_quote(app_dir);
             const int status = run(toolchain, command);
             if (status != 0) {
-                std::cerr << "build: sketch generation failed for " << target.name << "\n";
+                std::cerr
+                    << "build: sketch generation failed"
+                       " for "
+                    << target.name << "\n";
                 return exit_compile;
+            }
+        }
+
+        // An application declaring sketch-library needs
+        // byte-correct generated files (main.cpp and the
+        // compatibility header). The check-generate-check
+        // sequence keeps mm.build from importing mm.ino:
+        //   1. silent --check (>/dev/null 2>&1)
+        //   2. on failure: sketch <app> (repair)
+        //   3. loud --check (stderr visible)
+        // Only the second check's diagnostic is printed,
+        // which is always the current truth.
+        if (!target.sketch_libraries.empty()) {
+            std::filesystem::path sketch_exe =
+                context.tools_dir().empty()
+                    ? (std::filesystem::current_path()
+                       / "out/bin/sketch")
+                    : (context.tools_dir() / "sketch");
+            std::error_code sec;
+            sketch_exe = std::filesystem::weakly_canonical(
+                sketch_exe, sec);
+            if (sec || !safe_exists(sketch_exe)) {
+                std::cerr
+                    << "build: sketch tool does not exist: "
+                    << sketch_exe.string() << "\n";
+                return exit_compile;
+            }
+            const auto quoted_exe =
+                shell_quote(sketch_exe);
+            const auto quoted_dir =
+                shell_quote(app_dir);
+            const std::string check_cmd =
+                quoted_exe + " --check " + quoted_dir;
+            const std::string silent_check =
+                check_cmd + " >/dev/null 2>&1";
+            const int first =
+                run(toolchain, silent_check);
+            if (first != 0) {
+                const std::string gen_cmd =
+                    quoted_exe + " " + quoted_dir;
+                const int gen =
+                    run(toolchain, gen_cmd);
+                if (gen != 0) {
+                    std::cerr
+                        << "build: sketch generation"
+                           " failed for "
+                        << target.name << "\n";
+                    return exit_compile;
+                }
+                const int second =
+                    run(toolchain, check_cmd);
+                if (second != 0) {
+                    std::cerr
+                        << "build: sketch --check"
+                           " failed for "
+                        << target.name << "\n";
+                    return exit_compile;
+                }
             }
         }
     }

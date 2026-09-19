@@ -282,20 +282,38 @@ void sketch_header_synthesis() {
     const auto header = mm::ino::sketch_header();
     expect(header.find("import mm.sketch;") != std::string::npos,
            "the header is built on mm.sketch");
-    expect(header.find("using namespace mm::sketch;") != std::string::npos,
-           "the header introduces the sketch vocabulary unqualified");
-    expect(header.find("#define F(string_literal) (string_literal)") !=
+    expect(header.find("using namespace mm::sketch;") !=
                std::string::npos,
+           "the header introduces the sketch vocabulary"
+           " unqualified");
+    expect(header.find("using std::uint8_t;") !=
+               std::string::npos,
+           "uint8_t is brought into the global namespace");
+    expect(header.find("using std::int32_t;") !=
+               std::string::npos,
+           "int32_t is brought into the global namespace");
+    expect(header.find("using std::size_t;") !=
+               std::string::npos,
+           "size_t is brought into the global namespace");
+    expect(header.find("using std::ptrdiff_t;") !=
+               std::string::npos,
+           "ptrdiff_t is brought into the global namespace");
+    expect(header.find(
+               "#define F(string_literal) (string_literal)") !=
+                std::string::npos,
            "F is accepted and inert");
-    expect(header.find("#define PROGMEM\n") != std::string::npos,
+    expect(header.find("#define PROGMEM\n") !=
+               std::string::npos,
            "PROGMEM is accepted and inert");
     expect(header.find("A0 = 0;") != std::string::npos &&
                header.find("A7 = 7;") != std::string::npos,
            "the analog channel names are present");
-    expect(header.find("do not edit by hand") != std::string::npos,
+    expect(header.find("do not edit by hand") !=
+               std::string::npos,
            "the header says it is generated");
     expect(mm::ino::sketch_header() == header,
-           "synthesis is deterministic, so --check can compare it");
+           "synthesis is deterministic so --check can"
+           " compare it");
 }
 
 void sketch_header_is_checked() {
@@ -331,6 +349,159 @@ void sketch_header_is_checked() {
            "the generated header passes");
 }
 
+void library_discovery_flat() {
+    const mm::test::scoped_tree tree{"ino_lib_flat"};
+    const auto root = tree.root();
+    std::ofstream(root / "library.properties")
+        << "name=AnalogPin\nversion=1.0\n";
+    const auto ex = root / "examples";
+    std::filesystem::create_directories(ex / "AnalogPin");
+    std::filesystem::create_directories(ex / "AnalogPin_fast");
+    std::ofstream(ex / "AnalogPin/AnalogPin.ino")
+        << "void setup() {}\nvoid loop() {}\n";
+    std::ofstream(ex / "AnalogPin_fast/AnalogPin_fast.ino")
+        << "void setup() {}\nvoid loop() {}\n";
+
+    expect(mm::ino::is_library_root(root),
+           "directory with library.properties and examples is a library root");
+
+    const auto plan = mm::ino::discover_library(root);
+    expect(plan.ok, "discover_library must succeed for flat library");
+    expect(plan.root_node.name == root.filename().string(),
+           "root node name must match directory name");
+    expect(plan.root_node.folders.size() == 1 &&
+               plan.root_node.folders.front() == "examples",
+           "root node must name only examples");
+    expect(plan.dir_nodes.size() == 1,
+           "flat library must have only examples dir node");
+    expect(plan.dir_nodes.front().name == "examples",
+           "dir node name must be examples");
+    expect(plan.dir_nodes.front().folders.size() == 2,
+           "examples dir node must have 2 child folders");
+    expect(plan.app_nodes.size() == 2,
+           "flat library must discover 2 app nodes");
+    expect(plan.app_nodes[0].name == "AnalogPin",
+           "first app name must be AnalogPin");
+    expect(plan.app_nodes[0].sketch_library_rel == "../..",
+           "flat app sketch-library must climb two segments");
+}
+
+void library_discovery_category_nested() {
+    const mm::test::scoped_tree tree{"ino_lib_cat"};
+    const auto root = tree.root();
+    std::ofstream(root / "library.json") << "{\"name\":\"RadioLib\"}\n";
+    const auto ex = root / "examples";
+    std::filesystem::create_directories(ex / "CC1101/CC1101_Transmit");
+    std::filesystem::create_directories(ex / "CC1101/CC1101_Receive");
+    std::ofstream(ex / "CC1101/CC1101_Transmit/CC1101_Transmit.ino")
+        << "void setup() {}\nvoid loop() {}\n";
+    std::ofstream(ex / "CC1101/CC1101_Receive/CC1101_Receive.ino")
+        << "void setup() {}\nvoid loop() {}\n";
+
+    expect(mm::ino::is_library_root(root),
+           "directory with library.json and examples is a library root");
+
+    const auto plan = mm::ino::discover_library(root);
+    expect(plan.ok, "discover_library must succeed for category library");
+    expect(plan.app_nodes.size() == 2,
+           "category library must discover 2 app nodes");
+    expect(plan.app_nodes[0].name == "CC1101-CC1101_Receive",
+           "app name must be hyphenated path relative to examples");
+    expect(plan.app_nodes[0].sketch_library_rel == "../../..",
+           "category app sketch-library must climb three segments");
+    expect(plan.dir_nodes.size() == 2,
+           "category library must have CC1101 and examples dir nodes");
+}
+
+void library_discovery_symlink_and_empty_skipped() {
+    const mm::test::scoped_tree tree{"ino_lib_skip"};
+    const auto root = tree.root();
+    std::ofstream(root / "library.properties") << "name=Lib\n";
+    const auto ex = root / "examples";
+    std::filesystem::create_directories(ex / "RealApp");
+    std::filesystem::create_directories(ex / "EmptyDir");
+    std::ofstream(ex / "RealApp/RealApp.ino")
+        << "void setup() {}\nvoid loop() {}\n";
+
+    std::error_code ec;
+    const auto outside = tree.root().parent_path() / "external_target";
+    std::filesystem::create_directories(outside, ec);
+    std::filesystem::create_directory_symlink(outside, ex / "SymlinkDir", ec);
+
+    const auto plan = mm::ino::discover_library(root);
+    expect(plan.ok, "discover_library must succeed");
+    expect(plan.app_nodes.size() == 1,
+           "only RealApp must be discovered as an application");
+    bool found_empty = false;
+    bool found_symlink = false;
+    for (const auto& s : plan.skipped) {
+        if (s.find("EmptyDir") != std::string::npos) found_empty = true;
+        if (s.find("SymlinkDir") != std::string::npos) found_symlink = true;
+    }
+    expect(found_empty, "directory holding no sketch must be skipped");
+    expect(found_symlink, "symlinked directory must be skipped");
+}
+
+void library_manifest_compatibility_validation() {
+    const mm::test::scoped_tree tree{"ino_lib_compat"};
+    const auto root = tree.root();
+
+    mm::ino::LibraryDirNode dir_node;
+    dir_node.dir = root / "examples";
+    dir_node.name = "examples";
+    dir_node.folders = {"app1", "app2"};
+    dir_node.is_root = false;
+
+    std::string err;
+    mm::mdy::MDYDocument valid_doc;
+    valid_doc.metadata["kind"] = {"dir"};
+    valid_doc.metadata["name"] = {"examples"};
+    valid_doc.metadata["folder"] = {"app1", "app2"};
+    expect(mm::ino::validate_manifest_compatibility(
+               valid_doc, &dir_node, nullptr, false, root,
+               dir_node.dir / "mm.mdy", err),
+           "compatible manifest must pass validation");
+
+    mm::mdy::MDYDocument incomplete_doc;
+    incomplete_doc.metadata["kind"] = {"dir"};
+    incomplete_doc.metadata["name"] = {"examples"};
+    incomplete_doc.metadata["folder"] = {"app1"};
+    expect(!mm::ino::validate_manifest_compatibility(
+               incomplete_doc, &dir_node, nullptr, false, root,
+               dir_node.dir / "mm.mdy", err),
+           "manifest missing child folder must fail validation");
+    expect(err.find("does not name app2; add folder: app2") !=
+               std::string::npos,
+           "error must name missing folder: entry");
+
+    mm::ino::LibraryAppNode app_node;
+    app_node.dir = root / "examples/app1";
+    std::filesystem::create_directories(app_node.dir);
+    app_node.rel_path = "app1";
+    app_node.name = "app1";
+    app_node.sketches = {"app1.ino"};
+    app_node.sketch_library_rel = "../..";
+
+    mm::mdy::MDYDocument app_doc;
+    app_doc.metadata["kind"] = {"app"};
+    app_doc.metadata["name"] = {"app1"};
+    app_doc.metadata["use"] = {"mm.sketch"};
+    app_doc.metadata["file"] = {"main.cpp"};
+    app_doc.metadata["sketch"] = {"app1.ino"};
+    app_doc.metadata["sketch-library"] = {"../.."};
+    expect(mm::ino::validate_manifest_compatibility(
+               app_doc, nullptr, &app_node, false, root,
+               app_node.dir / "mm.mdy", err),
+           "compatible app manifest must pass");
+
+    mm::mdy::MDYDocument bad_app_doc = app_doc;
+    bad_app_doc.metadata["sketch"] = {"wrong.ino"};
+    expect(!mm::ino::validate_manifest_compatibility(
+               bad_app_doc, nullptr, &app_node, false, root,
+               app_node.dir / "mm.mdy", err),
+           "mismatched sketch must fail validation");
+}
+
 const mm::test::case_ cases[] = {
     {"function used before definition", &function_used_before_definition},
     {"prototype already written", &prototype_already_written},
@@ -346,6 +517,12 @@ const mm::test::case_ cases[] = {
     {"check_application rules", &check_application_rules},
     {"sketch header synthesis", &sketch_header_synthesis},
     {"sketch header is checked", &sketch_header_is_checked},
+    {"library discovery flat", &library_discovery_flat},
+    {"library discovery category nested", &library_discovery_category_nested},
+    {"library discovery symlink and empty skipped",
+     &library_discovery_symlink_and_empty_skipped},
+    {"library manifest compatibility validation",
+     &library_manifest_compatibility_validation},
 };
 
 const mm::test::registrar reg{"mm.ino", cases};

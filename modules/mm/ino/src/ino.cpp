@@ -7,6 +7,7 @@ module;
 #include <cstddef>
 #include <filesystem>
 #include <fstream>
+#include <set>
 #include <span>
 #include <sstream>
 #include <string>
@@ -228,12 +229,18 @@ TransformResult transform(std::span<const SourceFile> sources) {
 
         bool in_block_comment = false;
         int brace_depth = 0;
+        bool in_template = false;
 
         for (std::size_t line_idx = 0; line_idx < pf.lines.size(); ++line_idx) {
             const std::string& line = pf.lines[line_idx];
             const std::size_t line_num = line_idx + 1;
 
             std::string_view trimmed = trim_leading(line);
+
+            if (!in_block_comment && brace_depth == 0
+                && trimmed.starts_with("template")) {
+                in_template = true;
+            }
 
             // Check if this line is an include directive (must be at top level outside block comment)
             if (!in_block_comment && trimmed.starts_with("#include")) {
@@ -256,8 +263,9 @@ TransformResult transform(std::span<const SourceFile> sources) {
                 }
             }
 
-            // If we are at brace depth 0 and not in block comment, check for definitions / prototypes
-            if (brace_depth == 0 && !in_block_comment) {
+            // If we are at brace depth 0 and not in block comment or template,
+            // check for definitions / prototypes
+            if (brace_depth == 0 && !in_block_comment && !in_template) {
                 std::string_view next_line = (line_idx + 1 < pf.lines.size()) ? std::string_view(pf.lines[line_idx + 1]) : std::string_view{};
                 bool is_definition = false;
                 bool is_column_zero = false;
@@ -336,6 +344,10 @@ TransformResult transform(std::span<const SourceFile> sources) {
                 } else if (line[i] == '}') {
                     if (brace_depth > 0) --brace_depth;
                 }
+            }
+            if (in_template && (line.find('{') != std::string::npos
+                                || line.find(';') != std::string::npos)) {
+                in_template = false;
             }
         }
         processed_files.push_back(std::move(pf));
@@ -426,6 +438,16 @@ std::string sketch_header() {
     out += "import mm.sketch;\n";
     out += "\n";
     out += "using namespace mm::sketch;\n";
+    out += "\n";
+    out += "// <cstdint> guarantees these names in namespace std and\n";
+    out += "// leaves the global ones unspecified. A vendored library\n";
+    out += "// writing unqualified uint8_t relies on a compiler rather\n";
+    out += "// than on the language without these.\n";
+    out += "using std::int8_t;    using std::uint8_t;\n";
+    out += "using std::int16_t;   using std::uint16_t;\n";
+    out += "using std::int32_t;   using std::uint32_t;\n";
+    out += "using std::int64_t;   using std::uint64_t;\n";
+    out += "using std::size_t;    using std::ptrdiff_t;\n";
     out += "\n";
     out += "// Flash-string spellings. docs/modules-sketch.mdy declines the\n";
     out += "// behaviour, not the spelling: placement is the linker's\n";
@@ -528,6 +550,347 @@ bool check_application(const std::filesystem::path& app_dir,
     }
 
     return true;
+}
+
+bool is_library_root(const std::filesystem::path& dir) {
+    std::error_code ec;
+    const auto props = dir / "library.properties";
+    const auto json = dir / "library.json";
+    const auto examples = dir / "examples";
+
+    const bool has_props = std::filesystem::is_regular_file(props, ec)
+                           && !std::filesystem::is_symlink(props, ec)
+                           && !ec;
+    ec.clear();
+    const bool has_json = std::filesystem::is_regular_file(json, ec)
+                          && !std::filesystem::is_symlink(json, ec)
+                          && !ec;
+    ec.clear();
+    const bool has_examples = std::filesystem::is_directory(examples, ec)
+                              && !std::filesystem::is_symlink(examples, ec)
+                              && !ec;
+    return (has_props || has_json) && has_examples;
+}
+
+namespace {
+
+bool is_inside(const std::filesystem::path& base,
+               const std::filesystem::path& p) {
+    std::error_code ec;
+    auto can_base = std::filesystem::weakly_canonical(base, ec);
+    if (ec) return false;
+    auto can_p = std::filesystem::weakly_canonical(p, ec);
+    if (ec) return false;
+    auto rel = can_p.lexically_relative(can_base);
+    return !rel.empty() && !rel.is_absolute()
+           && *rel.begin() != "..";
+}
+
+bool walk_examples_dir(const std::filesystem::path& current_dir,
+                       const std::filesystem::path& rel_from_examples,
+                       const std::filesystem::path& library_root,
+                       LibraryPlan& plan,
+                       std::vector<std::string>& yielded_names) {
+    std::error_code ec;
+    std::vector<std::string> local_sketches;
+    std::vector<std::filesystem::path> subdirs;
+
+    for (const auto& entry :
+         std::filesystem::directory_iterator(current_dir, ec)) {
+        if (ec) {
+            plan.ok = false;
+            plan.error = "cannot read directory: " + current_dir.string();
+            return false;
+        }
+        std::error_code sec;
+        const auto status = entry.symlink_status(sec);
+        if (sec || std::filesystem::is_symlink(status)) {
+            plan.skipped.push_back("symlink skipped: "
+                                  + entry.path().string());
+            continue;
+        }
+
+        const auto filename = entry.path().filename().string();
+        if (filename.empty() || filename.front() == '.') {
+            continue;
+        }
+
+        if (!is_inside(library_root, entry.path())) {
+            plan.skipped.push_back("outside library root: "
+                                  + entry.path().string());
+            continue;
+        }
+
+        if (std::filesystem::is_regular_file(status)) {
+            if (entry.path().extension() == ".ino") {
+                local_sketches.push_back(filename);
+            }
+        } else if (std::filesystem::is_directory(status)) {
+            subdirs.push_back(entry.path());
+        }
+    }
+
+    if (!local_sketches.empty()) {
+        const std::string dir_base = current_dir.filename().string();
+        const std::string cand_ino = dir_base + ".ino";
+
+        std::string primary;
+        auto cand_it = std::find(local_sketches.begin(),
+                                 local_sketches.end(), cand_ino);
+        if (cand_it != local_sketches.end()) {
+            primary = *cand_it;
+        } else if (local_sketches.size() == 1) {
+            primary = local_sketches.front();
+        } else {
+            std::string cands;
+            for (const auto& s : local_sketches) {
+                if (!cands.empty()) cands += ", ";
+                cands += s;
+            }
+            plan.skipped.push_back("ambiguous primary sketch in "
+                                  + current_dir.string()
+                                  + "; candidates: " + cands);
+            return false;
+        }
+
+        std::vector<std::string> remaining;
+        for (const auto& s : local_sketches) {
+            if (s != primary) remaining.push_back(s);
+        }
+        std::sort(remaining.begin(), remaining.end());
+
+        LibraryAppNode app;
+        app.dir = current_dir;
+        app.rel_path = rel_from_examples.generic_string();
+        std::string hyp_name = app.rel_path;
+        for (char& c : hyp_name) {
+            if (c == '/') c = '-';
+        }
+        app.name = hyp_name;
+        app.sketches.push_back(primary);
+        for (const auto& rem : remaining) {
+            app.sketches.push_back(rem);
+        }
+
+        app.sketch_library_rel =
+            library_root.lexically_relative(current_dir).generic_string();
+
+        plan.app_nodes.push_back(std::move(app));
+        yielded_names.push_back(dir_base);
+        return true;
+    }
+
+    std::sort(subdirs.begin(), subdirs.end());
+    std::vector<std::string> child_yielded;
+    for (const auto& sub : subdirs) {
+        const std::string sub_name = sub.filename().string();
+        const auto sub_rel = rel_from_examples.empty()
+                                 ? std::filesystem::path(sub_name)
+                                 : (rel_from_examples / sub_name);
+        walk_examples_dir(sub, sub_rel, library_root, plan, child_yielded);
+    }
+
+    if (!child_yielded.empty()) {
+        std::sort(child_yielded.begin(), child_yielded.end());
+        LibraryDirNode node;
+        node.dir = current_dir;
+        node.name = current_dir.filename().string();
+        node.folders = std::move(child_yielded);
+        node.is_root = false;
+        plan.dir_nodes.push_back(std::move(node));
+        yielded_names.push_back(current_dir.filename().string());
+        return true;
+    }
+
+    plan.skipped.push_back("directory holding no sketch skipped: "
+                          + current_dir.string());
+    return false;
+}
+
+} // namespace
+
+LibraryPlan discover_library(const std::filesystem::path& library_root) {
+    LibraryPlan plan;
+    std::error_code ec;
+    auto abs_root = std::filesystem::weakly_canonical(library_root, ec);
+    if (ec) {
+        plan.ok = false;
+        plan.error = "cannot canonicalize: " + library_root.string();
+        return plan;
+    }
+
+    const auto examples_dir = abs_root / "examples";
+    if (!std::filesystem::is_directory(examples_dir, ec) || ec) {
+        plan.ok = false;
+        plan.error = "examples directory not found: "
+                     + examples_dir.string();
+        return plan;
+    }
+
+    plan.root_node.dir = abs_root;
+    plan.root_node.name = abs_root.filename().string();
+    plan.root_node.folders = {"examples"};
+    plan.root_node.is_root = true;
+
+    std::vector<std::string> examples_yielded;
+    walk_examples_dir(examples_dir, "", abs_root, plan, examples_yielded);
+
+    return plan;
+}
+
+std::string render_root_manifest(const LibraryDirNode& root,
+                                 std::string_view project_rel) {
+    std::string out = "---\nmm: 1.3\nkind: dir\nname: " + root.name + "\n";
+    if (!project_rel.empty()) {
+        out += "project: " + std::string(project_rel) + "\n";
+    }
+    for (const auto& f : root.folders) {
+        out += "folder: " + f + "\n";
+    }
+    out += "---\n";
+    return out;
+}
+
+std::string render_dir_manifest(const LibraryDirNode& node) {
+    std::string out = "---\nmm: 1.3\nkind: dir\nname: " + node.name + "\n";
+    for (const auto& f : node.folders) {
+        out += "folder: " + f + "\n";
+    }
+    out += "---\n";
+    return out;
+}
+
+std::string render_app_manifest(const LibraryAppNode& node) {
+    std::string out = "---\nmm: 1.3\nkind: app\nname: " + node.name + "\n";
+    out += "use: mm.sketch\n";
+    out += "file: main.cpp\n";
+    for (const auto& s : node.sketches) {
+        out += "sketch: " + s + "\n";
+    }
+    out += "sketch-library: " + node.sketch_library_rel + "\n";
+    out += "---\n";
+    return out;
+}
+
+bool validate_manifest_compatibility(
+    const mm::mdy::MDYDocument& doc,
+    const LibraryDirNode* dir_node,
+    const LibraryAppNode* app_node,
+    bool expect_project,
+    const std::filesystem::path& library_root,
+    const std::filesystem::path& manifest_path,
+    std::string& error) {
+
+    if (dir_node != nullptr) {
+        const auto* kind = lookup(doc, "kind");
+        if (kind == nullptr || kind->empty() || kind->front() != "dir") {
+            error = manifest_path.string() + ": expected kind: dir";
+            return false;
+        }
+        const auto* name = lookup(doc, "name");
+        if (name == nullptr || name->empty()
+            || name->front() != dir_node->name) {
+            error = manifest_path.string() + ": expected name: "
+                    + dir_node->name;
+            return false;
+        }
+        if (dir_node->is_root) {
+            const auto* proj = lookup(doc, "project");
+            if (expect_project) {
+                if (proj == nullptr || proj->empty()
+                    || proj->front().empty()) {
+                    error = manifest_path.string()
+                            + ": missing project: declaration";
+                    return false;
+                }
+            } else {
+                if (proj != nullptr && !proj->empty()) {
+                    error = manifest_path.string()
+                            + ": unexpected project: declaration";
+                    return false;
+                }
+            }
+        }
+        const auto* doc_folders = lookup(doc, "folder");
+        std::set<std::string> doc_f_set;
+        if (doc_folders != nullptr) {
+            for (const auto& f : *doc_folders) {
+                doc_f_set.insert(f);
+            }
+        }
+        std::set<std::string> exp_f_set(dir_node->folders.begin(),
+                                        dir_node->folders.end());
+        bool folder_mismatch = false;
+        for (const auto& exp : exp_f_set) {
+            if (doc_f_set.find(exp) == doc_f_set.end()) {
+                if (!error.empty()) error += "\n";
+                error += manifest_path.string() + " does not name " + exp
+                        + "; add folder: " + exp;
+                folder_mismatch = true;
+            }
+        }
+        for (const auto& got : doc_f_set) {
+            if (exp_f_set.find(got) == exp_f_set.end()) {
+                if (!error.empty()) error += "\n";
+                error += manifest_path.string() + ": unexpected folder: "
+                        + got;
+                folder_mismatch = true;
+            }
+        }
+        if (folder_mismatch) return false;
+        return true;
+    }
+
+    if (app_node != nullptr) {
+        const auto* kind = lookup(doc, "kind");
+        if (kind == nullptr || kind->empty() || kind->front() != "app") {
+            error = manifest_path.string() + ": expected kind: app";
+            return false;
+        }
+        const auto* name = lookup(doc, "name");
+        if (name == nullptr || name->empty()
+            || name->front() != app_node->name) {
+            error = manifest_path.string() + ": expected name: "
+                    + app_node->name;
+            return false;
+        }
+        const auto* use = lookup(doc, "use");
+        if (use == nullptr || use->empty() || use->front() != "mm.sketch") {
+            error = manifest_path.string() + ": expected use: mm.sketch";
+            return false;
+        }
+        const auto* file = lookup(doc, "file");
+        if (file == nullptr || file->empty()
+            || file->front() != "main.cpp") {
+            error = manifest_path.string() + ": expected file: main.cpp";
+            return false;
+        }
+        const auto* sketches = lookup(doc, "sketch");
+        if (sketches == nullptr || *sketches != app_node->sketches) {
+            error = manifest_path.string()
+                    + ": sketch: entries do not match discovered sketches";
+            return false;
+        }
+        const auto* lib = lookup(doc, "sketch-library");
+        if (lib == nullptr || lib->empty()) {
+            error = manifest_path.string()
+                    + ": missing sketch-library: declaration";
+            return false;
+        }
+        std::error_code ec;
+        const auto resolved_lib = std::filesystem::weakly_canonical(
+            (app_node->dir / lib->front()).lexically_normal(), ec);
+        const auto resolved_expected = std::filesystem::weakly_canonical(
+            library_root.lexically_normal(), ec);
+        if (ec || resolved_lib != resolved_expected) {
+            error = manifest_path.string()
+                    + ": sketch-library does not resolve to library root";
+            return false;
+        }
+        return true;
+    }
+
+    return false;
 }
 
 } // namespace mm::ino

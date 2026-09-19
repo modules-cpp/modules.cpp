@@ -52,5 +52,53 @@ struct TransformResult {
                                  std::string& error,
                                  std::string_view temp_filename = "");
 
+struct LibraryAppNode {
+    std::filesystem::path dir;
+    std::string rel_path;
+    std::string name;
+    std::vector<std::string> sketches;
+    std::string sketch_library_rel;
+};
+
+struct LibraryDirNode {
+    std::filesystem::path dir;
+    std::string name;
+    std::vector<std::string> folders;
+    bool is_root = false;
+};
+
+struct LibraryPlan {
+    bool ok = true;
+    std::string error;
+    std::vector<std::string> skipped;
+    LibraryDirNode root_node;
+    std::vector<LibraryDirNode> dir_nodes;
+    std::vector<LibraryAppNode> app_nodes;
+};
+
+[[nodiscard]] bool is_library_root(const std::filesystem::path& dir);
+
+[[nodiscard]] LibraryPlan discover_library(
+    const std::filesystem::path& library_root);
+
+[[nodiscard]] std::string render_root_manifest(
+    const LibraryDirNode& root,
+    std::string_view project_rel = "");
+
+[[nodiscard]] std::string render_dir_manifest(
+    const LibraryDirNode& node);
+
+[[nodiscard]] std::string render_app_manifest(
+    const LibraryAppNode& node);
+
+[[nodiscard]] bool validate_manifest_compatibility(
+    const mm::mdy::MDYDocument& doc,
+    const LibraryDirNode* dir_node,
+    const LibraryAppNode* app_node,
+    bool expect_project,
+    const std::filesystem::path& library_root,
+    const std::filesystem::path& manifest_path,
+    std::string& error);
+
 }
 

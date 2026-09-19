@@ -160,7 +160,29 @@ tools/check invokes this check across all registered applications containing ske
 
 # Build integration
 
-When compiling an application target that declares sketch:, tools/build automatically checks whether main.cpp is absent or older than the application manifest or any declared .ino sketch file. If main.cpp is missing or out of date, the build invokes sketch on the application directory before proceeding with compilation. If file: is omitted in a sketch application's manifest, or if an explicit file: list contains helper sources without main.cpp, the build ensures main.cpp is included in compilation.
+When compiling an application target that declares sketch:,
+tools/build automatically checks whether main.cpp is absent or
+older than the application manifest or any declared .ino sketch
+file. If main.cpp is missing or out of date, the build invokes
+sketch on the application directory before proceeding with
+compilation. If file: is omitted in a sketch application's
+manifest, or if an explicit file: list contains helper sources
+without main.cpp, the build ensures main.cpp is included in
+compilation.
+
+An application that also declares sketch-library: receives a
+second, separate check: the build runs sketch --check silently;
+if it fails, it runs sketch to repair and then runs sketch --check
+again with stderr visible. If the second check fails, the build
+fails with that check's diagnostic, which is always the current
+truth. Nothing from the first check is captured or printed.
+
+The using-declarations in the header are required. \<cstdint\>
+guarantees the fixed-width integer names in namespace std and
+leaves their presence in the global namespace unspecified. A
+vendored library writing unqualified uint8_t relies on a compiler
+rather than on the language without them. The declared set is
+the eight fixed-width types, size_t, and ptrdiff_t.
 
 # Library sketches
 
@@ -231,6 +253,11 @@ Opening fence
 #include <cstdint>
 import mm.sketch;
 using namespace mm::sketch;
+using std::int8_t;    using std::uint8_t;
+using std::int16_t;   using std::uint16_t;
+using std::int32_t;   using std::uint32_t;
+using std::int64_t;   using std::uint64_t;
+using std::size_t;    using std::ptrdiff_t;
 #define F(string_literal) (string_literal)
 #define PSTR(string_literal) (string_literal)
 #define PROGMEM
