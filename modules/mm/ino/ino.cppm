@@ -98,7 +98,8 @@ struct LibraryPlan {
     bool expect_project,
     const std::filesystem::path& library_root,
     const std::filesystem::path& manifest_path,
-    std::string& error);
+    std::string& error,
+    const std::filesystem::path& expected_project_root = "");
 
 }
 

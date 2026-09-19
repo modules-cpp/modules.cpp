@@ -429,7 +429,8 @@ std::string sketch_header() {
     out += "// unconditionally, because its own toolchain provides one.\n";
     out += "// modules.cpp does not, so sketch writes this one beside\n";
     out += "// main.cpp and the build puts this directory on the include\n";
-    out += "// path. Every name below comes from mm.sketch.\n";
+    out += "// path. Names below come from mm.sketch, <cstdint>,\n";
+    out += "// and the compatibility environment.\n";
     out += "#pragma once\n";
     out += "\n";
     out += "#include <cstddef>\n";
@@ -586,6 +587,26 @@ bool is_inside(const std::filesystem::path& base,
            && *rel.begin() != "..";
 }
 
+bool is_valid_manifest_name(std::string_view name) {
+    if (name.empty() || name == "." || name == "..") return false;
+    for (char c : name) {
+        if (c == '\n' || c == '\r' || c == '/' || c == '\\' || c == ':') {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool is_valid_sketch_filename(std::string_view filename) {
+    if (filename.empty() || !filename.ends_with(".ino")) return false;
+    for (char c : filename) {
+        if (c == '\n' || c == '\r' || c == '/' || c == '\\' || c == ':') {
+            return false;
+        }
+    }
+    return true;
+}
+
 bool walk_examples_dir(const std::filesystem::path& current_dir,
                        const std::filesystem::path& rel_from_examples,
                        const std::filesystem::path& library_root,
@@ -623,11 +644,29 @@ bool walk_examples_dir(const std::filesystem::path& current_dir,
 
         if (std::filesystem::is_regular_file(status)) {
             if (entry.path().extension() == ".ino") {
+                if (!is_valid_sketch_filename(filename)) {
+                    plan.skipped.push_back("invalid sketch filename skipped: "
+                                          + entry.path().string());
+                    continue;
+                }
                 local_sketches.push_back(filename);
             }
         } else if (std::filesystem::is_directory(status)) {
+            if (!is_valid_manifest_name(filename)) {
+                plan.skipped.push_back("invalid directory name skipped: "
+                                      + entry.path().string());
+                continue;
+            }
             subdirs.push_back(entry.path());
         }
+    }
+
+    if (rel_from_examples.empty() && !local_sketches.empty()) {
+        plan.ok = false;
+        plan.error = "sketch directly under examples/ is not permitted: "
+                     + (current_dir / local_sketches.front()).string()
+                     + "; each sketch must reside in its own subdirectory";
+        return false;
     }
 
     if (!local_sketches.empty()) {
@@ -667,6 +706,11 @@ bool walk_examples_dir(const std::filesystem::path& current_dir,
             if (c == '/') c = '-';
         }
         app.name = hyp_name;
+        if (!is_valid_manifest_name(app.name)) {
+            plan.skipped.push_back("invalid derived application name: "
+                                  + app.name);
+            return false;
+        }
         app.sketches.push_back(primary);
         for (const auto& rem : remaining) {
             app.sketches.push_back(rem);
@@ -719,6 +763,12 @@ LibraryPlan discover_library(const std::filesystem::path& library_root) {
         return plan;
     }
 
+    if (!is_valid_manifest_name(abs_root.filename().string())) {
+        plan.ok = false;
+        plan.error = "invalid library name: " + abs_root.filename().string();
+        return plan;
+    }
+
     const auto examples_dir = abs_root / "examples";
     if (!std::filesystem::is_directory(examples_dir, ec) || ec) {
         plan.ok = false;
@@ -735,16 +785,32 @@ LibraryPlan discover_library(const std::filesystem::path& library_root) {
     std::vector<std::string> examples_yielded;
     walk_examples_dir(examples_dir, "", abs_root, plan, examples_yielded);
 
+    if (plan.app_nodes.empty()) {
+        plan.ok = false;
+        if (plan.error.empty()) {
+            plan.error = "no valid sketch applications found under "
+                         + examples_dir.string();
+        }
+        plan.root_node.folders.clear();
+        plan.dir_nodes.clear();
+        return plan;
+    }
+
     return plan;
 }
 
 std::string render_root_manifest(const LibraryDirNode& root,
                                  std::string_view project_rel) {
+    if (!is_valid_manifest_name(root.name)) return "";
+    for (char c : project_rel) {
+        if (c == '\n' || c == '\r') return "";
+    }
     std::string out = "---\nmm: 1.3\nkind: dir\nname: " + root.name + "\n";
     if (!project_rel.empty()) {
         out += "project: " + std::string(project_rel) + "\n";
     }
     for (const auto& f : root.folders) {
+        if (!is_valid_manifest_name(f)) return "";
         out += "folder: " + f + "\n";
     }
     out += "---\n";
@@ -752,8 +818,10 @@ std::string render_root_manifest(const LibraryDirNode& root,
 }
 
 std::string render_dir_manifest(const LibraryDirNode& node) {
+    if (!is_valid_manifest_name(node.name)) return "";
     std::string out = "---\nmm: 1.3\nkind: dir\nname: " + node.name + "\n";
     for (const auto& f : node.folders) {
+        if (!is_valid_manifest_name(f)) return "";
         out += "folder: " + f + "\n";
     }
     out += "---\n";
@@ -761,10 +829,15 @@ std::string render_dir_manifest(const LibraryDirNode& node) {
 }
 
 std::string render_app_manifest(const LibraryAppNode& node) {
+    if (!is_valid_manifest_name(node.name)) return "";
+    for (char c : node.sketch_library_rel) {
+        if (c == '\n' || c == '\r') return "";
+    }
     std::string out = "---\nmm: 1.3\nkind: app\nname: " + node.name + "\n";
     out += "use: mm.sketch\n";
     out += "file: main.cpp\n";
     for (const auto& s : node.sketches) {
+        if (!is_valid_sketch_filename(s)) return "";
         out += "sketch: " + s + "\n";
     }
     out += "sketch-library: " + node.sketch_library_rel + "\n";
@@ -779,20 +852,24 @@ bool validate_manifest_compatibility(
     bool expect_project,
     const std::filesystem::path& library_root,
     const std::filesystem::path& manifest_path,
-    std::string& error) {
+    std::string& error,
+    const std::filesystem::path& expected_project_root) {
 
+    error.clear();
     if (dir_node != nullptr) {
         const auto* kind = lookup(doc, "kind");
         if (kind == nullptr || kind->empty() || kind->front() != "dir") {
             error = manifest_path.string() + ": expected kind: dir";
             return false;
         }
-        const auto* name = lookup(doc, "name");
-        if (name == nullptr || name->empty()
-            || name->front() != dir_node->name) {
-            error = manifest_path.string() + ": expected name: "
-                    + dir_node->name;
-            return false;
+        if (!dir_node->is_root) {
+            const auto* name = lookup(doc, "name");
+            if (name == nullptr || name->empty()
+                || name->front() != dir_node->name) {
+                error = manifest_path.string() + ": expected name: "
+                        + dir_node->name;
+                return false;
+            }
         }
         if (dir_node->is_root) {
             const auto* proj = lookup(doc, "project");
@@ -802,6 +879,23 @@ bool validate_manifest_compatibility(
                     error = manifest_path.string()
                             + ": missing project: declaration";
                     return false;
+                }
+                if (!expected_project_root.empty()) {
+                    std::error_code pec;
+                    const auto resolved_proj =
+                        std::filesystem::weakly_canonical(
+                            (manifest_path.parent_path() / proj->front())
+                                .lexically_normal(),
+                            pec);
+                    const auto expected_proj =
+                        std::filesystem::weakly_canonical(
+                            expected_project_root.lexically_normal(), pec);
+                    if (pec || resolved_proj != expected_proj) {
+                        error = manifest_path.string()
+                                + ": project: does not resolve to"
+                                  " expected project root";
+                        return false;
+                    }
                 }
             } else {
                 if (proj != nullptr && !proj->empty()) {
@@ -813,14 +907,19 @@ bool validate_manifest_compatibility(
         }
         const auto* doc_folders = lookup(doc, "folder");
         std::set<std::string> doc_f_set;
+        bool folder_mismatch = false;
         if (doc_folders != nullptr) {
             for (const auto& f : *doc_folders) {
-                doc_f_set.insert(f);
+                if (!doc_f_set.insert(f).second) {
+                    if (!error.empty()) error += "\n";
+                    error += manifest_path.string()
+                             + ": duplicate folder: " + f;
+                    folder_mismatch = true;
+                }
             }
         }
         std::set<std::string> exp_f_set(dir_node->folders.begin(),
                                         dir_node->folders.end());
-        bool folder_mismatch = false;
         for (const auto& exp : exp_f_set) {
             if (doc_f_set.find(exp) == doc_f_set.end()) {
                 if (!error.empty()) error += "\n";

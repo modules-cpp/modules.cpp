@@ -579,13 +579,20 @@ void installed_external_library_sketch() {
         props << "name=FixtureLib\nversion=1.0.0\n";
     }
 
-    // 2. Write FixtureLib.h using unqualified uint8_t and Arduino.h
+    // 2. Write FixtureLib.h exercising all 10 aliases via Arduino.h
     {
         std::ofstream header(lib_root / "FixtureLib.h");
         header << "#pragma once\n"
                << "#include \"Arduino.h\"\n"
-               << "inline uint8_t fixture_add(uint8_t a, uint8_t b) {\n"
-               << "    return a + b;\n"
+               << "inline int64_t fixture_types(\n"
+               << "    int8_t a, uint8_t b,\n"
+               << "    int16_t c, uint16_t d,\n"
+               << "    int32_t e, uint32_t f,\n"
+               << "    int64_t g, uint64_t h,\n"
+               << "    size_t i, ptrdiff_t j) {\n"
+               << "    return a + b + c + d + e + f + g +\n"
+               << "           static_cast<int64_t>(h) +\n"
+               << "           static_cast<int64_t>(i) + j;\n"
                << "}\n";
     }
 
@@ -595,13 +602,24 @@ void installed_external_library_sketch() {
         cpp << "#include \"FixtureLib.h\"\n";
     }
 
-    // 4. Write FixtureApp.ino
+    // 4. Write FixtureApp.ino invoking function with all 10 aliases
     {
         std::ofstream ino(app_dir / "FixtureApp.ino");
         ino << "#include \"FixtureLib.h\"\n\n"
             << "void setup() {\n"
-            << "    uint8_t res = fixture_add(10, 20);\n"
-            << "    if (res == 30) {\n"
+            << "    int8_t a = 1;\n"
+            << "    uint8_t b = 2;\n"
+            << "    int16_t c = 3;\n"
+            << "    uint16_t d = 4;\n"
+            << "    int32_t e = 5;\n"
+            << "    uint32_t f = 6;\n"
+            << "    int64_t g = 7;\n"
+            << "    uint64_t h = 8;\n"
+            << "    size_t i = 9;\n"
+            << "    ptrdiff_t j = 10;\n"
+            << "    int64_t res = fixture_types(\n"
+            << "        a, b, c, d, e, f, g, h, i, j);\n"
+            << "    if (res == 55) {\n"
             << "        requestExit(0);\n"
             << "    } else {\n"
             << "        requestExit(1);\n"
@@ -625,11 +643,51 @@ void installed_external_library_sketch() {
     expect(std::filesystem::exists(app_dir / "Arduino.h"),
            "Arduino.h generated");
 
+    // 5b. Idempotence: a second run leaves manifests unchanged
+    const auto root_mtime =
+        std::filesystem::last_write_time(lib_root / "mm.mdy", ec);
+    const auto ex_mtime =
+        std::filesystem::last_write_time(examples_dir / "mm.mdy", ec);
+    const auto app_mtime =
+        std::filesystem::last_write_time(app_dir / "mm.mdy", ec);
+    expect(invoke(bin / "sketch", "--project " + repo_arg + " " + lib_arg,
+                  log) == 0,
+           "sketch second run succeeds");
+    expect(std::filesystem::last_write_time(lib_root / "mm.mdy", ec) ==
+               root_mtime,
+           "root manifest mtime unchanged on second run");
+    expect(std::filesystem::last_write_time(examples_dir / "mm.mdy", ec) ==
+               ex_mtime,
+           "examples manifest mtime unchanged on second run");
+    expect(std::filesystem::last_write_time(app_dir / "mm.mdy", ec) ==
+               app_mtime,
+           "app manifest mtime unchanged on second run");
+
     // 6. Verify with --check
     expect(invoke(bin / "sketch", "--check " + lib_arg, log) == 0,
            "sketch --check passes on generated library");
 
-    // 7. Compile and link via build (exercises uint8_t without std::)
+    // 6b. Verify --check fails when main.cpp is missing
+    const auto main_path = app_dir / "main.cpp";
+    std::filesystem::remove(main_path, ec);
+    expect(invoke(bin / "sketch", "--check " + lib_arg, log) == 65,
+           "sketch --check fails when main.cpp is missing");
+    expect(invoke(bin / "sketch", "--project " + repo_arg + " " + lib_arg,
+                  log) == 0,
+           "sketch restores main.cpp");
+    expect(std::filesystem::exists(main_path), "main.cpp restored");
+
+    // 6c. Verify --check fails when Arduino.h is missing
+    const auto header_path = app_dir / "Arduino.h";
+    std::filesystem::remove(header_path, ec);
+    expect(invoke(bin / "sketch", "--check " + lib_arg, log) == 65,
+           "sketch --check fails when Arduino.h is missing");
+    expect(invoke(bin / "sketch", "--project " + repo_arg + " " + lib_arg,
+                  log) == 0,
+           "sketch restores Arduino.h");
+    expect(std::filesystem::exists(header_path), "Arduino.h restored");
+
+    // 7. Compile and link via build (exercises all 10 integer aliases)
     expect(invoke(bin / "build", app_arg, log) == 0,
            "build succeeds for library sketch application");
 
@@ -638,7 +696,6 @@ void installed_external_library_sketch() {
            "run --host verifies sketch execution succeeds");
 
     // 9. Build-time repair: delete Arduino.h and verify build restores it
-    const auto header_path = app_dir / "Arduino.h";
     std::filesystem::remove(header_path, ec);
     expect(!std::filesystem::exists(header_path),
            "Arduino.h removed for repair test");

@@ -104,14 +104,13 @@ non-conformance section below records an explicit, bounded exception.
   compiler, or configuration.
 - Project code MUST NOT use the stringizing (#) or token-pasting (##) preprocessor operators, and MUST NOT generate code through repeated macro expansion (an "X-macro" list or similar).
 - Project code MUST NOT invoke a macro the standard library defines, such as assert() from <cassert>, and MUST NOT rely on predefined macros such as __FILE__, __LINE__, or __func__. std::source_location::current() is the normative replacement for call-site information (see "Permitted language features"), and failure MUST be reported through a function's return type (see "Disallowed: exceptions"), not asserted away.
-- The compatibility header that mm.ino synthesises for an external
-  sketch application is not project code: it is generated output,
-  written into an application outside this repository, and it exists
-  to satisfy a foreign library's expectations rather than to be read
-  or included by anything here. It carries #pragma once, three inert
-  macro definitions, and using-declarations for the fixed-width
-  integer types. Project code MUST NOT include it. Its contents are
-  fixed by docs/modules-ino.mdy and verified byte-for-byte by
+- The compatibility header that mm.ino synthesises for a sketch
+  application (whether external or registered in-tree) is not project code:
+  it is generated output, and it exists to satisfy a foreign library's
+  expectations rather than to be read or included by project code. It carries
+  #pragma once, three inert macro definitions, and using-declarations for the
+  fixed-width integer types. Project code MUST NOT include it. Its contents
+  are fixed by docs/modules-ino.mdy and verified byte-for-byte by
   sketch --check rather than written by hand.
 - #include MUST remain the only preprocessor directive appearing in project code. A module unit includes only in its global module fragment as already required by "Permitted language features"; an ordinary translation unit includes at its top, before its first import; a bridge-owned C adapter may place it at file scope. It may pull in a standard library header or the narrow non-core wrapper, adapter, and linkage-shim headers permitted there. A standard or foreign header MAY itself define macros internally; this rule governs what project code writes and invokes, not the included library's implementation.
 

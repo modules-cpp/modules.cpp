@@ -502,6 +502,174 @@ void library_manifest_compatibility_validation() {
            "mismatched sketch must fail validation");
 }
 
+void library_empty_or_all_skipped() {
+    const mm::test::scoped_tree tree{"ino_empty_lib"};
+    const auto root = tree.root();
+    std::ofstream(root / "library.properties") << "name=EmptyLib\n";
+    std::filesystem::create_directories(root / "examples");
+
+    // Case A: empty examples/ directory
+    auto plan = mm::ino::discover_library(root);
+    expect(!plan.ok, "empty examples directory must fail discover_library");
+    expect(plan.error.find("no valid sketch applications found") !=
+               std::string::npos,
+           "error must state no valid sketch applications found");
+    expect(plan.root_node.folders.empty(),
+           "root node folders must be empty on failure");
+
+    // Case B: examples/ contains only empty subdirectories
+    std::filesystem::create_directories(root / "examples/sub1");
+    std::filesystem::create_directories(root / "examples/sub2");
+    plan = mm::ino::discover_library(root);
+    expect(!plan.ok, "all-empty examples tree must fail discover_library");
+    expect(plan.app_nodes.empty(), "app_nodes must be empty");
+}
+
+void library_sketch_directly_under_examples_refused() {
+    const mm::test::scoped_tree tree{"ino_root_sketch"};
+    const auto root = tree.root();
+    std::ofstream(root / "library.properties") << "name=DirectLib\n";
+    const auto ex = root / "examples";
+    std::filesystem::create_directories(ex);
+    std::ofstream(ex / "direct.ino") << "void setup() {}\nvoid loop() {}\n";
+
+    const auto plan = mm::ino::discover_library(root);
+    expect(!plan.ok,
+           "sketch directly under examples/ must fail discover_library");
+    expect(plan.error.find(
+               "sketch directly under examples/ is not permitted") !=
+               std::string::npos,
+           "error must report sketch directly under examples/");
+}
+
+void library_ambiguous_primary_sketch_skipped() {
+    const mm::test::scoped_tree tree{"ino_ambig_lib"};
+    const auto root = tree.root();
+    std::ofstream(root / "library.properties") << "name=AmbigLib\n";
+    const auto ex = root / "examples";
+    // Valid app
+    std::filesystem::create_directories(ex / "GoodApp");
+    std::ofstream(ex / "GoodApp/GoodApp.ino")
+        << "void setup() {}\nvoid loop() {}\n";
+    // Ambiguous app: multiple .ino files, neither named AmbigApp.ino
+    std::filesystem::create_directories(ex / "AmbigApp");
+    std::ofstream(ex / "AmbigApp/first.ino") << "void setup() {}\n";
+    std::ofstream(ex / "AmbigApp/second.ino") << "void loop() {}\n";
+
+    const auto plan = mm::ino::discover_library(root);
+    expect(plan.ok,
+           "discover_library succeeds when at least one valid app exists");
+    expect(plan.app_nodes.size() == 1,
+           "only GoodApp should be discovered as an application");
+    expect(plan.app_nodes[0].name == "GoodApp",
+           "GoodApp is the only discovered application");
+    bool ambig_skipped = false;
+    for (const auto& s : plan.skipped) {
+        if (s.find("AmbigApp") != std::string::npos &&
+            s.find("ambiguous") != std::string::npos) {
+            ambig_skipped = true;
+        }
+    }
+    expect(ambig_skipped, "AmbigApp must be recorded in skipped as ambiguous");
+}
+
+void library_scalar_validation() {
+    // 1. Invalid names in render_dir_manifest
+    mm::ino::LibraryDirNode dir_node;
+    dir_node.dir = "examples";
+    dir_node.name = "bad\nname";
+    dir_node.folders = {"child"};
+    expect(mm::ino::render_dir_manifest(dir_node).empty(),
+           "render_dir_manifest must return empty string for newline in name");
+
+    dir_node.name = "valid";
+    dir_node.folders = {"bad\nchild"};
+    expect(mm::ino::render_dir_manifest(dir_node).empty(),
+           "render_dir_manifest must return empty string for newline in"
+           " folder");
+
+    dir_node.folders = {"child:bad"};
+    expect(mm::ino::render_dir_manifest(dir_node).empty(),
+           "render_dir_manifest must return empty string for colon in folder");
+
+    // 2. Invalid names in render_app_manifest
+    mm::ino::LibraryAppNode app_node;
+    app_node.name = "app\nname";
+    app_node.sketches = {"app.ino"};
+    app_node.sketch_library_rel = "../..";
+    expect(mm::ino::render_app_manifest(app_node).empty(),
+           "render_app_manifest must return empty string for newline in name");
+
+    app_node.name = "valid-app";
+    app_node.sketches = {"bad\nsketch.ino"};
+    expect(mm::ino::render_app_manifest(app_node).empty(),
+           "render_app_manifest must return empty string for newline in"
+           " sketch");
+
+    app_node.sketches = {"app.ino"};
+    app_node.sketch_library_rel = "../../\ninvalid";
+    expect(mm::ino::render_app_manifest(app_node).empty(),
+           "render_app_manifest must return empty string for newline in"
+           " library rel");
+}
+
+void library_metadata_compatibility_failures() {
+    const mm::test::scoped_tree tree{"ino_compat_fail"};
+    const auto root = tree.root();
+    const auto ex = root / "examples";
+    std::filesystem::create_directories(ex / "app1");
+
+    mm::ino::LibraryDirNode root_node;
+    root_node.dir = root;
+    root_node.name = "root";
+    root_node.folders = {"examples"};
+    root_node.is_root = true;
+
+    std::string err;
+
+    // 1. Wrong kind in root manifest
+    mm::mdy::MDYDocument bad_kind_doc;
+    bad_kind_doc.metadata["kind"] = {"lib"};
+    bad_kind_doc.metadata["folder"] = {"examples"};
+    expect(!mm::ino::validate_manifest_compatibility(
+               bad_kind_doc, &root_node, nullptr, false, root,
+               root / "mm.mdy", err),
+           "manifest with wrong kind must fail validation");
+    expect(err.find("expected kind: dir") != std::string::npos,
+           "error must report expected kind: dir");
+
+    // 2. Duplicate folder: entry in dir manifest
+    mm::ino::LibraryDirNode dir_node;
+    dir_node.dir = ex;
+    dir_node.name = "examples";
+    dir_node.folders = {"app1"};
+    dir_node.is_root = false;
+
+    mm::mdy::MDYDocument dup_folder_doc;
+    dup_folder_doc.metadata["kind"] = {"dir"};
+    dup_folder_doc.metadata["name"] = {"examples"};
+    dup_folder_doc.metadata["folder"] = {"app1", "app1"};
+    expect(!mm::ino::validate_manifest_compatibility(
+               dup_folder_doc, &dir_node, nullptr, false, root,
+               ex / "mm.mdy", err),
+           "manifest with duplicate folder: must fail validation");
+    expect(err.find("duplicate folder: app1") != std::string::npos,
+           "error must report duplicate folder: app1");
+
+    // 3. Wrong project: declaration in root manifest
+    mm::mdy::MDYDocument wrong_proj_doc;
+    wrong_proj_doc.metadata["kind"] = {"dir"};
+    wrong_proj_doc.metadata["folder"] = {"examples"};
+    wrong_proj_doc.metadata["project"] = {"/wrong/project/path"};
+    expect(!mm::ino::validate_manifest_compatibility(
+               wrong_proj_doc, &root_node, nullptr, true, root,
+               root / "mm.mdy", err, "/expected/project/path"),
+           "root manifest with mismatched project: must fail validation");
+    expect(err.find("project: does not resolve to expected project root") !=
+               std::string::npos,
+           "error must report project root mismatch");
+}
+
 const mm::test::case_ cases[] = {
     {"function used before definition", &function_used_before_definition},
     {"prototype already written", &prototype_already_written},
@@ -523,6 +691,14 @@ const mm::test::case_ cases[] = {
      &library_discovery_symlink_and_empty_skipped},
     {"library manifest compatibility validation",
      &library_manifest_compatibility_validation},
+    {"library empty or all skipped", &library_empty_or_all_skipped},
+    {"library sketch directly under examples refused",
+     &library_sketch_directly_under_examples_refused},
+    {"library ambiguous primary sketch skipped",
+     &library_ambiguous_primary_sketch_skipped},
+    {"library scalar validation", &library_scalar_validation},
+    {"library metadata compatibility failures",
+     &library_metadata_compatibility_failures},
 };
 
 const mm::test::registrar reg{"mm.ino", cases};

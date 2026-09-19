@@ -258,14 +258,20 @@ int main(int argc, char** argv) {
             std::cerr << "sketch: " << skip_msg << "\n";
         }
 
+        if (plan.app_nodes.empty()) {
+            std::cerr << "sketch: no sketch applications found under "
+                      << (abs_dir / "examples").string() << "\n";
+            return 65;
+        }
+
+        std::vector<std::string> compat_errors;
         if (std::filesystem::exists(abs_dir / "mm.mdy", ec)) {
             const auto doc = mm::mdy::Parser::parse_file(abs_dir / "mm.mdy");
             std::string err;
             if (!mm::ino::validate_manifest_compatibility(
                     doc, &plan.root_node, nullptr, expect_project,
-                    abs_dir, abs_dir / "mm.mdy", err)) {
-                std::cerr << "sketch: " << err << "\n";
-                return 65;
+                    abs_dir, abs_dir / "mm.mdy", err, project_root)) {
+                compat_errors.push_back(err);
             }
         }
         for (const auto& dir_node : plan.dir_nodes) {
@@ -276,8 +282,7 @@ int main(int argc, char** argv) {
                 if (!mm::ino::validate_manifest_compatibility(
                         doc, &dir_node, nullptr, false,
                         abs_dir, mpath, err)) {
-                    std::cerr << "sketch: " << err << "\n";
-                    return 65;
+                    compat_errors.push_back(err);
                 }
             }
         }
@@ -289,10 +294,15 @@ int main(int argc, char** argv) {
                 if (!mm::ino::validate_manifest_compatibility(
                         doc, nullptr, &app_node, false,
                         abs_dir, mpath, err)) {
-                    std::cerr << "sketch: " << err << "\n";
-                    return 65;
+                    compat_errors.push_back(err);
                 }
             }
+        }
+        if (!compat_errors.empty()) {
+            for (const auto& e : compat_errors) {
+                std::cerr << "sketch: " << e << "\n";
+            }
+            return 65;
         }
 
         if (check_mode) {
@@ -371,6 +381,11 @@ int main(int argc, char** argv) {
         if (!std::filesystem::exists(root_manifest, ec)) {
             const std::string content =
                 mm::ino::render_root_manifest(plan.root_node, project_rel);
+            if (content.empty()) {
+                std::cerr << "sketch: invalid manifest content for "
+                          << root_manifest.string() << "\n";
+                return 65;
+            }
             if (!mm::ino::write_guarded(abs_dir, "mm.mdy", content, err,
                                         "mm.mdy.tmp")) {
                 std::cerr << "sketch: cannot write " << root_manifest.string()
@@ -383,6 +398,11 @@ int main(int argc, char** argv) {
             if (!std::filesystem::exists(mpath, ec)) {
                 const std::string content =
                     mm::ino::render_dir_manifest(dir_node);
+                if (content.empty()) {
+                    std::cerr << "sketch: invalid manifest content for "
+                              << mpath.string() << "\n";
+                    return 65;
+                }
                 if (!mm::ino::write_guarded(dir_node.dir, "mm.mdy", content,
                                             err, "mm.mdy.tmp")) {
                     std::cerr << "sketch: cannot write " << mpath.string()
@@ -396,6 +416,11 @@ int main(int argc, char** argv) {
             if (!std::filesystem::exists(mpath, ec)) {
                 const std::string content =
                     mm::ino::render_app_manifest(app_node);
+                if (content.empty()) {
+                    std::cerr << "sketch: invalid manifest content for "
+                              << mpath.string() << "\n";
+                    return 65;
+                }
                 if (!mm::ino::write_guarded(app_node.dir, "mm.mdy", content,
                                             err, "mm.mdy.tmp")) {
                     std::cerr << "sketch: cannot write " << mpath.string()

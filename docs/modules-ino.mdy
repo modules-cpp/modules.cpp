@@ -234,9 +234,9 @@ rename reaches inside a checkout. modules.cpp has no such header and no
 intention of acquiring one as a project asset, so the sketch tool synthesises
 it the same way it synthesises main.cpp: written into the application
 directory, committed beside the sketch, regenerated when stale, and compared
-byte-for-byte under sketch --check. An application that declares sketch-library receives it; an
-application that declares none does not, and nothing changes for the sketches
-under apps/ino.
+byte-for-byte under sketch --check. An application that declares
+sketch-library receives it; an application that declares none does not, and
+nothing changes for the sketches under apps/ino.
 
 The header is generated rather than shipped for the same reason main.cpp is.
 Both are the project's answer to a foreign convention, both belong to the
@@ -276,15 +276,102 @@ real mapping belongs to mm.mcu, so a sketch naming a channel its board does not
 have fails when it reads that channel, latching Status::Unsupported, rather
 than when it names it.
 
-Because the header is generated into an external application rather than
-written into the project, it is not project code: the preprocessor directives
-in it are the ones a foreign library requires, and docs/modules-c++20.mdy's
-prohibition governs what this project writes for itself.
+Because the header is generated and verified byte-for-byte by the sketch
+tool for sketch applications (whether external or registered in-tree), it is
+not authored project code: the preprocessor directives in it are the ones a
+foreign library requires, and docs/modules-c++20.mdy's prohibition governs what
+this project authors for itself.
 
 The build puts the application directory on the include path ahead of the
 library directories, which is what lets a library header two directories away
 resolve the compatibility header against the application that is compiling
 it.
+
+# Library mode
+
+The sketch tool provides library mode for discovering, manifest-generating,
+and validating an entire Arduino library tree containing example sketches.
+
+## Invocation and metadata detection
+
+Library mode is requested explicitly via the `--library` CLI option or
+detected automatically. The tool recognises an Arduino library root when the
+target directory contains an `examples` subdirectory alongside either a
+`library.properties` or `library.json` metadata file (both regular files).
+Passing `--library` enforces library processing even if metadata files are
+absent. When the library tree is located outside any enclosing project, the
+tool determines the project root via `--project DIR` or by locating the
+installation containing the sketch tool itself.
+
+## Recursive discovery rules
+
+Discovery explores only the `examples/` subtree of the library:
+- Dotfiles and hidden directories (names starting with `.`) are ignored.
+- Non-example subdirectories such as `src/` and `test/` are never entered.
+- Symbolic links are skipped to prevent recursion cycles and link escapes.
+
+The walk distinguishes application, category, and leaf directories:
+- Direct sketch container: any subdirectory holding one or more `.ino` sketch
+  files is an application. Sketches directly under `examples/` are forbidden;
+  each sketch must reside in its own subdirectory.
+- Category directory: any directory holding only subdirectories is an
+  intermediate category node.
+- Empty or non-sketch leaf: a directory containing no sketches and no child
+  subdirectories is skipped without generating a manifest.
+- Ambiguous sketch container: if a directory contains multiple `.ino` files
+  but none matches `<dirname>.ino`, the directory is skipped as ambiguous.
+
+If the walk yields no valid applications, library mode fails and exits 65
+without writing manifests.
+
+## Sketch ordering and application naming
+
+Within each application directory:
+- The primary sketch is `<dirname>.ino` if present, or the single `.ino` file
+  when only one exists.
+- Additional `.ino` files are sorted alphabetically and appended after the
+  primary sketch.
+
+Application names are derived from their relative path from `examples/`, with
+path separators (`/`) replaced by hyphens (`-`).
+
+## Manifest generation and layout
+
+Library mode generates manifests for the root, intermediate categories, and
+each discovered application:
+- Library root (`mm.mdy`): declares `mm: 1.3`, `kind: dir`, `folder: examples`,
+  and an optional `project: <path>` resolving to the enclosing project root.
+- Intermediate and examples nodes (`mm.mdy`): declare `mm: 1.3`, `kind: dir`,
+  `name: <relpath>`, and sorted `folder:` entries naming child subdirectories.
+- Application nodes (`mm.mdy`): declare `mm: 1.3`, `kind: app`,
+  `name: <app-name>`, `use: mm.sketch`, `file: main.cpp`, ordered `sketch:`
+  entries, and `sketch-library: <climb-to-root>`.
+
+All identifiers, directory names, and filenames undergo scalar validation
+to reject empty strings, newlines, and illegal characters.
+
+## Compatibility and manifest preservation
+
+Existing manifests are preserved byte-for-byte when compatible:
+- Root manifest: must have `kind: dir`, must match `project:` expectations
+  (resolving to the same canonical project root), and must have an exact match
+  of `folder:` entries without duplicates.
+- Category manifest: must have `kind: dir`, matching `name:`, and an exact
+  match of `folder:` entries without duplicates.
+- Application manifest: must have `kind: app`, matching `name:`,
+  `use: mm.sketch`, `file: main.cpp`, exact match of `sketch:` entries in
+  declared order, and a matching `sketch-library:` relative path.
+
+Any incompatibility causes the sketch tool to report the discrepancies and
+exit 65 without modifying the filesystem.
+
+## Integrity checking (--check)
+
+When invoked with `--check` on a library tree, the tool validates all
+manifests (`mm.mdy`), generated sources (`main.cpp`), and compatibility
+headers (`Arduino.h`) byte-for-byte against their expected contents in memory.
+All validation and file mismatches across the entire tree are collected and
+reported before the tool exits with status 65.
 
 # Source guard
 
