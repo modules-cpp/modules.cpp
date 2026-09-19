@@ -573,6 +573,25 @@ void library_ambiguous_primary_sketch_skipped() {
     expect(ambig_skipped, "AmbigApp must be recorded in skipped as ambiguous");
 }
 
+void library_application_name_collision_refused() {
+    const mm::test::scoped_tree tree{"ino_lib_name_collision"};
+    const auto root = tree.root();
+    std::ofstream(root / "library.properties") << "name=CollisionLib\n";
+    const auto ex = root / "examples";
+    std::filesystem::create_directories(ex / "A-B");
+    std::filesystem::create_directories(ex / "A/B");
+    std::ofstream(ex / "A-B/A-B.ino")
+        << "void setup() {}\nvoid loop() {}\n";
+    std::ofstream(ex / "A/B/B.ino")
+        << "void setup() {}\nvoid loop() {}\n";
+
+    const auto plan = mm::ino::discover_library(root);
+    expect(!plan.ok, "colliding derived application names must be refused");
+    expect(plan.error.find("derived application name collision: A-B") !=
+               std::string::npos,
+           "collision error must name the derived application name");
+}
+
 void library_scalar_validation() {
     // 1. Invalid names in render_dir_manifest
     mm::ino::LibraryDirNode dir_node;
@@ -611,6 +630,11 @@ void library_scalar_validation() {
     expect(mm::ino::render_app_manifest(app_node).empty(),
            "render_app_manifest must return empty string for newline in"
            " library rel");
+
+    dir_node.name = "bad\tname";
+    dir_node.folders = {"child"};
+    expect(mm::ino::render_dir_manifest(dir_node).empty(),
+           "render_dir_manifest must reject control characters");
 }
 
 void library_metadata_compatibility_failures() {
@@ -659,8 +683,9 @@ void library_metadata_compatibility_failures() {
     // 3. Wrong project: declaration in root manifest
     mm::mdy::MDYDocument wrong_proj_doc;
     wrong_proj_doc.metadata["kind"] = {"dir"};
+    wrong_proj_doc.metadata["name"] = {"root"};
     wrong_proj_doc.metadata["folder"] = {"examples"};
-    wrong_proj_doc.metadata["project"] = {"/wrong/project/path"};
+    wrong_proj_doc.metadata["project"] = {"../wrong-project"};
     expect(!mm::ino::validate_manifest_compatibility(
                wrong_proj_doc, &root_node, nullptr, true, root,
                root / "mm.mdy", err, "/expected/project/path"),
@@ -668,6 +693,59 @@ void library_metadata_compatibility_failures() {
     expect(err.find("project: does not resolve to expected project root") !=
                std::string::npos,
            "error must report project root mismatch");
+
+    // 4. Absolute and duplicate project: declarations are loader-invalid.
+    mm::mdy::MDYDocument absolute_proj_doc;
+    absolute_proj_doc.metadata["kind"] = {"dir"};
+    absolute_proj_doc.metadata["name"] = {"root"};
+    absolute_proj_doc.metadata["folder"] = {"examples"};
+    absolute_proj_doc.metadata["project"] = {root.string()};
+    expect(!mm::ino::validate_manifest_compatibility(
+               absolute_proj_doc, &root_node, nullptr, true, root,
+               root / "mm.mdy", err, root),
+           "absolute project: declaration must fail validation");
+    expect(err.find("project: value must be relative") != std::string::npos,
+           "error must report absolute project: value");
+
+    mm::mdy::MDYDocument duplicate_proj_doc = absolute_proj_doc;
+    duplicate_proj_doc.metadata["project"] = {".", "."};
+    expect(!mm::ino::validate_manifest_compatibility(
+               duplicate_proj_doc, &root_node, nullptr, true, root,
+               root / "mm.mdy", err, root),
+           "duplicate project: declaration must fail validation");
+    expect(err.find("expected one project: declaration") !=
+               std::string::npos,
+           "error must report duplicate project: declaration");
+
+    // 5. The application compatibility keys have explicit cardinality and
+    // relative-path rules even when their first values look correct.
+    mm::ino::LibraryAppNode app_node;
+    app_node.dir = ex / "app1";
+    app_node.rel_path = "app1";
+    app_node.name = "app1";
+    app_node.sketches = {"app1.ino"};
+    app_node.sketch_library_rel = "../..";
+
+    mm::mdy::MDYDocument duplicate_lib_doc;
+    duplicate_lib_doc.metadata["kind"] = {"app"};
+    duplicate_lib_doc.metadata["name"] = {"app1"};
+    duplicate_lib_doc.metadata["use"] = {"mm.sketch"};
+    duplicate_lib_doc.metadata["file"] = {"main.cpp"};
+    duplicate_lib_doc.metadata["sketch"] = {"app1.ino"};
+    duplicate_lib_doc.metadata["sketch-library"] = {"../..", "../.."};
+    expect(!mm::ino::validate_manifest_compatibility(
+               duplicate_lib_doc, nullptr, &app_node, false, root,
+               app_node.dir / "mm.mdy", err),
+           "duplicate sketch-library: declaration must fail validation");
+
+    duplicate_lib_doc.metadata["sketch-library"] = {root.string()};
+    expect(!mm::ino::validate_manifest_compatibility(
+               duplicate_lib_doc, nullptr, &app_node, false, root,
+               app_node.dir / "mm.mdy", err),
+           "absolute sketch-library: declaration must fail validation");
+    expect(err.find("sketch-library: value must be relative") !=
+               std::string::npos,
+           "error must report absolute sketch-library: value");
 }
 
 const mm::test::case_ cases[] = {
@@ -696,6 +774,8 @@ const mm::test::case_ cases[] = {
      &library_sketch_directly_under_examples_refused},
     {"library ambiguous primary sketch skipped",
      &library_ambiguous_primary_sketch_skipped},
+    {"library application name collision refused",
+     &library_application_name_collision_refused},
     {"library scalar validation", &library_scalar_validation},
     {"library metadata compatibility failures",
      &library_metadata_compatibility_failures},

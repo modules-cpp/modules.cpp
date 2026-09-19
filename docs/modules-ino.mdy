@@ -334,15 +334,18 @@ Within each application directory:
 
 Application names are derived from their relative path from `examples/`, with
 path separators (`/`) replaced by hyphens (`-`).
+If two paths derive the same application name, library mode refuses the tree.
 
 ## Manifest generation and layout
 
 Library mode generates manifests for the root, intermediate categories, and
 each discovered application:
-- Library root (`mm.mdy`): declares `mm: 1.3`, `kind: dir`, `folder: examples`,
-  and an optional `project: <path>` resolving to the enclosing project root.
+- Library root (`mm.mdy`): declares `mm: 1.3`, `kind: dir`,
+  `name: <directory-name>`, `folder: examples`, and an optional
+  `project: <path>` resolving to the enclosing project root.
 - Intermediate and examples nodes (`mm.mdy`): declare `mm: 1.3`, `kind: dir`,
-  `name: <relpath>`, and sorted `folder:` entries naming child subdirectories.
+  `name: <directory-name>`, and sorted `folder:` entries naming child
+  subdirectories.
 - Application nodes (`mm.mdy`): declare `mm: 1.3`, `kind: app`,
   `name: <app-name>`, `use: mm.sketch`, `file: main.cpp`, ordered `sketch:`
   entries, and `sketch-library: <climb-to-root>`.
@@ -353,9 +356,9 @@ to reject empty strings, newlines, and illegal characters.
 ## Compatibility and manifest preservation
 
 Existing manifests are preserved byte-for-byte when compatible:
-- Root manifest: must have `kind: dir`, must match `project:` expectations
-  (resolving to the same canonical project root), and must have an exact match
-  of `folder:` entries without duplicates.
+- Root manifest: must have `kind: dir`, matching `name:`, must match `project:`
+  expectations (resolving to the same canonical project root), and must have
+  an exact match of `folder:` entries without duplicates.
 - Category manifest: must have `kind: dir`, matching `name:`, and an exact
   match of `folder:` entries without duplicates.
 - Application manifest: must have `kind: app`, matching `name:`,
@@ -367,11 +370,12 @@ exit 65 without modifying the filesystem.
 
 ## Integrity checking (--check)
 
-When invoked with `--check` on a library tree, the tool validates all
-manifests (`mm.mdy`), generated sources (`main.cpp`), and compatibility
-headers (`Arduino.h`) byte-for-byte against their expected contents in memory.
-All validation and file mismatches across the entire tree are collected and
-reported before the tool exits with status 65.
+When invoked with `--check` on a library tree, the tool validates every
+manifest (`mm.mdy`) semantically against the discovered tree. Generated
+sources (`main.cpp`) and compatibility headers (`Arduino.h`) are compared
+byte-for-byte with their expected contents in memory. All validation and file
+mismatches across the entire tree are collected and reported before the tool
+exits with status 65.
 
 # Source guard
 
@@ -389,5 +393,3 @@ atomic, guarded filesystem operations provided by mm::ino::write_guarded:
 - Path safety: sketch: entries must be relative non-climbing paths within the
   application directory. Absolute paths, climbing .. segments, and symlinks
   resolving outside the directory are rejected.
-
-
