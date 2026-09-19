@@ -41,19 +41,13 @@ int main(int argc, char** argv) {
         return status == mm::app::Cli::usage ? mm::build::exit_usage
                                               : mm::build::exit_manifest;
 
-    const auto root = mm::build::find_project_root(manifest_directory);
-    if (root.empty()) {
-        std::cerr << "debug: no kind:project mm.mdy above " << manifest_directory.string()
-                  << "\n";
+    const auto resolved_roots = mm::build::resolve_roots(manifest);
+    if (!resolved_roots.ok) {
+        std::cerr << "debug: cannot resolve root for " << manifest.string() << "\n";
         return mm::build::exit_manifest;
     }
     std::error_code ec;
-    const auto requested = std::filesystem::weakly_canonical(manifest, ec);
-    if (ec) {
-        std::cerr << "debug: cannot resolve manifest: " << ec.message() << "\n";
-        return mm::build::exit_manifest;
-    }
-    std::filesystem::current_path(root, ec);
+    std::filesystem::current_path(resolved_roots.project_root, ec);
     if (ec) {
         std::cerr << "debug: cannot enter project root: " << ec.message() << "\n";
         return mm::build::exit_manifest;
@@ -71,18 +65,18 @@ int main(int argc, char** argv) {
         return mm::build::exit_manifest;
     }
 
-    auto project = mm::build::load_project(".", {.tool = "debug", .warn_options = true});
+    mm::build::LoadPolicy policy{.tool = "debug", .warn_options = true};
+    if (resolved_roots.external_root) policy.external = resolved_roots.external_root;
+    auto project = mm::build::load_project(".", policy);
     if (!project.ok) return mm::build::exit_manifest;
     if (!mm::build::check_configuration_staleness(configuration, project, target_lane, "debug"))
         return mm::build::exit_manifest;
     std::size_t node = mm::build::no_target;
     for (std::size_t i = 0; i < project.nodes.size(); ++i) {
-        const auto candidate = std::filesystem::weakly_canonical(project.nodes[i].manifest, ec);
-        if (!ec && candidate == requested) {
+        if (project.nodes[i].source_dir == resolved_roots.requested_dir) {
             node = i;
             break;
         }
-        ec.clear();
     }
     if (node == mm::build::no_target || project.nodes[node].kind != "app") {
         std::cerr << "debug: requested manifest is not a registered app: "
@@ -106,7 +100,12 @@ int main(int argc, char** argv) {
     }
 
     const auto& app = project.targets[project.target[node]];
-    const auto executable = *lane_directory / (app.dir / app.name).lexically_normal();
+    const auto context_tree_root = resolved_roots.external_root ? *resolved_roots.external_root : resolved_roots.project_root;
+    const auto context_output_root = resolved_roots.external_root ? (*resolved_roots.external_root / *lane_directory)
+                                                                  : (resolved_roots.project_root / *lane_directory);
+    mm::build::ArtifactContext context(context_tree_root, context_output_root, resolved_roots.tools_dir,
+                                       resolved_roots.external_root.has_value());
+    const auto executable = context.executable_path(app);
     if (!std::filesystem::is_regular_file(executable, ec) || ec) {
         std::cerr << "debug: application is not built: " << executable.string()
                   << "; run build first\n";

@@ -158,6 +158,7 @@ private:
 struct TranslationUnit {
     std::string path;         // root relative
     std::string module_name;  // optional explicit BMI/module name
+    std::filesystem::path source; // absolute
 };
 
 // Splits a "file:" or "unit:" value: a path, optionally followed by whitespace
@@ -171,6 +172,8 @@ struct BuildableNode {
     std::string name;
     std::string module_name;                     // kind:module only
     std::filesystem::path dir;                   // root relative
+    std::filesystem::path source_dir;            // absolute
+    std::filesystem::path logical_dir;           // relative to its own tree
     std::vector<TranslationUnit> sources;        // root relative
     std::vector<std::string> uses;               // module names
     std::string requires_board;                  // kind:app or kind:test only
@@ -178,6 +181,8 @@ struct BuildableNode {
     bool platform_interface = false;             // kind:module only
     std::vector<std::string> sketches;           // kind:app with sketch:
     std::vector<std::filesystem::path> objects;  // filled in by compile
+    bool external = false;
+    bool non_core = false;
 };
 
 // One platform-provider declaration: a portable interface module, and the
@@ -269,10 +274,14 @@ struct Tree {
 struct ManifestNode {
     std::filesystem::path manifest;  // relative to the walk root
     std::filesystem::path dir;       // relative to the walk root
+    std::filesystem::path source_dir; // absolute
+    std::filesystem::path logical_dir; // relative to its own tree
     std::string kind;
     std::string name;
     std::size_t parent = static_cast<std::size_t>(-1);  // -1 at the root
     std::vector<std::size_t> children;
+    bool external = false;
+    bool non_core = false;
 };
 
 inline constexpr std::size_t no_parent = static_cast<std::size_t>(-1);
@@ -282,6 +291,7 @@ struct LoadPolicy {
     std::string_view tool = "build";
     bool strict_tree = false;
     bool warn_options = false;
+    std::optional<std::filesystem::path> external;
 };
 
 [[nodiscard]] bool validate_manifest_schema(const mm::mdy::MDYDocument& document,
@@ -480,6 +490,66 @@ std::filesystem::path resolve_manifest(std::filesystem::path path);
 // Walks up until it finds the mm.mdy declaring kind: project. Empty if none.
 std::filesystem::path find_project_root(std::filesystem::path dir);
 
+struct ResolvedRoots {
+    std::filesystem::path project_root;
+    std::optional<std::filesystem::path> external_root;
+    std::filesystem::path tools_dir;
+    std::filesystem::path requested_manifest;
+    std::filesystem::path requested_dir;
+    std::string requested_node;
+    bool ok = true;
+};
+
+[[nodiscard]] ResolvedRoots resolve_roots(const std::filesystem::path& manifest_or_dir);
+
+class ArtifactContext {
+public:
+    ArtifactContext() = default;
+    ArtifactContext(std::filesystem::path tree_root,
+                    std::filesystem::path output_root,
+                    std::filesystem::path tools_dir = {},
+                    bool external = false);
+
+    [[nodiscard]] bool valid() const { return valid_; }
+    [[nodiscard]] const std::filesystem::path& tree_root() const { return tree_root_; }
+    [[nodiscard]] const std::filesystem::path& output_root() const { return output_root_; }
+    [[nodiscard]] const std::filesystem::path& tools_dir() const { return tools_dir_; }
+    [[nodiscard]] bool is_external() const { return external_; }
+
+    [[nodiscard]] std::string prefix(const BuildableNode& node) const;
+    [[nodiscard]] std::string prefix(bool node_external) const;
+
+    [[nodiscard]] std::filesystem::path object_path(const BuildableNode& node,
+                                                    const TranslationUnit& unit) const;
+    [[nodiscard]] std::filesystem::path bmi_dir() const;
+    [[nodiscard]] std::filesystem::path executable_path(const BuildableNode& node) const;
+    [[nodiscard]] std::filesystem::path bridge_dir(std::string_view library,
+                                                   std::string_view board,
+                                                   std::string_view name) const;
+    [[nodiscard]] std::filesystem::path board_object_path(const std::filesystem::path& board_source,
+                                                          std::string_view board_name = "") const;
+
+    [[nodiscard]] bool check_artifact_path(const std::filesystem::path& path) const;
+    [[nodiscard]] bool check_install_path(const std::filesystem::path& destination,
+                                          const std::filesystem::path& path) const;
+
+    void record_objects(const BuildableNode& target, std::vector<std::filesystem::path> objects);
+    [[nodiscard]] const std::vector<std::filesystem::path>& objects(const BuildableNode& target) const;
+
+    void record_board_objects(std::string_view board_name, std::vector<std::filesystem::path> objects);
+    [[nodiscard]] const std::vector<std::filesystem::path>& board_objects(std::string_view board_name = "") const;
+
+private:
+    std::filesystem::path tree_root_;
+    std::filesystem::path output_root_;
+    std::filesystem::path tools_dir_;
+    bool external_ = false;
+    bool valid_ = true;
+
+    std::map<std::pair<bool, std::filesystem::path>, std::vector<std::filesystem::path>> target_objects_;
+    std::map<std::string, std::vector<std::filesystem::path>> board_objects_;
+};
+
 // Depth first over folder: entries, starting at a kind:project, kind:dir, or kind:library
 // manifest. Paths in the result are relative to dir.
 Tree load_tree(const std::filesystem::path& dir, const LoadPolicy& policy = {});
@@ -499,6 +569,8 @@ bool order(const Tree& tree, std::vector<std::size_t>& out);
 bool order_from(const Tree& tree, std::size_t index, std::vector<std::size_t>& out);
 
 // Objects of a target plus every module reachable through use:, target first.
+std::vector<std::filesystem::path> closure(const Tree& tree, std::size_t index,
+                                           const ArtifactContext& context);
 std::vector<std::filesystem::path> closure(const Tree& tree, std::size_t index);
 
 // The same, extended with the closure of every selected provider the target's
@@ -507,6 +579,11 @@ std::vector<std::filesystem::path> closure(const Tree& tree, std::size_t index);
 // provider modules that were merged in, for diagnostics.
 // reached, when given, receives every target index the closure visited, a
 // consumer ahead of the modules it uses. library_link_inputs wants it reversed.
+std::vector<std::filesystem::path> augmented_closure(const Tree& tree, std::size_t index,
+                                                     const PlatformProviders& providers,
+                                                     const ArtifactContext& context,
+                                                     std::vector<std::string>* merged = nullptr,
+                                                     std::vector<std::size_t>* reached = nullptr);
 std::vector<std::filesystem::path> augmented_closure(const Tree& tree, std::size_t index,
                                                      const PlatformProviders& providers,
                                                      std::vector<std::string>* merged = nullptr,
@@ -537,6 +614,9 @@ int run(const Toolchain& toolchain, const std::string& command);
 // include directories are separate from the configured compiler argument
 // string so each path remains one shell-quoted argument.
 int compile(const Toolchain& toolchain, BuildableNode& target,
+            ArtifactContext& context,
+            const std::vector<std::filesystem::path>& include_directories = {});
+int compile(const Toolchain& toolchain, BuildableNode& target,
             const std::filesystem::path& build_dir,
             const std::vector<std::filesystem::path>& include_directories = {});
 
@@ -545,12 +625,13 @@ int compile(const Toolchain& toolchain, BuildableNode& target,
 int link(const Toolchain& toolchain,
          const std::vector<std::filesystem::path>& objects,
          const std::filesystem::path& output,
-         const std::vector<std::string>& link_inputs = {});
+         const std::vector<std::string>& link_inputs = {},
+         const ArtifactContext* context = nullptr);
 
 // Copies a built binary into bin_dir, unlinking first so a tool can replace the
 // binary it is running from.
 int install(const std::filesystem::path& from, const std::filesystem::path& bin_dir,
-            const std::string& name);
+            const std::string& name, const std::filesystem::path& tree_root = {});
 
 // Formats a value as a CMake bracket argument, selecting an equals count up to
 // max_equals that does not appear in the payload. Returns nullopt if value
@@ -631,8 +712,24 @@ struct ProjectionSchema {
     const std::filesystem::path& external_dir,
     const std::string& output_name,
     const std::filesystem::path& target_output,
+    const ArtifactContext& context,
+    std::string_view tool);
+[[nodiscard]] bool publish_external_results(
+    const std::filesystem::path& results_file,
+    const std::filesystem::path& external_dir,
+    const std::string& output_name,
+    const std::filesystem::path& target_output,
     std::string_view tool);
 
+[[nodiscard]] int external_link(
+    const Project& project,
+    const Platform& platform,
+    const Toolchain& toolchain,
+    const std::string& app_name,
+    const std::vector<std::filesystem::path>& objects,
+    const ArtifactContext& context,
+    const std::filesystem::path& target_output,
+    bool verbose = false);
 [[nodiscard]] int external_link(
     const Project& project,
     const Platform& platform,
@@ -648,6 +745,9 @@ struct ProjectionSchema {
 // directory, and writes the GCC module mapper for every named unit in tree.
 // Keeping GCC CMIs beneath build_dir prevents concurrent lanes from deleting
 // or replacing one another's default project-root gcm.cache.
+[[nodiscard]] bool prepare_module_cache(
+    const Toolchain& toolchain, const Tree& tree,
+    const ArtifactContext& context);
 [[nodiscard]] bool prepare_module_cache(
     const Toolchain& toolchain, const Tree& tree,
     const std::filesystem::path& build_dir = "out");

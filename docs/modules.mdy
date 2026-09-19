@@ -565,6 +565,12 @@ installed, and check.sh is not part of the self-hosting chain above. It is
 therefore not required to build, test, or document the project, and skipping
 it changes nothing else in this sequence.
 
+When invoked on an external manifest (`check <external manifest>`), the check
+tool resolves that external application tree and collects its sources, running
+cppcheck and sketch integrity checks on that external target. The repository's
+`check.sh` script runs across the project manifest tree and does not collect or
+check external trees outside the project checkout.
+
 A second, unrelated optional step can also follow test.sh:
 
 - ./model.sh

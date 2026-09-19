@@ -121,11 +121,52 @@ When a target lane platform declares `link: external` (recorded as `cross-link: 
 - Build validates and publishes artifacts listed in `mm-result.txt`. Trailing blank lines are stripped. Line 1 specifies the primary artifact path. Interior blank lines, non-existent files, non-regular files, relative paths, paths resolving outside the external build directory, duplicate sources, and colliding destinations are rejected.
 - The primary artifact publishes extensionless to the normal application binary path. Supplemental artifacts prefixed with `MM_OUTPUT_NAME.` are published beside the primary with their suffixes.
 
-# Manifest subtree
+# Root resolution and manifest subtree
 
-A manifest argument limits roots considered by the build. Dependencies reachable through use remain required even when their declarations are outside the requested subtree. Capability values must be resolved from the project root so invoking build on a descendant cannot bypass an inherited value or read-only setting.
+A manifest argument specifies either a target within the project tree or an
+external application tree. Root resolution proceeds in one of two ways:
 
-This whole-project resolution rule is implemented for lane selectors. The requested manifest limits build roots after the complete project tree has been resolved and validated.
+1. Inside a project tree: build searches upward from the requested manifest to
+   locate the enclosing directory containing kind: project. The project tree is
+   loaded and validated as a whole, and the requested manifest restricts the
+   retained roots. Dependencies reachable through use remain required even when
+   their declarations are outside the requested subtree.
+2. An external root: if the manifest declares project: (introduced in mm: 1.3),
+   build resolves the external root and the project root through that key. The
+   project tree is loaded first, followed by grafting the external application
+   tree into the project structure.
+
+Capability values must be resolved from the project root so invoking build on
+a descendant cannot bypass an inherited value or read-only setting.
+
+# External sketches
+
+An external sketch or directory of sketches lives outside the project checkout
+and links against the project's modules.
+
+- The graft: build grafts an external app or dir root into the project's
+  tree. Only dir and app with a sketch: declaration are admitted; any other
+  grafted kind (module, library, test, doc, sdk, board, or app without sketch:)
+  is refused.
+- Artifact context: an invocation initializes an artifact context with two
+  roots:
+  - tree_root: project_root for project invocations, external_root for
+    external ones.
+  - output_root: <project>/out-<lane> for project builds, and
+    <external_root>/out-<lane> for external builds.
+  - Prefix: project modules compiled on behalf of an external root receive the
+    prefix graft/project/ under output_root, as does the board unit's object.
+    Target objects and BMI files land under output_root / prefix / logical_dir.
+- Artifact and link guards: all artifact paths and link output destinations are
+  strictly verified to reside within output_root and within tree_root. Any
+  path or symlink escaping outside the tree is refused.
+- No-installation rule: external applications are never installed into the
+  project's out/bin directory; their executables remain exclusively within
+  <external_root>/out-<lane>/<app_name>.
+- Regeneration path: before compiling an application with sketch: declarations,
+  build checks if main.cpp is missing or older than any .ino source. If stale,
+  build invokes the project's installed sketch preprocessor at
+  <project>/out/bin/sketch to regenerate main.cpp before proceeding.
 
 # Output and installation
 

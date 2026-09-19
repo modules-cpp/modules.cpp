@@ -6,19 +6,19 @@ status: official
 release: v1.2.3
 ---
 
-# Arduino sketch compatibility specification
+# Sketch compatibility specification
 
 # Status and authority
 
-This document specifies mm.sketch, the module providing Arduino sketch compatibility for modules.cpp applications. It describes implemented behavior for stages 1, 2, 3, 4, 5, 6, and 7 (release v1.2.3). Features scheduled for later stages are explicitly identified as planned.
+This document specifies mm.sketch, the module providing sketch compatibility for modules.cpp applications. It describes implemented behavior for stages 1, 2, 3, 4, 5, 6, and 7 (release v1.2.3). Features scheduled for later stages are explicitly identified as planned.
 
 docs/modules-ino.mdy specifies the mm.ino preprocessor that transforms sketch source files into an application translation unit; docs/modules-c++20.mdy owns the language dialect, include permissions, and linkage rules; docs/modules-platform-mcu.mdy owns the underlying MCU facilities; docs/modules-stdio.mdy owns the platform console interface; docs/modules-execution.mdy owns the execution model and loop scheduling.
 
 # Role
 
-mm.sketch provides an Arduino-compatible programming model above mm.mcu and mm.stdio. It lets sketches written for Arduino run as standard ISO C++20 applications on any platform supported by modules.cpp.
+mm.sketch provides a sketch programming model above mm.mcu and mm.stdio. It lets sketches run as standard ISO C++20 applications on any platform supported by modules.cpp.
 
-The module exports the implemented Arduino sketch vocabulary in namespace mm::sketch. The generated application prelude introduces using namespace mm::sketch, so sketches access functions, types, and constants without qualification.
+The module exports the implemented sketch vocabulary in namespace mm::sketch. The generated application prelude introduces using namespace mm::sketch, so sketches access functions, types, and constants without qualification.
 
 # The runner
 
@@ -74,7 +74,7 @@ Resolving the LED pin at call time ensures that board configuration provided by 
 
 HIGH and LOW represent electrical voltage levels, not illumination states. digitalWrite(LED_BUILTIN, HIGH) drives the physical GPIO line high. On a board wired with an active-low LED, driving the line high turns the LED off.
 
-To control illumination without regard to board wiring polarity, mm.sketch provides ledOn and ledOff. These functions inspect the board definition's active_high property and drive the pin to the appropriate level to illuminate or extinguish the LED. digitalWrite is electrical; ledOn is illuminating. Sketches ported from active-high Arduino boards may use either; sketches targeting active-low boards should use ledOn and ledOff.
+To control illumination without regard to board wiring polarity, mm.sketch provides ledOn and ledOff. These functions inspect the board definition's active_high property and drive the pin to the appropriate level to illuminate or extinguish the LED. digitalWrite is electrical; ledOn is illuminating. Sketches ported from active-high boards may use either; sketches targeting active-low boards should use ledOn and ledOff.
 
 # Status and error latching
 
@@ -250,7 +250,7 @@ Closing fence
 
 min, max, abs, pow, sqrt, sin, cos, and tan are exported in mm::sketch via using declarations of the standard library routines from <algorithm> and <cmath>, making them available unqualified in sketches.
 
-constrain, map, and sq are ordinary overloaded functions on long and double. Because they are functions rather than preprocessor macros, each argument is evaluated exactly once: an expression such as constrain(i++, 0, 9) increments i once, avoiding the multiple-evaluation defects of traditional Arduino macro definitions. If in_max equals in_min in map, the function returns out_min to prevent division by zero.
+constrain, map, and sq are ordinary overloaded functions on long and double. Because they are functions rather than preprocessor macros, each argument is evaluated exactly once: an expression such as constrain(i++, 0, 9) increments i once, avoiding the multiple-evaluation defects of traditional macro definitions. If in_max equals in_min in map, the function returns out_min to prevent division by zero.
 
 ## Characters
 
@@ -272,7 +272,7 @@ Closing fence
 
 Character classification functions inspect the character argument c. Each function casts c to unsigned char before delegating to the corresponding <cctype> classification routine, ensuring well-defined behavior across all char values. isAscii returns true if c is in the range 0 through 127.
 
-The semantic distinction between isSpace and isWhitespace from Arduino is preserved: isSpace returns true for all whitespace characters including newline, carriage return, tab, and form feed (via std::isspace), whereas isWhitespace returns true only for blank space and horizontal tab characters (via std::isblank).
+The semantic distinction between isSpace and isWhitespace is preserved: isSpace returns true for all whitespace characters including newline, carriage return, tab, and form feed (via std::isspace), whereas isWhitespace returns true only for blank space and horizontal tab characters (via std::isblank).
 
 ## Random numbers
 
@@ -351,7 +351,7 @@ detachInterrupt clears the interrupt registration and unwatches the pin via mm.m
 
 digitalPinToInterrupt is the identity mapping: every GPIO pin that the latch supports serves directly as its own interrupt identifier.
 
-The legacy Arduino interrupts and noInterrupts functions are declined. The modules.cpp execution model runs sketch handlers in thread context without preemption; disabling global interrupts is neither necessary nor supported.
+The legacy interrupts and noInterrupts functions are declined. The modules.cpp execution model runs sketch handlers in thread context without preemption; disabling global interrupts is neither necessary nor supported.
 
 ## Communication
 
@@ -482,7 +482,7 @@ public:
 extern SPIClass SPI;
 Closing fence
 
-SPI provides Arduino-compatible SPI master communication over mm.mcu's spi_configure and spi_transfer.
+SPI provides SPI master communication over mm.mcu's spi_configure and spi_transfer.
 
 begin initializes the SPI bus using the board's default SPI wiring (clock, transmit, and optional receive GPIOs) with default settings of 4 MHz, MSBFIRST, SPI_MODE0. If the board declares no SPI wiring, begin returns false and latches Status::Unsupported. end resets the sketch SPI state without deconfiguring the underlying peripheral hardware; the object may be re-initialized with begin.
 
@@ -520,7 +520,7 @@ public:
 extern TwoWire Wire;
 Closing fence
 
-Wire provides Arduino-compatible I2C master communication over mm.mcu's i2c_configure, i2c_write, i2c_read, and i2c_write_read.
+Wire provides I2C master communication over mm.mcu's i2c_configure, i2c_write, i2c_read, and i2c_write_read.
 
 begin initializes the I2C bus using the board's default I2C wiring (data and clock GPIOs) at 100 kHz. If the board declares no I2C wiring, begin returns false and latches Status::Unsupported. Wire.begin(addr) and the slave callbacks onReceive/onRequest are declined: mm.mcu is a master-only interface. end resets the sketch Wire state without deconfiguring the underlying peripheral hardware; the object may be re-initialized with begin.
 
@@ -528,7 +528,7 @@ setClock reconfigures the I2C clock speed. If begin has not been called, setCloc
 
 beginTransmission prepares a write transaction to the given seven-bit address. write buffers bytes into an internal thirty-two-byte transmit buffer. Writing beyond the buffer capacity returns 0 and sets an overflow flag. write(const char*) writes the string without its null terminator.
 
-endTransmission executes the buffered write via mm.mcu i2c_write. It returns an Arduino-compatible status code: 0 on success, 1 if the transmit buffer overflowed, 2 on invalid argument (BadArgument, including an out-of-range address), 4 on other error (including transmission failures and NACKs), 5 on timeout. If send_stop is false, the write is deferred so that a subsequent requestFrom to the same address executes the combined write-then-read as a single mm.mcu i2c_write_read transaction, preserving bus arbitration.
+endTransmission executes the buffered write via mm.mcu i2c_write. It returns a status code: 0 on success, 1 if the transmit buffer overflowed, 2 on invalid argument (BadArgument, including an out-of-range address), 4 on other error (including transmission failures and NACKs), 5 on timeout. If send_stop is false, the write is deferred so that a subsequent requestFrom to the same address executes the combined write-then-read as a single mm.mcu i2c_write_read transaction, preserving bus arbitration.
 
 requestFrom reads up to min(quantity, 32) bytes from the given address into an internal receive buffer. If a deferred write is pending for the same address, the operation becomes a combined write-then-read. Returns the number of bytes received.
 
@@ -542,8 +542,8 @@ using word = unsigned short;
 using boolean = bool;
 Closing fence
 
-byte, word, and boolean provide standard Arduino type aliases.
+byte, word, and boolean provide standard type aliases.
 
-The Arduino String class is declined. Standard ISO C++ std::string provides string operations, integrating with Serial.print and future text methods.
+The String class is declined. Standard ISO C++ std::string provides string operations, integrating with Serial.print and future text methods.
 
 PROGMEM and the F("...") macro are declined. In the modules.cpp toolchain, constant placement in flash or RAM is determined automatically by the linker.

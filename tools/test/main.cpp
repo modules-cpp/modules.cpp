@@ -63,15 +63,21 @@ int main(int argc, char** argv) {
         status != mm::app::Cli::ok)
         return status == mm::app::Cli::usage ? mm::build::exit_usage : mm::build::exit_manifest;
 
+    const auto roots = mm::build::resolve_roots(manifest_path);
+    if (!roots.ok) {
+        std::cerr << "test: cannot resolve root for " << manifest_path.string() << "\n";
+        return mm::build::exit_manifest;
+    }
+    if (roots.external_root) {
+        std::cerr << "test: " << manifest_path.string() << ": external root holds no test\n";
+        return mm::build::exit_manifest;
+    }
+
     bool ok = false;
     auto target = mm::build::load_test(manifest_path, ok, {.tool = "test", .warn_options = true});
     if (!ok) return mm::build::exit_manifest;
 
-    const auto root = mm::build::find_project_root(manifest_dir);
-    if (root.empty()) {
-        std::cerr << "test: no kind:project mm.mdy above " << manifest_dir.string() << "\n";
-        return mm::build::exit_manifest;
-    }
+    const auto root = roots.project_root;
 
     std::error_code ec;
     const auto requested_manifest = std::filesystem::weakly_canonical(manifest_path, ec);
@@ -218,12 +224,20 @@ int main(int argc, char** argv) {
         }
     }
 
+    const auto test_output_root = root / build_dir;
+    mm::build::ArtifactContext context(root, test_output_root, roots.tools_dir, false);
+    if (!context.valid()) {
+        std::cerr << "test: refusing to write outside the project: "
+                  << test_output_root.string() << "\n";
+        return mm::build::exit_manifest;
+    }
+
     std::filesystem::remove_all(build_dir, ec);
     if (ec) {
         std::cerr << "test: cannot clear " << build_dir.string() << ": " << ec.message() << "\n";
         return mm::build::exit_compile;
     }
-    if (!mm::build::prepare_module_cache(toolchain, tree, build_dir))
+    if (!mm::build::prepare_module_cache(toolchain, tree, context))
         return mm::build::exit_compile;
 
     std::cout << "Compile\n";
@@ -237,14 +251,14 @@ int main(int argc, char** argv) {
                 ".", project.libraries, built, include_directories, "test"))
             return mm::build::exit_manifest;
         if (const int status = mm::build::compile(
-                toolchain, built, build_dir, include_directories); status != 0)
+                toolchain, built, context, include_directories); status != 0)
             return status;
     }
 
     auto board = mm::build::platform_unit(platform);
     if (board) {
         std::cout << "  board " << board->name << "\n";
-        if (const int status = mm::build::compile(toolchain, *board, build_dir); status != 0)
+        if (const int status = mm::build::compile(toolchain, *board, context); status != 0)
             return status;
     }
 
@@ -256,15 +270,18 @@ int main(int argc, char** argv) {
         return mm::build::exit_manifest;
     std::vector<std::string> merged;
     std::vector<std::size_t> reached;
-    auto objects = mm::build::augmented_closure(tree, index, providers, &merged, &reached);
+    auto objects = mm::build::augmented_closure(tree, index, providers, context, &merged, &reached);
     std::vector<std::string> link_inputs;
     for (const auto& provider : merged)
         std::cout << "  platform provider " << provider << "\n";
-    if (board) objects.insert(objects.end(), board->objects.begin(), board->objects.end());
+    if (board) {
+        const auto& bo = context.board_objects(board->name);
+        objects.insert(objects.end(), bo.begin(), bo.end());
+    }
     if (platform != nullptr &&
         platform->link_ownership == mm::configure::LinkOwnership::External) {
         if (const int status = mm::build::external_link(
-                project, *platform, toolchain, name, objects, build_dir, binary, verbose);
+                project, *platform, toolchain, name, objects, context, binary, verbose);
             status != 0)
             return status;
     } else {
@@ -272,7 +289,7 @@ int main(int argc, char** argv) {
                                             link_inputs, "test"))
             return mm::build::exit_manifest;
         if (const int status =
-                mm::build::link(toolchain, objects, binary, link_inputs);
+                mm::build::link(toolchain, objects, binary, link_inputs, &context);
             status != 0)
             return status;
     }

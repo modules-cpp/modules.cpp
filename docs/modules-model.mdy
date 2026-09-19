@@ -244,3 +244,8 @@ tree") is future work, not something tools/model does today.
 - mm.model's models.tool coverage is kind:app manifests plus three fixed, project-known entries: build0, build1, and c++ (Provenance::ThirdParty). cppcheck and semgrep are still absent: unlike c++, nothing in this project's own scripts names them at a fixed path the way bootstrap.sh names c++, so representing them would mean inventing data rather than stating a known fact.
 - Loaded::operations() is fixed, hand authored data mirroring the eleven *.sh scripts, the same reasoning as build0/build1/c++ in tools(): nothing here is derived from a manifest walk. invokes() only names Tools; the fallback branch inside bootstrap's second invokes() sequence is not decomposed further than "c++, invoked six times" — it does not know or care that those six invocations are five compiles and one link, the same abstraction boundary that already applies to how build.sh's own invokes() does not enumerate what build1 compiles internally.
 - tools/model does not check docs/modules.mdy's prose against reality (for example, its Repository layout tree, or the Build and development workflow script list); it checks only what models::Repository can already answer.
+- External application trees grafted into a project via project: sit outside
+  models.repository's canonical model. The repository model describes the
+  self-contained project tree and its owned nodes; external sketches are
+  transient client grafts rather than nodes of the repository.
+

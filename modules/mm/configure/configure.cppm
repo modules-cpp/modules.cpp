@@ -59,6 +59,8 @@ struct OptionNode {
     std::vector<std::string> resets;
     std::vector<std::string> read_only;
     std::string library;
+    bool external = false;
+    bool non_core = false;
 };
 
 struct OptionValue {

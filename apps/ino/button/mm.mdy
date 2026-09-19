@@ -10,4 +10,4 @@ sketch: button.ino
 
 # button
 
-An Arduino-style GPIO button interrupt counter sketch built over mm.sketch.
+A GPIO button interrupt counter sketch built over mm.sketch.

@@ -1,4 +1,5 @@
 // Installed-tool integration: all effects are confined to a disposable project.
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -428,12 +429,140 @@ void installed_json_tool() {
     std::filesystem::remove(log, ec);
 }
 
+void installed_external_sketch() {
+    std::error_code ec;
+    const auto repository = std::filesystem::current_path(ec);
+    expect(!ec, "repository directory available");
+    const auto bin = repository / "out/bin";
+    const mm::test::scoped_tree external_tree{"ext_sketch"};
+    const auto sketch_dir = external_tree.root() / "fixture";
+    std::filesystem::create_directories(sketch_dir, ec);
+    expect(!ec, "external sketch directory created");
+
+    const auto log = external_tree.root() / "tool.log";
+    const auto sketch_arg = mm::build::shell_quote(sketch_dir);
+    const auto repo_arg = mm::build::shell_quote(repository);
+
+    // Write fixture.ino
+    {
+        std::ofstream ino_file(sketch_dir / "fixture.ino");
+        ino_file << "#include <fstream>\n\n"
+                 << "void setup() {\n"
+                 << "    std::ifstream check(\"fixture.ino\");\n"
+                 << "    if (check.is_open()) {\n"
+                 << "        requestExit(0);\n"
+                 << "    } else {\n"
+                 << "        requestExit(1);\n"
+                 << "    }\n"
+                 << "}\n\n"
+                 << "void loop() {}\n";
+    }
+
+    // 1. Generate external sketch with --project
+    expect(invoke(bin / "sketch", "--project " + repo_arg + " " + sketch_arg,
+                  log) == 0,
+           "sketch generates external sketch with --project");
+    const auto mdy_path = sketch_dir / "mm.mdy";
+    expect(std::filesystem::exists(mdy_path), "mm.mdy was generated");
+    const auto main_path = sketch_dir / "main.cpp";
+    expect(std::filesystem::exists(main_path), "main.cpp was generated");
+    const auto initial_mdy = read_text(mdy_path);
+    expect(initial_mdy.find("project:") != std::string::npos,
+           "generated manifest has project: key");
+    expect(initial_mdy.find("sketch: fixture.ino") != std::string::npos,
+           "generated manifest has sketch: key");
+
+    // --project refused under a tree
+    expect(invoke(bin / "sketch", "--project " + repo_arg + " " +
+                      mm::build::shell_quote(repository / "apps/main"),
+                  log) == 65,
+           "sketch refuses --project when target is under a tree");
+
+    // 2. Build via out/bin/build
+    expect(invoke(bin / "build", sketch_arg, log) == 0,
+           "build succeeds on external sketch");
+    const auto exe = sketch_dir / "out-host/fixture";
+    expect(std::filesystem::exists(exe),
+           "executable placed under external root out-host");
+    expect(!std::filesystem::exists(bin / "fixture"),
+           "executable absent from project out/bin");
+
+    // 3. Regeneration when main.cpp is deleted
+    std::filesystem::remove(main_path, ec);
+    expect(!std::filesystem::exists(main_path), "main.cpp removed");
+    expect(invoke(bin / "build", sketch_arg, log) == 0,
+           "build regenerates missing main.cpp");
+    expect(std::filesystem::exists(main_path),
+           "main.cpp regenerated during build");
+
+    // 4. Regeneration when main.cpp is stale (older than fixture.ino)
+    const auto old_time = std::filesystem::file_time_type::clock::now() -
+                          std::chrono::seconds(10);
+    std::filesystem::last_write_time(main_path, old_time, ec);
+    const auto new_time = std::filesystem::file_time_type::clock::now();
+    std::filesystem::last_write_time(sketch_dir / "fixture.ino", new_time, ec);
+    expect(invoke(bin / "build", sketch_arg, log) == 0,
+           "build regenerates stale main.cpp");
+    expect(std::filesystem::last_write_time(main_path, ec) >= new_time,
+           "main.cpp updated during build");
+
+    // 5. Run via out/bin/run --host (verifies cwd is sketch_dir)
+    expect(invoke(bin / "run", "--host " + sketch_arg, log) == 0,
+           "run --host verifies working directory is sketch_dir");
+
+    // 6. Check via out/bin/check
+    expect(invoke(bin / "check", sketch_arg, log) == 0,
+           "check accepts valid external sketch");
+
+    // Plant dialect violation in main.cpp
+    {
+        std::ofstream out(main_path, std::ios::app);
+        out << "#define BAD_MACRO 1\n";
+    }
+    expect(invoke(bin / "check", sketch_arg, log) != 0,
+           "check refuses dialect violation");
+
+    // Regenerate to clean up main.cpp
+    expect(invoke(bin / "sketch", sketch_arg, log) == 0,
+           "sketch regenerates clean main.cpp");
+    expect(invoke(bin / "check", sketch_arg, log) == 0,
+           "check passes again after regeneration");
+
+    // 7. Orphan refusal
+    // Remove project: line from mm.mdy
+    std::string no_project_mdy;
+    {
+        std::istringstream stream(initial_mdy);
+        std::string line;
+        while (std::getline(stream, line)) {
+            if (!line.starts_with("project:")) {
+                no_project_mdy += line + "\n";
+            }
+        }
+        std::ofstream out(mdy_path);
+        out << no_project_mdy;
+    }
+    expect(invoke(bin / "build", sketch_arg, log) == 65,
+           "build refuses orphan external sketch without project:");
+
+    expect(invoke(bin / "sketch", sketch_arg, log) == 65,
+           "sketch refuses orphan external sketch on generation");
+    const auto log_orphan = read_text(log);
+    expect(log_orphan.find("neither registered by a parent nor external") !=
+               std::string::npos,
+           "sketch reports orphan diagnostic");
+
+    expect(invoke(bin / "sketch", "--check " + sketch_arg, log) == 65,
+           "sketch --check refuses orphan external sketch");
+}
+
 const mm::test::case_ cases[] = {
     {"installed configure and cross-tool 1.1 compatibility", &installed_tools_support_11},
     {"installed json tool", &installed_json_tool},
     {"installed tools select configured lanes", &installed_tools_select_configured_lanes},
     {"installed tools support common help", &installed_tools_support_common_help},
     {"sketch tool four-run case", &sketch_tool_four_runs},
+    {"installed external sketch", &installed_external_sketch},
 };
 const mm::test::registrar reg{"mm.configure CLI", cases};
 }

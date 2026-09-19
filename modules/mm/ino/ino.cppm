@@ -39,4 +39,11 @@ struct TransformResult {
                                      const mm::mdy::MDYDocument& doc,
                                      std::string& error);
 
+[[nodiscard]] bool write_guarded(const std::filesystem::path& app_dir,
+                                 std::string_view target_filename,
+                                 std::string_view content,
+                                 std::string& error,
+                                 std::string_view temp_filename = "");
+
 }
+

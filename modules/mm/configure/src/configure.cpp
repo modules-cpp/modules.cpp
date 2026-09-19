@@ -851,13 +851,25 @@ bool resolve_options(const std::filesystem::path& project_root, Build build,
             return option_error(tool, node, "tree",
                                 "expected one project root and parent-before-child order");
         std::filesystem::path directory;
-        if (!relative_directory(root, node.directory, directory) ||
-            !valid_scalar(node.name) || !valid_scalar(node.manifest.generic_string()))
-            return option_error(tool, node, "tree", "invalid node path or name");
+        if (!node.external) {
+            if (!relative_directory(root, node.directory, directory) ||
+                !valid_scalar(node.name) ||
+                !valid_scalar(node.manifest.generic_string()))
+                return option_error(tool, node, "tree", "invalid node path or name");
+        } else {
+            if (!valid_scalar(node.name) ||
+                !valid_scalar(node.manifest.generic_string()))
+                return option_error(tool, node, "tree", "invalid node path or name");
+        }
         if (node.kind == "doc" && (!node.options.empty() || !node.resets.empty() || !node.read_only.empty()))
             return option_error(tool, node, "doc",
                                 "option, reset, and read-only are not allowed on doc manifests");
         auto values = i == 0 ? defaults : result[node.parent];
+        if (node.external || node.non_core) {
+            auto& core_val = values.find("core")->second;
+            core_val.boolean = false;
+            core_val.origin = OptionOrigin::Default;
+        }
         std::vector<std::string> assigned;
         for (const auto& operation : {std::string_view("option"), std::string_view("reset")}) {
             const auto& declarations = operation == "option" ? node.options : node.resets;
@@ -874,6 +886,9 @@ bool resolve_options(const std::filesystem::path& project_root, Build build,
                 const auto* spec = option_spec(name);
                 if (spec == nullptr)
                     return option_error(tool, node, name, "unknown option name");
+                if (node.external && spec->type == OptionType::Directory)
+                    return option_error(tool, node, name,
+                                        "directory options are not allowed on external manifests");
                 for (const auto& seen : assigned)
                     if (seen == name)
                         return option_error(tool, node, name,
@@ -895,6 +910,9 @@ bool resolve_options(const std::filesystem::path& project_root, Build build,
                 value.value_source = node.manifest.lexically_normal();
             }
         }
+        if (node.external || node.non_core) {
+            values.find("core")->second.boolean = false;
+        }
         std::vector<std::string> locked;
         for (const auto& declaration : node.read_only) {
             const auto text = trim_option(declaration);
@@ -904,8 +922,12 @@ bool resolve_options(const std::filesystem::path& project_root, Build build,
                 return option_error(tool, node, "read-only", "declaration requires a name");
             if (split != std::string_view::npos)
                 return option_error(tool, node, name, "read-only takes a name only");
-            if (option_spec(name) == nullptr)
+            const auto* spec = option_spec(name);
+            if (spec == nullptr)
                 return option_error(tool, node, name, "read-only requires one registered name");
+            if (node.external && spec->type == OptionType::Directory)
+                return option_error(tool, node, name,
+                                    "directory options are not allowed on external manifests");
             for (const auto& seen : locked)
                 if (seen == name)
                     return option_error(tool, node, name, "duplicate read-only declaration");

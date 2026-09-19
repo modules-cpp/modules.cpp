@@ -70,38 +70,33 @@ int main(int argc, char** argv) {
     }
 
     if (manifest_path.empty()) manifest_path = "mm.mdy";
-    manifest_path = mm::build::resolve_manifest(manifest_path);
+    const auto manifest_candidate = mm::build::resolve_manifest(manifest_path);
 
-    if (manifest_path.filename() != "mm.mdy") {
-        std::cerr << "build: not an mm.mdy manifest: " << manifest_path.string() << "\n";
+    if (manifest_candidate.filename() != "mm.mdy") {
+        std::cerr << "build: not an mm.mdy manifest: " << manifest_candidate.string() << "\n";
         return mm::build::exit_usage;
     }
-    if (!std::filesystem::exists(manifest_path)) {
-        std::cerr << "build: manifest does not exist: " << manifest_path.string() << "\n";
+    if (!std::filesystem::exists(manifest_candidate)) {
+        std::cerr << "build: manifest does not exist: " << manifest_candidate.string() << "\n";
         return mm::build::exit_manifest;
     }
 
-    const auto root = std::filesystem::absolute(manifest_path).parent_path();
-    const auto found_project_root = mm::build::find_project_root(root);
-    const auto project_root = found_project_root.empty() ? root : found_project_root;
-    auto tree_root = root.lexically_relative(project_root);
-    if (tree_root.empty()) tree_root = ".";
+    const auto resolved_roots = mm::build::resolve_roots(manifest_candidate);
+    if (!resolved_roots.ok) {
+        std::cerr << "build: cannot resolve root for " << manifest_candidate.string() << "\n";
+        return mm::build::exit_manifest;
+    }
 
     std::error_code ec;
-    const auto requested_root = std::filesystem::weakly_canonical(root, ec);
+    std::filesystem::current_path(resolved_roots.project_root, ec);
     if (ec) {
-        std::cerr << "build: cannot resolve " << root.string() << ": " << ec.message() << "\n";
-        return mm::build::exit_manifest;
-    }
-    std::filesystem::current_path(project_root, ec);
-    if (ec) {
-        std::cerr << "build: cannot enter " << project_root.string() << ": " << ec.message()
+        std::cerr << "build: cannot enter " << resolved_roots.project_root.string() << ": " << ec.message()
                   << "\n";
         return mm::build::exit_manifest;
     }
 
     std::cout << "modules.cpp build tool\n";
-    std::cout << "  root " << project_root.string() << "\n";
+    std::cout << "  root " << resolved_roots.project_root.string() << "\n";
 
     mm::build::BuildConfiguration configuration;
     if (!mm::build::resolve_configuration(".", verbose, configuration))
@@ -133,16 +128,16 @@ int main(int argc, char** argv) {
         return mm::build::exit_manifest;
     std::cout << "\n";
 
-    auto project = mm::build::load_project(".", {.tool = "build", .warn_options = true});
+    mm::build::LoadPolicy policy{.tool = "build", .warn_options = true};
+    if (resolved_roots.external_root) policy.external = resolved_roots.external_root;
+    auto project = mm::build::load_project(".", policy);
     if (!project.ok) return mm::build::exit_manifest;
     if (!mm::build::check_configuration_staleness(configuration, project, target_lane, "build"))
         return mm::build::exit_manifest;
 
     std::size_t scope = mm::build::no_parent;
     for (std::size_t i = 0; i < project.nodes.size(); ++i) {
-        const auto directory = std::filesystem::weakly_canonical(project.nodes[i].dir, ec);
-        if (ec) return mm::build::exit_manifest;
-        if (directory == requested_root) {
+        if (project.nodes[i].source_dir == resolved_roots.requested_dir) {
             scope = i;
             break;
         }
@@ -271,8 +266,19 @@ int main(int argc, char** argv) {
         }
     }
 
+    const auto context_tree_root = resolved_roots.external_root ? *resolved_roots.external_root : resolved_roots.project_root;
+    const auto context_output_root = resolved_roots.external_root ? (*resolved_roots.external_root / build_dir)
+                                                                  : (resolved_roots.project_root / build_dir);
+    mm::build::ArtifactContext context(context_tree_root, context_output_root, resolved_roots.tools_dir,
+                                       resolved_roots.external_root.has_value());
+    if (!context.valid()) {
+        std::cerr << "build: refusing to write outside the project: "
+                  << context_output_root.string() << "\n";
+        return mm::build::exit_manifest;
+    }
+
     std::cout << "Prepare module cache\n";
-    if (!mm::build::prepare_module_cache(toolchain, tree, build_dir)) {
+    if (!mm::build::prepare_module_cache(toolchain, tree, context)) {
         std::cerr << "build: failed to prepare module cache\n";
         return mm::build::exit_compile;
     }
@@ -288,14 +294,14 @@ int main(int argc, char** argv) {
                 ".", project.libraries, target, include_directories, "build"))
             return mm::build::exit_manifest;
         if (const int status = mm::build::compile(
-                toolchain, target, build_dir, include_directories); status != 0)
+                toolchain, target, context, include_directories); status != 0)
             return status;
     }
 
     auto board = mm::build::platform_unit(platform);
     if (board) {
         std::cout << "  board " << board->name << "\n";
-        if (const int status = mm::build::compile(toolchain, *board, build_dir); status != 0)
+        if (const int status = mm::build::compile(toolchain, *board, context); status != 0)
             return status;
     }
 
@@ -310,7 +316,7 @@ int main(int argc, char** argv) {
         const auto& target = tree.targets[index];
         if (target.kind != "app") continue;
 
-        const auto output = build_dir / (target.dir / target.name).lexically_normal();
+        const auto output = context.executable_path(target);
 
         std::cout << "  app " << target.name << " -> " << output.string() << "\n";
 
@@ -319,16 +325,19 @@ int main(int argc, char** argv) {
         std::vector<std::string> merged;
         std::vector<std::size_t> reached;
         auto objects =
-            mm::build::augmented_closure(tree, index, providers, &merged, &reached);
+            mm::build::augmented_closure(tree, index, providers, context, &merged, &reached);
         std::vector<std::string> link_inputs;
         for (const auto& provider : merged)
             std::cout << "    platform provider " << provider << "\n";
-        if (board) objects.insert(objects.end(), board->objects.begin(), board->objects.end());
+        if (board) {
+            const auto& bo = context.board_objects(board->name);
+            objects.insert(objects.end(), bo.begin(), bo.end());
+        }
 
         if (platform != nullptr &&
             platform->link_ownership == mm::configure::LinkOwnership::External) {
             if (const int status = mm::build::external_link(
-                    project, *platform, toolchain, target.name, objects, build_dir, output,
+                    project, *platform, toolchain, target.name, objects, context, output,
                     verbose);
                 status != 0)
                 return status;
@@ -337,18 +346,19 @@ int main(int argc, char** argv) {
                                                 link_inputs, "build"))
                 return mm::build::exit_manifest;
             if (const int status =
-                    mm::build::link(toolchain, objects, output, link_inputs);
+                    mm::build::link(toolchain, objects, output, link_inputs, &context);
                 status != 0)
                 return status;
         }
 
-        if (!target_lane) {
-            if (const int status = mm::build::install(output, bin_dir, target.name); status != 0)
+        if (!target_lane && !target.external) {
+            if (const int status = mm::build::install(output, bin_dir, target.name,
+                                                      resolved_roots.project_root); status != 0)
                 return status;
         }
     }
 
-    if (!target_lane) std::cout << "\nInstalled to " << bin_dir.string() << "\n";
+    if (!target_lane && !resolved_roots.external_root) std::cout << "\nInstalled to " << bin_dir.string() << "\n";
     if (unavailable_targets != 0)
         std::cout << unavailable_targets << " module/app target(s) skipped; unavailable for the "
                   << (target_lane ? "target" : "host") << " lane\n";

@@ -6,6 +6,7 @@ module: mm.ino
 use: mm.mdy
 file: ino.cppm
 file: src/ino.cpp
+file: src/guard.cpp
 option: buildable-target no
 ---
 

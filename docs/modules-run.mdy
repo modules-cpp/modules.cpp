@@ -25,3 +25,12 @@ run does not build an application. A missing artifact is diagnosed with an instr
 A configured runner and target host capability are independent. Host capability controls which nodes may be built in the target lane. A runner controls whether an artifact from that lane can be executed by this machine.
 
 requires-board participates in the same availability check as build and test. A mismatch exits 77 and names the required and selected boards before artifact lookup.
+
+# Working directory
+
+Before executing an application, run sets the current working directory:
+- For a project application, the working directory is the project root.
+- For an external application, the working directory is the external
+  application's own source directory containing its sketch and manifest,
+  so relative file accesses find the application's local files.
+

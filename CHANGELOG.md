@@ -6,6 +6,18 @@ All notable changes to modules.cpp. Versions follow [semantic versioning](https:
 
 ### Added
 
+- **External sketches through `project:`.** External sketches and
+  application trees located outside the project repository checkout build, run,
+  flash, debug, and check using the project's toolchain and modules via the
+  `project:` key (introduced in `mm: 1.3`). The loader grafts the external
+  application tree under an allowlist admitting only `dir` and `app` with
+  `sketch:`. The artifact context scopes compilation and output into the
+  external root's `out-<lane>` directory, compiling project modules and board
+  objects under `graft/project/` without modifying the project's checkout or
+  `out/bin` tools. The `sketch` preprocessor provides 4-case tree detection,
+  atomic file generation through `write_guarded` using POSIX `openat` and
+  `renameat`, and build-time regeneration when `main.cpp` is missing or stale.
+
 - **`mm.json`.** A core module reading and writing RFC 8259 JSON without
   exceptions, templates, or, in its scanner, allocation. The `:status`
   partition names the faults and where they are; the `:scan` partition is a

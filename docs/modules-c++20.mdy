@@ -120,6 +120,13 @@ and only for the entries listed here.
 
 - mm.test's expect and failure use throw, and run_all catches them, which conflicts with the exceptions rule above. This is deliberate and load-bearing: it is the mechanism by which a failed assertion unwinds out of a test body without the test author writing manual control flow. It is the one permitted exception to the exceptions rule, confined to mm.test, until a non-throwing mechanism replaces it. No other module MAY introduce throw or catch on the strength of this precedent.
 - mm.test's registrar constructor template, declared as template <std::size_t N> registrar(std::string_view name, const case_ (&cases)[N]), is a hand-written template and conflicts with the templates rule above. It MAY remain until replaced by a non-template mechanism, such as an explicit count parameter at each call site, tracked as technical debt rather than used as precedent elsewhere.
+- modules/mm/ino/src/guard.cpp includes POSIX <fcntl.h> and <unistd.h> and
+  invokes openat, write, close, renameat, and unlinkat. This narrow exception
+  to standard-library-only includes is required for the source guard: ISO C++20
+  std::filesystem and std::ofstream follow symlinks, providing no mechanism to
+  create a file exclusively without following symlinks (O_CREAT | O_EXCL |
+  O_NOFOLLOW). Confined strictly to guard.cpp; no other file may use POSIX file
+  descriptors.
 
 # Enforcement
 - Code review MUST check new and changed code against this specification before merge. A MUST violation outside the Known non-conformance list MUST block merge.

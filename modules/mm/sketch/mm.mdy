@@ -11,4 +11,4 @@ file: src/sketch.cpp
 
 # mm.sketch
 
-The sketch module providing an Arduino-compatible programming model above mm.mcu and mm.stdio: run(), requestExit(), dispatch(), GPIO pinMode/digitalWrite/digitalRead, built-in LED overloads and ledOn/ledOff, delay/millis, the error latch, and Serial.
+The sketch module providing a sketch programming model above mm.mcu and mm.stdio: run(), requestExit(), dispatch(), GPIO pinMode/digitalWrite/digitalRead, built-in LED overloads and ledOn/ledOff, delay/millis, the error latch, and Serial.

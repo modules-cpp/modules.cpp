@@ -339,6 +339,56 @@ void structural_properties() {
     expect(!resolve(tree, Build::Debug, empty), "a node buildable for no lane is rejected");
 }
 
+void external_options() {
+    const mm::test::scoped_tree project_tree{"options_proj_ext"};
+    project_tree.manifest_raw("", "mm: 1.1\nkind: project\nname: proj\nread-only: optimize\n");
+
+    const mm::test::scoped_tree external_tree{"options_ext_opts"};
+    const auto rel_proj = std::filesystem::relative(
+        project_tree.root(), external_tree.root()).lexically_normal().string();
+
+    // 1. Directory option on an external node is refused
+    external_tree.manifest_raw("",
+        "mm: 1.3\nkind: app\nname: ext_sketch\nproject: " + rel_proj +
+        "\nfile: main.cpp\nsketch: sketch.ino\noption: include-dir inc\n");
+    std::filesystem::create_directories(external_tree.root() / "inc");
+    std::ofstream(external_tree.root() / "sketch.ino") << "void setup(){}\nvoid loop(){}\n";
+    std::ofstream(external_tree.root() / "main.cpp") << "int main(){}\n";
+
+    mm::build::LoadPolicy policy_ext{.tool = "configure", .external = external_tree.root()};
+    auto proj_with_dir_opt = mm::build::load_project(project_tree.root(), policy_ext);
+    expect(proj_with_dir_opt.ok, "load_project loads tree with external app");
+    auto cfg_nodes = mm::build::configuration_nodes(proj_with_dir_opt);
+    std::vector<mm::configure::OptionValues> values;
+    expect(!mm::configure::resolve_options(project_tree.root(), Build::Debug, cfg_nodes, values),
+           "directory option on external node is refused");
+
+    // 2. Boolean option inherited by external root & read-only lock reaches it
+    external_tree.manifest_raw("",
+        "mm: 1.3\nkind: app\nname: ext_sketch\nproject: " + rel_proj +
+        "\nfile: main.cpp\nsketch: sketch.ino\noption: assertions no\n");
+    auto proj_ok = mm::build::load_project(project_tree.root(), policy_ext);
+    expect(proj_ok.ok, "project loads cleanly");
+    cfg_nodes = mm::build::configuration_nodes(proj_ok);
+    values.clear();
+    expect(mm::configure::resolve_options(project_tree.root(), Build::Debug, cfg_nodes, values),
+           "external options resolve");
+    expect(values.size() == 2, "two nodes in resolution");
+    expect(!values[1].at("assertions").boolean, "external root applies own boolean option");
+    expect(values[1].at("optimize").read_only, "project root read-only lock reaches external root");
+
+    // 3. Attempting to override read-only locked option on external root is refused
+    external_tree.manifest_raw("",
+        "mm: 1.3\nkind: app\nname: ext_sketch\nproject: " + rel_proj +
+        "\nfile: main.cpp\nsketch: sketch.ino\noption: optimize 3\n");
+    auto proj_override = mm::build::load_project(project_tree.root(), policy_ext);
+    expect(proj_override.ok, "project loads cleanly");
+    cfg_nodes = mm::build::configuration_nodes(proj_override);
+    values.clear();
+    expect(!mm::configure::resolve_options(project_tree.root(), Build::Debug, cfg_nodes, values),
+           "overriding read-only option on external root is refused");
+}
+
 const mm::test::case_ cases[] = {
     {"shared build defaults", &shared_defaults},
     {"tree inheritance reset and records", &inheritance_reset_and_records},
@@ -348,7 +398,8 @@ const mm::test::case_ cases[] = {
     {"shared schema and strict tree", &shared_schema_and_strict_tree},
     {"output safety", &output_safety},
     {"structural properties", &structural_properties},
+    {"external options", &external_options},
 };
 const mm::test::registrar reg{"mm.configure options", cases};
 
-}
+}  // namespace

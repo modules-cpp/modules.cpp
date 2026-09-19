@@ -31,8 +31,8 @@ constexpr int owner_gpio = 1;
 constexpr int owner_watched = 2;
 constexpr int owner_pwm = 4;
 
-// Arduino's 490 Hz, as a period.
-constexpr std::uint64_t arduino_period = 2'040'816;
+// The legacy 490 Hz default, as a period.
+constexpr std::uint64_t default_period = 2'040'816;
 
 void description_reaches_the_caller() {
     mm_test_reset();
@@ -67,12 +67,12 @@ void configure_period_write_release_round_trip() {
            "period before configure is BadArgument and leaves the output alone");
     expect(mm::mcu::pwm_write(0, 0) == Status::BadArgument,
            "write before configure is BadArgument");
-    expect(mm::mcu::pwm_configure(0, arduino_period) == Status::Ok, "an output configures");
+    expect(mm::mcu::pwm_configure(0, default_period) == Status::Ok, "an output configures");
     expect(mm_test_pin_owner(0) == owner_pwm && mm_test_pwm_duty(0) == 0,
            "the modulator holds the pad and starts at zero duty");
     expect(mm::mcu::pwm_period(0, actual) == Status::Ok && actual == 2'040'816,
            "the actual period is what the hardware holds, here the nearest eight nanoseconds");
-    expect(mm::mcu::pwm_configure(0, arduino_period) == Status::Ok,
+    expect(mm::mcu::pwm_configure(0, default_period) == Status::Ok,
            "the same output at the same period is idempotent");
     expect(mm::mcu::pwm_configure(0, 1'000'000) == Status::Busy,
            "the same output at another period is Busy until released");
@@ -106,14 +106,14 @@ void period_validation() {
 
 void groups_and_aliases() {
     mm_test_reset();
-    expect(mm::mcu::pwm_configure(0, arduino_period) == Status::Ok, "the first output claims");
+    expect(mm::mcu::pwm_configure(0, default_period) == Status::Ok, "the first output claims");
     expect(mm::mcu::pwm_configure(1, 1'000'000) == Status::Busy,
            "a sibling at another period is Busy");
     expect(mm_test_pin_owner(1) == owner_none && mm_test_pwm_group_members(0) == 1,
            "the refused sibling claimed nothing");
-    expect(mm::mcu::pwm_configure(1, arduino_period) == Status::Ok,
+    expect(mm::mcu::pwm_configure(1, default_period) == Status::Ok,
            "a sibling at the group's period joins");
-    expect(mm::mcu::pwm_configure(16, arduino_period) == Status::Busy,
+    expect(mm::mcu::pwm_configure(16, default_period) == Status::Busy,
            "an alias of a claimed comparator is Busy even at the same period");
     expect(mm::mcu::pwm_write(1, 100) == Status::Ok && mm::mcu::pwm_release(0) == Status::Ok,
            "the first output releases");
@@ -121,7 +121,7 @@ void groups_and_aliases() {
     expect(mm_test_pwm_duty(1) == 100 && mm::mcu::pwm_period(1, actual) == Status::Ok &&
                mm_test_pwm_group_members(0) == 1,
            "the sibling's duty and period are undisturbed");
-    expect(mm::mcu::pwm_configure(16, arduino_period) == Status::Ok,
+    expect(mm::mcu::pwm_configure(16, default_period) == Status::Ok,
            "once the comparator is free its alias can claim it");
     expect(mm::mcu::pwm_configure(2, 1'000'000) == Status::Ok,
            "an output in another group has its own period");
@@ -163,7 +163,7 @@ void a_failed_takeover_leaves_the_record_true() {
 
 void every_status_reaches_the_caller() {
     mm_test_reset();
-    expect(mm::mcu::pwm_configure(0, arduino_period) == Status::Ok, "configured");
+    expect(mm::mcu::pwm_configure(0, default_period) == Status::Ok, "configured");
     std::uint64_t actual = 5;
     for (const auto status : {Status::BadArgument, Status::Unsupported, Status::Busy,
                               Status::Timeout, Status::TransportError}) {
@@ -171,7 +171,7 @@ void every_status_reaches_the_caller() {
         expect(mm::mcu::pwm_period(0, actual) == status && actual == 5,
                "a refused period carries the platform's status and changes nothing");
         expect(mm::mcu::pwm_write(0, 1) == status && mm::mcu::pwm_release(0) == status &&
-                   mm::mcu::pwm_configure(1, arduino_period) == status,
+                   mm::mcu::pwm_configure(1, default_period) == status,
                "write, release, and configure carry the status");
     }
     mm_test_force(Status::Ok);
@@ -193,7 +193,7 @@ struct Expected {
 // are the period in ticks times sixteen over the divider, rounded half up;
 // the smallest divider whose counts are at most 65535 wins.
 constexpr Expected table[] = {
-    {rp2040, 2'040'816, 64787, 63, 2'040'822},      // Arduino's 490 Hz
+    {rp2040, 2'040'816, 64787, 63, 2'040'822},      // the legacy 490 Hz default
     {rp2040, 1'020'408, 63775, 32, 1'020'416},      // 980 Hz
     {rp2040, 32'258'065, 65498, 985, 32'258'258},   // tone's 31 Hz
     {rp2040, 15'259, 1906, 16, 15'256},             // tone's 65,535 Hz

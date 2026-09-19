@@ -127,6 +127,7 @@ Opening fence
 1.2  platform-provider   sdk board
 1.2  derives-from        board
 
+1.3  project             app dir
 1.3  sketch              app
 Closing fence
 
@@ -147,6 +148,28 @@ than accidental.
   from two ends: a module declares that it is a portable interface, and a
   platform declares which module implements it. Neither key is valid on app or
   test, which is what keeps an application from naming its own provider.
+- project is valid on app and dir and requires mm: 1.3. It names the relative
+  path to the enclosing project root for an external application tree.
+  Every other path in every manifest is strictly descendant; project is the
+  sole exception permitted to use climbing .. segments so external sketches
+  can locate their owning project.
+- sketch is valid on app and requires mm: 1.3. It declares the .ino sketch
+  sources for an application.
+
+# External targets
+
+External roots grafted into a project follow strict containment and boundary
+rules:
+- Grafted kinds are restricted to an allowlist: only dir and app with a sketch:
+  declaration may be grafted. Modules, libraries, tests, docs, sdks, boards,
+  or apps without sketch: are refused.
+- Edges flow one way: an external target may depend on (use:) project modules,
+  but project targets may never use an external target.
+- External targets are structurally non-core (core: false), preventing them
+  from affecting project completeness checks.
+- Application names and logical directories must be unique per tree, not
+  globally. An external blink application may coexist beside a project blink
+  application without conflict.
 
 # Rule order
 
@@ -218,7 +241,8 @@ and a module that wraps it.
 Every failure names the manifest and the offending value.
 
 Opening fence
-<tool>: invalid or unsupported mm: version in <manifest> (supported: 1.0, 1.1, 1.2)
+<tool>: invalid or unsupported mm: version in <manifest>
+  (supported: 1.0, 1.1, 1.2, 1.3)
 <tool>: <manifest>: kind library requires mm: 1.2
 <tool>: unknown kind "<kind>" in <manifest>
 <tool>: manifest has no name: <manifest>

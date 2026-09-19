@@ -64,13 +64,16 @@ void collect(const mm::build::Project& project, std::size_t scope,
         else if (project.nodes[i].kind == "module" || project.nodes[i].kind == "app")
             target = &project.targets[project.target[i]];
         if (target == nullptr) continue;
-        for (const auto& unit : target->sources)
-            if (seen.insert(unit.path).second) files.emplace_back(unit.path);
+        for (const auto& unit : target->sources) {
+            const auto path = unit.source.empty() ? std::filesystem::path(unit.path) : unit.source;
+            if (seen.insert(path.generic_string()).second) files.push_back(path);
+        }
     }
     for (const auto& board : project.boards) {
         if (!beneath(project, board.node, scope)) continue;
-        for (const auto& source : board.sources)
+        for (const auto& source : board.sources) {
             if (seen.insert(source.generic_string()).second) files.push_back(source);
+        }
     }
 }
 
@@ -97,29 +100,27 @@ int main(int argc, char** argv) {
     std::cout << "modules.cpp check tool\n";
     std::cout << "  root " << root.string() << "\n\n";
 
-    auto project_root = mm::build::find_project_root(root);
-    if (project_root.empty()) {
-        std::cerr << "check: no kind:project mm.mdy above " << root.string() << "\n";
+    const auto resolved_roots = mm::build::resolve_roots(manifest_path);
+    if (!resolved_roots.ok) {
+        std::cerr << "check: cannot resolve root for " << manifest_path.string() << "\n";
         return mm::build::exit_manifest;
     }
     std::error_code ec;
-    const auto requested_root = std::filesystem::weakly_canonical(root, ec);
-    if (ec) return mm::build::exit_manifest;
-    std::filesystem::current_path(project_root, ec);
+    std::filesystem::current_path(resolved_roots.project_root, ec);
     if (ec) {
         std::cerr << "check: cannot enter project root: " << ec.message() << "\n";
         return mm::build::exit_manifest;
     }
-    auto project = mm::build::load_project(".", {.tool = "check"});
+    mm::build::LoadPolicy policy{.tool = "check"};
+    if (resolved_roots.external_root) policy.external = resolved_roots.external_root;
+    auto project = mm::build::load_project(".", policy);
     if (!project.ok) return mm::build::exit_manifest;
     std::size_t scope = mm::build::no_parent;
     for (std::size_t i = 0; i < project.nodes.size(); ++i) {
-        const auto directory = std::filesystem::weakly_canonical(project.nodes[i].dir, ec);
-        if (!ec && directory == requested_root) {
+        if (project.nodes[i].source_dir == resolved_roots.requested_dir) {
             scope = i;
             break;
         }
-        ec.clear();
     }
     if (scope == mm::build::no_parent) {
         std::cerr << "check: requested manifest is not in the project tree\n";
@@ -134,12 +135,11 @@ int main(int argc, char** argv) {
     // has no manifest anywhere (see the note above main()), so the walk
     // above never reaches it regardless of root, but reaching outside a
     // deliberately narrowed `check modules/mm.mdy` would be surprising.
-    if (root == project_root) {
-        const auto stage_zero = project_root / "tools/build/main.cpp";
-        const auto relative_stage_zero = std::filesystem::relative(stage_zero, root, ec);
-        if (!ec && std::filesystem::exists(stage_zero) &&
-            seen.insert(relative_stage_zero.string()).second)
-            files.push_back(relative_stage_zero);
+    if (root == resolved_roots.project_root && !resolved_roots.external_root) {
+        const auto stage_zero = resolved_roots.project_root / "tools/build/main.cpp";
+        if (std::filesystem::exists(stage_zero) &&
+            seen.insert(stage_zero.generic_string()).second)
+            files.push_back(stage_zero);
     }
 
     if (files.empty()) {
@@ -147,7 +147,7 @@ int main(int argc, char** argv) {
         return mm::build::exit_manifest;
     }
 
-    const auto addon = project_root / "tools/check/cppcheck/cpp20_rules.py";
+    const auto addon = resolved_roots.project_root / "tools/check/cppcheck/cpp20_rules.py";
     if (!std::filesystem::exists(addon)) {
         std::cerr << "check: addon not found: " << addon.string() << "\n";
         return mm::build::exit_manifest;
@@ -166,11 +166,10 @@ int main(int argc, char** argv) {
         " --addon=" + mm::build::shell_quote(addon);
     if (verbose) command += " --verbose";
 
-    // Sources are stored project-relative even when the requested scope is a
-    // subtree. Anchor them to the project root, not the requested directory,
-    // so both unit: and file: retain the same meaning in a narrowed check.
-    for (const auto& file : files)
-        command += " " + mm::build::shell_quote(project_root / file);
+    for (const auto& file : files) {
+        const auto abs_file = file.is_absolute() ? file : (resolved_roots.project_root / file);
+        command += " " + mm::build::shell_quote(abs_file);
+    }
 
     std::cout << "Checking " << files.size() << " source file(s) against "
               << addon.string() << "\n\n";
@@ -192,7 +191,7 @@ int main(int argc, char** argv) {
         if (sketches == nullptr || sketches->empty()) continue;
 
         std::string error;
-        if (!mm::ino::check_application(project_root / project.nodes[i].dir, doc, error)) {
+        if (!mm::ino::check_application(project.nodes[i].source_dir, doc, error)) {
             std::cerr << "check: " << project.nodes[i].name << ": " << error << "\n";
             sketch_error = true;
         }

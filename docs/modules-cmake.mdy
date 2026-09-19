@@ -106,11 +106,16 @@ manifest-derived CMake identifier, names the output and its isolated build
 directory:
 
 Opening fence
-out-target-TARGET/external/LIBRARY/BOARD-OR-none/APP/
+<output_root>/external/LIBRARY/BOARD-OR-none/APP/
 Closing fence
 
-Each application has its own CMake cache. Two applications in one external lane
-therefore configure and build independently in the current implementation.
+The bridge directory is rooted under the artifact context's output root:
+<project>/out-target-TARGET for project applications, or
+<external_root>/out-target-TARGET for external applications. The directory name
+beneath the output root remains "external", representing foreign CMake build
+isolation rather than an external sketch application. Each application has its
+own CMake cache. Two applications in one external lane therefore configure and
+build independently in the current implementation.
 
 # Generated input files
 

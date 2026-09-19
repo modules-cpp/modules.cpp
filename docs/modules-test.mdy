@@ -18,7 +18,11 @@ docs/modules-configure.mdy remains authoritative for configured lanes and capabi
 
 test [-v or --verbose] [-h or --help] [--host or --target] [--compile-only] test-manifest
 
-The required positional argument is a registered kind:test mm.mdy manifest or its directory. Test has no default manifest because running every test is the wrapper script's responsibility.
+The required positional argument is a registered kind:test mm.mdy manifest or
+its directory. Test has no default manifest because running every test is the
+wrapper script's responsibility. If an external root is supplied, test verifies
+that external roots contain only dir or app targets, reports that the external
+root holds no test, and exits 65.
 
 -v and --verbose enable configuration and compiler command logging. -h and --help print the command syntax and exit successfully without requiring a test manifest or configuration.
 

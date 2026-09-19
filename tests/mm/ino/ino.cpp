@@ -1,8 +1,11 @@
 // Pawel Wodnicki (C) 2026
 // 32bitmicro LLC (C) 2026
+#include <filesystem>
+#include <fstream>
 #include <string>
 #include <vector>
 
+import mm.mdy;
 import mm.ino;
 import mm.test;
 
@@ -148,6 +151,105 @@ void later_declaration_keeps_generated_prototype() {
     expect(proto_pos < loop_pos, "generated prototype must precede call in loop()");
 }
 
+void write_guarded_lifecycle() {
+    const mm::test::scoped_tree tree{"ino_guard"};
+    const auto dir = tree.root();
+    std::string error;
+
+    // 1. Target does not exist: creates atomic file
+    expect(mm::ino::write_guarded(dir, "main.cpp", "int a = 1;\n", error),
+           "write_guarded should succeed creating new file");
+    expect(error.empty(), "error should be empty on success");
+    {
+        std::ifstream in(dir / "main.cpp");
+        std::string content((std::istreambuf_iterator<char>(in)),
+                            std::istreambuf_iterator<char>());
+        expect(content == "int a = 1;\n", "content must match written text");
+    }
+
+    // 2. Target exists: overwrites atomically
+    expect(mm::ino::write_guarded(dir, "main.cpp", "int a = 2;\n", error),
+           "write_guarded should succeed overwriting existing file");
+    {
+        std::ifstream in(dir / "main.cpp");
+        std::string content((std::istreambuf_iterator<char>(in)),
+                            std::istreambuf_iterator<char>());
+        expect(content == "int a = 2;\n", "content must match updated text");
+    }
+
+    // 3. Nonexistent directory: fails gracefully
+    expect(!mm::ino::write_guarded(dir / "nonexistent", "main.cpp", "data",
+                                   error),
+           "write_guarded must fail when directory does not exist");
+    expect(!error.empty(), "error message must be provided on failure");
+
+    // 4. Temporary collision: fails when temporary exists
+    {
+        std::ofstream tmp(dir / "custom.tmp");
+        tmp << "collision";
+    }
+    expect(!mm::ino::write_guarded(dir, "main.cpp", "data", error,
+                                   "custom.tmp"),
+           "write_guarded must fail when temporary already exists");
+    expect(error.find("already exists") != std::string::npos,
+           "error message must mention temporary file exists");
+}
+
+void check_application_rules() {
+    const mm::test::scoped_tree tree{"ino_check"};
+    const auto dir = tree.root();
+    std::string error;
+
+    // Manifest missing sketch:
+    mm::mdy::MDYDocument doc_no_sketch;
+    doc_no_sketch.metadata["kind"] = {"app"};
+    expect(!mm::ino::check_application(dir, doc_no_sketch, error),
+           "check_application must fail when sketch: is missing");
+
+    // Create sketch file and valid generated main.cpp
+    const std::string sketch_src = "void setup() {}\nvoid loop() {}\n";
+    {
+        std::ofstream f(dir / "app.ino");
+        f << sketch_src;
+    }
+    const std::vector<mm::ino::SourceFile> sources = {{"app.ino", sketch_src}};
+    const auto tr = mm::ino::transform(sources);
+    expect(tr.ok, "transform should succeed");
+    {
+        std::ofstream f(dir / "main.cpp");
+        f << tr.output;
+    }
+
+    mm::mdy::MDYDocument doc_valid;
+    doc_valid.metadata["kind"] = {"app"};
+    doc_valid.metadata["sketch"] = {"app.ino"};
+
+    expect(mm::ino::check_application(dir, doc_valid, error),
+           "check_application must succeed with matching main.cpp");
+
+    // Unmanifested .ino
+    {
+        std::ofstream extra(dir / "extra.ino");
+        extra << "void extra() {}\n";
+    }
+    expect(!mm::ino::check_application(dir, doc_valid, error),
+           "check_application must fail with unmanifested .ino");
+    expect(error.find("unmanifested .ino") != std::string::npos,
+           "error must report unmanifested .ino");
+    std::error_code ec;
+    std::filesystem::remove(dir / "extra.ino", ec);
+
+    // Mismatched main.cpp
+    {
+        std::ofstream f(dir / "main.cpp");
+        f << "int main() { return 1; }\n";
+    }
+    expect(!mm::ino::check_application(dir, doc_valid, error),
+           "check_application must fail when main.cpp differs");
+    expect(error.find("does not match") != std::string::npos,
+           "error must report mismatch");
+}
+
 const mm::test::case_ cases[] = {
     {"function used before definition", &function_used_before_definition},
     {"prototype already written", &prototype_already_written},
@@ -157,7 +259,10 @@ const mm::test::case_ cases[] = {
     {"two files transformation", &two_files_transformation},
     {"definition heuristic cannot see", &definition_heuristic_cannot_see},
     {"indented helper produces warning", &indented_helper_produces_warning},
-    {"later declaration keeps generated prototype", &later_declaration_keeps_generated_prototype},
+    {"later declaration keeps generated prototype",
+     &later_declaration_keeps_generated_prototype},
+    {"write_guarded lifecycle", &write_guarded_lifecycle},
+    {"check_application rules", &check_application_rules},
 };
 
 const mm::test::registrar reg{"mm.ino", cases};

@@ -10,4 +10,4 @@ sketch: blink.ino
 
 # blink
 
-An Arduino-style blink sketch built over mm.sketch.
+A blink sketch built over mm.sketch.

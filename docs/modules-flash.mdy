@@ -41,7 +41,9 @@ Before starting picotool, the tool requires all of the following:
   platform record;
 - an SDK/board pair recognized by the Pico backend;
 - a registered application available in that target lane;
-- a regular UF2 supplement at <target-build-directory>/<app-dir>/<name>.uf2;
+- a regular UF2 supplement at <target-build-directory>/<app-dir>/<name>.uf2
+  (for an external application, this is located under the external root's
+  target build directory derived through the artifact context);
 - picotool_DIR naming an existing directory containing a regular file named
   picotool.
 

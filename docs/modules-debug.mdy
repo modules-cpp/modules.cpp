@@ -23,7 +23,10 @@ The debug tool starts a configured debugger for one previously built kind: app a
 - --host and --target are mutually exclusive. With neither, the persisted lane selection is used.
 - Arguments after -- are passed to the application and are not interpreted by debug.
 
-Debug never builds an application. The selected executable must already exist in its configured lane directory.
+Debug never builds an application. The selected executable must already exist
+in its configured lane directory (under <project>/<lane> for project
+applications, or under <external_root>/<lane> for external applications,
+derived through the artifact context).
 
 # Configuration
 

@@ -10,4 +10,4 @@ sketch: echo.ino
 
 # echo
 
-An Arduino-style serial echo sketch built over mm.sketch.
+A serial echo sketch built over mm.sketch.

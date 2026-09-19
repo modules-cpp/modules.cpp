@@ -526,7 +526,7 @@ running hardware -- a counter with a period and a duty, a converter with a
 selected input -- and a group another output may share, so replacing it
 silently would stop a waveform or move a sibling's period without the owner
 hearing. Digital therefore yields to analog and analog yields to nothing but
-release; a layer that stops a waveform by driving the pin, as Arduino's
+release; a layer that stops a waveform by driving the pin, as
 digitalWrite does after analogWrite, releases first.
 
 A takeover is transactional where hardware permits: the provider validates
@@ -735,7 +735,7 @@ binding. Unrelated executables retain their ordinary closure.
   bounds allow, rounds to nearest, and answers zero for an unknown reference,
   bits outside the range, or a count past full scale.
 - pwm_plan matches an independent rational model at both nominal Pico clocks
-  for Arduino's 490 and 980 Hz, tone's 31 and 65,535 Hz, one kilohertz, and
+  for the legacy 490 and 980 Hz, tone's 31 and 65,535 Hz, one kilohertz, and
   both ends of the range; at 125 MHz 524,280 and 524,281 ns plan at divider
   one and top 65,534 while 524,284, 524,286, and 524,288 ns plan at the next
   divider step; it refuses a zero period, one under two ticks, one beyond the

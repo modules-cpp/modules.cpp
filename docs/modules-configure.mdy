@@ -167,7 +167,12 @@ Each name takes its type from the registry, never from the spelling of its value
 
 - Boolean accepts exactly yes or no.
 - Number is a base-ten signed 64-bit integer parsed with std::from_chars, requiring a successful error code and complete consumption. A leading plus, trailing text, and overflow are rejected. Each entry additionally declares an inclusive range.
-- Directory is a non-empty single-line value naming an existing directory inside the project. The domain is intrinsic to the type; there is no unrestricted free-string type, and no other string domain exists in this release.
+- Directory is a non-empty single-line value naming an existing directory
+  inside the project. The domain is intrinsic to the type; there is no
+  unrestricted free-string type, and no other string domain exists in this
+  release. Directory options (such as include-dir) are strictly prohibited on
+  external manifests; an external node declaring one is refused because its
+  tree lies outside the project boundary.
 
 Parsing a type is not sufficient. optimize accepts only 0 through 3 even though many other strings parse as integers. A rejected value names the manifest, the option, the value, and the permitted domain:
 
@@ -228,7 +233,14 @@ configure: apps/app/mm.mdy: app is buildable-target, but p.lib is not (buildable
 
 core is a structural classification rather than a third build lane. It defaults yes and inherits by the same tree rules. A core node may not use a non-core module. The direct-edge check is sufficient: applying it to every use edge enforces the same boundary throughout the transitive closure. A violation names the consumer, dependency, and the ancestor manifest that assigned or reset core no. A non-core consumer may use either core or non-core modules.
 
-The libraries directory assigns core no and marks it read-only. Every wrapper placed beneath that directory is therefore non-core by construction and cannot silently opt back into the core set. Build, test, run, flash, and debug consume this property without an ignored-option warning.
+The libraries directory assigns core no and marks it read-only. Every wrapper
+placed beneath that directory is therefore non-core by construction and cannot
+silently opt back into the core set. Build, test, run, flash, and debug consume
+this property without an ignored-option warning. External targets grafted from
+outside the project checkout are structurally non-core by definition (core: no),
+preventing external sketches from affecting project completeness or coverage.
+Grafted kinds are restricted to an allowlist (dir and app with sketch:); any
+other grafted kind is refused.
 
 Three declarations carry the whole marking for this project. tools declares
 buildable-target no and locks it, which makes build, configure, test, check,

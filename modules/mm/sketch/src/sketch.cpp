@@ -224,7 +224,7 @@ bool flush_pending_wire_write() {
 static unsigned int analog_read_resolution_ = 10;
 static unsigned int analog_write_resolution_ = 8;
 
-constexpr std::uint64_t arduino_pwm_period_ns = 2'040'816; // 490 Hz
+constexpr std::uint64_t default_pwm_period_ns = 2'040'816; // 490 Hz
 
 constexpr std::size_t max_pwm_outputs = 64;
 struct PwmState {
@@ -660,7 +660,7 @@ void analogWrite(unsigned int pin, int value) {
 
     bool need_configure = true;
     if (pwm_states_[output].configured) {
-        if (pwm_states_[output].period_ns == arduino_pwm_period_ns) {
+        if (pwm_states_[output].period_ns == default_pwm_period_ns) {
             need_configure = false;
         } else {
             const auto st = mm::mcu::pwm_release(output);
@@ -680,13 +680,13 @@ void analogWrite(unsigned int pin, int value) {
     }
 
     if (need_configure) {
-        const auto st = mm::mcu::pwm_configure(output, arduino_pwm_period_ns);
+        const auto st = mm::mcu::pwm_configure(output, default_pwm_period_ns);
         if (st != mm::mcu::Status::Ok) {
             record_failure(from(st), "analogWrite");
             return;
         }
         pwm_states_[output].configured = true;
-        pwm_states_[output].period_ns = arduino_pwm_period_ns;
+        pwm_states_[output].period_ns = default_pwm_period_ns;
     }
 
     std::uint64_t actual_period_ns = 0;
