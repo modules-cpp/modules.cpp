@@ -415,9 +415,7 @@ TransformResult transform(std::span<const SourceFile> sources) {
 
 namespace {
 const std::vector<std::string>* lookup(const mm::mdy::MDYDocument& doc, std::string_view key) {
-    auto it = doc.metadata.find(key);
-    if (it != doc.metadata.end()) return &it->second;
-    return nullptr;
+    return mm::mdy::mdy_lookup(doc, key);
 }
 }
 

@@ -22,9 +22,23 @@ module;
 
 module mm.build;
 
+import mm.configure;
 import mm.json;
 import mm.mdy;
 
+
+// Delegated manifest parsing utilities to mm.mdy for unified implementation
+const std::vector<std::string>* lookup(const mm::mdy::MDYDocument& doc, std::string_view key) {
+    return mm::mdy::mdy_lookup(doc, key);
+}
+
+std::string first(const mm::mdy::MDYDocument& doc, std::string_view key) {
+    return mm::mdy::mdy_first(doc, key);
+}
+
+std::vector<std::string> all(const mm::mdy::MDYDocument& doc, std::string_view key) {
+    return mm::mdy::mdy_all(doc, key);
+}
 // POSIX pipe declarations are hidden by newlib's strict C++ feature profile.
 // Version and ABI probes run only in the host build tool, while the module's
 // remaining interfaces stay compilable for target lanes.
@@ -33,21 +47,16 @@ extern "C" int pclose(std::FILE*);
 
 namespace mm::build {
 
+
+// Delegated PATH resolution to mm.configure for unified implementation
+[[nodiscard]] std::filesystem::path resolve_executable_path(std::string_view name) {
+    return mm::configure::resolve_executable(name);
+}
 bool is_safe_board_name(std::string_view name);
 
 namespace {
 
 std::optional<mm::configure::Responsibility> parse_responsibility(std::string_view value);
-
-const std::vector<std::string>* lookup(const mm::mdy::MDYDocument& doc, std::string_view key) {
-    const auto it = doc.metadata.find(key);
-    return it == doc.metadata.end() ? nullptr : &it->second;
-}
-
-std::string first(const mm::mdy::MDYDocument& doc, std::string_view key) {
-    const auto* values = lookup(doc, key);
-    return values == nullptr || values->empty() ? std::string{} : values->front();
-}
 
 std::vector<std::string> all(const mm::mdy::MDYDocument& doc, std::string_view key) {
     const auto* values = lookup(doc, key);
@@ -369,25 +378,10 @@ bool path_within(const std::filesystem::path& base, const std::filesystem::path&
     return !relative.empty() && !relative.is_absolute() && *relative.begin() != "..";
 }
 
-bool path_contained_in(const std::filesystem::path& container,
-                       const std::filesystem::path& path) {
-    if (container.empty() || path.empty()) return false;
-    std::error_code ec;
-    auto resolved_container = std::filesystem::weakly_canonical(container, ec);
-    if (ec) return false;
-    if (!resolved_container.is_absolute())
-        resolved_container =
-            std::filesystem::absolute(container, ec).lexically_normal();
-    if (ec) return false;
-
-    auto resolved = std::filesystem::weakly_canonical(path, ec);
-    if (ec) return false;
-    if (!resolved.is_absolute())
-        resolved = std::filesystem::absolute(path, ec).lexically_normal();
-    if (ec) return false;
-
-    const auto relative = resolved.lexically_relative(resolved_container);
-    return !relative.empty() && *relative.begin() != "..";
+// Delegates to mm.configure::path_contained for unified path containment logic
+[[nodiscard]] bool path_contained_in(const std::filesystem::path& container,
+                                     const std::filesystem::path& path) {
+    return mm::configure::path_contained(container, path);
 }
 
 bool within_destination(const std::filesystem::path& destination,
@@ -5682,6 +5676,25 @@ int external_link(
     ArtifactContext context(".", build_dir);
     return external_link(project, platform, toolchain, app_name, objects,
                          context, target_output, verbose);
+}
+
+// Consolidated project root entry: replaces 12-line boilerplate in every tool.
+// Usage: enter_project_root(manifest_path);
+[[nodiscard]] bool enter_project_root(const std::filesystem::path& manifest_path) {
+    const auto resolved_roots = resolve_roots(manifest_path);
+    if (!resolved_roots.ok) {
+        std::cerr << "tool: cannot resolve root for " << manifest_path.string() << "\n";
+        return false;
+    }
+
+    std::error_code ec;
+    std::filesystem::current_path(resolved_roots.project_root, ec);
+    if (ec) {
+        std::cerr << "tool: cannot enter project root: " << ec.message() << "\n";
+        return false;
+    }
+
+    return true;
 }
 
 }

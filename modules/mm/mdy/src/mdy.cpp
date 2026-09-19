@@ -145,3 +145,37 @@ MDYDocument Parser::parse_file(const std::filesystem::path& file_path) {
 }
 
 }
+
+// Unified manifest parsing utilities: centralizes lookup/first/all operations
+// to avoid duplication across mm.build and mm.ino modules.
+namespace {
+
+const std::vector<std::string>* lookup(const MDYDocument& doc, std::string_view key) {
+    auto it = doc.metadata.find(key);
+    return it == doc.metadata.end() ? nullptr : &it->second;
+}
+
+std::string first(const MDYDocument& doc, std::string_view key) {
+    const auto* values = lookup(doc, key);
+    return values == nullptr || values->empty() ? std::string{} : values->front();
+}
+
+std::vector<std::string> all(const MDYDocument& doc, std::string_view key) {
+    const auto* values = lookup(doc, key);
+    return values == nullptr ? std::vector<std::string>{} : *values;
+}
+
+}  // namespace
+
+// Public interface matching the moved functions
+const std::vector<std::string>* mdy_lookup(const MDYDocument& doc, std::string_view key) {
+    return lookup(doc, key);
+}
+
+std::string mdy_first(const MDYDocument& doc, std::string_view key) {
+    return first(doc, key);
+}
+
+std::vector<std::string> mdy_all(const MDYDocument& doc, std::string_view key) {
+    return all(doc, key);
+}

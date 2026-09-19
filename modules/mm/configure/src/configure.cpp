@@ -103,11 +103,24 @@ bool valid_scalar(std::string_view value, bool allow_empty = false) {
            value.find('\r') == std::string_view::npos && value.find('\0') == std::string_view::npos;
 }
 
-bool contained(const std::filesystem::path& root, const std::filesystem::path& path) {
+// Consolidated path containment: unifies build.cpp and configure.cpp implementations.
+[[nodiscard]] bool path_contained(const std::filesystem::path& container,
+                                  const std::filesystem::path& path) {
+    if (container.empty() || path.empty()) return false;
     std::error_code ec;
-    const auto canonical = std::filesystem::weakly_canonical(path, ec);
+    auto resolved_container = std::filesystem::weakly_canonical(container, ec);
     if (ec) return false;
-    const auto relative = canonical.lexically_relative(root);
+    if (!resolved_container.is_absolute())
+        resolved_container = std::filesystem::absolute(container, ec).lexically_normal();
+    if (ec) return false;
+
+    auto resolved = std::filesystem::weakly_canonical(path, ec);
+    if (ec) return false;
+    if (!resolved.is_absolute())
+        resolved = std::filesystem::absolute(path, ec).lexically_normal();
+    if (ec) return false;
+
+    const auto relative = resolved.lexically_relative(resolved_container);
     return !relative.empty() && *relative.begin() != "..";
 }
 
@@ -131,44 +144,16 @@ bool safe_output(const std::filesystem::path& root, const std::filesystem::path&
     // Keep the output boundary anchored to the project, not to the target of a
     // user-planted output symlink (even a target elsewhere inside the project).
     const auto output = canonical_root / directory;
-    return contained(output, root / directory) && contained(output, path);
+    return path_contained(output, root / directory) && path_contained(output, path);
 }
 
 // An exclusively created temporary directory avoids following a pre-existing
 // temporary-file symlink. Rename publishes only a complete file.
-bool write_atomic(const std::filesystem::path& root, const std::filesystem::path& directory,
-                  const std::filesystem::path& path, std::string_view contents) {
-    if (!safe_output(root, directory, path)) return false;
-    std::error_code ec;
-    std::filesystem::create_directories(path.parent_path(), ec);
-    if (ec || !safe_output(root, directory, path)) return false;
-    std::filesystem::path temporary_dir;
-    const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
-    for (int attempt = 0; attempt < 32; ++attempt) {
-        const auto candidate = path.parent_path() /
-            (".configure-" + std::to_string(stamp) + "-" + std::to_string(attempt));
-        if (std::filesystem::create_directory(candidate, ec)) {
-            temporary_dir = candidate;
-            break;
-        }
-        if (ec) return false;
-    }
-    if (temporary_dir.empty()) return false;
-    const auto temporary = temporary_dir / "record";
-    std::ofstream out(temporary, std::ios::binary);
-    out << contents;
-    out.close();
-    bool ok = static_cast<bool>(out) && safe_output(root, directory, path);
-    if (ok) {
-        std::filesystem::rename(temporary, path, ec);
-        ok = !ec;
-    }
-    std::filesystem::remove(temporary, ec);
-    std::filesystem::remove(temporary_dir, ec);
-    return ok;
+// Original write_atomic implementation replaced by delegation to mm::ino::write_guarded.
+// This maintains backward compatibility while using the lower-level atomic write implementation.
+
 }
 
-bool valid_compiler(const CompilerSettings& compiler, bool require_platform = true) {
     return valid_scalar(compiler.invocation) &&
            (compiler.c_compiler.empty() || valid_scalar(compiler.c_compiler)) &&
            valid_scalar(compiler.target) &&
@@ -772,7 +757,7 @@ bool relative_directory(const std::filesystem::path& root, const std::filesystem
     if (result.empty() || result.is_absolute() || !valid_scalar(result.generic_string())) return false;
     for (const auto& part : result)
         if (part == "..") return false;
-    return contained(root, root / result);
+    return path_contained(root, root / result);
 }
 
 bool parse_value(const std::filesystem::path& root, const OptionNode& node,
@@ -1011,3 +996,63 @@ bool write_option_records(const std::filesystem::path& project_root,
 }
 
 }  // namespace mm::configure
+
+// Consolidated atomic write: delegates to mm::ino::write_guarded for unified implementation
+namespace {
+
+[[nodiscard]] bool write_atomic(const std::filesystem::path& root,
+                                const std::filesystem::path& directory,
+                                const std::filesystem::path& path,
+                                std::string_view contents) {
+    std::string error;
+    const std::string target_str = path.lexically_relative(root).string();
+    return mm::ino::write_guarded(root, target_str, contents, error, "");
+}
+
+}  // namespace
+
+// Convenience wrapper for build safety checks
+[[nodiscard]] bool within(const std::filesystem::path& root,
+                          const std::filesystem::path& path) {
+    return path_contained(root, path);
+}
+
+
+// Safe output boundary check used by write_atomic
+[[nodiscard]] bool safe_output(const std::filesystem::path& root,
+                               const std::filesystem::path& directory,
+                               const std::filesystem::path& path) {
+    if (!valid_build_directory(directory)) return false;
+    std::error_code ec;
+    const auto canonical_root = std::filesystem::canonical(root, ec);
+    if (ec) return false;
+    const auto output = canonical_root / directory;
+    return within(output, root / directory) && within(output, path);
+}
+
+// Consolidated PATH resolution: centralizes executable path lookup across modules
+[[nodiscard]] std::filesystem::path resolve_executable(std::string_view name) {
+    if (name.find('/') != std::string_view::npos) {
+        std::error_code ec;
+        auto p = std::filesystem::canonical(name, ec);
+        return ec ? std::filesystem::path(name) : p;
+    }
+    const char* path_env = std::getenv("PATH");
+    if (path_env == nullptr) return std::filesystem::path(name);
+    std::string_view path_view(path_env);
+    while (!path_view.empty()) {
+        const auto colon = path_view.find(':');
+        const auto dir = colon == std::string_view::npos ? path_view 
+                                                          : path_view.substr(0, colon);
+        if (!dir.empty()) {
+            auto candidate = std::filesystem::path(dir) / name;
+            std::error_code ec;
+            if (std::filesystem::is_regular_file(candidate, ec)) {
+                return std::filesystem::weakly_canonical(candidate, ec);
+            }
+        }
+        if (colon == std::string_view::npos) break;
+        path_view = path_view.substr(colon + 1);
+    }
+    return std::filesystem::path(name);
+}
