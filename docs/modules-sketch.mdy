@@ -546,4 +546,6 @@ byte, word, and boolean provide standard type aliases.
 
 The String class is declined. Standard ISO C++ std::string provides string operations, integrating with Serial.print and future text methods.
 
-PROGMEM and the F("...") macro are declined. In the modules.cpp toolchain, constant placement in flash or RAM is determined automatically by the linker.
+PROGMEM and the F("...") macro are declined as behaviour. In the modules.cpp toolchain, constant placement in flash or RAM is determined automatically by the linker, so there is nothing for either to do.
+
+The spellings are a separate matter. A vendored library writes F("...") in its own header whether or not this module wants the behaviour, so the compatibility header that mm.ino synthesises for an application declaring sketch-library defines F, PSTR, and PROGMEM as inert: the argument is its own value and PROGMEM expands to nothing. Nothing is exported from mm::sketch for them, and a sketch that does not reach a library never sees them. docs/modules-ino.mdy owns that header.

@@ -391,6 +391,114 @@ void source_guard_cases() {
     }
 }
 
+void sketch_library_wiring() {
+    const mm::test::scoped_tree proj_tree{"graft_proj_lib"};
+    proj_tree.manifest("", "kind: project\nname: proj\n");
+
+    // The library root is the external tree; its example is an app beneath it.
+    const mm::test::scoped_tree lib_tree{"graft_ext_lib"};
+    const auto rel_proj = std::filesystem::relative(
+        proj_tree.root(), lib_tree.root()).lexically_normal().string();
+    lib_tree.manifest_raw("",
+        "mm: 1.3\nkind: dir\nname: AnalogPin\nproject: " + rel_proj +
+        "\nfolder: examples\n");
+    std::ofstream(lib_tree.root() / "AnalogPin.h") << "#pragma once\n";
+    std::ofstream(lib_tree.root() / "AnalogPin.cpp")
+        << "int lib(){return 0;}\n";
+    std::ofstream(lib_tree.root() / "README.md") << "not a source\n";
+    lib_tree.manifest_raw("examples",
+        "mm: 1.3\nkind: dir\nname: examples\nfolder: AnalogPin\n");
+    lib_tree.manifest_raw("examples/AnalogPin",
+        "mm: 1.3\nkind: app\nname: AnalogPin\nfile: main.cpp\n"
+        "sketch: AnalogPin.ino\nsketch-library: ../..\n");
+    std::ofstream(lib_tree.root() / "examples/AnalogPin/main.cpp")
+        << "int main(){}\n";
+    std::ofstream(lib_tree.root() / "examples/AnalogPin/AnalogPin.ino")
+        << "void setup(){}\nvoid loop(){}\n";
+
+    mm::build::LoadPolicy policy{.tool = "build", .external = lib_tree.root()};
+    const auto project = mm::build::load_project(proj_tree.root(), policy);
+    expect(project.ok, "library tree with an example app loads");
+    expect(project.targets.size() == 1, "one application target");
+    const auto& app = project.targets.front();
+    expect(app.sketch_libraries.size() == 1, "one sketch library recorded");
+    expect(app.sketch_libraries.front() == lib_tree.root(),
+           "sketch library resolves to the library root");
+
+    bool has_library_source = false;
+    bool has_readme = false;
+    for (const auto& unit : app.sources) {
+        if (unit.source == lib_tree.root() / "AnalogPin.cpp")
+            has_library_source = true;
+        if (unit.path.find("README") != std::string::npos) has_readme = true;
+    }
+    expect(has_library_source, "library source compiles into the application");
+    expect(!has_readme, "non-source files stay out of the application");
+
+    std::vector<std::filesystem::path> includes;
+    expect(mm::build::library_include_directories(
+               proj_tree.root(), project.libraries, app, includes, "build"),
+           "include directories resolve");
+    expect(includes.size() == 2, "the application and the library are named");
+    expect(includes.front() == lib_tree.root() / "examples/AnalogPin",
+           "the application directory comes first, for the generated header");
+    expect(includes.back() == lib_tree.root(),
+           "a flat library puts its root on the include path");
+
+    // A src/ directory takes over both roles.
+    std::filesystem::create_directories(lib_tree.root() / "src");
+    std::ofstream(lib_tree.root() / "src/inner.cpp")
+        << "int inner(){return 0;}\n";
+    const auto layered = mm::build::load_project(proj_tree.root(), policy);
+    expect(layered.ok, "layered library tree loads");
+    includes.clear();
+    expect(mm::build::library_include_directories(
+               proj_tree.root(), layered.libraries, layered.targets.front(),
+               includes, "build"),
+           "layered include directories resolve");
+    expect(includes.size() == 2 && includes.back() == lib_tree.root() / "src",
+           "a layered library puts src/ on the include path");
+    bool has_inner = false;
+    bool has_root_source = false;
+    for (const auto& unit : layered.targets.front().sources) {
+        if (unit.source == lib_tree.root() / "src/inner.cpp") has_inner = true;
+        if (unit.source == lib_tree.root() / "AnalogPin.cpp")
+            has_root_source = true;
+    }
+    expect(has_inner, "layered library compiles sources under src/");
+    expect(!has_root_source, "layered library leaves root sources alone");
+}
+
+void sketch_library_refusals() {
+    const mm::test::scoped_tree proj_tree{"graft_proj_librefuse"};
+    proj_tree.manifest("", "kind: project\nname: proj\n");
+
+    const mm::test::scoped_tree ext_tree{"graft_ext_librefuse"};
+    const auto rel_proj = std::filesystem::relative(
+        proj_tree.root(), ext_tree.root()).lexically_normal().string();
+    std::ofstream(ext_tree.root() / "main.cpp") << "int main(){}\n";
+    std::ofstream(ext_tree.root() / "a.ino") << "void setup(){}\n";
+    mm::build::LoadPolicy policy{.tool = "build", .external = ext_tree.root()};
+
+    ext_tree.manifest_raw("",
+        "mm: 1.3\nkind: app\nname: a\nproject: " + rel_proj +
+        "\nfile: main.cpp\nsketch-library: .\n");
+    expect(!mm::build::load_project(proj_tree.root(), policy).ok,
+           "sketch-library without sketch: is refused");
+
+    ext_tree.manifest_raw("",
+        "mm: 1.3\nkind: app\nname: a\nproject: " + rel_proj +
+        "\nfile: main.cpp\nsketch: a.ino\nsketch-library: ..\n");
+    expect(!mm::build::load_project(proj_tree.root(), policy).ok,
+           "sketch-library climbing out of the tree is refused");
+
+    ext_tree.manifest_raw("",
+        "mm: 1.3\nkind: app\nname: a\nproject: " + rel_proj +
+        "\nfile: main.cpp\nsketch: a.ino\nsketch-library: main.cpp\n");
+    expect(!mm::build::load_project(proj_tree.root(), policy).ok,
+           "sketch-library naming a file is refused");
+}
+
 const mm::test::case_ cases[] = {
     {"app root grafting", &app_root_grafting},
     {"dir root grafting", &dir_root_grafting},
@@ -400,6 +508,8 @@ const mm::test::case_ cases[] = {
     {"uniqueness rules", &uniqueness_rules},
     {"manifest gate refusals", &manifest_gate_refusals},
     {"source guard cases", &source_guard_cases},
+    {"sketch library wiring", &sketch_library_wiring},
+    {"sketch library refusals", &sketch_library_refusals},
 };
 
 const mm::test::registrar reg{"mm.build graft", cases};

@@ -129,6 +129,7 @@ Opening fence
 
 1.3  project             app dir
 1.3  sketch              app
+1.3  sketch-library      app
 Closing fence
 
 Three placements are worth stating because their absence is load-bearing rather
@@ -155,6 +156,13 @@ than accidental.
   can locate their owning project.
 - sketch is valid on app and requires mm: 1.3. It declares the .ino sketch
   sources for an application.
+- sketch-library is valid on app, requires mm: 1.3, and requires sketch: on
+  the same manifest. It names the root directory of a sketch library
+  the sketch exercises, relative to the manifest. It is the second key
+  permitted to climb, because a library's own example sketches live beneath
+  the library root and must point back up at it; the resolved directory must
+  still lie inside the owning tree, so the library root, not the example
+  directory, is what carries project: for such a tree.
 
 # External targets
 

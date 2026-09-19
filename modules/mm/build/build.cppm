@@ -180,6 +180,10 @@ struct BuildableNode {
     std::string library;                         // kind:module only
     bool platform_interface = false;             // kind:module only
     std::vector<std::string> sketches;           // kind:app with sketch:
+    // Absolute roots of the sketch libraries a sketch application
+    // exercises, in declared order. Each contributes an include directory and
+    // the sources compiled into this application.
+    std::vector<std::filesystem::path> sketch_libraries;
     std::vector<std::filesystem::path> objects;  // filled in by compile
     bool external = false;
     bool non_core = false;

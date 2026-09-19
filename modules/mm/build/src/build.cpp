@@ -155,6 +155,7 @@ const std::vector<ManifestKeyRule> manifest_key_rules = {
     {"platform-provider", 12, "sdk board"},
     {"derives-from", 12, "board"},
     {"sketch", 13, "app"},
+    {"sketch-library", 13, "app"},
     {"project", 13, "app dir"},
 };
 
@@ -1497,6 +1498,91 @@ void walk_project(const std::filesystem::path& dir, std::size_t parent, Project&
             }
             target.sketches.push_back(sketch);
         }
+        for (const auto& entry : all(doc, "sketch-library")) {
+            if (target.sketches.empty()) {
+                std::cerr << state.policy.tool << ": " << manifest.string()
+                          << ": sketch-library requires sketch:\n";
+                project.ok = false;
+                return;
+            }
+            const std::filesystem::path raw_lib(entry);
+            if (raw_lib.is_absolute()) {
+                std::cerr << state.policy.tool << ": " << manifest.string()
+                          << ": sketch-library must be relative: " << entry
+                          << "\n";
+                project.ok = false;
+                return;
+            }
+            // Canonical, not merely normalised: a value that climbs leaves a
+            // trailing separator behind, and this path is compared, stored,
+            // and handed to the compiler as one -I argument.
+            std::error_code root_ec;
+            const auto lib_root = std::filesystem::weakly_canonical(
+                target.source_dir / raw_lib, root_ec);
+            if (root_ec || !path_contained_in(owning_root, lib_root)) {
+                std::cerr << state.policy.tool << ": " << manifest.string()
+                          << ": sketch-library outside tree: " << entry << "\n";
+                project.ok = false;
+                return;
+            }
+            std::error_code lib_ec;
+            if (!std::filesystem::is_directory(lib_root, lib_ec) || lib_ec) {
+                std::cerr << state.policy.tool << ": " << manifest.string()
+                          << ": sketch-library is not a directory: " << entry
+                          << "\n";
+                project.ok = false;
+                return;
+            }
+
+            // The two sketch library layouts: a src/ directory owns the
+            // sources and the include path when it exists, otherwise the root
+            // does, and neither descends into examples/ or test/.
+            const auto src_dir = lib_root / "src";
+            const bool layered =
+                std::filesystem::is_directory(src_dir, lib_ec) && !lib_ec;
+            const auto compiled_root = layered ? src_dir : lib_root;
+
+            std::vector<std::filesystem::path> library_sources;
+            const auto collect = [&](const std::filesystem::path& file) {
+                const auto ext = file.extension().string();
+                if (ext == ".cpp" || ext == ".cc" || ext == ".c")
+                    library_sources.push_back(file);
+            };
+            if (layered) {
+                using Walk = std::filesystem::recursive_directory_iterator;
+                for (const auto& item : Walk(compiled_root, lib_ec)) {
+                    if (item.is_regular_file()) collect(item.path());
+                }
+            } else {
+                using Walk = std::filesystem::directory_iterator;
+                for (const auto& item : Walk(compiled_root, lib_ec)) {
+                    if (item.is_regular_file()) collect(item.path());
+                }
+            }
+            if (lib_ec) {
+                std::cerr << state.policy.tool << ": " << manifest.string()
+                          << ": cannot read sketch-library " << entry << ": "
+                          << lib_ec.message() << "\n";
+                project.ok = false;
+                return;
+            }
+            // Directory order is not defined; the link command is.
+            std::sort(library_sources.begin(), library_sources.end());
+
+            target.sketch_libraries.push_back(lib_root);
+            for (const auto& file : library_sources) {
+                TranslationUnit unit;
+                unit.source = file;
+                const auto relative = file.lexically_relative(compiled_root);
+                unit.path = (state.is_external
+                                 ? target.logical_dir / relative
+                                 : file.lexically_relative(state.root))
+                                .lexically_normal()
+                                .string();
+                target.sources.push_back(std::move(unit));
+            }
+        }
+
         if (!target.sketches.empty()) {
             bool has_main = false;
             for (const auto& source : target.sources) {
@@ -3245,6 +3331,25 @@ bool library_include_directories(
     std::vector<std::filesystem::path>& directories,
     std::string_view tool) {
     directories.clear();
+
+    // A sketch application names its libraries by directory rather than by a
+    // library: reference, so the two sources of include directories are
+    // independent: an application has sketch libraries and no library:, a
+    // wrapper module the reverse.
+    if (!target.sketch_libraries.empty()) {
+        // The application's own directory comes first: it holds the generated
+        // header, which a library header includes before anything of the
+        // library's own is found.
+        directories.push_back(target.source_dir);
+    }
+    for (const auto& lib_root : target.sketch_libraries) {
+        std::error_code sec;
+        const auto src_dir = lib_root / "src";
+        const bool layered =
+            std::filesystem::is_directory(src_dir, sec) && !sec;
+        directories.push_back(layered ? src_dir : lib_root);
+    }
+
     if (target.library.empty()) return true;
 
     const LibraryDefinition* definition = nullptr;

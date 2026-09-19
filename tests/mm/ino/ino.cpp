@@ -83,14 +83,42 @@ void sketch_with_main_is_rejected() {
            "diagnostic should mention main");
 }
 
-void quoted_include_is_rejected() {
+void quoted_include_is_hoisted() {
     const std::vector<mm::ino::SourceFile> sources = {
-        {"test.ino", "#include \"custom.h\"\nvoid setup() {}\nvoid loop() {}\n"}
+        {"test.ino",
+         "#include \"custom.h\"\n#include <vector>\n"
+         "#include \"custom.h\"\nvoid setup() {}\nvoid loop() {}\n"}
     };
     const auto result = mm::ino::transform(sources);
-    expect(!result.ok, "quoted include must fail");
-    expect(!result.diagnostics.empty(), "expected error diagnostic");
-    expect(result.diagnostics.front().line == 1, "expected error at line 1");
+    expect(result.ok, "quoted include must be accepted");
+    expect(result.diagnostics.empty(), "expected no diagnostics");
+    expect(result.output.find("#include \"custom.h\"\n#include <vector>\n"
+                              "import mm.sketch;") != std::string::npos,
+           "quoted and angled includes hoist in source order above the import");
+
+    std::size_t count = 0;
+    std::size_t pos = 0;
+    while ((pos = result.output.find("#include \"custom.h\"", pos)) !=
+           std::string::npos) {
+        ++count;
+        pos += 19;
+    }
+    expect(count == 1, "a repeated quoted include is hoisted once");
+
+    const auto disp_pos = result.output.find("(displaced by ");
+    expect(disp_pos != std::string::npos, "expected displacement comment");
+    const auto disp_num_start = disp_pos + 14;
+    const auto disp_num_end = result.output.find(" lines)", disp_num_start);
+    const int disp = std::stoi(
+        result.output.substr(disp_num_start, disp_num_end - disp_num_start));
+
+    const auto loop_pos = result.output.find("void loop() {}");
+    int loop_line = 1;
+    for (std::size_t i = 0; i < loop_pos; ++i) {
+        if (result.output[i] == '\n') ++loop_line;
+    }
+    expect(loop_line - disp == 5,
+           "lines after hoisted quoted includes keep their displacement");
 }
 
 void two_files_transformation() {
@@ -250,12 +278,65 @@ void check_application_rules() {
            "error must report mismatch");
 }
 
+void sketch_header_synthesis() {
+    const auto header = mm::ino::sketch_header();
+    expect(header.find("import mm.sketch;") != std::string::npos,
+           "the header is built on mm.sketch");
+    expect(header.find("using namespace mm::sketch;") != std::string::npos,
+           "the header introduces the sketch vocabulary unqualified");
+    expect(header.find("#define F(string_literal) (string_literal)") !=
+               std::string::npos,
+           "F is accepted and inert");
+    expect(header.find("#define PROGMEM\n") != std::string::npos,
+           "PROGMEM is accepted and inert");
+    expect(header.find("A0 = 0;") != std::string::npos &&
+               header.find("A7 = 7;") != std::string::npos,
+           "the analog channel names are present");
+    expect(header.find("do not edit by hand") != std::string::npos,
+           "the header says it is generated");
+    expect(mm::ino::sketch_header() == header,
+           "synthesis is deterministic, so --check can compare it");
+}
+
+void sketch_header_is_checked() {
+    const mm::test::scoped_tree tree{"ino_header_check"};
+    const auto dir = tree.root();
+    std::string error;
+
+    const std::string sketch_src = "void setup() {}\nvoid loop() {}\n";
+    std::ofstream(dir / "app.ino") << sketch_src;
+    const std::vector<mm::ino::SourceFile> sources = {{"app.ino", sketch_src}};
+    const auto tr = mm::ino::transform(sources);
+    expect(tr.ok, "transform should succeed");
+    std::ofstream(dir / "main.cpp") << tr.output;
+
+    mm::mdy::MDYDocument doc;
+    doc.metadata["kind"] = {"app"};
+    doc.metadata["sketch"] = {"app.ino"};
+    expect(mm::ino::check_application(dir, doc, error),
+           "an application without sketch-library needs no header");
+
+    doc.metadata["sketch-library"] = {".."};
+    expect(!mm::ino::check_application(dir, doc, error),
+           "a declared sketch-library requires the generated header");
+    expect(error.find("Arduino.h") != std::string::npos,
+           "the error names the missing header");
+
+    std::ofstream(dir / "Arduino.h") << "#pragma once\n";
+    expect(!mm::ino::check_application(dir, doc, error),
+           "a hand-edited header is refused");
+
+    std::ofstream(dir / "Arduino.h") << mm::ino::sketch_header();
+    expect(mm::ino::check_application(dir, doc, error),
+           "the generated header passes");
+}
+
 const mm::test::case_ cases[] = {
     {"function used before definition", &function_used_before_definition},
     {"prototype already written", &prototype_already_written},
     {"standard include in middle", &standard_include_in_middle},
     {"sketch with main is rejected", &sketch_with_main_is_rejected},
-    {"quoted include is rejected", &quoted_include_is_rejected},
+    {"quoted include is hoisted", &quoted_include_is_hoisted},
     {"two files transformation", &two_files_transformation},
     {"definition heuristic cannot see", &definition_heuristic_cannot_see},
     {"indented helper produces warning", &indented_helper_produces_warning},
@@ -263,6 +344,8 @@ const mm::test::case_ cases[] = {
      &later_declaration_keeps_generated_prototype},
     {"write_guarded lifecycle", &write_guarded_lifecycle},
     {"check_application rules", &check_application_rules},
+    {"sketch header synthesis", &sketch_header_synthesis},
+    {"sketch header is checked", &sketch_header_is_checked},
 };
 
 const mm::test::registrar reg{"mm.ino", cases};
