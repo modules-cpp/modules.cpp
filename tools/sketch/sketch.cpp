@@ -85,6 +85,7 @@ int main(int argc, char** argv) {
     mm::app::Options options("sketch");
     options.flag("--check");
     options.flag("--library");
+    options.flag("--verbose");
     options.option("--project", "DIR");
     options.help("sketch [-v|--verbose] [-h|--help] [--check] [--library] "
                  "[--project DIR] [directory]");
@@ -93,6 +94,7 @@ int main(int argc, char** argv) {
     if (cli != mm::app::Cli::ok) return 64;
 
     const bool check_mode = options.seen("--check");
+    const bool verbose = options.seen("--verbose");
     std::filesystem::path dir = options.positional().empty()
                                     ? std::filesystem::path(".")
                                     : std::filesystem::path(options.positional().front());
@@ -254,6 +256,12 @@ int main(int argc, char** argv) {
             return 65;
         }
 
+        if (verbose) {
+            std::cerr << "sketch: found " << plan.app_nodes.size()
+                      << " app nodes, " << plan.dir_nodes.size()
+                      << " dir nodes\n";
+        }
+
         for (const auto& skip_msg : plan.skipped) {
             std::cerr << "sketch: " << skip_msg << "\n";
         }
@@ -355,7 +363,18 @@ int main(int argc, char** argv) {
                     }
                 }
                 const auto header_path = app_node.dir / "Arduino.h";
-                if (!std::filesystem::exists(header_path, ec)) {
+                if (verbose && std::filesystem::exists(header_path, ec)) {
+                    std::ifstream in(header_path);
+                    std::ostringstream ss;
+                    ss << in.rdbuf();
+                    if (ss.str() != mm::ino::sketch_header()) {
+                        std::cerr
+                            << "sketch: committed Arduino.h does not match"
+                               " this release in "
+                            << app_node.dir.string() << "\n";
+                        check_failed = true;
+                    }
+                } else if (!std::filesystem::exists(header_path, ec)) {
                     std::cerr << "sketch: missing generated Arduino.h in "
                               << app_node.dir.string() << "\n";
                     check_failed = true;
@@ -461,6 +480,9 @@ int main(int argc, char** argv) {
             }
         }
         if (!tree_above) {
+            if (verbose) {
+                std::cerr << "sketch: external sketch detected\n";
+            }
             std::cout << "external sketch; build with "
                       << (project_root / "out/bin/build").string() << " "
                       << abs_dir.string() << "\n";
@@ -481,6 +503,10 @@ int main(int argc, char** argv) {
     }
 
     if (self_has_project && parent_registers_child && check_mode) {
+        if (verbose) {
+            std::cerr << "sketch: manifest carries project: but is also registered "
+                      << "by parent manifest: " << manifest_path.string() << "\n";
+        }
         std::cerr << "sketch: manifest carries project: but is also registered "
                   << "by parent manifest: " << manifest_path.string() << "\n";
         return 65;
@@ -518,6 +544,11 @@ int main(int argc, char** argv) {
         owning_tree = ancestor_project_root;
     }
 
+    if (verbose) {
+        std::cerr << "sketch: processing directory: " << abs_dir.string() << "\n";
+        std::cerr << "sketch: owning tree: " << owning_tree.string() << "\n";
+    }
+
     if (manifest_exists) {
         const auto* sketches = lookup(self_doc, "sketch");
         if (sketches == nullptr || sketches->empty()) {
@@ -527,6 +558,9 @@ int main(int argc, char** argv) {
         }
 
         for (const auto& s : *sketches) {
+            if (verbose) {
+                std::cerr << "sketch: manifest entry: " << s << "\n";
+            }
             sketch_files.push_back(s);
         }
 
@@ -619,12 +653,18 @@ int main(int argc, char** argv) {
 
     const auto result = mm::ino::transform(sources);
     if (!result.ok) {
+        std::cerr << "sketch: transformation failed\n";
         for (const auto& diag : result.diagnostics) {
             std::cerr << diag.file << ":" << diag.line << ": "
                       << (diag.is_warning ? "warning: " : "error: ")
                       << diag.message << "\n";
         }
         return 65;
+    }
+
+    if (verbose) {
+        std::cerr << "sketch: transformed " << sketch_files.size()
+                  << " source file(s)\n";
     }
 
     for (const auto& diag : result.diagnostics) {
@@ -637,6 +677,11 @@ int main(int argc, char** argv) {
                                 main_err, "main.cpp.tmp")) {
         std::cerr << "sketch: cannot write main.cpp: " << main_err << "\n";
         return 65;
+    }
+
+    if (verbose) {
+        std::cerr << "sketch: wrote main.cpp to " << abs_dir.string()
+                  << "/main.cpp\n";
     }
 
     // A sketch that exercises a library needs the header that library
@@ -653,6 +698,10 @@ int main(int argc, char** argv) {
                       << "\n";
             return 65;
         }
+        if (verbose) {
+            std::cerr << "sketch: wrote Arduino.h to " << abs_dir.string()
+                      << "/Arduino.h\n";
+        }
     }
 
     if (tree_above && !parent_msg.empty()) {
@@ -662,6 +711,10 @@ int main(int argc, char** argv) {
     if (!tree_above && !manifest_exists) {
         std::cout << "external sketch; build with "
                   << (project_root / "out/bin/build").string() << " .\n";
+    }
+
+    if (verbose) {
+        std::cerr << "sketch: done\n";
     }
 
     return 0;
