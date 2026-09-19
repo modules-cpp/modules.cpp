@@ -855,13 +855,17 @@ bool resolve_options(const std::filesystem::path& project_root, Build build,
             if (!relative_directory(root, node.directory, directory) ||
                 !valid_scalar(node.name) ||
                 !valid_scalar(node.manifest.generic_string()))
-                return option_error(tool, node, "tree", "invalid node path or name");
+                return option_error(tool, node, "tree",
+                                    "invalid node path or name");
         } else {
             if (!valid_scalar(node.name) ||
                 !valid_scalar(node.manifest.generic_string()))
-                return option_error(tool, node, "tree", "invalid node path or name");
+                return option_error(tool, node, "tree",
+                                    "invalid node path or name");
         }
-        if (node.kind == "doc" && (!node.options.empty() || !node.resets.empty() || !node.read_only.empty()))
+        if (node.kind == "doc" &&
+            (!node.options.empty() || !node.resets.empty() ||
+             !node.read_only.empty()))
             return option_error(tool, node, "doc",
                                 "option, reset, and read-only are not allowed on doc manifests");
         auto values = i == 0 ? defaults : result[node.parent];
@@ -888,7 +892,8 @@ bool resolve_options(const std::filesystem::path& project_root, Build build,
                     return option_error(tool, node, name, "unknown option name");
                 if (node.external && spec->type == OptionType::Directory)
                     return option_error(tool, node, name,
-                                        "directory options are not allowed on external manifests");
+                                        "directory options are not allowed "
+                                        "on external manifests");
                 for (const auto& seen : assigned)
                     if (seen == name)
                         return option_error(tool, node, name,
@@ -927,7 +932,8 @@ bool resolve_options(const std::filesystem::path& project_root, Build build,
                 return option_error(tool, node, name, "read-only requires one registered name");
             if (node.external && spec->type == OptionType::Directory)
                 return option_error(tool, node, name,
-                                    "directory options are not allowed on external manifests");
+                                    "directory options are not allowed "
+                                    "on external manifests");
             for (const auto& seen : locked)
                 if (seen == name)
                     return option_error(tool, node, name, "duplicate read-only declaration");

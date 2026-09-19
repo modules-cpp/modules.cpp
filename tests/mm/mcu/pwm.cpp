@@ -67,7 +67,8 @@ void configure_period_write_release_round_trip() {
            "period before configure is BadArgument and leaves the output alone");
     expect(mm::mcu::pwm_write(0, 0) == Status::BadArgument,
            "write before configure is BadArgument");
-    expect(mm::mcu::pwm_configure(0, default_period) == Status::Ok, "an output configures");
+    expect(mm::mcu::pwm_configure(0, default_period) == Status::Ok,
+           "an output configures");
     expect(mm_test_pin_owner(0) == owner_pwm && mm_test_pwm_duty(0) == 0,
            "the modulator holds the pad and starts at zero duty");
     expect(mm::mcu::pwm_period(0, actual) == Status::Ok && actual == 2'040'816,
@@ -106,7 +107,8 @@ void period_validation() {
 
 void groups_and_aliases() {
     mm_test_reset();
-    expect(mm::mcu::pwm_configure(0, default_period) == Status::Ok, "the first output claims");
+    expect(mm::mcu::pwm_configure(0, default_period) == Status::Ok,
+           "the first output claims");
     expect(mm::mcu::pwm_configure(1, 1'000'000) == Status::Busy,
            "a sibling at another period is Busy");
     expect(mm_test_pin_owner(1) == owner_none && mm_test_pwm_group_members(0) == 1,
@@ -163,7 +165,8 @@ void a_failed_takeover_leaves_the_record_true() {
 
 void every_status_reaches_the_caller() {
     mm_test_reset();
-    expect(mm::mcu::pwm_configure(0, default_period) == Status::Ok, "configured");
+    expect(mm::mcu::pwm_configure(0, default_period) == Status::Ok,
+           "configured");
     std::uint64_t actual = 5;
     for (const auto status : {Status::BadArgument, Status::Unsupported, Status::Busy,
                               Status::Timeout, Status::TransportError}) {

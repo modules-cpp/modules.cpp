@@ -65,8 +65,11 @@ void collect(const mm::build::Project& project, std::size_t scope,
             target = &project.targets[project.target[i]];
         if (target == nullptr) continue;
         for (const auto& unit : target->sources) {
-            const auto path = unit.source.empty() ? std::filesystem::path(unit.path) : unit.source;
-            if (seen.insert(path.generic_string()).second) files.push_back(path);
+            const auto path = unit.source.empty()
+                                  ? std::filesystem::path(unit.path)
+                                  : unit.source;
+            if (seen.insert(path.generic_string()).second)
+                files.push_back(path);
         }
     }
     for (const auto& board : project.boards) {
@@ -102,7 +105,8 @@ int main(int argc, char** argv) {
 
     const auto resolved_roots = mm::build::resolve_roots(manifest_path);
     if (!resolved_roots.ok) {
-        std::cerr << "check: cannot resolve root for " << manifest_path.string() << "\n";
+        std::cerr << "check: cannot resolve root for "
+                  << manifest_path.string() << "\n";
         return mm::build::exit_manifest;
     }
     std::error_code ec;
@@ -112,7 +116,8 @@ int main(int argc, char** argv) {
         return mm::build::exit_manifest;
     }
     mm::build::LoadPolicy policy{.tool = "check"};
-    if (resolved_roots.external_root) policy.external = resolved_roots.external_root;
+    if (resolved_roots.external_root)
+        policy.external = resolved_roots.external_root;
     auto project = mm::build::load_project(".", policy);
     if (!project.ok) return mm::build::exit_manifest;
     std::size_t scope = mm::build::no_parent;
@@ -136,7 +141,8 @@ int main(int argc, char** argv) {
     // above never reaches it regardless of root, but reaching outside a
     // deliberately narrowed `check modules/mm.mdy` would be surprising.
     if (root == resolved_roots.project_root && !resolved_roots.external_root) {
-        const auto stage_zero = resolved_roots.project_root / "tools/build/main.cpp";
+        const auto stage_zero =
+            resolved_roots.project_root / "tools/build/main.cpp";
         if (std::filesystem::exists(stage_zero) &&
             seen.insert(stage_zero.generic_string()).second)
             files.push_back(stage_zero);
@@ -147,7 +153,8 @@ int main(int argc, char** argv) {
         return mm::build::exit_manifest;
     }
 
-    const auto addon = resolved_roots.project_root / "tools/check/cppcheck/cpp20_rules.py";
+    const auto addon =
+        resolved_roots.project_root / "tools/check/cppcheck/cpp20_rules.py";
     if (!std::filesystem::exists(addon)) {
         std::cerr << "check: addon not found: " << addon.string() << "\n";
         return mm::build::exit_manifest;
@@ -167,7 +174,8 @@ int main(int argc, char** argv) {
     if (verbose) command += " --verbose";
 
     for (const auto& file : files) {
-        const auto abs_file = file.is_absolute() ? file : (resolved_roots.project_root / file);
+        const auto abs_file =
+            file.is_absolute() ? file : (resolved_roots.project_root / file);
         command += " " + mm::build::shell_quote(abs_file);
     }
 
@@ -191,7 +199,8 @@ int main(int argc, char** argv) {
         if (sketches == nullptr || sketches->empty()) continue;
 
         std::string error;
-        if (!mm::ino::check_application(project.nodes[i].source_dir, doc, error)) {
+        if (!mm::ino::check_application(project.nodes[i].source_dir, doc,
+                                        error)) {
             std::cerr << "check: " << project.nodes[i].name << ": " << error << "\n";
             sketch_error = true;
         }

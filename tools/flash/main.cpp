@@ -31,7 +31,8 @@ int main(int argc, char** argv) {
 
     const auto resolved_roots = mm::build::resolve_roots(manifest);
     if (!resolved_roots.ok) {
-        std::cerr << "flash: cannot resolve root for " << manifest.string() << "\n";
+        std::cerr << "flash: cannot resolve root for " << manifest.string()
+                  << "\n";
         return mm::build::exit_manifest;
     }
     std::error_code ec;
@@ -52,7 +53,8 @@ int main(int argc, char** argv) {
         return mm::build::exit_manifest;
     }
     mm::build::LoadPolicy policy{.tool = "flash", .warn_options = true};
-    if (resolved_roots.external_root) policy.external = resolved_roots.external_root;
+    if (resolved_roots.external_root)
+        policy.external = resolved_roots.external_root;
     auto project = mm::build::load_project(".", policy);
     if (!project.ok) return mm::build::exit_manifest;
     if (!mm::build::check_configuration_staleness(configuration, project, true, "flash"))
@@ -95,11 +97,16 @@ int main(int argc, char** argv) {
     }
 
     const auto& app = project.targets[project.target[node]];
-    const auto context_tree_root = resolved_roots.external_root ? *resolved_roots.external_root : resolved_roots.project_root;
-    const auto context_output_root = resolved_roots.external_root ? (*resolved_roots.external_root / *lane_directory)
-                                                                  : (resolved_roots.project_root / *lane_directory);
-    mm::build::ArtifactContext context(context_tree_root, context_output_root, resolved_roots.tools_dir,
-                                       resolved_roots.external_root.has_value());
+    const auto context_tree_root = resolved_roots.external_root
+                                       ? *resolved_roots.external_root
+                                       : resolved_roots.project_root;
+    const auto context_output_root =
+        resolved_roots.external_root
+            ? (*resolved_roots.external_root / *lane_directory)
+            : (resolved_roots.project_root / *lane_directory);
+    mm::build::ArtifactContext context(
+        context_tree_root, context_output_root, resolved_roots.tools_dir,
+        resolved_roots.external_root.has_value());
     const auto executable = context.executable_path(app);
     const auto image = mm::flash::image_for(executable);
     if (!std::filesystem::is_regular_file(image, ec) || ec) {

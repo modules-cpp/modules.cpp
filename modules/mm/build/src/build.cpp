@@ -267,7 +267,7 @@ bool safe_exists(const std::filesystem::path& path) {
 struct WalkState {
     LoadPolicy policy;
     std::filesystem::path root;                   // canonical project root
-    std::filesystem::path external_root;          // canonical external root if grafting
+    std::filesystem::path external_root;          // canonical external root
     bool is_external = false;
     std::vector<std::filesystem::path> visiting;  // active chain, innermost last
     std::vector<std::filesystem::path> visited;
@@ -304,7 +304,8 @@ Enter enter_manifest(const std::filesystem::path& dir, WalkState& state,
         return Enter::error;
     }
 
-    const auto owning_root = state.is_external ? state.external_root : state.root;
+    const auto owning_root =
+        state.is_external ? state.external_root : state.root;
     const auto relative = canonical.lexically_relative(owning_root);
     if (relative.empty() || *relative.begin() == "..") {
         std::cerr << state.policy.tool << ": manifest outside the "
@@ -316,7 +317,8 @@ Enter enter_manifest(const std::filesystem::path& dir, WalkState& state,
     if (state.contains(state.visiting, canonical)) {
         std::cerr << state.policy.tool << ": folder: cycle in the manifest tree:\n";
         for (const auto& entry : state.visiting)
-            std::cerr << "    " << entry.lexically_relative(owning_root).string() << "\n";
+            std::cerr << "    "
+                      << entry.lexically_relative(owning_root).string() << "\n";
         std::cerr << "    " << relative.string() << "  <- repeats\n";
         return Enter::error;
     }
@@ -366,13 +368,15 @@ bool path_within(const std::filesystem::path& base, const std::filesystem::path&
     return !relative.empty() && !relative.is_absolute() && *relative.begin() != "..";
 }
 
-bool path_contained_in(const std::filesystem::path& container, const std::filesystem::path& path) {
+bool path_contained_in(const std::filesystem::path& container,
+                       const std::filesystem::path& path) {
     if (container.empty() || path.empty()) return false;
     std::error_code ec;
     auto resolved_container = std::filesystem::weakly_canonical(container, ec);
     if (ec) return false;
     if (!resolved_container.is_absolute())
-        resolved_container = std::filesystem::absolute(container, ec).lexically_normal();
+        resolved_container =
+            std::filesystem::absolute(container, ec).lexically_normal();
     if (ec) return false;
 
     auto resolved = std::filesystem::weakly_canonical(path, ec);
@@ -385,7 +389,8 @@ bool path_contained_in(const std::filesystem::path& container, const std::filesy
     return !relative.empty() && *relative.begin() != "..";
 }
 
-bool within_destination(const std::filesystem::path& destination, const std::filesystem::path& path,
+bool within_destination(const std::filesystem::path& destination,
+                        const std::filesystem::path& path,
                         const std::filesystem::path& tree_root) {
     if (!path_contained_in(destination, path)) return false;
     if (!tree_root.empty() && !path_contained_in(tree_root, path)) return false;
@@ -427,8 +432,8 @@ std::string ArtifactContext::prefix(const BuildableNode& node) const {
     return prefix(node.external);
 }
 
-std::filesystem::path ArtifactContext::object_path(const BuildableNode& node,
-                                                   const TranslationUnit& unit) const {
+std::filesystem::path ArtifactContext::object_path(
+    const BuildableNode& node, const TranslationUnit& unit) const {
     const auto pfx = prefix(node);
     if (!pfx.empty()) {
         return output_root_ / pfx / (unit.path + ".o");
@@ -440,51 +445,61 @@ std::filesystem::path ArtifactContext::bmi_dir() const {
     return output_root_ / "bmi";
 }
 
-std::filesystem::path ArtifactContext::executable_path(const BuildableNode& node) const {
+std::filesystem::path ArtifactContext::executable_path(
+    const BuildableNode& node) const {
     return (output_root_ / node.logical_dir / node.name).lexically_normal();
 }
 
 std::filesystem::path ArtifactContext::bridge_dir(std::string_view library,
-                                                   std::string_view board,
-                                                   std::string_view name) const {
+                                                  std::string_view board,
+                                                  std::string_view name) const {
     return output_root_ / "external" / library / board / name;
 }
 
-std::filesystem::path ArtifactContext::board_object_path(const std::filesystem::path& board_source,
-                                                          std::string_view /*board_name*/) const {
+std::filesystem::path ArtifactContext::board_object_path(
+    const std::filesystem::path& board_source,
+    std::string_view /*board_name*/) const {
     if (external_) {
         return output_root_ / "graft/project" / (board_source.string() + ".o");
     }
     return output_root_ / (board_source.string() + ".o");
 }
 
-bool ArtifactContext::check_artifact_path(const std::filesystem::path& path) const {
+bool ArtifactContext::check_artifact_path(
+    const std::filesystem::path& path) const {
     if (!valid_) return false;
-    return path_contained_in(output_root_, path) && (tree_root_.empty() || path_contained_in(tree_root_, path));
+    return path_contained_in(output_root_, path) &&
+           (tree_root_.empty() || path_contained_in(tree_root_, path));
 }
 
-bool ArtifactContext::check_install_path(const std::filesystem::path& destination,
-                                         const std::filesystem::path& path) const {
+bool ArtifactContext::check_install_path(
+    const std::filesystem::path& destination,
+    const std::filesystem::path& path) const {
     if (!valid_ || external_) return false;
-    return path_contained_in(destination, path) && (tree_root_.empty() || path_contained_in(tree_root_, path));
+    return path_contained_in(destination, path) &&
+           (tree_root_.empty() || path_contained_in(tree_root_, path));
 }
 
-void ArtifactContext::record_objects(const BuildableNode& target, std::vector<std::filesystem::path> objects) {
+void ArtifactContext::record_objects(
+    const BuildableNode& target, std::vector<std::filesystem::path> objects) {
     target_objects_[{target.external, target.logical_dir}] = std::move(objects);
 }
 
-const std::vector<std::filesystem::path>& ArtifactContext::objects(const BuildableNode& target) const {
+const std::vector<std::filesystem::path>& ArtifactContext::objects(
+    const BuildableNode& target) const {
     static const std::vector<std::filesystem::path> empty;
     const auto it = target_objects_.find({target.external, target.logical_dir});
     if (it != target_objects_.end()) return it->second;
     return empty;
 }
 
-void ArtifactContext::record_board_objects(std::string_view board_name, std::vector<std::filesystem::path> objects) {
+void ArtifactContext::record_board_objects(
+    std::string_view board_name, std::vector<std::filesystem::path> objects) {
     board_objects_[std::string(board_name)] = std::move(objects);
 }
 
-const std::vector<std::filesystem::path>& ArtifactContext::board_objects(std::string_view board_name) const {
+const std::vector<std::filesystem::path>& ArtifactContext::board_objects(
+    std::string_view board_name) const {
     static const std::vector<std::filesystem::path> empty;
     const auto it = board_objects_.find(std::string(board_name));
     if (it != board_objects_.end()) return it->second;
@@ -1233,7 +1248,8 @@ void walk_project(const std::filesystem::path& dir, std::size_t parent, Project&
         }
         if (kind != "app" && kind != "dir") {
             std::cerr << state.policy.tool << ": " << manifest.string()
-                      << ": project: is only allowed on app and dir manifests\n";
+                      << ": project: is only allowed on app and dir"
+                      << " manifests\n";
             project.ok = false;
             state.visited.push_back(canonical);
             return;
@@ -1247,7 +1263,8 @@ void walk_project(const std::filesystem::path& dir, std::size_t parent, Project&
         }
         if (parent != 0) {
             std::cerr << state.policy.tool << ": " << manifest.string()
-                      << ": project: is only allowed on the root manifest of an external tree\n";
+                      << ": project: is only allowed on the root manifest"
+                      << " of an external tree\n";
             project.ok = false;
             state.visited.push_back(canonical);
             return;
@@ -1261,11 +1278,14 @@ void walk_project(const std::filesystem::path& dir, std::size_t parent, Project&
             state.visited.push_back(canonical);
             return;
         }
-        const auto resolved_proj = (canonical.parent_path() / raw_proj).lexically_normal();
+        const auto resolved_proj =
+            (canonical.parent_path() / raw_proj).lexically_normal();
         std::error_code ec_proj;
-        const auto canonical_proj = std::filesystem::weakly_canonical(resolved_proj, ec_proj);
+        const auto canonical_proj =
+            std::filesystem::weakly_canonical(resolved_proj, ec_proj);
         if (ec_proj || !safe_exists(canonical_proj / "mm.mdy") ||
-            first(mm::mdy::Parser::parse_file(canonical_proj / "mm.mdy"), "kind") != "project") {
+            first(mm::mdy::Parser::parse_file(canonical_proj / "mm.mdy"),
+                  "kind") != "project") {
             std::cerr << state.policy.tool << ": " << manifest.string()
                       << ": project: does not resolve to a project directory\n";
             project.ok = false;
@@ -1290,7 +1310,8 @@ void walk_project(const std::filesystem::path& dir, std::size_t parent, Project&
     if (state.is_external) {
         if (kind != "dir" && kind != "app") {
             std::cerr << state.policy.tool << ": " << manifest.string()
-                      << ": grafted node must be dir or app (found " << kind << ")\n";
+                      << ": grafted node must be dir or app (found " << kind
+                      << ")\n";
             project.ok = false;
             state.visited.push_back(canonical);
             return;
@@ -1298,7 +1319,8 @@ void walk_project(const std::filesystem::path& dir, std::size_t parent, Project&
         if (kind == "app") {
             if (lookup(doc, "folder") != nullptr) {
                 std::cerr << state.policy.tool << ": " << manifest.string()
-                          << ": folder: is not allowed on external app manifests\n";
+                          << ": folder: is not allowed on external app"
+                          << " manifests\n";
                 project.ok = false;
                 state.visited.push_back(canonical);
                 return;
@@ -1317,9 +1339,12 @@ void walk_project(const std::filesystem::path& dir, std::size_t parent, Project&
     node.manifest = manifest;
     node.dir = dir.lexically_normal();
     node.source_dir = canonical.parent_path();
-    const auto owning_root = state.is_external ? state.external_root : state.root;
-    const auto rel_logical = canonical.parent_path().lexically_relative(owning_root);
-    node.logical_dir = rel_logical.empty() ? std::filesystem::path(".") : rel_logical;
+    const auto owning_root =
+        state.is_external ? state.external_root : state.root;
+    const auto rel_logical =
+        canonical.parent_path().lexically_relative(owning_root);
+    node.logical_dir =
+        rel_logical.empty() ? std::filesystem::path(".") : rel_logical;
     node.kind = kind;
     node.name = name;
     node.parent = parent;
@@ -1456,12 +1481,14 @@ void walk_project(const std::filesystem::path& dir, std::size_t parent, Project&
             const std::filesystem::path raw_sketch(sketch);
             const std::filesystem::path joined_sketch = dir / raw_sketch;
             if (!is_safe_relative_path(raw_sketch, joined_sketch)) {
-                std::cerr << state.policy.tool << ": unsafe sketch path \"" << sketch << "\" in "
+                std::cerr << state.policy.tool << ": unsafe sketch path \""
+                          << sketch << "\" in "
                           << manifest.string() << "\n";
                 project.ok = false;
                 return;
             }
-            const auto abs_sketch = (target.source_dir / raw_sketch).lexically_normal();
+            const auto abs_sketch =
+                (target.source_dir / raw_sketch).lexically_normal();
             if (!path_contained_in(owning_root, abs_sketch)) {
                 std::cerr << state.policy.tool << ": " << manifest.string()
                           << ": sketch source outside tree: " << sketch << "\n";
@@ -2491,10 +2518,12 @@ void closure_visit(std::size_t index, const Tree& tree,
         if (!objs.empty()) {
             for (const auto& object : objs) out.push_back(object);
         } else {
-            for (const auto& object : tree.targets[index].objects) out.push_back(object);
+            for (const auto& object : tree.targets[index].objects)
+                out.push_back(object);
         }
     } else {
-        for (const auto& object : tree.targets[index].objects) out.push_back(object);
+        for (const auto& object : tree.targets[index].objects)
+            out.push_back(object);
     }
     // Recorded before the dependencies, so the caller sees consumers ahead of
     // what they consume. A library segment wants the reverse of that.
@@ -2840,7 +2869,8 @@ bool validate_structural_properties(
 
             if (!nodes[i].external && nodes[found->second].external) {
                 std::cerr << tool << ": " << nodes[i].manifest.generic_string() << ": "
-                          << nodes[i].name << " is a project node, but uses external module "
+                          << nodes[i].name
+                          << " is a project node, but uses external module "
                           << used << "\n";
                 ok = false;
             }
@@ -2876,7 +2906,8 @@ ResolvedRoots resolve_roots(const std::filesystem::path& manifest_or_dir) {
     }
 
     std::error_code ec;
-    result.requested_manifest = std::filesystem::weakly_canonical(manifest_path, ec);
+    result.requested_manifest =
+        std::filesystem::weakly_canonical(manifest_path, ec);
     if (ec) {
         result.ok = false;
         return result;
@@ -2889,7 +2920,8 @@ ResolvedRoots resolve_roots(const std::filesystem::path& manifest_or_dir) {
     std::filesystem::path external_dir;
     std::string project_val;
 
-    for (auto dir = result.requested_dir; !dir.empty(); dir = dir.parent_path()) {
+    for (auto dir = result.requested_dir; !dir.empty();
+         dir = dir.parent_path()) {
         const auto candidate = dir / "mm.mdy";
         if (safe_exists(candidate)) {
             const auto doc = mm::mdy::Parser::parse_file(candidate);
@@ -2901,7 +2933,8 @@ ResolvedRoots resolve_roots(const std::filesystem::path& manifest_or_dir) {
                 break;
             }
             if (kind == "project") {
-                result.project_root = std::filesystem::weakly_canonical(dir, ec);
+                result.project_root =
+                    std::filesystem::weakly_canonical(dir, ec);
                 if (ec) {
                     result.ok = false;
                     return result;
@@ -2914,13 +2947,16 @@ ResolvedRoots resolve_roots(const std::filesystem::path& manifest_or_dir) {
     }
 
     if (!external_dir.empty()) {
-        result.external_root = std::filesystem::weakly_canonical(external_dir, ec);
+        result.external_root =
+            std::filesystem::weakly_canonical(external_dir, ec);
         if (ec) {
             result.ok = false;
             return result;
         }
-        const auto resolved_proj = (external_dir / project_val).lexically_normal();
-        result.project_root = std::filesystem::weakly_canonical(resolved_proj, ec);
+        const auto resolved_proj =
+            (external_dir / project_val).lexically_normal();
+        result.project_root =
+            std::filesystem::weakly_canonical(resolved_proj, ec);
         if (ec || !safe_exists(result.project_root / "mm.mdy")) {
             result.ok = false;
             return result;
@@ -2962,20 +2998,25 @@ Project load_project(const std::filesystem::path& dir, const LoadPolicy& policy)
 
     if (policy.external) {
         state.is_external = true;
-        state.external_root = std::filesystem::weakly_canonical(*policy.external, ec);
+        state.external_root =
+            std::filesystem::weakly_canonical(*policy.external, ec);
         if (ec) {
-            std::cerr << policy.tool << ": cannot resolve external root " << policy.external->string()
+            std::cerr << policy.tool << ": cannot resolve external root "
+                      << policy.external->string()
                       << ": " << ec.message() << "\n";
             project.ok = false;
             return project;
         }
 
-        for (auto p = state.external_root.parent_path(); !p.empty(); p = p.parent_path()) {
+        for (auto p = state.external_root.parent_path(); !p.empty();
+             p = p.parent_path()) {
             const auto p_manifest = p / "mm.mdy";
             if (safe_exists(p_manifest)) {
                 const auto p_doc = mm::mdy::Parser::parse_file(p_manifest);
-                if (first(p_doc, "kind") == "project" || !first(p_doc, "project").empty()) {
-                    const auto ext_manifest = (state.external_root / "mm.mdy").lexically_normal();
+                if (first(p_doc, "kind") == "project" ||
+                    !first(p_doc, "project").empty()) {
+                    const auto ext_manifest =
+                        (state.external_root / "mm.mdy").lexically_normal();
                     std::cerr << policy.tool << ": " << ext_manifest.string()
                               << ": external root is inside another tree\n";
                     project.ok = false;
@@ -3004,13 +3045,15 @@ Project load_project(const std::filesystem::path& dir, const LoadPolicy& policy)
     // manifests claiming the same directory.
     std::map<std::string, const BuildableNode*, std::less<>> modules_by_name;
     std::map<std::pair<bool, std::string>, const BuildableNode*> apps_by_name;
-    std::map<std::pair<bool, std::filesystem::path>, const BuildableNode*> targets_by_dir;
+    std::map<std::pair<bool, std::filesystem::path>,
+             const BuildableNode*> targets_by_dir;
 
     auto check_dir = [&](const BuildableNode& target) {
         const auto key = std::make_pair(target.external, target.logical_dir);
         const auto it = targets_by_dir.find(key);
         if (it != targets_by_dir.end()) {
-            std::cerr << policy.tool << ": " << target.logical_dir.string() << " is declared by more than one manifest: "
+            std::cerr << policy.tool << ": " << target.logical_dir.string()
+                      << " is declared by more than one manifest: "
                       << it->second->name << " and " << target.name << "\n";
             project.ok = false;
             return;
@@ -3057,10 +3100,11 @@ std::vector<mm::configure::OptionNode> configuration_nodes(const Project& projec
     for (std::size_t i = 0; i < project.nodes.size(); ++i) {
         const auto& node = project.nodes[i];
         const auto& doc = project.documents[i];
-        mm::configure::OptionNode opt_node{node.manifest, node.dir, node.name, node.kind,
-                         first(doc, "module"), all(doc, "use"), node.parent,
-                         all(doc, "option"), all(doc, "reset"), all(doc, "read-only"),
-                         first(doc, "library")};
+        mm::configure::OptionNode opt_node{
+            node.manifest, node.dir, node.name, node.kind,
+            first(doc, "module"), all(doc, "use"), node.parent,
+            all(doc, "option"), all(doc, "reset"), all(doc, "read-only"),
+            first(doc, "library")};
         opt_node.external = node.external;
         opt_node.non_core = node.non_core;
         nodes.push_back(std::move(opt_node));
@@ -3775,11 +3819,10 @@ bool library_link_inputs(const std::filesystem::path& project_root,
     return true;
 }
 
-std::vector<std::filesystem::path> augmented_closure(const Tree& tree, std::size_t index,
-                                                     const PlatformProviders& providers,
-                                                     const ArtifactContext& context,
-                                                     std::vector<std::string>* merged,
-                                                     std::vector<std::size_t>* reached) {
+std::vector<std::filesystem::path> augmented_closure(
+    const Tree& tree, std::size_t index, const PlatformProviders& providers,
+    const ArtifactContext& context, std::vector<std::string>* merged,
+    std::vector<std::size_t>* reached) {
     std::vector<bool> seen(tree.targets.size(), false);
     std::vector<std::filesystem::path> objects;
     closure_visit(index, tree, &context, seen, objects, reached);
@@ -3942,7 +3985,8 @@ int compile(const Toolchain& toolchain, BuildableNode& target,
             std::error_code sec;
             sketch_exe = std::filesystem::weakly_canonical(sketch_exe, sec);
             if (sec || !safe_exists(sketch_exe)) {
-                std::cerr << "build: sketch tool does not exist: " << sketch_exe.string() << "\n";
+                std::cerr << "build: sketch tool does not exist: "
+                          << sketch_exe.string() << "\n";
                 return exit_compile;
             }
             const std::string command = shell_quote(sketch_exe) + " " + shell_quote(app_dir);
@@ -3956,7 +4000,9 @@ int compile(const Toolchain& toolchain, BuildableNode& target,
 
     std::vector<std::filesystem::path> compiled_objects;
     for (const auto& source : target.sources) {
-        const auto src_path = source.source.empty() ? std::filesystem::path(source.path) : source.source;
+        const auto src_path =
+            source.source.empty() ? std::filesystem::path(source.path)
+                                  : source.source;
         if (!safe_exists(src_path)) {
             std::cerr << "build: source does not exist: " << source.path << "\n";
             return exit_manifest;
@@ -4005,7 +4051,8 @@ int compile(const Toolchain& toolchain, BuildableNode& target,
                 command += " -fmodule-output=" + shell_quote(bmi);
             }
         }
-        command += " -c " + shell_quote(src_path) + " -o " + shell_quote(object);
+        command +=
+            " -c " + shell_quote(src_path) + " -o " + shell_quote(object);
         if (run(toolchain, command) != 0) {
             std::cerr << "build: failed to compile " << source.path << "\n";
             return exit_compile;
@@ -4090,7 +4137,8 @@ int install(const std::filesystem::path& from, const std::filesystem::path& bin_
 
     const auto installed = bin_dir / name;
     std::error_code ec_root;
-    const auto eff_root = tree_root.empty() ? std::filesystem::current_path(ec_root) : tree_root;
+    const auto eff_root =
+        tree_root.empty() ? std::filesystem::current_path(ec_root) : tree_root;
     if (!within_destination(bin_dir, installed, eff_root)) {
         std::cerr << "build: refusing to install outside the project: " << installed.string() << "\n";
         return exit_link;
@@ -5187,7 +5235,8 @@ bool publish_external_results(
     const std::filesystem::path& target_output,
     std::string_view tool) {
     ArtifactContext context({}, target_output.parent_path());
-    return publish_external_results(results_file, external_dir, output_name, target_output, context, tool);
+    return publish_external_results(results_file, external_dir, output_name,
+                                    target_output, context, tool);
 }
 
 int external_link(
@@ -5257,7 +5306,8 @@ int external_link(
     }
 
     const std::string board_name = (platform.board && !platform.board->empty()) ? *platform.board : "none";
-    const auto external_dir = std::filesystem::absolute(context.bridge_dir(library->name, board_name, app_name));
+    const auto external_dir = std::filesystem::absolute(
+        context.bridge_dir(library->name, board_name, app_name));
 
     std::error_code ec;
     std::filesystem::create_directories(external_dir, ec);
@@ -5440,7 +5490,8 @@ int external_link(
 
     // Step 7: Publish results
     const auto result_txt = external_dir / "mm-result.txt";
-    if (!publish_external_results(result_txt, external_dir, app_name, target_output, context, "build")) {
+    if (!publish_external_results(result_txt, external_dir, app_name,
+                                  target_output, context, "build")) {
         return exit_link;
     }
 
@@ -5457,7 +5508,8 @@ int external_link(
     const std::filesystem::path& target_output,
     bool verbose) {
     ArtifactContext context(".", build_dir);
-    return external_link(project, platform, toolchain, app_name, objects, context, target_output, verbose);
+    return external_link(project, platform, toolchain, app_name, objects,
+                         context, target_output, verbose);
 }
 
 }

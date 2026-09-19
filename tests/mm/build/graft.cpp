@@ -20,8 +20,10 @@ void app_root_grafting() {
     const mm::test::scoped_tree proj_tree{"graft_proj_app"};
     proj_tree.manifest("", "kind: project\nname: proj\nfolder: modules\n");
     proj_tree.manifest("modules", "kind: dir\nname: modules\nfolder: m\n");
-    proj_tree.manifest("modules/m", "kind: module\nname: m\nmodule: mm.m\nfile: m.cppm\n");
-    std::ofstream(proj_tree.root() / "modules/m/m.cppm") << "export module mm.m;\n";
+    proj_tree.manifest("modules/m",
+                       "kind: module\nname: m\nmodule: mm.m\nfile: m.cppm\n");
+    std::ofstream(proj_tree.root() / "modules/m/m.cppm")
+        << "export module mm.m;\n";
 
     const mm::test::scoped_tree ext_tree{"graft_ext_app"};
     const auto rel_proj = std::filesystem::relative(
@@ -30,7 +32,8 @@ void app_root_grafting() {
         "mm: 1.3\nkind: app\nname: ext_blink\nproject: " + rel_proj +
         "\nuse: mm.m\nfile: main.cpp\nsketch: blink.ino\n");
     std::ofstream(ext_tree.root() / "main.cpp") << "int main(){}\n";
-    std::ofstream(ext_tree.root() / "blink.ino") << "void setup(){}\nvoid loop(){}\n";
+    std::ofstream(ext_tree.root() / "blink.ino")
+        << "void setup(){}\nvoid loop(){}\n";
 
     mm::build::LoadPolicy policy{.tool = "build", .external = ext_tree.root()};
     const auto project = mm::build::load_project(proj_tree.root(), policy);
@@ -43,7 +46,8 @@ void app_root_grafting() {
     expect(ext_node.parent == 0, "grafted node parent is project root (0)");
     expect(ext_node.external, "grafted node is marked external");
     expect(ext_node.non_core, "grafted node is marked non-core");
-    expect(ext_node.source_dir == ext_tree.root(), "source_dir is absolute external root");
+    expect(ext_node.source_dir == ext_tree.root(),
+           "source_dir is absolute external root");
 }
 
 void dir_root_grafting() {
@@ -64,7 +68,8 @@ void dir_root_grafting() {
     std::ofstream(ext_tree.root() / "blink/blink.ino") << "void setup(){}\n";
 
     ext_tree.manifest_raw("button",
-        "mm: 1.3\nkind: app\nname: button\nfile: main.cpp\nsketch: button.ino\n");
+        "mm: 1.3\nkind: app\nname: button\nfile: main.cpp\n"
+        "sketch: button.ino\n");
     std::filesystem::create_directories(ext_tree.root() / "button");
     std::ofstream(ext_tree.root() / "button/main.cpp") << "int main(){}\n";
     std::ofstream(ext_tree.root() / "button/button.ino") << "void setup(){}\n";
@@ -96,13 +101,16 @@ void graft_allowlist_refusals() {
         proj_tree.root(), ext_tree.root()).lexically_normal().string();
 
     const std::vector<std::pair<std::string, std::string>> forbidden_kinds = {
-        {"module", "mm: 1.3\nkind: module\nname: bad_mod\nmodule: mm.bad\nfile: m.cppm\n"},
-        {"library", "mm: 1.3\nkind: library\nname: bad_lib\nsource: src\nlicence: LIC\n"},
+        {"module", "mm: 1.3\nkind: module\nname: bad_mod\n"
+                   "module: mm.bad\nfile: m.cppm\n"},
+        {"library", "mm: 1.3\nkind: library\nname: bad_lib\n"
+                    "source: src\nlicence: LIC\n"},
         {"test", "mm: 1.3\nkind: test\nname: bad_test\nunit: t.cpp\n"},
         {"doc", "mm: 1.3\nkind: doc\nname: bad_doc\nfile: doc.mdy\n"},
         {"board", "mm: 1.3\nkind: board\nname: bad_board\nderives-from: b\n"},
         {"sdk", "mm: 1.3\nkind: sdk\nname: bad_sdk\nlibrary: l\n"},
-        {"app_no_sketch", "mm: 1.3\nkind: app\nname: no_sketch\nfile: main.cpp\n"},
+        {"app_no_sketch",
+         "mm: 1.3\nkind: app\nname: no_sketch\nfile: main.cpp\n"},
     };
 
     for (const auto& [tag, content] : forbidden_kinds) {
@@ -111,13 +119,15 @@ void graft_allowlist_refusals() {
             "\nfolder: child\n");
         ext_tree.manifest_raw("child", content);
         std::ofstream(ext_tree.root() / "child/main.cpp") << "int main(){}\n";
-        std::ofstream(ext_tree.root() / "child/m.cppm") << "export module mm.bad;\n";
+        std::ofstream(ext_tree.root() / "child/m.cppm")
+            << "export module mm.bad;\n";
         std::ofstream(ext_tree.root() / "child/t.cpp") << "int main(){}\n";
         std::ofstream(ext_tree.root() / "child/doc.mdy") << "# Doc\n";
         std::ofstream(ext_tree.root() / "child/LIC") << "mit\n";
         std::filesystem::create_directories(ext_tree.root() / "child/src");
 
-        mm::build::LoadPolicy policy{.tool = "build", .external = ext_tree.root()};
+        mm::build::LoadPolicy policy{.tool = "build",
+                                     .external = ext_tree.root()};
         const auto project = mm::build::load_project(proj_tree.root(), policy);
         expect(!project.ok, "external graft allowlist refuses kind: " + tag);
     }
@@ -155,14 +165,18 @@ void context_paths_and_prefixes() {
     expect(ext_obj == ext_root / build_dir / "sketches/blink/main.cpp.o",
            "external object lands under output_root / unit.path.o");
 
-    mm::build::TranslationUnit proj_unit{"modules/mm/sketch/sketch.cppm", "", {}};
+    mm::build::TranslationUnit proj_unit{
+        "modules/mm/sketch/sketch.cppm", "", {}};
     const auto proj_obj = ext_context.object_path(proj_mod, proj_unit);
-    expect(proj_obj == ext_root / build_dir / "graft/project/modules/mm/sketch/sketch.cppm.o",
+    expect(proj_obj ==
+           ext_root / build_dir /
+           "graft/project/modules/mm/sketch/sketch.cppm.o",
            "project module object lands under graft/project/");
 
     const auto board_obj = ext_context.board_object_path(
         "platforms/rp2040/board.cpp", "rp2040");
-    expect(board_obj == ext_root / build_dir / "graft/project/platforms/rp2040/board.cpp.o",
+    expect(board_obj ==
+           ext_root / build_dir / "graft/project/platforms/rp2040/board.cpp.o",
            "board unit object lands under graft/project/");
 
     expect(ext_context.executable_path(ext_app) ==
@@ -180,7 +194,8 @@ void context_paths_and_prefixes() {
     expect(proj_context.object_path(proj_mod, proj_unit) ==
            proj_root / build_dir / "modules/mm/sketch/sketch.cppm.o",
            "project unit lands directly under lane directory");
-    expect(proj_context.board_object_path("platforms/rp2040/board.cpp", "rp2040") ==
+    expect(proj_context.board_object_path("platforms/rp2040/board.cpp",
+                                          "rp2040") ==
            proj_root / build_dir / "platforms/rp2040/board.cpp.o",
            "project board unit lands directly under lane directory");
 }
@@ -197,11 +212,13 @@ void context_write_guards() {
     std::filesystem::create_directory_symlink(outside_tree.root(), sym_out, ec);
     if (!ec) {
         mm::build::ArtifactContext bad_context(tree.root(), sym_out);
-        expect(!bad_context.valid(), "symlinked output root outside tree is refused");
+        expect(!bad_context.valid(),
+               "symlinked output root outside tree is refused");
     }
 
     // 2. Normal context validates paths inside tree & output root
-    mm::build::ArtifactContext context(tree.root(), out_dir, tree.root() / "out/bin", false);
+    mm::build::ArtifactContext context(tree.root(), out_dir,
+                                       tree.root() / "out/bin", false);
     expect(context.valid(), "context is valid");
 
     const auto valid_artifact = out_dir / "foo.o";
@@ -214,7 +231,8 @@ void context_write_guards() {
 
     // 3. Symlink planted beneath output root pointing outside tree
     const auto planted_sym = out_dir / "leak_dir";
-    std::filesystem::create_directory_symlink(outside_tree.root(), planted_sym, ec);
+    std::filesystem::create_directory_symlink(outside_tree.root(), planted_sym,
+                                              ec);
     if (!ec) {
         expect(!context.check_artifact_path(planted_sym / "stolen.o"),
                "link planted beneath output root resolving outside is refused");
@@ -225,11 +243,13 @@ void context_write_guards() {
     std::filesystem::create_directories(bin_dir);
     expect(context.check_install_path(bin_dir, bin_dir / "app"),
            "installation destination inside tree is admitted");
-    expect(!context.check_install_path(outside_tree.root(), outside_tree.root() / "app"),
+    expect(!context.check_install_path(outside_tree.root(),
+                                       outside_tree.root() / "app"),
            "installation destination outside tree is refused");
 
     // 5. External context has no installation destination
-    mm::build::ArtifactContext ext_context(tree.root(), out_dir, tree.root() / "out/bin", true);
+    mm::build::ArtifactContext ext_context(tree.root(), out_dir,
+                                           tree.root() / "out/bin", true);
     expect(!ext_context.check_install_path(bin_dir, bin_dir / "app"),
            "external context refuses all installation paths");
 }
@@ -271,7 +291,8 @@ void uniqueness_rules() {
     std::ofstream(ext_tree.root() / "b2/dup.ino") << "void setup(){}\n";
 
     const auto proj_dup = mm::build::load_project(proj_tree.root(), policy);
-    expect(!proj_dup.ok, "duplicate app name within one external root is refused");
+    expect(!proj_dup.ok,
+           "duplicate app name within one external root is refused");
 }
 
 void manifest_gate_refusals() {
@@ -302,7 +323,8 @@ void manifest_gate_refusals() {
 
     // 3. project: resolving to no directory or not a project
     ext_tree.manifest_raw("",
-        "mm: 1.3\nkind: app\nname: a\nproject: ../missing_dir_12345\nfile: main.cpp\nsketch: a.ino\n");
+        "mm: 1.3\nkind: app\nname: a\nproject: ../missing_dir_12345\n"
+        "file: main.cpp\nsketch: a.ino\n");
     expect(!mm::build::load_project(proj_tree.root(), policy).ok,
            "project: resolving to missing directory is refused");
 

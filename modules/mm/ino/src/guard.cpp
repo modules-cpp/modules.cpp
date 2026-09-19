@@ -25,7 +25,8 @@ bool write_guarded(const std::filesystem::path& app_dir,
         ? (target_str + ".tmp")
         : std::string(temp_filename);
 
-    const int dir_fd = ::open(app_dir.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+    const int dir_fd =
+        ::open(app_dir.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
     if (dir_fd < 0) {
         error = "cannot open directory " + app_dir.string() + ": " +
                 std::strerror(errno);

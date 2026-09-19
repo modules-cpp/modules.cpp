@@ -500,7 +500,8 @@ struct ResolvedRoots {
     bool ok = true;
 };
 
-[[nodiscard]] ResolvedRoots resolve_roots(const std::filesystem::path& manifest_or_dir);
+[[nodiscard]] ResolvedRoots resolve_roots(
+    const std::filesystem::path& manifest_or_dir);
 
 class ArtifactContext {
 public:
@@ -511,33 +512,47 @@ public:
                     bool external = false);
 
     [[nodiscard]] bool valid() const { return valid_; }
-    [[nodiscard]] const std::filesystem::path& tree_root() const { return tree_root_; }
-    [[nodiscard]] const std::filesystem::path& output_root() const { return output_root_; }
-    [[nodiscard]] const std::filesystem::path& tools_dir() const { return tools_dir_; }
+    [[nodiscard]] const std::filesystem::path& tree_root() const {
+        return tree_root_;
+    }
+    [[nodiscard]] const std::filesystem::path& output_root() const {
+        return output_root_;
+    }
+    [[nodiscard]] const std::filesystem::path& tools_dir() const {
+        return tools_dir_;
+    }
     [[nodiscard]] bool is_external() const { return external_; }
 
     [[nodiscard]] std::string prefix(const BuildableNode& node) const;
     [[nodiscard]] std::string prefix(bool node_external) const;
 
-    [[nodiscard]] std::filesystem::path object_path(const BuildableNode& node,
-                                                    const TranslationUnit& unit) const;
+    [[nodiscard]] std::filesystem::path object_path(
+        const BuildableNode& node, const TranslationUnit& unit) const;
     [[nodiscard]] std::filesystem::path bmi_dir() const;
-    [[nodiscard]] std::filesystem::path executable_path(const BuildableNode& node) const;
+    [[nodiscard]] std::filesystem::path executable_path(
+        const BuildableNode& node) const;
     [[nodiscard]] std::filesystem::path bridge_dir(std::string_view library,
                                                    std::string_view board,
                                                    std::string_view name) const;
-    [[nodiscard]] std::filesystem::path board_object_path(const std::filesystem::path& board_source,
-                                                          std::string_view board_name = "") const;
+    [[nodiscard]] std::filesystem::path board_object_path(
+        const std::filesystem::path& board_source,
+        std::string_view board_name = "") const;
 
-    [[nodiscard]] bool check_artifact_path(const std::filesystem::path& path) const;
-    [[nodiscard]] bool check_install_path(const std::filesystem::path& destination,
-                                          const std::filesystem::path& path) const;
+    [[nodiscard]] bool check_artifact_path(
+        const std::filesystem::path& path) const;
+    [[nodiscard]] bool check_install_path(
+        const std::filesystem::path& destination,
+        const std::filesystem::path& path) const;
 
-    void record_objects(const BuildableNode& target, std::vector<std::filesystem::path> objects);
-    [[nodiscard]] const std::vector<std::filesystem::path>& objects(const BuildableNode& target) const;
+    void record_objects(const BuildableNode& target,
+                        std::vector<std::filesystem::path> objects);
+    [[nodiscard]] const std::vector<std::filesystem::path>& objects(
+        const BuildableNode& target) const;
 
-    void record_board_objects(std::string_view board_name, std::vector<std::filesystem::path> objects);
-    [[nodiscard]] const std::vector<std::filesystem::path>& board_objects(std::string_view board_name = "") const;
+    void record_board_objects(std::string_view board_name,
+                              std::vector<std::filesystem::path> objects);
+    [[nodiscard]] const std::vector<std::filesystem::path>& board_objects(
+        std::string_view board_name = "") const;
 
 private:
     std::filesystem::path tree_root_;
@@ -546,7 +561,8 @@ private:
     bool external_ = false;
     bool valid_ = true;
 
-    std::map<std::pair<bool, std::filesystem::path>, std::vector<std::filesystem::path>> target_objects_;
+    std::map<std::pair<bool, std::filesystem::path>,
+             std::vector<std::filesystem::path>> target_objects_;
     std::map<std::string, std::vector<std::filesystem::path>> board_objects_;
 };
 
@@ -579,15 +595,14 @@ std::vector<std::filesystem::path> closure(const Tree& tree, std::size_t index);
 // provider modules that were merged in, for diagnostics.
 // reached, when given, receives every target index the closure visited, a
 // consumer ahead of the modules it uses. library_link_inputs wants it reversed.
-std::vector<std::filesystem::path> augmented_closure(const Tree& tree, std::size_t index,
-                                                     const PlatformProviders& providers,
-                                                     const ArtifactContext& context,
-                                                     std::vector<std::string>* merged = nullptr,
-                                                     std::vector<std::size_t>* reached = nullptr);
-std::vector<std::filesystem::path> augmented_closure(const Tree& tree, std::size_t index,
-                                                     const PlatformProviders& providers,
-                                                     std::vector<std::string>* merged = nullptr,
-                                                     std::vector<std::size_t>* reached = nullptr);
+std::vector<std::filesystem::path> augmented_closure(
+    const Tree& tree, std::size_t index, const PlatformProviders& providers,
+    const ArtifactContext& context, std::vector<std::string>* merged = nullptr,
+    std::vector<std::size_t>* reached = nullptr);
+std::vector<std::filesystem::path> augmented_closure(
+    const Tree& tree, std::size_t index, const PlatformProviders& providers,
+    std::vector<std::string>* merged = nullptr,
+    std::vector<std::size_t>* reached = nullptr);
 
 // The library segment for a closure: the link-input names of every library a
 // reached wrapper declares, once each, a dependency's library after the module
@@ -630,8 +645,9 @@ int link(const Toolchain& toolchain,
 
 // Copies a built binary into bin_dir, unlinking first so a tool can replace the
 // binary it is running from.
-int install(const std::filesystem::path& from, const std::filesystem::path& bin_dir,
-            const std::string& name, const std::filesystem::path& tree_root = {});
+int install(const std::filesystem::path& from,
+            const std::filesystem::path& bin_dir, const std::string& name,
+            const std::filesystem::path& tree_root = {});
 
 // Formats a value as a CMake bracket argument, selecting an equals count up to
 // max_equals that does not appear in the payload. Returns nullopt if value

@@ -45,7 +45,8 @@ int main(int argc, char** argv) {
 
     const auto resolved_roots = mm::build::resolve_roots(manifest);
     if (!resolved_roots.ok) {
-        std::cerr << "run: cannot resolve root for " << manifest.string() << "\n";
+        std::cerr << "run: cannot resolve root for " << manifest.string()
+                  << "\n";
         return mm::build::exit_manifest;
     }
     std::error_code ec;
@@ -68,7 +69,8 @@ int main(int argc, char** argv) {
     }
 
     mm::build::LoadPolicy policy{.tool = "run", .warn_options = true};
-    if (resolved_roots.external_root) policy.external = resolved_roots.external_root;
+    if (resolved_roots.external_root)
+        policy.external = resolved_roots.external_root;
     auto project = mm::build::load_project(".", policy);
     if (!project.ok) return mm::build::exit_manifest;
     if (!mm::build::check_configuration_staleness(configuration, project, target_lane, "run"))
@@ -102,11 +104,16 @@ int main(int argc, char** argv) {
     }
 
     const auto& app = project.targets[project.target[node]];
-    const auto context_tree_root = resolved_roots.external_root ? *resolved_roots.external_root : resolved_roots.project_root;
-    const auto context_output_root = resolved_roots.external_root ? (*resolved_roots.external_root / *lane_directory)
-                                                                  : (resolved_roots.project_root / *lane_directory);
-    mm::build::ArtifactContext context(context_tree_root, context_output_root, resolved_roots.tools_dir,
-                                       resolved_roots.external_root.has_value());
+    const auto context_tree_root = resolved_roots.external_root
+                                       ? *resolved_roots.external_root
+                                       : resolved_roots.project_root;
+    const auto context_output_root =
+        resolved_roots.external_root
+            ? (*resolved_roots.external_root / *lane_directory)
+            : (resolved_roots.project_root / *lane_directory);
+    mm::build::ArtifactContext context(
+        context_tree_root, context_output_root, resolved_roots.tools_dir,
+        resolved_roots.external_root.has_value());
     const auto executable = context.executable_path(app);
     if (!std::filesystem::is_regular_file(executable, ec) || ec) {
         std::cerr << "run: application is not built: " << executable.string()
@@ -124,10 +131,12 @@ int main(int argc, char** argv) {
         std::cout << "  target " << executable.string() << "\n";
     }
 
-    std::filesystem::current_path(app.external ? app.source_dir : resolved_roots.project_root, ec);
+    std::filesystem::current_path(
+        app.external ? app.source_dir : resolved_roots.project_root, ec);
     if (ec) {
         std::cerr << "run: cannot enter "
-                  << (app.external ? app.source_dir : resolved_roots.project_root).string()
+                  << (app.external ? app.source_dir
+                                   : resolved_roots.project_root).string()
                   << ": " << ec.message() << "\n";
         return mm::build::exit_run;
     }

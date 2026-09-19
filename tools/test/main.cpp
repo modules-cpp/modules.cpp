@@ -65,11 +65,13 @@ int main(int argc, char** argv) {
 
     const auto roots = mm::build::resolve_roots(manifest_path);
     if (!roots.ok) {
-        std::cerr << "test: cannot resolve root for " << manifest_path.string() << "\n";
+        std::cerr << "test: cannot resolve root for "
+                  << manifest_path.string() << "\n";
         return mm::build::exit_manifest;
     }
     if (roots.external_root) {
-        std::cerr << "test: " << manifest_path.string() << ": external root holds no test\n";
+        std::cerr << "test: " << manifest_path.string()
+                  << ": external root holds no test\n";
         return mm::build::exit_manifest;
     }
 
@@ -225,7 +227,8 @@ int main(int argc, char** argv) {
     }
 
     const auto test_output_root = root / build_dir;
-    mm::build::ArtifactContext context(root, test_output_root, roots.tools_dir, false);
+    mm::build::ArtifactContext context(root, test_output_root,
+                                       roots.tools_dir, false);
     if (!context.valid()) {
         std::cerr << "test: refusing to write outside the project: "
                   << test_output_root.string() << "\n";
@@ -258,7 +261,8 @@ int main(int argc, char** argv) {
     auto board = mm::build::platform_unit(platform);
     if (board) {
         std::cout << "  board " << board->name << "\n";
-        if (const int status = mm::build::compile(toolchain, *board, context); status != 0)
+        if (const int status = mm::build::compile(toolchain, *board, context);
+            status != 0)
             return status;
     }
 
@@ -270,7 +274,8 @@ int main(int argc, char** argv) {
         return mm::build::exit_manifest;
     std::vector<std::string> merged;
     std::vector<std::size_t> reached;
-    auto objects = mm::build::augmented_closure(tree, index, providers, context, &merged, &reached);
+    auto objects = mm::build::augmented_closure(tree, index, providers,
+                                                context, &merged, &reached);
     std::vector<std::string> link_inputs;
     for (const auto& provider : merged)
         std::cout << "  platform provider " << provider << "\n";
@@ -281,7 +286,8 @@ int main(int argc, char** argv) {
     if (platform != nullptr &&
         platform->link_ownership == mm::configure::LinkOwnership::External) {
         if (const int status = mm::build::external_link(
-                project, *platform, toolchain, name, objects, context, binary, verbose);
+                project, *platform, toolchain, name, objects, context, binary,
+                verbose);
             status != 0)
             return status;
     } else {
@@ -289,7 +295,8 @@ int main(int argc, char** argv) {
                                             link_inputs, "test"))
             return mm::build::exit_manifest;
         if (const int status =
-                mm::build::link(toolchain, objects, binary, link_inputs, &context);
+                mm::build::link(toolchain, objects, binary, link_inputs,
+                                &context);
             status != 0)
             return status;
     }

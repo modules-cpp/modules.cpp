@@ -45,7 +45,8 @@ std::filesystem::path find_project_root_upward(std::filesystem::path dir) {
             auto doc = mm::mdy::Parser::parse_file(cand);
             if (doc.status == mm::mdy::ParseStatus::Ok) {
                 const auto* kind = lookup(doc, "kind");
-                if (kind != nullptr && !kind->empty() && kind->front() == "project") {
+                if (kind != nullptr && !kind->empty() &&
+                    kind->front() == "project") {
                     return std::filesystem::weakly_canonical(dir, ec);
                 }
             }
@@ -107,7 +108,8 @@ int main(int argc, char** argv) {
 
     const auto abs_dir = std::filesystem::weakly_canonical(dir, ec);
     if (ec) {
-        std::cerr << "sketch: cannot resolve directory: " << dir.string() << "\n";
+        std::cerr << "sketch: cannot resolve directory: " << dir.string()
+                  << "\n";
         return 65;
     }
 
@@ -190,29 +192,34 @@ int main(int argc, char** argv) {
     const bool tree_above = ancestor_has_project || ancestor_is_project;
 
     if (options.seen("--project") && tree_above) {
-        std::cerr << "sketch: --project is not allowed when a tree is above the directory\n";
+        std::cerr << "sketch: --project is not allowed when a tree is above"
+                  << " the directory\n";
         return 65;
     }
 
     std::filesystem::path project_root;
     if (options.seen("--project")) {
-        project_root = std::filesystem::weakly_canonical(options.value("--project"), ec);
+        project_root =
+            std::filesystem::weakly_canonical(options.value("--project"), ec);
         if (ec || !std::filesystem::exists(project_root / "mm.mdy", ec)) {
-            std::cerr << "sketch: --project does not point to a project directory: "
+            std::cerr << "sketch: --project does not point to a project"
+                      << " directory: "
                       << options.value("--project") << "\n";
             return 65;
         }
         const auto pdoc = mm::mdy::Parser::parse_file(project_root / "mm.mdy");
         const auto* k = lookup(pdoc, "kind");
         if (k == nullptr || k->empty() || k->front() != "project") {
-            std::cerr << "sketch: --project does not point to a kind: project manifest: "
+            std::cerr << "sketch: --project does not point to a kind: project"
+                      << " manifest: "
                       << options.value("--project") << "\n";
             return 65;
         }
     } else if (ancestor_is_project) {
         project_root = ancestor_project_root;
     } else if (ancestor_has_project) {
-        const auto doc = mm::mdy::Parser::parse_file(ancestor_external_root / "mm.mdy");
+        const auto doc =
+            mm::mdy::Parser::parse_file(ancestor_external_root / "mm.mdy");
         const auto* p = lookup(doc, "project");
         if (p != nullptr && !p->empty()) {
             project_root = std::filesystem::weakly_canonical(
@@ -287,7 +294,8 @@ int main(int argc, char** argv) {
             sketch_files.push_back(s);
         }
 
-        for (const auto& entry : std::filesystem::directory_iterator(abs_dir, ec)) {
+        for (const auto& entry :
+             std::filesystem::directory_iterator(abs_dir, ec)) {
             if (entry.is_regular_file() && entry.path().extension() == ".ino") {
                 const std::string name = entry.path().filename().string();
                 if (std::find(sketch_files.begin(), sketch_files.end(), name) ==
@@ -306,11 +314,13 @@ int main(int argc, char** argv) {
             return 65;
         }
 
-        for (const auto& entry : std::filesystem::directory_iterator(abs_dir, ec)) {
+        for (const auto& entry :
+             std::filesystem::directory_iterator(abs_dir, ec)) {
             if (entry.is_regular_file() && entry.path().extension() == ".ino") {
                 const std::string name = entry.path().filename().string();
                 if (name != expected_ino) {
-                    std::cerr << "sketch: extra .ino file found without manifest: "
+                    std::cerr << "sketch: extra .ino file found without"
+                              << " manifest: "
                               << name << "\n";
                     return 65;
                 }
