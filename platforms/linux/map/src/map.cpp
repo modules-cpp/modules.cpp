@@ -3,12 +3,8 @@
 module;
 
 #include <charconv>
-#include <cerrno>
 #include <cstdlib>
-#include <fcntl.h>
 #include <sstream>
-#include <sys/stat.h>
-#include <unistd.h>
 #include <map>
 #include <set>
 #include <string>
@@ -20,6 +16,7 @@ namespace platform::linux {
 namespace {
 
 const Map* registered = nullptr;
+OverrideReader override_reader = nullptr;
 
 std::string_view trim(std::string_view text) {
     while (!text.empty() && (text.front() == ' ' || text.front() == '\t')) text.remove_prefix(1);
@@ -244,39 +241,11 @@ MapStatus validate(Map& map, const std::string& path, ParseError& error) {
 
 void set_map(const Map& defaults) { registered = &defaults; }
 
-// The most an override may be: far beyond any map, small enough that reading
-// it is not a wait.
-constexpr std::size_t override_limit = 64 * 1024;
+void set_override_reader(OverrideReader reader) { override_reader = reader; }
 
-MapStatus apply_override(Map& map, const std::string& path, ParseError& error) {
-    // The override is read by the first board query, which must return: the
-    // path is opened without blocking, the descriptor -- not the name -- is
-    // checked to be a regular file, and at most override_limit bytes are
-    // read, so neither a FIFO put in the file's place nor a file that grows
-    // while it is read can hold the query.
-    const int fd = ::open(path.c_str(), O_RDONLY | O_NONBLOCK | O_CLOEXEC);
-    if (fd < 0) { error={path,0,0,{},"cannot open override"}; return MapStatus::FileError; }
-    struct stat about{};
-    if (::fstat(fd, &about) != 0 || !S_ISREG(about.st_mode)) {
-        ::close(fd);
-        error={path,0,0,{},"override is not a regular file"};
-        return MapStatus::FileError;
-    }
-    std::string text;
-    while (text.size() <= override_limit) {
-        char chunk[4096];
-        const auto got = ::read(fd, chunk, sizeof chunk);
-        if (got < 0 && errno == EINTR) continue;
-        if (got < 0) { ::close(fd); error={path,0,0,{},"cannot read override"}; return MapStatus::FileError; }
-        if (got == 0) break;
-        text.append(chunk, static_cast<std::size_t>(got));
-    }
-    ::close(fd);
-    if (text.size() > override_limit) {
-        error={path,0,0,{},"override exceeds the size limit"};
-        return MapStatus::FileError;
-    }
-    std::istringstream input(text);
+MapStatus apply_override_text(Map& map, std::string_view text,
+                              const std::string& name, ParseError& error) {
+    std::istringstream input{std::string(text)};
     Map candidate = map;
     std::map<std::string,unsigned int,std::less<>> seen;
     std::string line;
@@ -285,15 +254,15 @@ MapStatus apply_override(Map& map, const std::string& path, ParseError& error) {
         for(std::size_t i=0;i<line.size();++i){const char c=line[i];if(escape){escape=false;continue;}if(quote&&c=='\\'){escape=true;continue;}if(c=='"'){quote=!quote;continue;}if(!quote&&c=='#'){comment=i;break;}if(!quote&&c=='='&&equals==std::string::npos)equals=i;}
         if(comment!=std::string::npos)line.resize(comment);
         const auto whole=trim(line); if(whole.empty())continue;
-        if(quote||equals==std::string::npos){error={path,line_number,0,{},"expected one assignment"};return MapStatus::SyntaxError;}
+        if(quote||equals==std::string::npos){error={name,line_number,0,{},"expected one assignment"};return MapStatus::SyntaxError;}
         const auto key=trim(std::string_view(line).substr(0,equals));
         const auto value=trim(std::string_view(line).substr(equals+1));
-        if(key.empty()||value.empty()){error={path,line_number,0,std::string(key),"empty key or value"};return MapStatus::SyntaxError;}
-        if(const auto it=seen.find(key);it!=seen.end()){error={path,line_number,it->second,std::string(key),"duplicate key"};return MapStatus::SyntaxError;}
+        if(key.empty()||value.empty()){error={name,line_number,0,std::string(key),"empty key or value"};return MapStatus::SyntaxError;}
+        if(const auto it=seen.find(key);it!=seen.end()){error={name,line_number,it->second,std::string(key),"duplicate key"};return MapStatus::SyntaxError;}
         seen.emplace(std::string(key),line_number);
-        if(!apply(candidate,key,value)){error={path,line_number,0,std::string(key),"unknown key or invalid value"};return MapStatus::SyntaxError;}
+        if(!apply(candidate,key,value)){error={name,line_number,0,std::string(key),"unknown key or invalid value"};return MapStatus::SyntaxError;}
     }
-    const auto status = validate(candidate,path,error);
+    const auto status = validate(candidate,name,error);
     if (status == MapStatus::Ok) map = std::move(candidate);
     return status;
 }
@@ -307,7 +276,15 @@ const Resolution& resolve() {
         out.status=MapStatus::Ok;
         out.map=&resolved;
         if(const char* path=std::getenv("MM_LINUX_DEVICE_MAP");path!=nullptr) {
-            out.status=apply_override(resolved,path,out.error);
+            std::string text;
+            if (override_reader == nullptr) {
+                out.error={path,0,0,{},"no override reader on this platform"};
+                out.status=MapStatus::FileError;
+                return out;
+            }
+            out.status=override_reader(path,text,out.error);
+            if (out.status==MapStatus::Ok)
+                out.status=apply_override_text(resolved,text,path,out.error);
         } else {
             out.status=validate(resolved,"<defaults>",out.error);
         }

@@ -4,6 +4,7 @@
 
 import mm.test;
 import platform.linux.map;
+import platform.linux.defaults;
 
 namespace {
 

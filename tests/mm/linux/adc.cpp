@@ -8,6 +8,7 @@
 import mm.mcu;
 import mm.test;
 import platform.linux.map;
+import platform.linux.defaults;
 import platform.linux.mcu;
 
 namespace {

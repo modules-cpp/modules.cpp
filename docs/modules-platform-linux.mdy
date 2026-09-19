@@ -78,6 +78,17 @@ blocking, the descriptor itself is checked to be a regular file, and at most
 the limit is read, so a FIFO put in the file's place cannot hold the open
 and a file that grows while it is read cannot hold the read.
 
+Reading that file belongs to the provider, not to the interface.
+platform.linux.map parses and validates an override's text and never opens
+anything, because it is a platform interface and is compiled for every
+selected target, including bare-metal ones whose libc declares no O_CLOEXEC
+because it has no process to inherit a descriptor. platform.linux.defaults
+owns the open, the regular-file check, and the size limit, and registers
+itself as the reader resolve() calls. A target that registers no reader
+answers FileError when MM_LINUX_DEVICE_MAP is set, which is the honest
+answer where there is no file system, rather than a portable module carrying
+a dependency on POSIX.
+
 ## Keys
 
 The facility number in a key -- the N of gpio.N -- is the number the

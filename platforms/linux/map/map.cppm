@@ -4,6 +4,7 @@ module;
 
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 export module platform.linux.map;
@@ -139,8 +140,20 @@ struct Resolution {
 void set_map(const Map& defaults);
 [[nodiscard]] const Resolution& resolve();
 
-// Public for machine-independent parser tests and qualification tools.
-[[nodiscard]] MapStatus apply_override(Map& map, const std::string& path,
-                                       ParseError& error);
+// The override's text, already read. Parsing and validation are portable and
+// live here; opening a file is not, and lives in the selected provider, since
+// this module is a platform interface and is built for every target. name is
+// what a ParseError reports as the file.
+[[nodiscard]] MapStatus apply_override_text(Map& map, std::string_view text,
+                                            const std::string& name,
+                                            ParseError& error);
+
+// How resolve() obtains that text. The selected provider registers a reader
+// alongside its map; a target with no file system registers none, and
+// MM_LINUX_DEVICE_MAP is then a FileError rather than a link-time dependency
+// on POSIX from a portable module.
+using OverrideReader = MapStatus (*)(const std::string& path, std::string& text,
+                                     ParseError& error);
+void set_override_reader(OverrideReader reader);
 
 }
