@@ -24,7 +24,19 @@ The optional manifest is an mm.mdy file or a directory containing one. With no m
 
 --host and --target are mutually exclusive. Supplying both, repeating either, or supplying an unknown option is a usage error and exits 64.
 
-Build accepts no command-line compiler, compiler version, target triple, build type, compiler flag, linker flag, or output-directory override.
+The regular configured build workflow accepts no command-line compiler, compiler version, target triple, build type, compiler flag, linker flag, or output-directory override; those values come from configure. Bootstrap's internal stage-1 invocation supplies compiler and family overrides explicitly so it can create that configuration on a fresh checkout.
+
+# macOS bootstrap
+
+On macOS, bootstrap detects the native Clang C++ driver and passes the compiler and module flags explicitly between its stages. Clang module interfaces are emitted as PCM files in `out/bootstrap-bmi`; implementation units use that directory to resolve imports. The normal build tool is not configured by bootstrap, so configure the host lane before running the full build:
+
+TMPDIR=/tmp ./bootstrap.sh
+TMPDIR=/tmp ./configure --host --compiler clang++ --build debug
+TMPDIR=/tmp ./build
+
+Some macOS environments expose a `TMPDIR` owned by another user. In that case Clang cannot create temporary files and bootstrap fails before compilation. Set `TMPDIR` to a writable directory for the bootstrap, configure, and build commands, as in the example above. The temporary-directory override is per command and does not change the system setting.
+
+The configure command writes `out/config.mdy`, including the selected Clang family and compiler. Without this step, an unconfigured build retains the legacy GCC defaults and passes `-fmodules-ts` and `-fmodule-mapper` to Clang, which Clang rejects.
 
 # Configured lanes
 

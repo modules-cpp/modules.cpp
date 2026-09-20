@@ -9,11 +9,15 @@
 #
 set -e
 
-# Deliberately the literal c++: bootstrap must reach a working build1 through
-# one fixed recovery path. Compiler selection happens only afterwards, when
-# configure writes the project-wide out/config.mdy consumed by build and test;
-# see models/configuration/configuration.cppm.
-MCCP="c++"
+# Use Apple's clang++ driver on macOS. On other hosts retain the generic c++
+# driver so the bootstrap continues to follow the platform's default toolchain.
+# Compiler selection happens only afterwards, when configure writes the
+# project-wide out/config.mdy consumed by build and test; see
+# models/configuration/configuration.cppm.
+case "$(uname -s)" in
+    Darwin) MCCP="clang++"; MM_COMPILER_FAMILY="clang" ;;
+    *) MCCP="c++"; MM_COMPILER_FAMILY="gcc" ;;
+esac
 MCCP_VERSION=`$MCCP --version`
 echo
 echo "Compiler version"
@@ -25,6 +29,21 @@ echo "Build in ${MM_BUILD}"
 echo
 MM_CPPFLAGS="-std=c++20"
 echo "Flags ${MM_CPPFLAGS}"
+
+# GCC uses its C++ modules TS mapper. Apple Clang uses Clang's C++ modules
+# switch and does not understand GCC's -fmodules-ts/-fmodule-mapper options.
+case "$(uname -s)" in
+    Darwin)
+        # Clang only recognizes a .cppm as a standard module unit when the
+        # driver is allowed to infer the language (do not force -x c++).  Keep
+        # the generated PCM files in the bootstrap-local cache and make that
+        # cache available to later implementation units.
+        MM_MODULE_FLAGS="${MM_CPPFLAGS} -fprebuilt-module-path=${MM_BUILD}/bootstrap-bmi"
+        ;;
+    *)
+        MM_MODULE_FLAGS="${MM_CPPFLAGS} -fmodules-ts"
+        ;;
+esac
 echo
 mkdir -p ${MM_BUILD}
 echo "Compile build0"
@@ -41,6 +60,8 @@ rm -f "${MM_BUILD}/build1"
 # A gcm.cache left from an earlier build can hold BMIs for interfaces that
 # have since changed, so it is cleared here rather than silently consumed.
 rm -rf gcm.cache
+rm -rf "${MM_BUILD}/bootstrap-bmi"
+mkdir -p "${MM_BUILD}/bootstrap-bmi"
 
 # Hand the work to build0 rather than repeating the same fixed steps by hand
 # a second time. The status is captured instead of ending the script,
@@ -48,7 +69,7 @@ rm -rf gcm.cache
 # build0's mode failing: exiting here would make them unreachable.
 echo "Build build1"
 mm_build1_status=0
-"${MM_BUILD}/build0" build1 || mm_build1_status=$?
+"${MM_BUILD}/build0" build1 --compiler "${MCCP}" --flags "${MM_MODULE_FLAGS}" || mm_build1_status=$?
 echo
 
 if [ "${mm_build1_status}" -ne 0 ] || [ ! -x "${MM_BUILD}/build1" ]; then
@@ -60,8 +81,8 @@ if [ "${mm_build1_status}" -ne 0 ] || [ ! -x "${MM_BUILD}/build1" ]; then
     mkdir -p "${MM_BUILD}/modules/mm/configure/src"
     mkdir -p "${MM_BUILD}/tools/build"
 
-    MCCP_MODULES="${MCCP} -fmodules-ts"
-    MM_MODULE_FLAGS="${MM_CPPFLAGS} -x c++"
+    MCCP_MODULES="${MCCP}"
+    MM_MODULE_FLAGS="${MM_MODULE_FLAGS} -x c++"
 
     ${MCCP_MODULES} ${MM_MODULE_FLAGS} \
         -c modules/mm/mdy/mdy.cppm \
@@ -112,11 +133,19 @@ fi
 # selected app's complete module dependency closure; it does not build sibling
 # applications, tests, models, or documentation tools.
 echo "Build bootstrap build tool"
-"${MM_BUILD}/build1" --host tools/build/mm.mdy || exit $?
+"${MM_BUILD}/build1" --host \
+    --compiler "${MCCP}" \
+    --compiler-family "${MM_COMPILER_FAMILY}" \
+    --compile-flags "${MM_CPPFLAGS}" \
+    tools/build/mm.mdy || exit $?
 echo
 
 echo "Build configure1"
-"${MM_BUILD}/build1" --host tools/configure/mm.mdy || exit $?
+"${MM_BUILD}/build1" --host \
+    --compiler "${MCCP}" \
+    --compiler-family "${MM_COMPILER_FAMILY}" \
+    --compile-flags "${MM_CPPFLAGS}" \
+    tools/configure/mm.mdy || exit $?
 
 # The scoped build installs the normal app name. Keep the bootstrap-built copy
 # distinct: the configured full build replaces out/bin/configure with the

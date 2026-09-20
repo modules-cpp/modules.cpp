@@ -1,6 +1,8 @@
 // modules.cpp build tool, stage 1
 //
 // Usage: build [-v|--verbose] [-h|--help] [--host | --target]
+//              [--compiler CXX] [--compiler-family gcc|clang]
+//              [--compile-flags FLAGS]
 //              [<path to mm.mdy>]
 //
 // Built by stage 0 (tools/build/main.cpp), which exists only to produce this
@@ -30,12 +32,14 @@ int main(int argc, char** argv) {
     bool verbose = false;
     bool requested_host = false;
     bool requested_target = false;
+    std::string compiler_override;
+    std::string family_override;
+    std::string compile_flags_override;
 
     for (int i = 1; i < argc; ++i) {
         const std::string_view arg = argv[i];
         if (arg == "-h" || arg == "--help") {
-            std::cout << "Usage: build [-v|--verbose] [-h|--help] [--host | --target] "
-                         "[manifest]\n";
+            std::cout << "Usage: build [-v|--verbose] [-h|--help] [--host | --target] [manifest]\n";
             return mm::build::exit_ok;
         }
         if (arg == "-v" || arg == "--verbose")
@@ -52,6 +56,25 @@ int main(int argc, char** argv) {
                 return mm::build::exit_usage;
             }
             requested_target = true;
+        } else if (arg == "--compiler" || arg == "--cxx") {
+            if (++i >= argc) {
+                std::cerr << "build: --compiler requires a value\n";
+                return mm::build::exit_usage;
+            }
+            compiler_override = argv[i];
+        } else if (arg == "--compiler-family") {
+            if (++i >= argc || (std::string_view(argv[i]) != "gcc" &&
+                                std::string_view(argv[i]) != "clang")) {
+                std::cerr << "build: --compiler-family requires gcc or clang\n";
+                return mm::build::exit_usage;
+            }
+            family_override = argv[i];
+        } else if (arg == "--compile-flags") {
+            if (++i >= argc) {
+                std::cerr << "build: --compile-flags requires a value\n";
+                return mm::build::exit_usage;
+            }
+            compile_flags_override = argv[i];
         }
         else if (arg.starts_with('-')) {
             std::cerr << "build: unknown option: " << arg << "\n";
@@ -105,6 +128,25 @@ int main(int argc, char** argv) {
     mm::build::BuildConfiguration configuration;
     if (!mm::build::resolve_configuration(".", verbose, configuration))
         return mm::build::exit_manifest;
+
+    // Bootstrap supplies these explicitly so an unconfigured build uses the
+    // detected host compiler. With no overrides, the existing persisted or
+    // default toolchain remains unchanged.
+    auto& selected_toolchain = configuration.selected_toolchain();
+    if (!compiler_override.empty()) {
+        selected_toolchain.compiler.invocation = compiler_override;
+        selected_toolchain.assembler.invocation = compiler_override;
+        selected_toolchain.linker.invocation = compiler_override;
+    }
+    if (!family_override.empty()) {
+        selected_toolchain.family = family_override == "clang"
+            ? mm::configure::CompilerFamily::Clang
+            : mm::configure::CompilerFamily::Gcc;
+    }
+    if (!compile_flags_override.empty()) {
+        selected_toolchain.compiler.arguments = compile_flags_override;
+        selected_toolchain.linker.arguments = compile_flags_override;
+    }
 
     const bool target_lane = requested_target || (!requested_host && configuration.selects_cross());
     const auto* toolchain_ptr = configuration.toolchain_for(target_lane);
