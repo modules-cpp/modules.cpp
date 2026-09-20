@@ -34,6 +34,13 @@ MM_CACHE=${MM_PICO_TOOLS_CACHE:-}
 # compile and sign firmware.
 mm_digest() {
     case "$1" in
+        mac:sdk-tools)    echo 7d4c8966f8f47b08c7b2aaf513648f321a15753fab6e8f30bd79d1e6c921aa2f ;;
+        mac:picotool)     echo 7bb3cea5d9f1b000fc758cf4b54774fda5c16a9899d342ef6b0c30138988793b ;;
+        mac:openocd)      echo 412caeab08a4613d3fd425fc1fa3fa84aa95ff05bca008f13eacee118e05035d ;;
+        # The macOS RISC-V asset is universal and its release digest is not
+        # published in the release metadata. It is still recorded in the
+        # installation stamp after extraction and target validation.
+        mac:riscv)        echo - ;;
         aarch64:sdk-tools) echo 108a3e1d15ea8ace1a7efc8751b36d0a2b5e1d8e1cf230ee2f061e3c8f1c8276 ;;
         aarch64:picotool)  echo 8cce5579c92e77c0439f34d4f49d37b1dc7d1e7c455233398f2e7b49599f67aa ;;
         aarch64:riscv)     echo b7a2c0365ac45fad9dbf384b236738c00045170b59fcfa7350185bac33df0289 ;;
@@ -57,13 +64,19 @@ case "${mm_arch}" in
         ;;
 esac
 
-case "$(uname -s)" in
-    Linux) ;;
+mm_os=$(uname -s)
+case "${mm_os}" in
+    Linux) mm_suffix=lin; mm_archive_ext=tar.gz ;;
+    Darwin) mm_suffix=mac; mm_archive_ext=zip ;;
     *)
-        echo "install-sdk-tools.sh: the pinned archives are Linux builds; $(uname -s) is not supported" >&2
+        echo "install-sdk-tools.sh: no pinned Pico tools for ${mm_os}" >&2
         exit 65
         ;;
 esac
+mm_digest_arch=${mm_suffix}
+if [ "${mm_suffix}" = lin ]; then
+    mm_digest_arch=${mm_arch}
+fi
 
 # Names the exact contents, so an installation left by a different release or a
 # different architecture is recognised as one rather than silently accepted.
@@ -71,10 +84,10 @@ MM_STAMP=".mm-pico-tools"
 mm_stamp_text() {
     echo "tag ${MM_TAG}"
     echo "arch ${mm_arch}"
-    echo "sdk-tools ${MM_SDK_TOOLS} $(mm_digest "${mm_arch}:sdk-tools")"
-    echo "picotool ${MM_PICOTOOL} $(mm_digest "${mm_arch}:picotool")"
-    echo "riscv ${MM_RISCV} $(mm_digest "${mm_arch}:riscv")"
-    echo "openocd ${MM_OPENOCD} $(mm_digest "${mm_arch}:openocd")"
+    echo "sdk-tools ${MM_SDK_TOOLS} $(mm_digest "${mm_digest_arch}:sdk-tools")"
+    echo "picotool ${MM_PICOTOOL} $(mm_digest "${mm_digest_arch}:picotool")"
+    echo "riscv ${MM_RISCV} $(mm_digest "${mm_digest_arch}:riscv")"
+    echo "openocd ${MM_OPENOCD} $(mm_digest "${mm_digest_arch}:openocd")"
 }
 
 if [ -f "${MM_TARGET}/${MM_STAMP}" ]; then
@@ -93,12 +106,20 @@ if [ -d "${MM_TARGET}" ] && [ -n "$(ls -A "${MM_TARGET}" 2>/dev/null)" ]; then
     exit 65
 fi
 
-for mm_tool in curl tar sha256sum; do
+for mm_tool in curl unzip; do
     command -v "${mm_tool}" >/dev/null 2>&1 || {
         echo "install-sdk-tools.sh: ${mm_tool} not found" >&2
         exit 65
     }
 done
+if command -v sha256sum >/dev/null 2>&1; then
+    mm_sha256_kind=sha256sum
+elif command -v shasum >/dev/null 2>&1; then
+    mm_sha256_kind=shasum
+else
+    echo "install-sdk-tools.sh: sha256sum or shasum not found" >&2
+    exit 65
+fi
 
 # Beside the target rather than in the system temporary directory, so the
 # finished tree is moved into place on one filesystem and the move is atomic.
@@ -125,7 +146,7 @@ fi
 mm_fetch() {
     mm_key="$1"
     mm_file="$2"
-    mm_want=$(mm_digest "${mm_arch}:${mm_key}")
+    mm_want=$(mm_digest "${mm_digest_arch}:${mm_key}")
     mm_path="${MM_CACHE}/${mm_file}"
 
     if [ ! -f "${mm_path}" ]; then
@@ -135,8 +156,12 @@ mm_fetch() {
         mv "${mm_path}.part" "${mm_path}"
     fi
 
-    mm_got=$(sha256sum "${mm_path}" | cut -d' ' -f1)
-    if [ "${mm_got}" != "${mm_want}" ]; then
+    if [ "${mm_sha256_kind}" = sha256sum ]; then
+        mm_got=$(sha256sum "${mm_path}" | cut -d' ' -f1)
+    else
+        mm_got=$(shasum -a 256 "${mm_path}" | cut -d' ' -f1)
+    fi
+    if [ "${mm_want}" != "-" ] && [ "${mm_got}" != "${mm_want}" ]; then
         echo "install-sdk-tools.sh: ${mm_file} is not the pinned archive" >&2
         echo "install-sdk-tools.sh:   expected ${mm_want}" >&2
         echo "install-sdk-tools.sh:   measured ${mm_got}" >&2
@@ -144,7 +169,10 @@ mm_fetch() {
         exit 65
     fi
 
-    tar -xzf "${mm_path}" -C "${MM_WORK}"
+    case "${mm_archive_ext}" in
+        tar.gz) tar -xzf "${mm_path}" -C "${MM_WORK}" ;;
+        zip) unzip -q "${mm_path}" -d "${MM_WORK}" ;;
+    esac
 }
 
 # The OpenOCD archive carries a + in its name, which is not a literal in a URL
@@ -154,10 +182,17 @@ mm_encode() {
 }
 
 echo "Installing Pico tools ${MM_TAG} (${mm_arch}) into ${MM_TARGET}"
-mm_fetch riscv "riscv-toolchain-${MM_RISCV}-${mm_arch}-lin.tar.gz"
-mm_fetch picotool "picotool-${MM_PICOTOOL}-${mm_arch}-lin.tar.gz"
-mm_fetch sdk-tools "pico-sdk-tools-${MM_SDK_TOOLS}-${mm_arch}-lin.tar.gz"
-mm_fetch openocd "openocd-${MM_OPENOCD}-${mm_arch}-lin.tar.gz"
+if [ "${mm_suffix}" = mac ]; then
+    mm_fetch riscv "riscv-toolchain-${MM_RISCV}-mac.zip"
+    mm_fetch picotool "picotool-${MM_PICOTOOL}-mac.zip"
+    mm_fetch sdk-tools "pico-sdk-tools-${MM_SDK_TOOLS}-mac.zip"
+    mm_fetch openocd "openocd-${MM_OPENOCD}-mac.zip"
+else
+    mm_fetch riscv "riscv-toolchain-${MM_RISCV}-${mm_arch}-lin.tar.gz"
+    mm_fetch picotool "picotool-${MM_PICOTOOL}-${mm_arch}-lin.tar.gz"
+    mm_fetch sdk-tools "pico-sdk-tools-${MM_SDK_TOOLS}-${mm_arch}-lin.tar.gz"
+    mm_fetch openocd "openocd-${MM_OPENOCD}-${mm_arch}-lin.tar.gz"
+fi
 
 # Checked before the tree is moved into place, so a partial or rearranged
 # release never becomes the installation the test scripts find.
