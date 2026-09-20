@@ -3,8 +3,10 @@
 module;
 
 #include <charconv>
+#include <cerrno>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <span>
 #include <string>
 #include <string_view>
@@ -577,15 +579,20 @@ namespace {
 }  // namespace
 
 Status number(std::string_view digits, double& value) {
-    double parsed = 0;
-    const auto result = std::from_chars(digits.data(), digits.data() + digits.size(), parsed);
-    if (result.ptr != digits.data() + digits.size()) return Status::BadNumber;
-    if (result.ec == std::errc::result_out_of_range) {
+    // libc++ before its floating-point from_chars implementation is complete
+    // declares that overload but deletes it.  strtod provides the same
+    // complete-token conversion on those hosts while retaining our explicit
+    // underflow policy.
+    std::string input(digits);
+    char* end = nullptr;
+    errno = 0;
+    const double parsed = std::strtod(input.c_str(), &end);
+    if (end != input.c_str() + input.size()) return Status::BadNumber;
+    if (errno == ERANGE) {
         if (!underflows(digits)) return Status::BadNumber;
         value = digits.starts_with('-') ? -0.0 : 0.0;
         return Status::Ok;
     }
-    if (result.ec != std::errc{}) return Status::BadNumber;
     value = parsed;
     return Status::Ok;
 }

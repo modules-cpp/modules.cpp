@@ -67,37 +67,33 @@ int run(const std::string& command)
 // mm.json precedes mm.build because build reads compile_commands.json
 // through it; its partitions precede its primary interface.
 //
-int build_1()
+int build_1(const std::string& compiler, const std::string& module_flags)
 {
     struct Step {
         std::filesystem::path source;
         std::filesystem::path object;
+        std::string module_name;
     };
 
     const std::vector<Step> steps = {
-        {"modules/mm/mdy/mdy.cppm",         "out/modules/mm/mdy/mdy.o"},
-        {"modules/mm/mdy/src/mdy.cpp",      "out/modules/mm/mdy/src/mdy.o"},
-        {"modules/mm/configure/configure.cppm", "out/modules/mm/configure/configure.o"},
-        {"modules/mm/configure/src/configure.cpp", "out/modules/mm/configure/src/configure.o"},
-        {"modules/mm/json/status.cppm",     "out/modules/mm/json/status.o"},
-        {"modules/mm/json/scan.cppm",       "out/modules/mm/json/scan.o"},
-        {"modules/mm/json/value.cppm",      "out/modules/mm/json/value.o"},
-        {"modules/mm/json/json.cppm",       "out/modules/mm/json/json.o"},
-        {"modules/mm/json/src/scan.cpp",    "out/modules/mm/json/src/scan.o"},
-        {"modules/mm/json/src/value.cpp",   "out/modules/mm/json/src/value.o"},
-        {"modules/mm/build/build.cppm",     "out/modules/mm/build/build.o"},
-        {"modules/mm/build/src/build.cpp",  "out/modules/mm/build/src/build.o"},
-        {"tools/build/build.cpp",           "out/tools/build/build.o"},
+        {"modules/mm/mdy/mdy.cppm",         "out/modules/mm/mdy/mdy.o", "mm.mdy"},
+        {"modules/mm/mdy/src/mdy.cpp",      "out/modules/mm/mdy/src/mdy.o", {}},
+        {"modules/mm/configure/configure.cppm", "out/modules/mm/configure/configure.o", "mm.configure"},
+        {"modules/mm/configure/src/configure.cpp", "out/modules/mm/configure/src/configure.o", {}},
+        {"modules/mm/json/status.cppm",     "out/modules/mm/json/status.o", "mm.json:status"},
+        {"modules/mm/json/scan.cppm",       "out/modules/mm/json/scan.o", "mm.json:scan"},
+        {"modules/mm/json/value.cppm",      "out/modules/mm/json/value.o", "mm.json:value"},
+        {"modules/mm/json/json.cppm",       "out/modules/mm/json/json.o", "mm.json"},
+        {"modules/mm/json/src/scan.cpp",    "out/modules/mm/json/src/scan.o", {}},
+        {"modules/mm/json/src/value.cpp",   "out/modules/mm/json/src/value.o", {}},
+        {"modules/mm/build/build.cppm",     "out/modules/mm/build/build.o", "mm.build"},
+        {"modules/mm/build/src/build.cpp",  "out/modules/mm/build/src/build.o", {}},
+        {"tools/build/build.cpp",           "out/tools/build/build.o", {}},
     };
 
     // The default GCC mapper writes project-root gcm.cache. A normal build in
     // another terminal clears that shared directory, so bootstrap uses its own
     // fixed mapper and cannot lose an interface between two compiler calls.
-    const std::string module_compiler =
-        "c++ -fmodules-ts -fmodule-mapper=" +
-        shell_quote("tools/build/bootstrap.mapper");
-    const std::string module_flags = "-std=c++20 -x c++";
-
     for (const auto& step : steps) {
         std::error_code ec;
         std::filesystem::create_directories(step.object.parent_path(), ec);
@@ -107,8 +103,16 @@ int build_1()
             return 5;
         }
 
-        const std::string cmd = module_compiler + " " + module_flags +
-                                 " -c " + shell_quote(step.source) +
+        const bool clang = compiler.find("clang") != std::string::npos;
+        const bool module_interface = step.source.extension() == ".cppm";
+        std::string cmd = shell_quote(compiler) + " " + module_flags;
+        if (!clang || !module_interface) cmd += " -x c++";
+        if (clang && module_interface) {
+            std::string pcm_name = step.module_name;
+            for (char& c : pcm_name) if (c == ':') c = '-';
+            cmd += " -fmodule-output='out/bootstrap-bmi/" + pcm_name + ".pcm'";
+        }
+        cmd += " -c " + shell_quote(step.source) +
                                  " -o " + shell_quote(step.object);
         std::cout << cmd << "\n";
         if (run(cmd) != 0) {
@@ -127,7 +131,7 @@ int build_1()
     std::error_code ec;
     std::filesystem::remove(temp, ec);
 
-    std::string link_cmd = "c++ -std=c++20";
+    std::string link_cmd = shell_quote(compiler) + " -std=c++20";
     for (const auto& step : steps) link_cmd += " " + shell_quote(step.object);
     link_cmd += " -o " + shell_quote(temp);
 
@@ -158,26 +162,51 @@ int main(int argc, char** argv)
         return 0;
     }
 
-    std::cout << "modules.cpp build tool" << "\n";
-    // arguments
-    std::vector<std::string_view> args(argv, argv+argc);
-    // print arguments
-    for (std::string_view arg : args)
-        std::cout << arg << "\n";
-    // if no arguments quit
-    if (args.size() <= 1) {
-        std::cerr << "no arguments" << "\n";
-        exit(0);
-    }
-    if (args.size() > 2) {
-        std::cerr << "too many arguments" << "\n";
-        exit(1);
-    }
-    if (args[1] != "build1") {
-        std::cerr << "unknown argument: " << args[1] << "\n";
-        std::cerr << "usage: build0 [build1]\n";
-        return 2;
+    std::string compiler = "c++";
+    std::string module_flags =
+        "-std=c++20 -fmodules-ts -fmodule-mapper='tools/build/bootstrap.mapper'";
+    bool build1_requested = false;
+    for (int i = 1; i < argc; ++i) {
+        const std::string_view arg = argv[i];
+        if (arg == "-h" || arg == "--help") {
+            std::cout << "Usage: build0 [build1] [--compiler CXX] [--flags FLAGS]\n";
+            return 0;
+        }
+        if (arg == "build1") {
+            if (build1_requested) {
+                std::cerr << "build0: build1 may be given only once\n";
+                return 2;
+            }
+            build1_requested = true;
+        } else if (arg == "--compiler" || arg == "--cxx") {
+            if (++i >= argc || argv[i][0] == '\0') {
+                std::cerr << "build0: --compiler requires a value\n";
+                return 2;
+            }
+            compiler = argv[i];
+        } else if (arg == "--flags" || arg == "--module-flags") {
+            if (++i >= argc) {
+                std::cerr << "build0: --flags requires a value\n";
+                return 2;
+            }
+            module_flags = argv[i];
+        } else {
+            std::cerr << "build0: unknown argument: " << arg << "\n";
+            return 2;
+        }
     }
 
-    return build_1();
+    std::cout << "modules.cpp build tool" << "\n";
+    for (int i = 0; i < argc; ++i)
+        std::cout << argv[i] << "\n";
+
+    if (!build1_requested) {
+        if (argc <= 1)
+            std::cerr << "no arguments" << "\n";
+        return 0;
+    }
+
+    std::cout << "build1 compiler " << compiler << "\n";
+    std::cout << "build1 flags " << module_flags << "\n";
+    return build_1(compiler, module_flags);
 }

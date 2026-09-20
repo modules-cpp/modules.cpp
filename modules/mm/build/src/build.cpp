@@ -358,6 +358,27 @@ bool path_within(const std::filesystem::path& base, const std::filesystem::path&
     return !relative.empty() && !relative.is_absolute() && *relative.begin() != "..";
 }
 
+bool path_contained_in(const std::filesystem::path& container,
+                       const std::filesystem::path& path) {
+    if (container.empty() || path.empty()) return false;
+    std::error_code ec;
+    auto resolved_container = std::filesystem::weakly_canonical(container, ec);
+    if (ec) return false;
+    if (!resolved_container.is_absolute())
+        resolved_container =
+            std::filesystem::absolute(container, ec).lexically_normal();
+    if (ec) return false;
+
+    auto resolved = std::filesystem::weakly_canonical(path, ec);
+    if (ec) return false;
+    if (!resolved.is_absolute())
+        resolved = std::filesystem::absolute(path, ec).lexically_normal();
+    if (ec) return false;
+
+    const auto relative = resolved.lexically_relative(resolved_container);
+    return !relative.empty() && *relative.begin() != "..";
+}
+
 // weakly_canonical resolves symlinks in whatever prefix of path already
 // exists (a real fix for a symlink planted under out/ that would otherwise
 // redirect a write outside the project), but when nothing on path exists
@@ -1840,12 +1861,20 @@ bool parse_definitions(Project& project, const std::filesystem::path& root,
             const auto source_path = (node.dir / source).lexically_normal();
             const auto absolute_source = absolute_from_root(root, source_path);
             if (std::filesystem::path(source).is_absolute() ||
-                !path_within(root.lexically_normal(), absolute_source)) {
+                !path_contained_in(root, absolute_source)) {
                 std::cerr << policy.tool << ": " << node.manifest.string()
                           << ": source is outside the project: " << source << "\n";
                 return false;
             }
-            library.source = relative_to_root(root, source_path);
+            std::error_code source_ec;
+            const auto canonical_source = std::filesystem::weakly_canonical(
+                absolute_source, source_ec);
+            if (source_ec) {
+                std::cerr << policy.tool << ": " << node.manifest.string()
+                          << ": cannot resolve library source: " << source_ec.message() << "\n";
+                return false;
+            }
+            library.source = relative_to_root(root, canonical_source);
 
             std::filesystem::path licence_path;
             if (!definition_path(root, node, licence, licence_path, "licence", policy.tool))
