@@ -128,7 +128,9 @@ void fence_in_body_is_not_front_matter() {
         "after\n");
 
     mm::test::expect(doc.metadata.size() == 1, "expected a later --- not to reopen front matter");
-    mm::test::expect(doc.body.size() == 3, "expected the body fence to be kept as content");
+    mm::test::expect(doc.body.size() == 1, "expected the body fence to stay content, inside the paragraph run");
+    mm::test::expect(doc.body[0].content == "before --- after",
+                     "expected the fence line to keep its text in the paragraph");
 }
 
 void blank_body_lines_are_skipped() {
@@ -193,13 +195,78 @@ void parse_file_of_directory_is_empty() {
     mm::test::expect(doc.body.empty(), "expected a directory path to produce no body");
 }
 
-void parse_returns_every_line_as_a_block() {
+void parse_keeps_single_line_runs_separate() {
     const mm::test::scoped_file file{"mm_mdy_test_parse.mdy", "# Title\n- item\nprose\n"};
 
     const auto blocks = Parser::parse(file.path());
 
-    mm::test::expect(blocks.size() == 3, "expected Parser::parse to return one block per line");
+    mm::test::expect(blocks.size() == 3, "expected Parser::parse to return one block per single-line run");
     mm::test::expect(blocks[0].type == BlockType::Heading1, "expected the heading to parse");
+}
+
+void consecutive_plain_lines_join_into_one_paragraph() {
+    const auto doc = parse_text(
+        "---\n"
+        "mm: 1.0\n"
+        "---\n"
+        "first line\n"
+        "second line\n"
+        "third line\n");
+
+    mm::test::expect(doc.body.size() == 1, "expected a plain-line run to parse as one paragraph");
+    mm::test::expect(doc.body[0].type == BlockType::Paragraph, "expected the run to be a paragraph");
+    mm::test::expect(doc.body[0].content == "first line second line third line",
+                     "expected the run's lines to join with a single space");
+}
+
+void heading_ends_a_paragraph_run() {
+    const auto doc = parse_text("intro text\n# Title\n");
+
+    mm::test::expect(doc.body.size() == 2, "expected the heading to end the paragraph run");
+    mm::test::expect(doc.body[0].type == BlockType::Paragraph, "expected the run to parse as a paragraph");
+    mm::test::expect(doc.body[0].content == "intro text", "expected the run to keep only its own lines");
+    mm::test::expect(doc.body[1].type == BlockType::Heading1, "expected the heading to parse");
+}
+
+void blank_line_separates_paragraph_runs() {
+    const auto doc = parse_text("one\n\ntwo\n");
+
+    mm::test::expect(doc.body.size() == 2, "expected a blank line to end the first paragraph run");
+    mm::test::expect(doc.body[0].content == "one", "expected the first run to keep its line");
+    mm::test::expect(doc.body[1].content == "two", "expected the second run to keep its line");
+}
+
+void list_line_ends_a_paragraph_run() {
+    const auto doc = parse_text("intro text\n- item\n");
+
+    mm::test::expect(doc.body.size() == 2, "expected the list line to end the paragraph run");
+    mm::test::expect(doc.body[0].type == BlockType::Paragraph, "expected the run to parse as a paragraph");
+    mm::test::expect(doc.body[1].type == BlockType::UnorderedList, "expected the list line to parse");
+}
+
+void whitespace_only_line_separates_paragraph_runs() {
+    const auto doc = parse_text("one\n   \ntwo\n");
+
+    mm::test::expect(doc.body.size() == 2, "expected a whitespace-only line to end the first paragraph run");
+    mm::test::expect(doc.body[0].content == "one", "expected the first run to keep its line");
+    mm::test::expect(doc.body[1].content == "two", "expected the second run to keep its line");
+}
+
+void paragraph_run_at_end_of_file_flushes() {
+    const auto doc = parse_text("first line\nsecond line");
+
+    mm::test::expect(doc.body.size() == 1, "expected the final run to flush at end of file");
+    mm::test::expect(doc.body[0].content == "first line second line",
+                     "expected the final run to join its lines");
+}
+
+void parse_joins_plain_line_runs() {
+    const mm::test::scoped_file file{"mm_mdy_test_parse_join.mdy", "one\ntwo\n"};
+
+    const auto blocks = Parser::parse(file.path());
+
+    mm::test::expect(blocks.size() == 1, "expected Parser::parse to join a plain-line run into one paragraph");
+    mm::test::expect(blocks[0].content == "one two", "expected the run's lines to join with a single space");
 }
 
 const mm::test::case_ cases[] = {
@@ -217,7 +284,14 @@ const mm::test::case_ cases[] = {
     { "parse_file reads from disk",               &parse_file_reads_from_disk },
     { "parse_file of missing path is empty",      &parse_file_of_missing_path_is_empty },
     { "parse_file of directory is empty",         &parse_file_of_directory_is_empty },
-    { "parse returns every line as a block",      &parse_returns_every_line_as_a_block },
+    { "parse keeps single-line runs separate",    &parse_keeps_single_line_runs_separate },
+    { "consecutive plain lines join into one paragraph", &consecutive_plain_lines_join_into_one_paragraph },
+    { "heading ends a paragraph run",            &heading_ends_a_paragraph_run },
+    { "blank line separates paragraph runs",     &blank_line_separates_paragraph_runs },
+    { "list line ends a paragraph run",          &list_line_ends_a_paragraph_run },
+    { "whitespace-only line separates runs",     &whitespace_only_line_separates_paragraph_runs },
+    { "paragraph run at end of file flushes",    &paragraph_run_at_end_of_file_flushes },
+    { "parse joins plain line runs",             &parse_joins_plain_line_runs },
 };
 
 const mm::test::registrar reg{"mm.mdy integration", cases};

@@ -40,24 +40,24 @@ The file key names a source or document file associated with module, app, and do
 The folder key names a child directory to visit from a project, dir, or library manifest. Existing manifests repeat folder to list several children. The parser preserves every repeated folder value in declaration order, allowing a manifest walker to visit all declared children.
 
 ## Body blocks
-After the closing front matter fence, every nonempty line becomes one block. Leading and trailing whitespace is removed from the entire line before block recognition.
+After the closing front matter fence, the body is a sequence of blocks. Leading and trailing whitespace is removed from each line before block recognition.
 
 - A line beginning with one hash and one space is a level-one heading.
 - A line beginning with two hashes and one space is a level-two heading.
 - A line beginning with three hashes and one space is a level-three heading.
 - A line beginning with a hyphen and one space is an unordered-list item.
 - A line beginning with an asterisk and one space is an unordered-list item.
-- Every other nonempty line is a paragraph.
-- Empty lines are skipped and are not retained in the parsed body.
+- A paragraph is a run of one or more consecutive plain lines, ended by an empty line, a heading line, a list line, or end of body. The lines of a run join into a single paragraph with one space between neighboring lines.
+- Empty lines end the current paragraph and are not retained in the parsed body.
 
-Only three heading levels are recognized. Inline emphasis, links, code spans, fenced code blocks, ordered lists, nested lists, and paragraph continuation are not parsed specially. Each physical nonempty line is independent.
+Only three heading levels are recognized. Inline emphasis, links, code spans, fenced code blocks, and ordered lists are not parsed specially. Nested lists are not recognized.
 
 ## Parser behavior
 Parser::parse_file reads front matter into MDYDocument.metadata and body blocks into MDYDocument.body, and reports how the read went in MDYDocument.status. status is Ok whenever the file was actually read, including a genuinely empty file (an empty file is a valid, if unusual, document, not an error). status is NotFound if the path does not exist, and Unreadable if it exists but could not be opened or read (for example, a directory). All three cases return metadata and body as empty containers; status is what lets a caller tell an empty document apart from one that could not be read at all.
 
 The opening fence must be the first physical line. If it is absent, all nonempty lines are treated as body paragraphs or body block markers. A later fence does not start front matter.
 
-Parser::parse is a lower-level body parser. It does not recognize or remove front matter; it parses every nonempty physical line as a body block. Use Parser::parse_file when reading a complete MDY document.
+Parser::parse is a lower-level body parser. It does not recognize or remove front matter; it parses body blocks from every line using the same heading, list, and paragraph rules as parse_file. Use Parser::parse_file when reading a complete MDY document.
 
 ## Minimal manifest example
 The following describes an application named example whose source is main.cpp. The markers shown as opening fence and closing fence are literal lines containing three hyphens.

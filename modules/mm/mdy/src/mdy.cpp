@@ -59,6 +59,31 @@ Block parse_line(std::string_view line) {
     return {BlockType::Paragraph, std::string(line)};
 }
 
+// Append one body line to the accumulated body. A plain line joins the
+// pending paragraph with a single space; a heading or list line ends the
+// pending paragraph before emitting its own block; an empty line ends the
+// pending paragraph and adds nothing. The caller flushes whatever paragraph
+// is still pending at end of input.
+void append_body_line(std::vector<Block>& body, std::string& pending_paragraph,
+                      std::string_view line_view) {
+    if (line_view.empty()) {
+        if (!pending_paragraph.empty()) {
+            body.push_back({BlockType::Paragraph, std::move(pending_paragraph)});
+        }
+        return;
+    }
+    Block block = parse_line(line_view);
+    if (block.type == BlockType::Paragraph) {
+        if (!pending_paragraph.empty()) pending_paragraph += " ";
+        pending_paragraph += block.content;
+        return;
+    }
+    if (!pending_paragraph.empty()) {
+        body.push_back({BlockType::Paragraph, std::move(pending_paragraph)});
+    }
+    body.push_back(std::move(block));
+}
+
 // Implement the exported static method to parse files
 std::vector<Block> Parser::parse(const std::filesystem::path& file_path) {
     std::vector<Block> parsed_blocks;
@@ -69,13 +94,12 @@ std::vector<Block> Parser::parse(const std::filesystem::path& file_path) {
 
     std::vector<std::string> lines;
     if (!read_lines(file_path, lines)) return parsed_blocks;
+    std::string pending_paragraph;
     for (const auto& line : lines) {
-        std::string_view view(line);
-        
-        // Skip empty lines gracefully
-        if (view.empty()) continue; 
-        
-        parsed_blocks.push_back(parse_line(view));
+        append_body_line(parsed_blocks, pending_paragraph, trim(line));
+    }
+    if (!pending_paragraph.empty()) {
+        parsed_blocks.push_back({BlockType::Paragraph, std::move(pending_paragraph)});
     }
 
     return parsed_blocks;
@@ -103,6 +127,7 @@ MDYDocument Parser::parse_file(const std::filesystem::path& file_path) {
     ParseState state = ParseState::ExpectingStartFence;
 
     bool first_line = true;
+    std::string pending_paragraph;
 
     for (const auto& line : lines) {
         std::string_view line_view = trim(line);
@@ -138,10 +163,14 @@ MDYDocument Parser::parse_file(const std::filesystem::path& file_path) {
             }
         }
         else {
-            // We are in the body. Skip empty spacer lines, parse the rest.
-            if (line_view.empty()) continue;
-            doc.body.push_back(parse_line(line_view));
+            // We are in the body. Empty lines end the pending paragraph;
+            // plain lines join it; heading and list lines end it first.
+            append_body_line(doc.body, pending_paragraph, line_view);
         }
+    }
+
+    if (!pending_paragraph.empty()) {
+        doc.body.push_back({BlockType::Paragraph, std::move(pending_paragraph)});
     }
 
     return doc;

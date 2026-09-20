@@ -52,6 +52,8 @@ export struct MDYDocument {
 // These are not exported to ordinary importers.
 std::string_view trim(std::string_view text);
 Block parse_line(std::string_view line);
+void append_body_line(std::vector<Block>& body, std::string& pending_paragraph,
+                      std::string_view line_view);
 
 
 // Export the primary API functions
