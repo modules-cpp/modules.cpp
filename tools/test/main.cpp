@@ -1,6 +1,6 @@
 // modules.cpp test tool
 //
-// Usage: test [-v] <path to a kind:test mm.mdy>
+// Usage: test [-v] [--compiler CXX] [--flags FLAGS] <path to a kind:test mm.mdy>
 //
 // Reads a test manifest, compiles every declared unit in order, links the
 // objects directly into one test binary, runs it and propagates its exit code.
@@ -20,6 +20,8 @@ import mm.build;
 
 int main(int argc, char** argv) {
     mm::app::Options options("test");
+    options.option("--compiler", "a compiler");
+    options.option("--flags", "compiler flags");
     if (options.parse(argc, argv) != mm::app::Cli::ok) return mm::build::exit_usage;
 
     const bool verbose = options.verbose();
@@ -91,7 +93,11 @@ int main(int argc, char** argv) {
         return mm::build::exit_compile;
     }
 
-    const auto toolchain = mm::build::default_toolchain(verbose);
+    auto toolchain = mm::build::default_toolchain(verbose);
+    if (const auto compiler = options.value("--compiler"); !compiler.empty())
+        toolchain.cxx = compiler;
+    if (const auto flags = options.value("--flags"); !flags.empty())
+        toolchain.cxxflags = flags;
 
     std::cout << "Compile\n";
     for (const auto position : order) {

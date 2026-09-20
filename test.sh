@@ -87,7 +87,19 @@ check "app mdy output" "$expected_status" "$status" "$expected" "$actual"
 echo
 echo test test
 echo
-out/tools/test/test tests/mm/build/ || exit $?
-out/tools/test/test tests/mm/mdy/ || exit $?
-out/tools/test/test tests/mm/shell/ || exit $?
-out/tools/test/test tests/mm/model/ || exit $?
+run_test() {
+    case "$(uname -s)" in
+        Darwin)
+            out/tools/test/test --compiler clang++ \
+                --flags "-std=c++20 -fprebuilt-module-path=out/module-cache" "$1"
+            ;;
+        *)
+            out/tools/test/test "$1"
+            ;;
+    esac
+}
+
+run_test tests/mm/build/ || exit $?
+run_test tests/mm/mdy/ || exit $?
+run_test tests/mm/shell/ || exit $?
+run_test tests/mm/model/ || exit $?
