@@ -146,6 +146,8 @@ MDYDocument Parser::parse_file(const std::filesystem::path& file_path) {
 
 }
 
+namespace mm::mdy {
+
 // Unified manifest parsing utilities: centralizes lookup/first/all operations
 // to avoid duplication across mm.build and mm.ino modules.
 namespace {
@@ -179,3 +181,5 @@ std::string mdy_first(const MDYDocument& doc, std::string_view key) {
 std::vector<std::string> mdy_all(const MDYDocument& doc, std::string_view key) {
     return all(doc, key);
 }
+
+}  // namespace mm::mdy

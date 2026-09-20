@@ -6,9 +6,9 @@
 // Reads a test manifest, compiles every declared unit in order, links the
 // objects directly into one test binary, and either stops for --compile-only
 // or executes it directly on the host or through a configured target runner.
-// Compilation and linking live in mm.build; execution lives in mm.run. This
-// file is the front end. The rules it relies on are specified by
-// docs/modules-test.mdy.
+// The shared prologue lives in mm.tool; compilation and linking live in
+// mm.build; execution lives in mm.run. This file is the front end. The rules
+// it relies on are specified by docs/modules-test.mdy.
 //
 // Pawel Wodnicki (C) 2026
 // 32bitmicro LLC (C) 2026
@@ -23,6 +23,7 @@ import mm.app;
 import mm.build;
 import mm.configure;
 import mm.run;
+import mm.tool;
 
 int main(int argc, char** argv) {
     mm::app::Options options("test");
@@ -63,116 +64,46 @@ int main(int argc, char** argv) {
         status != mm::app::Cli::ok)
         return status == mm::app::Cli::usage ? mm::build::exit_usage : mm::build::exit_manifest;
 
-    const auto roots = mm::build::resolve_roots(manifest_path);
-    if (!roots.ok) {
-        std::cerr << "test: cannot resolve root for "
-                  << manifest_path.string() << "\n";
-        return mm::build::exit_manifest;
-    }
-    if (roots.external_root) {
-        std::cerr << "test: " << manifest_path.string()
-                  << ": external root holds no test\n";
-        return mm::build::exit_manifest;
-    }
-
     bool ok = false;
     auto target = mm::build::load_test(manifest_path, ok, {.tool = "test", .warn_options = true});
     if (!ok) return mm::build::exit_manifest;
-
-    const auto root = roots.project_root;
-
-    std::error_code ec;
-    const auto requested_manifest = std::filesystem::weakly_canonical(manifest_path, ec);
-    if (ec) {
-        std::cerr << "test: cannot resolve manifest: " << ec.message() << "\n";
-        return mm::build::exit_manifest;
-    }
 
     const auto name = target.name;
     const auto units = target.sources.size();
     const auto uses = target.uses.size();
 
-    // TranslationUnit paths are root relative. The project root remains the
-    // compiler working directory, while prepare_module_cache maps GCC CMIs to
-    // this test's private build directory.
-    std::filesystem::current_path(root, ec);
-    if (ec) {
-        std::cerr << "test: cannot enter project root: " << ec.message() << "\n";
-        return mm::build::exit_manifest;
-    }
+    const auto state = mm::tool::setup({
+        .tool = "test",
+        .manifest = manifest_path,
+        .host = options.seen("--host"),
+        .target = options.seen("--target"),
+        .verbose = verbose,
+        .node_kind = "test",
+        .match_by_manifest_path = true,
+        .reject_external_root = true,
+        .resolve_providers = true,
+    });
+    if (!state.ok) return state.status;
+    const auto& toolchain = state.toolchain;
+    const auto* platform = state.platform ? &*state.platform : nullptr;
+    const auto& providers = *state.providers;
+    const auto root = state.roots.project_root;
 
-    mm::build::BuildConfiguration configuration;
-    if (!mm::build::resolve_configuration(".", verbose, configuration))
-        return mm::build::exit_manifest;
-    const bool target_lane = options.seen("--target") ||
-                             (!options.seen("--host") && configuration.selects_cross());
-    const auto* toolchain_ptr = configuration.toolchain_for(target_lane);
-    const auto* lane_directory = configuration.build_directory_for(target_lane);
-    if (toolchain_ptr == nullptr || lane_directory == nullptr) {
-        std::cerr << "test: target lane is not configured\n";
-        return mm::build::exit_manifest;
-    }
-    const auto& toolchain = *toolchain_ptr;
-    const auto build_dir = *lane_directory / "tests" / name;
-    const auto* platform = target_lane ? configuration.configured_target_platform()
-                                       : &configuration.host_platform();
+    // The test's objects compile into a private directory below the lane's
+    // build directory, so prepare_module_cache maps GCC CMIs to it.
+    const auto build_dir = state.lane_directory / "tests" / name;
 
-    auto project = mm::build::load_project(".", {.tool = "test", .warn_options = true});
-    if (!project.ok) return mm::build::exit_manifest;
-    if (!mm::build::check_configuration_staleness(configuration, project, target_lane, "test"))
-        return mm::build::exit_manifest;
-
-    mm::build::StructuralProperties properties;
-    if (!mm::build::resolve_structural_properties(".", configuration.build, project, properties,
-                                                  "test"))
-        return mm::build::exit_manifest;
-
-    std::size_t test_node = mm::build::no_target;
-    for (std::size_t i = 0; i < project.nodes.size(); ++i) {
-        const auto candidate = std::filesystem::weakly_canonical(project.nodes[i].manifest, ec);
-        if (ec) {
-            std::cerr << "test: cannot resolve manifest: " << ec.message() << "\n";
-            return mm::build::exit_manifest;
-        }
-        if (candidate == requested_manifest) {
-            test_node = i;
-            break;
-        }
-    }
-    if (test_node == mm::build::no_target || project.nodes[test_node].kind != "test") {
-        std::cerr << "test: requested manifest is not a registered test: "
-                  << manifest_path.string() << "\n";
-        return mm::build::exit_manifest;
-    }
-
-    const auto buildable = properties.lane(
-        target_lane, configuration.target_has_host_capability());
-
-    // The same shared analysis build uses, resolved from the complete project
-    // before this tool builds its own filtered tree below. The two tools differ
-    // in how they select roots; they must not differ in how they resolve
-    // providers.
-    const auto providers = mm::build::platform_providers(project, target_lane, platform, "test");
-
-    const auto test_availability = mm::build::availability(
-        project, test_node, buildable[test_node], target_lane, platform, &providers,
-        &buildable);
-    if (!test_availability.available) {
-        std::cerr << "test: " << project.nodes[test_node].manifest.string() << ": "
-                  << test_availability.reason << "\n";
-        return mm::build::exit_unavailable;
-    }
-    if (target_lane && !compile_only && !toolchain.runner) {
+    if (state.target_lane && !compile_only && !toolchain.runner) {
         std::cerr << "test: target " << toolchain.target
                   << " has no test runner; use --compile-only\n";
         return mm::build::exit_manifest;
     }
 
     mm::build::Tree tree;
-    for (std::size_t i = 0; i < project.nodes.size(); ++i) {
-        if ((project.nodes[i].kind == "module" || project.nodes[i].kind == "app") &&
-            project.target[i] != mm::build::no_target && buildable[i])
-            tree.targets.push_back(std::move(project.targets[project.target[i]]));
+    for (std::size_t i = 0; i < state.project.nodes.size(); ++i) {
+        if ((state.project.nodes[i].kind == "module" || state.project.nodes[i].kind == "app") &&
+            state.project.target[i] != mm::build::no_target && state.buildable[i])
+            tree.targets.push_back(std::move(state.project.targets[state.project.target[i]]));
     }
 
     std::cout << "modules.cpp test tool\n";
@@ -180,7 +111,7 @@ int main(int argc, char** argv) {
     std::cout << "  root     " << root.string() << "\n";
     if (!mm::configure::log_configuration({
             .tool = "test",
-            .build = mm::build::build_name(configuration.build),
+            .build = mm::build::build_name(state.configuration.build),
             .compiler_family = mm::build::compiler_family_name(toolchain.family),
             .compiler = toolchain.compiler.invocation,
             .compile_flags = toolchain.compiler.arguments,
@@ -207,7 +138,7 @@ int main(int argc, char** argv) {
     // never as a root of its own.
     std::vector<bool> ordered(tree.targets.size(), false);
     for (const auto position : order) ordered[position] = true;
-    for (const auto& interface_module : providers.requirements[test_node]) {
+    for (const auto& interface_module : providers.requirements[state.node]) {
         const auto* binding = providers.binding(interface_module);
         if (binding == nullptr) continue;
         for (std::size_t candidate = 0; candidate < tree.targets.size(); ++candidate) {
@@ -228,13 +159,14 @@ int main(int argc, char** argv) {
 
     const auto test_output_root = root / build_dir;
     mm::build::ArtifactContext context(root, test_output_root,
-                                       roots.tools_dir, false);
+                                       state.roots.tools_dir, false);
     if (!context.valid()) {
         std::cerr << "test: refusing to write outside the project: "
                   << test_output_root.string() << "\n";
         return mm::build::exit_manifest;
     }
 
+    std::error_code ec;
     std::filesystem::remove_all(build_dir, ec);
     if (ec) {
         std::cerr << "test: cannot clear " << build_dir.string() << ": " << ec.message() << "\n";
@@ -251,7 +183,7 @@ int main(int argc, char** argv) {
 
         std::vector<std::filesystem::path> include_directories;
         if (!mm::build::library_include_directories(
-                ".", project.libraries, built, include_directories, "test"))
+                ".", state.project.libraries, built, include_directories, "test"))
             return mm::build::exit_manifest;
         if (const int status = mm::build::compile(
                 toolchain, built, context, include_directories); status != 0)
@@ -286,12 +218,12 @@ int main(int argc, char** argv) {
     if (platform != nullptr &&
         platform->link_ownership == mm::configure::LinkOwnership::External) {
         if (const int status = mm::build::external_link(
-                project, *platform, toolchain, name, objects, context, binary,
+                state.project, *platform, toolchain, name, objects, context, binary,
                 verbose);
             status != 0)
             return status;
     } else {
-        if (!mm::build::library_link_inputs(".", project.libraries, tree, reached,
+        if (!mm::build::library_link_inputs(".", state.project.libraries, tree, reached,
                                             link_inputs, "test"))
             return mm::build::exit_manifest;
         if (const int status =
@@ -305,7 +237,7 @@ int main(int argc, char** argv) {
 
     std::cout << "\nRun\n\n";
 
-    const int status = mm::run::execute(toolchain, target_lane, binary);
+    const int status = mm::run::execute(toolchain, state.target_lane, binary);
     if (status < 0) {
         std::cerr << "test: failed to run " << binary.string() << "\n";
         return mm::build::exit_run;

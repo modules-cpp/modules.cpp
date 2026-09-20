@@ -1,0 +1,36 @@
+---
+mm: 1.0
+kind: doc
+name: modules.cpp tool module specification
+status: official
+release: v1.2.3
+---
+
+# Tool
+
+mm.tool is the shared front-end prologue for the lane tools. run, debug, flash, and test each resolved the same root, configuration, lane, project, staleness, node, and availability sequence before doing anything tool-specific; mm.tool performs that sequence once, and the front ends keep their option parsing, their domain checks (runner, debugger, board support, test runner), and their epilogues.
+
+## API
+
+`setup(options)` resolves, in order:
+
+- the manifest's project root (`mm.build.resolve_roots`),
+- the configuration (`mm.build.resolve_configuration`),
+- the lane: `--host`, `--target`, or the configuration's stored selection,
+- the lane's toolchain, build directory, and platform,
+- the project (`mm.build.load_project`) and its configuration staleness,
+- the requested node, by source directory or by canonical manifest path,
+- the node's kind, if a kind is required,
+- the structural properties and the node's buildability in the lane,
+- the platform providers, if the tool resolves them,
+- the node's availability in the lane (`mm.build.availability`).
+
+`setup` returns a `Setup` carrying the resolved roots, configuration, lane, toolchain, lane directory, platform, project, buildability, located node, providers, and the artifact context roots. When a step fails, `Setup.ok` is false, `Setup.status` is the exit code, and the reason is printed under the tool name except where the shared step printed its own diagnostic.
+
+## Options
+
+`Options.tool` names the front end for diagnostics; `Options.manifest` is the resolved manifest path; `Options.host` and `Options.target` carry the lane flags; `Options.force_target_lane` pins the target lane (flash); `Options.node_kind` restricts the located node to one kind; `Options.match_by_manifest_path` locates the node by canonical manifest path instead of source directory (test); `Options.reject_external_root` refuses an external project root (test); `Options.resolve_providers` and `Options.check_providers_ok` control platform provider resolution (flash, test); `Options.lane_not_configured` and `Options.external_root_rejection` hold the front end's exact wording.
+
+## Division of work
+
+mm.tool owns no policy of its own: every rule it applies is an `mm.app` or `mm.build` rule, and it defers every domain check to the front end. The stage-1 `build` front end is the exception that does not use it: it is built from a fixed file list and cannot import `mm.app` or `mm.tool`.

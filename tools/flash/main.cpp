@@ -10,6 +10,7 @@
 import mm.app;
 import mm.build;
 import mm.flash;
+import mm.tool;
 
 int main(int argc, char** argv) {
     mm::app::Options options("flash");
@@ -29,86 +30,34 @@ int main(int argc, char** argv) {
         return status == mm::app::Cli::usage ? mm::build::exit_usage
                                               : mm::build::exit_manifest;
 
-    const auto resolved_roots = mm::build::resolve_roots(manifest);
-    if (!resolved_roots.ok) {
-        std::cerr << "flash: cannot resolve root for " << manifest.string()
-                  << "\n";
-        return mm::build::exit_manifest;
-    }
-    std::error_code ec;
-    std::filesystem::current_path(resolved_roots.project_root, ec);
-    if (ec) {
-        std::cerr << "flash: cannot enter project root: " << ec.message() << "\n";
-        return mm::build::exit_manifest;
-    }
+    const auto state = mm::tool::setup({
+        .tool = "flash",
+        .manifest = manifest,
+        .force_target_lane = true,
+        .verbose = options.verbose(),
+        .node_kind = "app",
+        .resolve_providers = true,
+        .check_providers_ok = true,
+        .lane_not_configured = "no target lane is configured",
+    });
+    if (!state.ok) return state.status;
 
-    mm::build::BuildConfiguration configuration;
-    if (!mm::build::resolve_configuration(".", options.verbose(), configuration))
-        return mm::build::exit_manifest;
-    const auto* toolchain = configuration.cross_toolchain();
-    const auto* lane_directory = configuration.cross_build_directory();
-    const auto* platform = configuration.configured_target_platform();
-    if (toolchain == nullptr || lane_directory == nullptr || platform == nullptr) {
-        std::cerr << "flash: no target lane is configured\n";
-        return mm::build::exit_manifest;
-    }
-    mm::build::LoadPolicy policy{.tool = "flash", .warn_options = true};
-    if (resolved_roots.external_root)
-        policy.external = resolved_roots.external_root;
-    auto project = mm::build::load_project(".", policy);
-    if (!project.ok) return mm::build::exit_manifest;
-    if (!mm::build::check_configuration_staleness(configuration, project, true, "flash"))
-        return mm::build::exit_manifest;
-
+    // Domain policy for this tool: only Pico SDK platforms flash, and only
+    // through the configured board.
     const mm::build::BoardDefinition* selected_board = nullptr;
-    for (const auto& board : project.boards)
-        if (platform->board && board.name == *platform->board) selected_board = &board;
-    if (selected_board == nullptr || !mm::flash::supports(*platform, *selected_board)) {
+    for (const auto& board : state.project.boards)
+        if (state.platform && state.platform->board && board.name == *state.platform->board)
+            selected_board = &board;
+    if (selected_board == nullptr || !mm::flash::supports(*state.platform, *selected_board)) {
         std::cerr << "flash: configured target is not a supported Pico SDK platform\n";
         return mm::build::exit_unavailable;
     }
 
-    std::size_t node = mm::build::no_target;
-    for (std::size_t i = 0; i < project.nodes.size(); ++i) {
-        if (project.nodes[i].source_dir == resolved_roots.requested_dir) {
-            node = i;
-            break;
-        }
-    }
-    if (node == mm::build::no_target || project.nodes[node].kind != "app") {
-        std::cerr << "flash: requested manifest is not a registered app: "
-                  << manifest.string() << "\n";
-        return mm::build::exit_manifest;
-    }
-
-    mm::build::StructuralProperties properties;
-    if (!mm::build::resolve_structural_properties(".", configuration.build, project, properties,
-                                                  "flash"))
-        return mm::build::exit_manifest;
-    const auto buildable = properties.lane(true, configuration.target_has_host_capability());
-    const auto providers = mm::build::platform_providers(project, true, platform, "flash");
-    if (!providers.ok) return mm::build::exit_manifest;
-    const auto available = mm::build::availability(project, node, buildable[node], true, platform,
-                                                   &providers, &buildable);
-    if (!available.available) {
-        std::cerr << "flash: " << project.nodes[node].manifest.string() << ": "
-                  << available.reason << "\n";
-        return mm::build::exit_unavailable;
-    }
-
-    const auto& app = project.targets[project.target[node]];
-    const auto context_tree_root = resolved_roots.external_root
-                                       ? *resolved_roots.external_root
-                                       : resolved_roots.project_root;
-    const auto context_output_root =
-        resolved_roots.external_root
-            ? (*resolved_roots.external_root / *lane_directory)
-            : (resolved_roots.project_root / *lane_directory);
-    mm::build::ArtifactContext context(
-        context_tree_root, context_output_root, resolved_roots.tools_dir,
-        resolved_roots.external_root.has_value());
+    const auto& app = state.project.targets[state.project.target[state.node]];
+    const auto context = state.artifact_context();
     const auto executable = context.executable_path(app);
     const auto image = mm::flash::image_for(executable);
+    std::error_code ec;
     if (!std::filesystem::is_regular_file(image, ec) || ec) {
         std::cerr << "flash: UF2 image is not built: " << image.string()
                   << "; run build first\n";
@@ -133,10 +82,10 @@ int main(int argc, char** argv) {
 
     if (options.verbose()) {
         std::cout << "modules.cpp flash tool\n";
-        std::cout << "  board    " << *platform->board << "\n";
+        std::cout << "  board    " << *state.platform->board << "\n";
         std::cout << "  image    " << image.string() << "\n";
         std::cout << "  picotool " << picotool.string() << "\n";
     }
-    const int status = mm::flash::execute(*toolchain, picotool, image);
+    const int status = mm::flash::execute(state.toolchain, picotool, image);
     return status < 0 ? mm::build::exit_run : status;
 }

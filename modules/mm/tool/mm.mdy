@@ -1,0 +1,17 @@
+---
+mm: 1.0
+kind: module
+name: tool
+module: mm.tool
+use: mm.app
+use: mm.build
+file: tool.cppm
+file: src/tool.cpp
+---
+
+# mm.tool
+
+Resolves the prologue every front-end lane tool shares: the project root, the
+configuration, the selected lane and platform, the project load, the located
+node, and that node's availability. The front ends keep their option parsing,
+their domain checks, and their epilogues.

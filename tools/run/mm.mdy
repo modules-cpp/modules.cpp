@@ -5,10 +5,10 @@ name: run
 file: main.cpp
 use: mm.app
 use: mm.build
-use: mm.configure
 use: mm.run
+use: mm.tool
 ---
 
 # run tool
 
-Resolves one previously built kind: app artifact and delegates direct or target-runner execution to mm.run.
+Resolves one previously built kind: app artifact and delegates direct or target-runner execution to mm.run. The shared prologue lives in mm.tool.

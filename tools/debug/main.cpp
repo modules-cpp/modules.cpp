@@ -9,6 +9,7 @@
 import mm.app;
 import mm.build;
 import mm.debug;
+import mm.tool;
 
 int main(int argc, char** argv) {
     mm::app::Options options("debug");
@@ -41,100 +42,43 @@ int main(int argc, char** argv) {
         return status == mm::app::Cli::usage ? mm::build::exit_usage
                                               : mm::build::exit_manifest;
 
-    const auto resolved_roots = mm::build::resolve_roots(manifest);
-    if (!resolved_roots.ok) {
-        std::cerr << "debug: cannot resolve root for " << manifest.string()
-                  << "\n";
-        return mm::build::exit_manifest;
-    }
-    std::error_code ec;
-    std::filesystem::current_path(resolved_roots.project_root, ec);
-    if (ec) {
-        std::cerr << "debug: cannot enter project root: " << ec.message() << "\n";
-        return mm::build::exit_manifest;
-    }
+    const auto state = mm::tool::setup({
+        .tool = "debug",
+        .manifest = manifest,
+        .host = options.seen("--host"),
+        .target = options.seen("--target"),
+        .verbose = options.verbose(),
+        .node_kind = "app",
+    });
+    if (!state.ok) return state.status;
 
-    mm::build::BuildConfiguration configuration;
-    if (!mm::build::resolve_configuration(".", options.verbose(), configuration))
-        return mm::build::exit_manifest;
-    const bool target_lane = options.seen("--target") ||
-        (!options.seen("--host") && configuration.selects_cross());
-    const auto* toolchain = configuration.toolchain_for(target_lane);
-    const auto* lane_directory = configuration.build_directory_for(target_lane);
-    if (toolchain == nullptr || lane_directory == nullptr) {
-        std::cerr << "debug: target lane is not configured\n";
-        return mm::build::exit_manifest;
-    }
-
-    mm::build::LoadPolicy policy{.tool = "debug", .warn_options = true};
-    if (resolved_roots.external_root)
-        policy.external = resolved_roots.external_root;
-    auto project = mm::build::load_project(".", policy);
-    if (!project.ok) return mm::build::exit_manifest;
-    if (!mm::build::check_configuration_staleness(configuration, project, target_lane, "debug"))
-        return mm::build::exit_manifest;
-    std::size_t node = mm::build::no_target;
-    for (std::size_t i = 0; i < project.nodes.size(); ++i) {
-        if (project.nodes[i].source_dir == resolved_roots.requested_dir) {
-            node = i;
-            break;
-        }
-    }
-    if (node == mm::build::no_target || project.nodes[node].kind != "app") {
-        std::cerr << "debug: requested manifest is not a registered app: "
-                  << manifest.string() << "\n";
-        return mm::build::exit_manifest;
-    }
-
-    mm::build::StructuralProperties properties;
-    if (!mm::build::resolve_structural_properties(".", configuration.build, project, properties,
-                                                  "debug"))
-        return mm::build::exit_manifest;
-    const auto buildable = properties.lane(
-        target_lane, configuration.target_has_host_capability());
-    const auto available = mm::build::availability(
-        project, node, buildable[node], target_lane,
-        target_lane ? configuration.configured_target_platform() : &configuration.host_platform());
-    if (!available.available) {
-        std::cerr << "debug: " << project.nodes[node].manifest.string() << ": "
-                  << available.reason << "\n";
-        return mm::build::exit_unavailable;
-    }
-
-    const auto& app = project.targets[project.target[node]];
-    const auto context_tree_root = resolved_roots.external_root
-                                       ? *resolved_roots.external_root
-                                       : resolved_roots.project_root;
-    const auto context_output_root =
-        resolved_roots.external_root
-            ? (*resolved_roots.external_root / *lane_directory)
-            : (resolved_roots.project_root / *lane_directory);
-    mm::build::ArtifactContext context(
-        context_tree_root, context_output_root, resolved_roots.tools_dir,
-        resolved_roots.external_root.has_value());
+    const auto& app = state.project.targets[state.project.target[state.node]];
+    const auto context = state.artifact_context();
     const auto executable = context.executable_path(app);
+    std::error_code ec;
     if (!std::filesystem::is_regular_file(executable, ec) || ec) {
         std::cerr << "debug: application is not built: " << executable.string()
                   << "; run build first\n";
         return mm::build::exit_run;
     }
-    if (!toolchain->debugger) {
-        std::cerr << "debug: " << (target_lane ? "target " + toolchain->target : "host")
+    if (!state.toolchain.debugger) {
+        std::cerr << "debug: "
+                  << (state.target_lane ? "target " + state.toolchain.target : "host")
                   << " has no debugger; rerun configure with --debugger gdb\n";
         return mm::build::exit_run;
     }
-    if (target_lane && !toolchain->runner) {
-        std::cerr << "debug: target " << toolchain->target << " has no runner\n";
+    if (state.target_lane && !state.toolchain.runner) {
+        std::cerr << "debug: target " << state.toolchain.target << " has no runner\n";
         return mm::build::exit_run;
     }
 
     if (options.verbose()) {
         std::cout << "modules.cpp debug tool\n";
         std::cout << "  app      " << app.name << "\n";
-        std::cout << "  debugger " << toolchain->debugger->invocation << "\n";
+        std::cout << "  debugger " << state.toolchain.debugger->invocation << "\n";
         std::cout << "  target   " << executable.string() << "\n";
     }
-    const int status = mm::debug::execute(*toolchain, target_lane, executable,
+    const int status = mm::debug::execute(state.toolchain, state.target_lane, executable,
                                           options.trailing());
     return status < 0 ? mm::build::exit_run : status;
 }
