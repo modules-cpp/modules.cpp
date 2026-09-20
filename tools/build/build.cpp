@@ -1,6 +1,7 @@
 // modules.cpp build tool, stage 1
 //
-// Usage: build [-v] [<path to mm.mdy>]     (default: mm.mdy in the current dir)
+// Usage: build [-v] [--compiler CXX] [--flags FLAGS] [<path to mm.mdy]>
+//              (default: mm.mdy in the current dir)
 //
 // Built by stage 0 (tools/build/main.cpp), which exists only to produce this
 // binary. All the work lives in mm.build; this file is the front end.
@@ -24,11 +25,26 @@ import mm.build;
 int main(int argc, char** argv) {
     std::filesystem::path manifest_path;
     bool verbose = false;
+    std::string compiler_override;
+    std::string flags_override;
 
     for (int i = 1; i < argc; ++i) {
         const std::string_view arg = argv[i];
         if (arg == "-v" || arg == "--verbose")
             verbose = true;
+        else if (arg == "--compiler") {
+            if (++i >= argc) {
+                std::cerr << "build: --compiler requires a value\n";
+                return mm::build::exit_usage;
+            }
+            compiler_override = argv[i];
+        } else if (arg == "--flags") {
+            if (++i >= argc) {
+                std::cerr << "build: --flags requires a value\n";
+                return mm::build::exit_usage;
+            }
+            flags_override = argv[i];
+        }
         else if (manifest_path.empty())
             manifest_path = arg;
         else {
@@ -72,7 +88,12 @@ int main(int argc, char** argv) {
     std::vector<std::size_t> order;
     if (!mm::build::order(tree, order)) return mm::build::exit_manifest;
 
-    const auto toolchain = mm::build::default_toolchain(verbose);
+    // Bootstrap supplies these explicitly so the Darwin build uses the
+    // detected host compiler and Clang module flags. With no overrides the
+    // resolved toolchain is exactly what it was before.
+    auto toolchain = mm::build::default_toolchain(verbose);
+    if (!compiler_override.empty()) toolchain.cxx = compiler_override;
+    if (!flags_override.empty()) toolchain.cxxflags = flags_override;
     const std::filesystem::path build_dir = "out";
 
     std::cout << "Clear nodule cache\n";

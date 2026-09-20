@@ -607,8 +607,32 @@ std::string shell_quote(const std::filesystem::path& path) {
     return quoted;
 }
 
+// Extracts the directory after -fprebuilt-module-path= from a raw flag
+// string, or an empty string when the option is absent. The option is a
+// single space-separated token, which the bootstrap's module flags honour.
+std::string prebuilt_module_path(const std::string& flags) {
+    const std::string option = "-fprebuilt-module-path=";
+    const auto start = flags.find(option);
+    if (start == std::string::npos) return std::string();
+    const auto value = start + option.size();
+    const auto end = flags.find(' ', value);
+    return flags.substr(value, end == std::string::npos ? std::string::npos : end - value);
+}
+
 int compile(const Toolchain& toolchain, BuildableNode& target, const std::filesystem::path& build_dir) {
     std::error_code ec;
+
+    // The BMIs emitted for the Clang driver are shared by every unit of the
+    // build, so their directory is created once here. Hosts whose flags
+    // carry no -fprebuilt-module-path (the GCC driver) never reach it.
+    const auto prebuilt = prebuilt_module_path(toolchain.cxxflags);
+    if (!prebuilt.empty()) {
+        std::filesystem::create_directories(prebuilt, ec);
+        if (ec) {
+            std::cerr << "build: cannot create " << prebuilt << ": " << ec.message() << "\n";
+            return exit_compile;
+        }
+    }
 
     for (const auto& source : target.sources) {
         if (!safe_exists(source.path)) {
@@ -630,8 +654,35 @@ int compile(const Toolchain& toolchain, BuildableNode& target, const std::filesy
 
         std::cout << "    " << source.path << "\n";
 
-        const auto command = toolchain.cxx + " " + toolchain.cxxflags +
-                             " -c " + shell_quote(source.path) + " -o " + shell_quote(object);
+        std::string command = toolchain.cxx + " " + toolchain.cxxflags;
+
+        // Apple Clang keeps the BMI of a compiled interface in a private
+        // temporary file unless -fmodule-output says where to write it, so
+        // no later unit can import the module. When the flags carry Clang's
+        // -fprebuilt-module-path directory, emit every module interface's
+        // BMI there, under the module name with ':' written as '-', so the
+        // units importing it resolve it from that directory. The GCC driver
+        // needs no module output of its own: -fmodules-ts keeps its BMIs in
+        // gcm.cache, which clear_module_cache clears before this loop.
+        if (!prebuilt.empty()) {
+            std::string module_name = source.module_name;
+            if (module_name.empty() && target.kind == "module" &&
+                std::filesystem::path(source.path).extension() == ".cppm")
+                module_name = target.module_name;
+            if (!module_name.empty()) {
+                for (char& c : module_name)
+                    if (c == ':') c = '-';
+                const auto bmi = std::filesystem::path(prebuilt) / (module_name + ".pcm");
+                if (!within_root(bmi)) {
+                    std::cerr << "build: refusing to write outside the project: " << bmi.string()
+                              << "\n";
+                    return exit_manifest;
+                }
+                command += " -fmodule-output=" + shell_quote(bmi);
+            }
+        }
+
+        command += " -c " + shell_quote(source.path) + " -o " + shell_quote(object);
         if (run(toolchain, command) != 0) {
             std::cerr << "build: failed to compile " << source.path << "\n";
             return exit_compile;

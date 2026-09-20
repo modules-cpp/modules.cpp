@@ -284,6 +284,21 @@ Common commands are:
 - ./out/bin/build mm.mdy
 - ./out/bin/build -v modules/mm.mdy
 
+## macOS
+
+bootstrap.sh detects a Darwin host through uname -s. It then selects Apple's
+clang++ driver instead of the generic c++ driver and uses Clang's standard
+module interface support instead of GCC's -fmodules-ts. The bootstrap first
+writes the interface BMIs to out/bootstrap-bmi and passes that directory to
+the later stages as -fprebuilt-module-path, so the already built build1 can
+use the same working Clang configuration for the full project build.
+
+AppleClang rejects the GCC -fmodules-ts option, so the Darwin path never
+passes it. The bootstrap still clears gcm.cache for hosts that use GCC; the
+Darwin path uses the bootstrap-bmi directory instead. If a Darwin build
+stops at a temporary file error under /private/var, run it with TMPDIR=/tmp,
+which points Apple's temporary file interface at a writable location.
+
 ## test
 tools/test/main.cpp is installed as out/bin/test. It accepts one kind:test
 manifest, finds the project root, and loads the project module graph.

@@ -9,11 +9,16 @@
 #
 set -e
 
-# Deliberately the literal c++, not $CXX: bootstrap must reach a working
-# build1 the same way on every machine, independent of a caller's
+# Use Apple's clang++ driver on macOS; on every other host keep the generic
+# c++ driver, so bootstrap follows the platform's default toolchain either
+# way. The driver is deliberately a literal, not $CXX: bootstrap must reach
+# a working build1 the same way on every machine, independent of a caller's
 # environment. $CXX is honoured only afterwards, by the self hosted build
 # (mm::build::default_toolchain); see models/configuration/configuration.cppm.
-MCCP="c++"
+case "$(uname -s)" in
+    Darwin) MCCP="clang++" ;;
+    *) MCCP="c++" ;;
+esac
 MCCP_VERSION=`$MCCP --version`
 echo
 echo "Compiler version"
@@ -25,6 +30,20 @@ echo "Build in ${MM_BUILD}"
 echo
 MM_CPPFLAGS="-std=c++20"
 echo "Flags ${MM_CPPFLAGS}"
+
+# Apple Clang does not understand GCC's -fmodules-ts option, so macOS gets
+# Clang's module support instead: a .cppm is a standard module interface
+# when the driver infers the language (never force -x c++ on it), and the
+# generated PCM files are kept in a bootstrap-local cache that the later
+# implementation units use to resolve their imports.
+case "$(uname -s)" in
+    Darwin)
+        MM_MODULE_FLAGS="${MM_CPPFLAGS} -fprebuilt-module-path=${MM_BUILD}/bootstrap-bmi"
+        ;;
+    *)
+        MM_MODULE_FLAGS="${MM_CPPFLAGS} -fmodules-ts"
+        ;;
+esac
 echo
 mkdir -p ${MM_BUILD}
 echo "Compile build0"
@@ -40,7 +59,11 @@ rm -f "${MM_BUILD}/build1"
 # compiler commands, and neither goes through mm::build::clear_module_cache.
 # A gcm.cache left from an earlier build can hold BMIs for interfaces that
 # have since changed, so it is cleared here rather than silently consumed.
+# The Clang BMI cache is recreated fresh for the same reason; on hosts that
+# never use Clang it is simply unused.
 rm -rf gcm.cache
+rm -rf "${MM_BUILD}/bootstrap-bmi"
+mkdir -p "${MM_BUILD}/bootstrap-bmi"
 
 # Hand the work to build0 rather than repeating the same fixed steps by hand
 # a second time. The status is captured instead of ending the script,
@@ -48,7 +71,7 @@ rm -rf gcm.cache
 # build0's mode failing: exiting here would make them unreachable.
 echo "Build build1"
 mm_build1_status=0
-"${MM_BUILD}/build0" build1 || mm_build1_status=$?
+"${MM_BUILD}/build0" build1 --compiler "${MCCP}" --flags "${MM_MODULE_FLAGS}" || mm_build1_status=$?
 echo
 
 if [ "${mm_build1_status}" -ne 0 ] || [ ! -x "${MM_BUILD}/build1" ]; then
@@ -59,8 +82,20 @@ if [ "${mm_build1_status}" -ne 0 ] || [ ! -x "${MM_BUILD}/build1" ]; then
     mkdir -p "${MM_BUILD}/modules/mm/build/src"
     mkdir -p "${MM_BUILD}/tools/build"
 
-    MCCP_MODULES="${MCCP} -fmodules-ts"
-    MM_MODULE_FLAGS="${MM_CPPFLAGS} -x c++"
+    case "$(uname -s)" in
+        Darwin)
+            # Best effort: only reached when build0 itself failed, and the
+            # supported Darwin path is build0, which handles module
+            # interfaces. This fallback therefore appends -x c++ to every
+            # unit, .cppm included, exactly as upstream's does.
+            MCCP_MODULES="${MCCP}"
+            MM_MODULE_FLAGS="${MM_MODULE_FLAGS} -x c++"
+            ;;
+        *)
+            MCCP_MODULES="${MCCP} -fmodules-ts"
+            MM_MODULE_FLAGS="${MM_CPPFLAGS} -x c++"
+            ;;
+    esac
 
     ${MCCP_MODULES} ${MM_MODULE_FLAGS} \
         -c modules/mm/mdy/mdy.cppm \
@@ -102,4 +137,8 @@ fi
 # run once here so bootstrap.sh finishes with a fully built, installed
 # project rather than stopping at build1.
 echo "Build build"
-"${MM_BUILD}/build1" || exit $?
+if [ "$(uname -s)" = "Darwin" ]; then
+    "${MM_BUILD}/build1" --compiler "${MCCP}" --flags "${MM_MODULE_FLAGS}" || exit $?
+else
+    "${MM_BUILD}/build1" || exit $?
+fi
