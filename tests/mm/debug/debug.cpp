@@ -12,13 +12,13 @@ namespace {
 
 void rejects_an_unconfigured_debugger() {
     const auto toolchain = mm::build::default_toolchain();
-    mm::test::expect(mm::debug::execute(toolchain, false, "/bin/true") == -1,
+    mm::test::expect(mm::debug::execute(toolchain, false, "true") == -1,
                      "expected an unconfigured debugger to be unavailable");
 }
 
 void starts_a_direct_host_debugger() {
     auto toolchain = mm::build::default_toolchain();
-    toolchain.debugger = mm::build::ToolchainDebugger{.invocation = "/bin/true"};
+    toolchain.debugger = mm::build::ToolchainDebugger{.invocation = "true"};
     mm::test::expect(mm::debug::execute(toolchain, false, "application", {"a; false"}) == 0,
                      "expected direct debugger arguments to be safely quoted");
     mm::test::expect(mm::debug::execute(toolchain, true, "application") == -1,
@@ -28,12 +28,12 @@ void starts_a_direct_host_debugger() {
 void starts_a_runner_remote_debugger() {
     auto toolchain = mm::build::default_toolchain();
     toolchain.debugger = mm::build::ToolchainDebugger{
-        .invocation = "/bin/true",
+        .invocation = "true",
         .connection = mm::build::DebuggerConnection::RunnerRemote,
         .remote_endpoint = "localhost:1234",
         .runner_arguments = {"-g", "1234"},
     };
-    toolchain.runner = mm::build::ToolchainRunner{.invocation = "/bin/true"};
+    toolchain.runner = mm::build::ToolchainRunner{.invocation = "true"};
     mm::test::expect(mm::debug::execute(toolchain, true, "guest image", {"a; false"}) == 0,
                      "expected a remote debugger to start through the target runner");
     mm::test::expect(mm::debug::execute(toolchain, false, "guest image") == -1,

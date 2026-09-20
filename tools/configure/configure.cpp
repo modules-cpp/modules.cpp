@@ -55,6 +55,11 @@ bool available_program(std::string_view invocation) {
     return false;
 }
 
+bool apple_host() {
+    std::error_code ec;
+    return std::filesystem::is_directory("/System/Library", ec) && !ec;
+}
+
 bool run_driver_command(const std::string& command, std::string& output) {
     FILE* pipe = ::popen(command.c_str(), "r");
     if (pipe == nullptr) return false;
@@ -360,7 +365,8 @@ int main(int argc, char** argv) {
     }
 
     const std::string requested = compilers.empty()
-                                      ? (target_lane ? target + "-g++" : std::string("gcc"))
+                                      ? (target_lane ? target + "-g++"
+                                                     : (apple_host() ? "clang++" : "gcc"))
                                       : compilers.front();
     const auto compiler = mm::configure::parse_compiler(requested);
     if (!compiler) {

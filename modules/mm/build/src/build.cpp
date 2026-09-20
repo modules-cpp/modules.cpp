@@ -402,6 +402,16 @@ bool within_root(const std::filesystem::path& path) {
     return !relative.empty() && *relative.begin() != "..";
 }
 
+bool apple_host() {
+    std::error_code ec;
+    return std::filesystem::is_directory("/System/Library", ec) && !ec;
+}
+
+bool uses_clang_modules(const Toolchain& toolchain) {
+    if (toolchain.family == CompilerFamily::Clang) return true;
+    return apple_host() && toolchain.compiler.invocation.find("g++") != std::string::npos;
+}
+
 // All source-manifest consumers share this gate. Configuration records have
 // their own schema and do not pass through it.
 bool valid_mm_version(const mm::mdy::MDYDocument& doc, const std::filesystem::path& manifest,
@@ -3475,8 +3485,9 @@ int compile(const Toolchain& toolchain, BuildableNode& target,
             const std::vector<std::filesystem::path>& include_directories) {
     std::error_code ec;
 
+    const bool clang_modules = uses_clang_modules(toolchain);
     const auto bmi_dir = build_dir / "bmi";
-    if (toolchain.family == CompilerFamily::Clang) {
+    if (clang_modules) {
         if (!within_root(bmi_dir)) {
             std::cerr << "build: refusing to write outside the project: " << bmi_dir.string()
                       << "\n";
@@ -3513,7 +3524,7 @@ int compile(const Toolchain& toolchain, BuildableNode& target,
         std::string command = toolchain.compiler.invocation + " " + toolchain.compiler.arguments;
         for (const auto& include : include_directories)
             command += " -I " + shell_quote(include);
-        if (toolchain.family == CompilerFamily::Gcc) {
+        if (!clang_modules) {
             command += " -fmodules-ts -fmodule-mapper=" +
                        shell_quote(bmi_dir / "gcc.mapper") + " -x c++";
         } else {
