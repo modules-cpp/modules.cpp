@@ -269,6 +269,7 @@ struct WalkState {
     LoadPolicy policy;
     std::filesystem::path root;                   // canonical project root
     std::filesystem::path external_root;          // canonical external root
+    std::filesystem::path external_root_display;  // caller spelling for public paths
     bool is_external = false;
     std::vector<std::filesystem::path> visiting;  // active chain, innermost last
     std::vector<std::filesystem::path> visited;
@@ -1338,8 +1339,10 @@ void walk_project(const std::filesystem::path& dir, std::size_t parent, Project&
 
     ManifestNode node;
     node.manifest = manifest;
-    node.dir = dir.lexically_normal();
-    node.source_dir = canonical.parent_path();
+    node.dir = state.policy.tool == "configure" ? canonical.parent_path()
+                                                  : dir.lexically_normal();
+    node.source_dir = state.is_external && state.policy.tool == "build"
+        ? dir.lexically_normal() : canonical.parent_path();
     const auto owning_root =
         state.is_external ? state.external_root : state.root;
     const auto rel_logical =
@@ -1398,8 +1401,10 @@ void walk_project(const std::filesystem::path& dir, std::size_t parent, Project&
     target.kind = kind;
     target.name = name;
     target.module_name = first(doc, "module");
-    target.dir = dir.lexically_normal();
-    target.source_dir = canonical.parent_path();
+    target.dir = state.policy.tool == "configure" ? canonical.parent_path()
+                                                    : dir.lexically_normal();
+    target.source_dir = state.is_external && state.policy.tool == "build"
+        ? dir.lexically_normal() : canonical.parent_path();
     target.logical_dir = project.nodes[index].logical_dir;
     target.uses = all(doc, "use");
     target.requires_board = first(doc, "requires-board");
@@ -1569,10 +1574,19 @@ void walk_project(const std::filesystem::path& dir, std::size_t parent, Project&
             // Directory order is not defined; the link command is.
             std::sort(library_sources.begin(), library_sources.end());
 
-            target.sketch_libraries.push_back(lib_root);
+            auto displayed_library = (target.source_dir / raw_lib).lexically_normal();
+            if (state.is_external && lib_root == state.external_root &&
+                !state.external_root_display.empty())
+                displayed_library = state.external_root_display;
+            target.sketch_libraries.push_back(std::move(displayed_library));
+            const auto displayed_compiled_root =
+                (layered ? target.sketch_libraries.back() / "src"
+                          : target.sketch_libraries.back()).lexically_normal();
             for (const auto& file : library_sources) {
                 TranslationUnit unit;
-                unit.source = file;
+                unit.source = state.is_external
+                    ? (displayed_compiled_root / file.lexically_relative(compiled_root)).lexically_normal()
+                    : file;
                 const auto relative = file.lexically_relative(compiled_root);
                 unit.path = (state.is_external
                                  ? target.logical_dir / relative
@@ -2214,12 +2228,20 @@ bool parse_definitions(Project& project, const std::filesystem::path& root,
             const auto source_path = (node.dir / source).lexically_normal();
             const auto absolute_source = absolute_from_root(root, source_path);
             if (std::filesystem::path(source).is_absolute() ||
-                !path_within(root.lexically_normal(), absolute_source)) {
+                !path_contained_in(root, absolute_source)) {
                 std::cerr << policy.tool << ": " << node.manifest.string()
                           << ": source is outside the project: " << source << "\n";
                 return false;
             }
-            library.source = relative_to_root(root, source_path);
+            std::error_code source_ec;
+            const auto canonical_source = std::filesystem::weakly_canonical(
+                absolute_source, source_ec);
+            if (source_ec) {
+                std::cerr << policy.tool << ": " << node.manifest.string()
+                          << ": cannot resolve library source: " << source_ec.message() << "\n";
+                return false;
+            }
+            library.source = relative_to_root(root, canonical_source);
 
             std::filesystem::path licence_path;
             if (!definition_path(root, node, licence, licence_path, "licence", policy.tool))
@@ -3086,6 +3108,7 @@ Project load_project(const std::filesystem::path& dir, const LoadPolicy& policy)
         state.is_external = true;
         state.external_root =
             std::filesystem::weakly_canonical(*policy.external, ec);
+        state.external_root_display = policy.external->lexically_normal();
         if (ec) {
             std::cerr << policy.tool << ": cannot resolve external root "
                       << policy.external->string()
