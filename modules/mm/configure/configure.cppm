@@ -131,6 +131,18 @@ struct CompilerSettings {
 // clang++ -> clang).
 [[nodiscard]] std::string candidate_c_compiler(std::string_view cpp_compiler);
 
+// Resolves a driver invocation to an absolute path: an invocation that already
+// carries a directory is canonicalised; a bare name is looked up in every PATH
+// directory. A failed lookup returns the original spelling so callers can
+// report it verbatim.
+[[nodiscard]] std::filesystem::path resolve_executable(std::string_view name);
+
+// Reports whether path lies inside container. Both sides are resolved with
+// weakly_canonical, so a symlink prefix cannot smuggle a lexically unrelated
+// path past the check. An empty side is never contained.
+[[nodiscard]] bool path_contained(const std::filesystem::path& container,
+                                  const std::filesystem::path& path);
+
 struct CompilerProbe {
     CompilerFamily family = CompilerFamily::Gcc;
     std::string target_triple;
@@ -297,5 +309,11 @@ struct ConfigurationLog {
 // an I/O failure leave an existing file unchanged.
 [[nodiscard]] bool write_configuration(const std::filesystem::path& project_root,
                                        const Settings& settings);
+
+// Quotes text for /bin/sh. Uses single quotes: $(), backticks and $NAME all
+// still expand inside double quotes, so text is not safe merely for being
+// wrapped in them. This is the single quoting rule the tools share; mm.build
+// keeps a path overload on top of it.
+std::string shell_quote(std::string_view text);
 
 }  // namespace mm::configure

@@ -12,8 +12,7 @@
 //
 // Pawel Wodnicki (C) 2026
 // 32bitmicro LLC (C) 2026
-#include <cstdlib>
-#include <cstdio>
+#include <algorithm>
 #include <filesystem>
 #include <iostream>
 #include <optional>
@@ -27,58 +26,35 @@ import mm.configure;
 
 namespace {
 
+// Resolves the invocation with the shared PATH walk and then requires an
+// execute bit, so a driver that exists but cannot run is reported missing.
 bool available_program(std::string_view invocation) {
-    const auto executable = [](const std::filesystem::path& path) {
-        std::error_code ec;
-        const auto status = std::filesystem::status(path, ec);
-        if (ec || !std::filesystem::is_regular_file(status)) return false;
-        const auto execute = std::filesystem::perms::owner_exec |
-                             std::filesystem::perms::group_exec |
-                             std::filesystem::perms::others_exec;
-        return (status.permissions() & execute) != std::filesystem::perms::none;
-    };
-    const std::filesystem::path program(invocation);
-    if (program.has_parent_path()) return executable(program);
-    const char* raw_path = std::getenv("PATH");
-    if (raw_path == nullptr) return false;
-    std::string_view path(raw_path);
-    for (std::size_t begin = 0; begin <= path.size();) {
-        const auto end = path.find(':', begin);
-        const auto part = path.substr(begin, end == std::string_view::npos ? path.size() - begin
-                                                                          : end - begin);
-        const auto directory = part.empty() ? std::filesystem::path(".")
-                                            : std::filesystem::path(part);
-        if (executable(directory / program)) return true;
-        if (end == std::string_view::npos) break;
-        begin = end + 1;
-    }
-    return false;
+    std::error_code ec;
+    const auto status = std::filesystem::status(mm::configure::resolve_executable(invocation), ec);
+    if (ec || !std::filesystem::is_regular_file(status)) return false;
+    const auto execute = std::filesystem::perms::owner_exec |
+                         std::filesystem::perms::group_exec |
+                         std::filesystem::perms::others_exec;
+    return (status.permissions() & execute) != std::filesystem::perms::none;
 }
 
+// Runs through the shared capture helper, then trims trailing whitespace: a
+// probe answer is empty exactly when the driver produced nothing to report.
 bool run_driver_command(const std::string& command, std::string& output) {
-    FILE* pipe = ::popen(command.c_str(), "r");
-    if (pipe == nullptr) return false;
-    output.clear();
-    char buffer[512];
-    while (std::fgets(buffer, sizeof(buffer), pipe) != nullptr) output += buffer;
-    const int status = ::pclose(pipe);
+    const auto result = mm::build::capture_command(command);
+    if (!result.launched) return false;
+    output = std::move(result.output);
     while (!output.empty() && (output.back() == '\n' || output.back() == '\r' ||
                               output.back() == ' ' || output.back() == '\t'))
         output.pop_back();
-    return status == 0 && !output.empty();
+    return result.status == 0 && !output.empty();
 }
 
-std::string compile_flags(mm::configure::Build build, mm::configure::CompilerFamily family,
-                          std::string_view target) {
-    std::string flags(mm::configure::build_compile_flags(build));
-    if (family == mm::configure::CompilerFamily::Clang && target != "host")
-        flags += " --target=" + std::string(target);
-    return flags;
-}
-
-std::string link_flags(mm::configure::Build build, mm::configure::CompilerFamily family,
+// The compile and link flag strings differ only in their base: one shared
+// pass appends the Clang target triple for non-host targets.
+std::string tool_flags(std::string_view base, mm::configure::CompilerFamily family,
                        std::string_view target) {
-    std::string flags(mm::configure::build_link_flags(build));
+    std::string flags(base);
     if (family == mm::configure::CompilerFamily::Clang && target != "host")
         flags += " --target=" + std::string(target);
     return flags;
@@ -91,8 +67,10 @@ mm::configure::CompilerSettings compiler_settings(const mm::build::Toolchain& to
         toolchain.compiler.invocation,
         toolchain.target,
         "POSIX",
-        compile_flags(build, toolchain.family, toolchain.target),
-        link_flags(build, toolchain.family, toolchain.target),
+        tool_flags(mm::configure::build_compile_flags(build), toolchain.family,
+                   toolchain.target),
+        tool_flags(mm::configure::build_link_flags(build), toolchain.family,
+                   toolchain.target),
         toolchain.c_compiler.invocation,
     };
 }
@@ -140,23 +118,23 @@ bool probe_specs(std::string_view compiler, std::string_view profile) {
 
 const mm::build::SdkDefinition* find_sdk(const mm::build::Project& project,
                                          std::string_view name) {
-    for (const auto& sdk : project.sdks)
-        if (sdk.name == name) return &sdk;
-    return nullptr;
+    const auto it = std::find_if(project.sdks.begin(), project.sdks.end(),
+                                 [=](const auto& sdk) { return sdk.name == name; });
+    return it == project.sdks.end() ? nullptr : &*it;
 }
 
 const mm::build::BoardDefinition* find_board(const mm::build::Project& project,
                                              std::string_view name) {
-    for (const auto& board : project.boards)
-        if (board.name == name) return &board;
-    return nullptr;
+    const auto it = std::find_if(project.boards.begin(), project.boards.end(),
+                                 [=](const auto& board) { return board.name == name; });
+    return it == project.boards.end() ? nullptr : &*it;
 }
 
 const mm::build::LibraryDefinition* find_library(const mm::build::Project& project,
                                                  std::string_view name) {
-    for (const auto& library : project.libraries)
-        if (library.name == name) return &library;
-    return nullptr;
+    const auto it = std::find_if(project.libraries.begin(), project.libraries.end(),
+                                 [=](const auto& library) { return library.name == name; });
+    return it == project.libraries.end() ? nullptr : &*it;
 }
 
 int resolve_platform(const mm::build::Project& project,
@@ -389,9 +367,7 @@ int main(int argc, char** argv) {
         return mm::build::exit_usage;
     }
 
-    std::filesystem::path manifest_path = options.positional().empty()
-                                              ? std::filesystem::path("mm.mdy")
-                                              : std::filesystem::path(options.positional().front());
+    std::filesystem::path manifest_path = mm::app::default_manifest(options.positional());
 
     manifest_path = mm::build::resolve_manifest(manifest_path);
 
@@ -431,13 +407,7 @@ int main(int argc, char** argv) {
     }
     const auto requested_root = std::filesystem::canonical(manifest_root, ec);
     if (ec) return mm::build::exit_manifest;
-    bool found = false;
-    for (const auto& node : project.nodes) {
-        const auto directory = std::filesystem::canonical(node.dir, ec);
-        if (ec) return mm::build::exit_manifest;
-        if (directory == requested_root) found = true;
-    }
-    if (!found) {
+    if (mm::build::node_in_directory(project, requested_root) == mm::build::no_target) {
         std::cerr << "configure: requested manifest is not in the project tree: "
                   << manifest_root.string() << "\n";
         return mm::build::exit_manifest;
@@ -561,8 +531,10 @@ int main(int argc, char** argv) {
             compiler->invocation,
             target,
             "POSIX",
-            compile_flags(*build, compiler->family, target),
-            link_flags(*build, compiler->family, target),
+            tool_flags(mm::configure::build_compile_flags(*build), compiler->family,
+                       target),
+            tool_flags(mm::configure::build_link_flags(*build), compiler->family,
+                       target),
             c_driver,
         };
         settings.cross_runner.reset();

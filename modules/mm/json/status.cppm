@@ -36,6 +36,23 @@ struct Issue {
     std::string_view description;
 };
 
+// The enum's own spelling, for tools that print the status beside its
+// description.
+[[nodiscard]] constexpr std::string_view name(Status status) {
+    switch (status) {
+        case Status::Ok: return "Ok";
+        case Status::Malformed: return "Malformed";
+        case Status::Truncated: return "Truncated";
+        case Status::TooDeep: return "TooDeep";
+        case Status::BadEscape: return "BadEscape";
+        case Status::BadUnicode: return "BadUnicode";
+        case Status::BadNumber: return "BadNumber";
+        case Status::DuplicateKey: return "DuplicateKey";
+        case Status::Overflow: return "Overflow";
+    }
+    return "Unknown";
+}
+
 // The fixed text an Issue carries for each status.
 [[nodiscard]] constexpr std::string_view describe(Status status) {
     switch (status) {

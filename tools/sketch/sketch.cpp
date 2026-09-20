@@ -5,78 +5,55 @@
 #include <fstream>
 #include <iostream>
 #include <sstream>
+#include <optional>
 #include <string>
 #include <vector>
 
 import mm.app;
+import mm.build;
+import mm.configure;
 import mm.mdy;
 import mm.ino;
 
 namespace {
 
-const std::vector<std::string>* lookup(const mm::mdy::MDYDocument& doc,
-                                       std::string_view key) {
-    auto it = doc.metadata.find(key);
-    if (it != doc.metadata.end()) return &it->second;
-    return nullptr;
-}
+// Manifest lookup is unified in mm.mdy.
+using mm::mdy::lookup;
 
-bool path_contained_in(const std::filesystem::path& root,
-                       const std::filesystem::path& path) {
-    std::error_code ec;
-    const auto canon_root = std::filesystem::canonical(root, ec);
-    if (ec) return false;
-    const auto canon_path = std::filesystem::canonical(path, ec);
-    if (ec) return false;
-    auto r_it = canon_root.begin();
-    auto p_it = canon_path.begin();
-    for (; r_it != canon_root.end() && p_it != canon_path.end();
-         ++r_it, ++p_it) {
-        if (*r_it != *p_it) return false;
-    }
-    return r_it == canon_root.end();
-}
-
-std::filesystem::path find_project_root_upward(std::filesystem::path dir) {
-    std::error_code ec;
-    for (; !dir.empty(); dir = dir.parent_path()) {
-        const auto cand = dir / "mm.mdy";
-        if (std::filesystem::exists(cand, ec)) {
-            auto doc = mm::mdy::Parser::parse_file(cand);
-            if (doc.status == mm::mdy::ParseStatus::Ok) {
-                const auto* kind = lookup(doc, "kind");
-                if (kind != nullptr && !kind->empty() &&
-                    kind->front() == "project") {
-                    return std::filesystem::weakly_canonical(dir, ec);
-                }
-            }
-        }
-        if (!dir.has_relative_path()) break;
-    }
-    return {};
-}
-
+// The shared upward walk: the first ancestor whose manifest is a project,
+// canonical, or empty when none is.
 std::filesystem::path find_self_project(const char* argv0) {
     std::error_code ec;
+    const auto probe = [](const std::filesystem::path& start) {
+        return mm::build::find_project_root(start);
+    };
     if (std::filesystem::exists("/proc/self/exe", ec)) {
         auto exe = std::filesystem::canonical("/proc/self/exe", ec);
         if (!ec) {
-            auto cand = exe.parent_path().parent_path();
-            auto root = find_project_root_upward(cand);
+            auto root = probe(exe.parent_path().parent_path());
             if (!root.empty()) return root;
         }
     }
     if (argv0 != nullptr && *argv0 != '\0') {
         auto exe = std::filesystem::weakly_canonical(argv0, ec);
         if (!ec) {
-            auto cand = exe.parent_path().parent_path();
-            auto root = find_project_root_upward(cand);
+            auto root = probe(exe.parent_path().parent_path());
             if (!root.empty()) return root;
         }
     }
-    auto cwd_proj = find_project_root_upward(std::filesystem::current_path());
-    if (!cwd_proj.empty()) return cwd_proj;
+    auto root = probe(std::filesystem::current_path());
+    if (!root.empty()) return root;
     return {};
+}
+
+// nullopt when the file cannot be opened; callers keep their own diagnostics,
+// and a read failure in check mode is still a mismatch of the committed file.
+std::optional<std::string> read_file(const std::filesystem::path& path) {
+    std::ifstream in(path);
+    if (!in) return std::nullopt;
+    std::ostringstream ss;
+    ss << in.rdbuf();
+    return ss.str();
 }
 
 }  // namespace
@@ -90,8 +67,8 @@ int main(int argc, char** argv) {
     options.help("sketch [-v|--verbose] [-h|--help] [--check] [--library] "
                  "[--project DIR] [directory]");
     const auto cli = options.parse(argc, argv);
-    if (cli == mm::app::Cli::help) return 0;
-    if (cli != mm::app::Cli::ok) return 64;
+    if (cli == mm::app::Cli::help) return mm::build::exit_ok;
+    if (cli != mm::app::Cli::ok) return mm::build::exit_usage;
 
     const bool check_mode = options.seen("--check");
     const bool verbose = options.seen("--verbose");
@@ -113,7 +90,7 @@ int main(int argc, char** argv) {
     if (ec) {
         std::cerr << "sketch: cannot resolve directory: " << dir.string()
                   << "\n";
-        return 65;
+        return mm::build::exit_manifest;
     }
 
     // 1. Read the directory's own manifest first if present
@@ -127,7 +104,7 @@ int main(int argc, char** argv) {
         if (self_doc.status != mm::mdy::ParseStatus::Ok) {
             std::cerr << "sketch: cannot parse manifest: "
                       << manifest_path.string() << "\n";
-            return 65;
+            return mm::build::exit_manifest;
         }
         const auto* proj = lookup(self_doc, "project");
         if (proj != nullptr && !proj->empty()) {
@@ -197,7 +174,7 @@ int main(int argc, char** argv) {
     if (options.seen("--project") && tree_above) {
         std::cerr << "sketch: --project is not allowed when a tree is above"
                   << " the directory\n";
-        return 65;
+        return mm::build::exit_manifest;
     }
 
     std::filesystem::path project_root;
@@ -208,7 +185,7 @@ int main(int argc, char** argv) {
             std::cerr << "sketch: --project does not point to a project"
                       << " directory: "
                       << options.value("--project") << "\n";
-            return 65;
+            return mm::build::exit_manifest;
         }
         const auto pdoc = mm::mdy::Parser::parse_file(project_root / "mm.mdy");
         const auto* k = lookup(pdoc, "kind");
@@ -216,7 +193,7 @@ int main(int argc, char** argv) {
             std::cerr << "sketch: --project does not point to a kind: project"
                       << " manifest: "
                       << options.value("--project") << "\n";
-            return 65;
+            return mm::build::exit_manifest;
         }
     } else if (ancestor_is_project) {
         project_root = ancestor_project_root;
@@ -241,7 +218,7 @@ int main(int argc, char** argv) {
     if (is_library) {
         if (tree_above && !parent_registers_child) {
             std::cerr << parent_msg << "\n";
-            return 65;
+            return mm::build::exit_manifest;
         }
 
         const bool expect_project = !tree_above;
@@ -253,7 +230,7 @@ int main(int argc, char** argv) {
         auto plan = mm::ino::discover_library(abs_dir);
         if (!plan.ok) {
             std::cerr << "sketch: " << plan.error << "\n";
-            return 65;
+            return mm::build::exit_manifest;
         }
 
         if (verbose) {
@@ -269,7 +246,7 @@ int main(int argc, char** argv) {
         if (plan.app_nodes.empty()) {
             std::cerr << "sketch: no sketch applications found under "
                       << (abs_dir / "examples").string() << "\n";
-            return 65;
+            return mm::build::exit_manifest;
         }
 
         std::vector<std::string> compat_errors;
@@ -310,7 +287,7 @@ int main(int argc, char** argv) {
             for (const auto& e : compat_errors) {
                 std::cerr << "sketch: " << e << "\n";
             }
-            return 65;
+            return mm::build::exit_manifest;
         }
 
         if (check_mode) {
@@ -343,18 +320,12 @@ int main(int argc, char** argv) {
                 } else {
                     std::vector<mm::ino::SourceFile> sources;
                     for (const auto& s : app_node.sketches) {
-                        std::ifstream in(app_node.dir / s);
-                        if (in) {
-                            std::ostringstream ss;
-                            ss << in.rdbuf();
-                            sources.push_back({s, ss.str()});
-                        }
+                        if (auto content = read_file(app_node.dir / s))
+                            sources.push_back({s, std::move(*content)});
                     }
                     const auto tr = mm::ino::transform(sources);
-                    std::ifstream in_main(main_path);
-                    std::ostringstream ss_main;
-                    ss_main << in_main.rdbuf();
-                    if (!tr.ok || ss_main.str() != tr.output) {
+                    const auto main_content = read_file(main_path);
+                    if (!tr.ok || !main_content || *main_content != tr.output) {
                         std::cerr
                             << "sketch: committed main.cpp does not match"
                                " sketch in "
@@ -364,10 +335,8 @@ int main(int argc, char** argv) {
                 }
                 const auto header_path = app_node.dir / "Arduino.h";
                 if (verbose && std::filesystem::exists(header_path, ec)) {
-                    std::ifstream in(header_path);
-                    std::ostringstream ss;
-                    ss << in.rdbuf();
-                    if (ss.str() != mm::ino::sketch_header()) {
+                    const auto header_content = read_file(header_path);
+                    if (!header_content || *header_content != mm::ino::sketch_header()) {
                         std::cerr
                             << "sketch: committed Arduino.h does not match"
                                " this release in "
@@ -379,10 +348,8 @@ int main(int argc, char** argv) {
                               << app_node.dir.string() << "\n";
                     check_failed = true;
                 } else {
-                    std::ifstream in_header(header_path);
-                    std::ostringstream ss_header;
-                    ss_header << in_header.rdbuf();
-                    if (ss_header.str() != mm::ino::sketch_header()) {
+                    const auto header_content = read_file(header_path);
+                    if (!header_content || *header_content != mm::ino::sketch_header()) {
                         std::cerr
                             << "sketch: committed Arduino.h does not match"
                                " this release in "
@@ -391,8 +358,8 @@ int main(int argc, char** argv) {
                     }
                 }
             }
-            if (check_failed) return 65;
-            return 0;
+            if (check_failed) return mm::build::exit_manifest;
+            return mm::build::exit_ok;
         }
 
         std::string err;
@@ -403,13 +370,13 @@ int main(int argc, char** argv) {
             if (content.empty()) {
                 std::cerr << "sketch: invalid manifest content for "
                           << root_manifest.string() << "\n";
-                return 65;
+                return mm::build::exit_manifest;
             }
             if (!mm::ino::write_guarded(abs_dir, "mm.mdy", content, err,
                                         "mm.mdy.tmp")) {
                 std::cerr << "sketch: cannot write " << root_manifest.string()
                           << ": " << err << "\n";
-                return 65;
+                return mm::build::exit_manifest;
             }
         }
         for (const auto& dir_node : plan.dir_nodes) {
@@ -420,13 +387,13 @@ int main(int argc, char** argv) {
                 if (content.empty()) {
                     std::cerr << "sketch: invalid manifest content for "
                               << mpath.string() << "\n";
-                    return 65;
+                    return mm::build::exit_manifest;
                 }
                 if (!mm::ino::write_guarded(dir_node.dir, "mm.mdy", content,
                                             err, "mm.mdy.tmp")) {
                     std::cerr << "sketch: cannot write " << mpath.string()
                               << ": " << err << "\n";
-                    return 65;
+                    return mm::build::exit_manifest;
                 }
             }
         }
@@ -438,45 +405,43 @@ int main(int argc, char** argv) {
                 if (content.empty()) {
                     std::cerr << "sketch: invalid manifest content for "
                               << mpath.string() << "\n";
-                    return 65;
+                    return mm::build::exit_manifest;
                 }
                 if (!mm::ino::write_guarded(app_node.dir, "mm.mdy", content,
                                             err, "mm.mdy.tmp")) {
                     std::cerr << "sketch: cannot write " << mpath.string()
                               << ": " << err << "\n";
-                    return 65;
+                    return mm::build::exit_manifest;
                 }
             }
             std::vector<mm::ino::SourceFile> sources;
             for (const auto& s : app_node.sketches) {
-                std::ifstream in(app_node.dir / s);
-                if (!in) {
+                auto content = read_file(app_node.dir / s);
+                if (!content) {
                     std::cerr << "sketch: cannot open sketch file: "
                               << (app_node.dir / s).string() << "\n";
-                    return 65;
+                    return mm::build::exit_manifest;
                 }
-                std::ostringstream ss;
-                ss << in.rdbuf();
-                sources.push_back({s, ss.str()});
+                sources.push_back({s, std::move(*content)});
             }
             const auto tr = mm::ino::transform(sources);
             if (!tr.ok) {
                 std::cerr << "sketch: transformation failed for "
                           << app_node.name << "\n";
-                return 65;
+                return mm::build::exit_manifest;
             }
             if (!mm::ino::write_guarded(app_node.dir, "main.cpp", tr.output,
                                         err, "main.cpp.tmp")) {
                 std::cerr << "sketch: cannot write main.cpp in "
                           << app_node.dir.string() << ": " << err << "\n";
-                return 65;
+                return mm::build::exit_manifest;
             }
             if (!mm::ino::write_guarded(app_node.dir, "Arduino.h",
                                         mm::ino::sketch_header(), err,
                                         "Arduino.h.tmp")) {
                 std::cerr << "sketch: cannot write Arduino.h in "
                           << app_node.dir.string() << ": " << err << "\n";
-                return 65;
+                return mm::build::exit_manifest;
             }
         }
         if (!tree_above) {
@@ -487,7 +452,7 @@ int main(int argc, char** argv) {
                       << (project_root / "out/bin/build").string() << " "
                       << abs_dir.string() << "\n";
         }
-        return 0;
+        return mm::build::exit_ok;
     }
 
     // Determine Case:
@@ -499,38 +464,34 @@ int main(int argc, char** argv) {
         std::cerr << "sketch: " << manifest_path.string()
                   << ": sketch is neither registered by a parent nor external; "
                   << "add project: to it or generate in a new directory\n";
-        return 65;
+        return mm::build::exit_manifest;
     }
 
     if (self_has_project && parent_registers_child && check_mode) {
-        if (verbose) {
-            std::cerr << "sketch: manifest carries project: but is also registered "
-                      << "by parent manifest: " << manifest_path.string() << "\n";
-        }
         std::cerr << "sketch: manifest carries project: but is also registered "
                   << "by parent manifest: " << manifest_path.string() << "\n";
-        return 65;
+        return mm::build::exit_manifest;
     }
 
     if (check_mode) {
         if (tree_above && !parent_msg.empty()) {
             std::cerr << parent_msg << "\n";
-            return 65;
+            return mm::build::exit_manifest;
         }
 
         if (!manifest_exists) {
             std::cerr << "sketch: manifest not found: "
                       << manifest_path.string() << "\n";
-            return 65;
+            return mm::build::exit_manifest;
         }
 
         std::string error;
         if (!mm::ino::check_application(abs_dir, self_doc, error)) {
             std::cerr << "sketch: " << error << "\n";
-            return 65;
+            return mm::build::exit_manifest;
         }
 
-        return 0;
+        return mm::build::exit_ok;
     }
 
     // Generation mode
@@ -554,7 +515,7 @@ int main(int argc, char** argv) {
         if (sketches == nullptr || sketches->empty()) {
             std::cerr << "sketch: manifest " << manifest_path.string()
                       << " has no sketch: entries\n";
-            return 65;
+            return mm::build::exit_manifest;
         }
 
         for (const auto& s : *sketches) {
@@ -571,7 +532,7 @@ int main(int argc, char** argv) {
                 if (std::find(sketch_files.begin(), sketch_files.end(), name) ==
                     sketch_files.end()) {
                     std::cerr << "sketch: unmanifested .ino file: " << name << "\n";
-                    return 65;
+                    return mm::build::exit_manifest;
                 }
             }
         }
@@ -581,7 +542,7 @@ int main(int argc, char** argv) {
         if (!std::filesystem::exists(expected_path, ec)) {
             std::cerr << "sketch: expected " << expected_ino << " in "
                       << dir.string() << "\n";
-            return 65;
+            return mm::build::exit_manifest;
         }
 
         for (const auto& entry :
@@ -592,7 +553,7 @@ int main(int argc, char** argv) {
                     std::cerr << "sketch: extra .ino file found without"
                               << " manifest: "
                               << name << "\n";
-                    return 65;
+                    return mm::build::exit_manifest;
                 }
             }
         }
@@ -615,7 +576,7 @@ int main(int argc, char** argv) {
                                     write_err, "mm.mdy.tmp")) {
             std::cerr << "sketch: cannot write " << manifest_path.string()
                       << ": " << write_err << "\n";
-            return 65;
+            return mm::build::exit_manifest;
         }
     }
 
@@ -627,28 +588,26 @@ int main(int argc, char** argv) {
         if (raw_file.is_absolute() ||
             raw_file.lexically_normal().string().starts_with("..")) {
             std::cerr << "sketch: unsafe sketch path: " << file << "\n";
-            return 65;
+            return mm::build::exit_manifest;
         }
         std::error_code sec;
         const auto abs_file = std::filesystem::canonical(joined_file, sec);
         if (sec) {
             std::cerr << "sketch: sketch source does not exist: "
                       << joined_file.string() << "\n";
-            return 65;
+            return mm::build::exit_manifest;
         }
-        if (!path_contained_in(owning_tree, abs_file)) {
+        if (!mm::configure::path_contained(owning_tree, abs_file)) {
             std::cerr << "sketch: sketch source outside tree: " << file << "\n";
-            return 65;
+            return mm::build::exit_manifest;
         }
 
-        std::ifstream in(abs_file);
-        if (!in) {
+        auto content = read_file(abs_file);
+        if (!content) {
             std::cerr << "sketch: cannot read " << abs_file.string() << "\n";
-            return 65;
+            return mm::build::exit_manifest;
         }
-        std::ostringstream ss;
-        ss << in.rdbuf();
-        sources.push_back({file, ss.str()});
+        sources.push_back({file, std::move(*content)});
     }
 
     const auto result = mm::ino::transform(sources);
@@ -659,7 +618,7 @@ int main(int argc, char** argv) {
                       << (diag.is_warning ? "warning: " : "error: ")
                       << diag.message << "\n";
         }
-        return 65;
+        return mm::build::exit_manifest;
     }
 
     if (verbose) {
@@ -676,7 +635,7 @@ int main(int argc, char** argv) {
     if (!mm::ino::write_guarded(abs_dir, "main.cpp", result.output,
                                 main_err, "main.cpp.tmp")) {
         std::cerr << "sketch: cannot write main.cpp: " << main_err << "\n";
-        return 65;
+        return mm::build::exit_manifest;
     }
 
     if (verbose) {
@@ -696,7 +655,7 @@ int main(int argc, char** argv) {
                                     "Arduino.h.tmp")) {
             std::cerr << "sketch: cannot write Arduino.h: " << header_err
                       << "\n";
-            return 65;
+            return mm::build::exit_manifest;
         }
         if (verbose) {
             std::cerr << "sketch: wrote Arduino.h to " << abs_dir.string()
@@ -717,5 +676,5 @@ int main(int argc, char** argv) {
         std::cerr << "sketch: done\n";
     }
 
-    return 0;
+    return mm::build::exit_ok;
 }

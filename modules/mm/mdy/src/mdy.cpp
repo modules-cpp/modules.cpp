@@ -22,6 +22,18 @@ std::string_view trim(std::string_view text)
     return text.substr(first, last - first + 1);
 }
 
+// Reads every line of file into lines. False when the file cannot be opened
+// or read: a directory opens fine but fails on the first read, setting
+// badbit rather than the eofbit a normal, possibly empty, file ends with.
+bool read_lines(const std::filesystem::path& file, std::vector<std::string>& lines) {
+    std::ifstream in(file);
+    if (!in.is_open()) return false;
+    std::string line;
+    while (std::getline(in, line)) lines.push_back(std::move(line));
+    if (in.bad()) return false;
+    return true;
+}
+
 // C++20 parsing helper function
 Block parse_line(std::string_view line) {
     // 1. Trim leading space if necessary (simplified)
@@ -55,11 +67,10 @@ std::vector<Block> Parser::parse(const std::filesystem::path& file_path) {
         return parsed_blocks;
     }
 
-    std::ifstream file(file_path);
-    std::string current_line;
-
-    while (std::getline(file, current_line)) {
-        std::string_view view(current_line);
+    std::vector<std::string> lines;
+    if (!read_lines(file_path, lines)) return parsed_blocks;
+    for (const auto& line : lines) {
+        std::string_view view(line);
         
         // Skip empty lines gracefully
         if (view.empty()) continue; 
@@ -81,13 +92,11 @@ MDYDocument Parser::parse_file(const std::filesystem::path& file_path) {
         return doc;
     }
 
-    std::ifstream file(file_path);
-    if (!file.is_open()) {
+    std::vector<std::string> lines;
+    if (!read_lines(file_path, lines)) {
         doc.status = ParseStatus::Unreadable;
         return doc;
     }
-
-    std::string current_line;
 
     // State machine states
     enum class ParseState { ExpectingStartFence, InsideFrontMatter, InsideBody };
@@ -95,8 +104,8 @@ MDYDocument Parser::parse_file(const std::filesystem::path& file_path) {
 
     bool first_line = true;
 
-    while (std::getline(file, current_line)) {
-        std::string_view line_view = trim(current_line);
+    for (const auto& line : lines) {
+        std::string_view line_view = trim(line);
 
         // 1. Check for YAML boundary markers (---)
         if (line_view == "---") {
@@ -135,12 +144,6 @@ MDYDocument Parser::parse_file(const std::filesystem::path& file_path) {
         }
     }
 
-    // is_open() is true for a path that opens but cannot actually be read,
-    // such as a directory (POSIX open() on a directory succeeds; the
-    // failure shows up on the first read instead, setting badbit rather
-    // than the eofbit a normal, possibly empty, file ends the loop with).
-    if (file.bad()) doc.status = ParseStatus::Unreadable;
-
     return doc;
 }
 
@@ -148,10 +151,8 @@ MDYDocument Parser::parse_file(const std::filesystem::path& file_path) {
 
 namespace mm::mdy {
 
-// Unified manifest parsing utilities: centralizes lookup/first/all operations
-// to avoid duplication across mm.build and mm.ino modules.
-namespace {
-
+// Unified manifest lookup: one front-matter key's values, its first value,
+// or every value, or nullptr for a key the document does not carry.
 const std::vector<std::string>* lookup(const MDYDocument& doc, std::string_view key) {
     auto it = doc.metadata.find(key);
     return it == doc.metadata.end() ? nullptr : &it->second;
@@ -165,21 +166,6 @@ std::string first(const MDYDocument& doc, std::string_view key) {
 std::vector<std::string> all(const MDYDocument& doc, std::string_view key) {
     const auto* values = lookup(doc, key);
     return values == nullptr ? std::vector<std::string>{} : *values;
-}
-
-}  // namespace
-
-// Public interface matching the moved functions
-const std::vector<std::string>* mdy_lookup(const MDYDocument& doc, std::string_view key) {
-    return lookup(doc, key);
-}
-
-std::string mdy_first(const MDYDocument& doc, std::string_view key) {
-    return first(doc, key);
-}
-
-std::vector<std::string> mdy_all(const MDYDocument& doc, std::string_view key) {
-    return all(doc, key);
 }
 
 }  // namespace mm::mdy

@@ -455,6 +455,11 @@ Project load_project(const std::filesystem::path& dir, const LoadPolicy& policy 
 // Shared data adapter; no parsing, validation, or option resolution here.
 std::vector<mm::configure::OptionNode> configuration_nodes(const Project& project);
 
+// The index of the node whose source directory is directory, or no_target
+// when no node holds it. directory must be canonical, as source_dir is.
+[[nodiscard]] std::size_t node_in_directory(const Project& project,
+                                            const std::filesystem::path& directory);
+
 // Structural properties constrain use: edges. A dependency must support every
 // lane its consumer supports, and a core consumer may not use a non-core
 // module. Direct-edge checks imply the same rules over the transitive closure.
@@ -491,7 +496,8 @@ std::vector<mm::configure::OptionNode> configuration_nodes(const Project& projec
 // Accepts either a manifest path or the directory holding one.
 std::filesystem::path resolve_manifest(std::filesystem::path path);
 
-// Walks up until it finds the mm.mdy declaring kind: project. Empty if none.
+// Walks up until it finds the mm.mdy declaring kind: project and returns that
+// directory, canonical. Empty if none.
 std::filesystem::path find_project_root(std::filesystem::path dir);
 
 struct ResolvedRoots {
@@ -620,14 +626,24 @@ std::vector<std::filesystem::path> augmented_closure(
     std::vector<std::string>& inputs,
     std::string_view tool = "build");
 
-// Quotes a path for /bin/sh. Uses single quotes: $(), backticks and $NAME all
-// still expand inside double quotes, so a path is not safe merely for being
-// wrapped in them.
+// Quotes a path for /bin/sh. Thin wrapper over mm.configure::shell_quote,
+// the single quoting implementation the tools share.
 std::string shell_quote(const std::filesystem::path& path);
 
 // Runs a command through /bin/sh, returning its exit code rather than a wait
 // status. Every path interpolated into the command must go through shell_quote.
 int run(const Toolchain& toolchain, const std::string& command);
+
+// Captures a command's stdout through a read-only pipe. launched is false when
+// the pipe could not be opened; otherwise status holds the pclose status and
+// output holds the captured stdout, untrimmed. Callers keep their own
+// diagnostics, so the helper prints nothing.
+struct CommandCapture {
+    bool launched = false;
+    int status = -1;
+    std::string output;
+};
+[[nodiscard]] CommandCapture capture_command(const std::string& command);
 
 // Compiles every source of a target, appending to target.objects. Library
 // include directories are separate from the configured compiler argument

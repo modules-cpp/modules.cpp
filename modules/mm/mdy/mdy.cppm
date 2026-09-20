@@ -64,9 +64,9 @@ public:
 
 // Unified manifest lookup: one front-matter key's values, its first value,
 // or every value, or nullptr for a key the document does not carry.
-export const std::vector<std::string>* mdy_lookup(const MDYDocument& doc,
-                                                  std::string_view key);
-export std::string mdy_first(const MDYDocument& doc, std::string_view key);
-export std::vector<std::string> mdy_all(const MDYDocument& doc, std::string_view key);
+export const std::vector<std::string>* lookup(const MDYDocument& doc,
+                                              std::string_view key);
+export std::string first(const MDYDocument& doc, std::string_view key);
+export std::vector<std::string> all(const MDYDocument& doc, std::string_view key);
 
 }

@@ -105,22 +105,6 @@ void collect_uses(const std::vector<const models::BuildableNode*>& nodes,
         for (const auto used : node->uses()) out.push_back({node->name(), used});
 }
 
-std::string_view responsibility_name(models::PlatformResponsibility r) {
-    switch (r) {
-        case models::PlatformResponsibility::ResetVector:
-            return "reset-vector";
-        case models::PlatformResponsibility::InitialStack:
-            return "initial-stack";
-        case models::PlatformResponsibility::MemoryLayout:
-            return "memory-layout";
-        case models::PlatformResponsibility::RuntimeInit:
-            return "runtime-init";
-        case models::PlatformResponsibility::Syscalls:
-            return "syscalls";
-    }
-    return {};
-}
-
 void print_scalar(std::string_view key, std::string_view value,
                   models::ValueProvenance prov) {
     std::cout << "    " << key << ": ";
@@ -176,7 +160,7 @@ void report_board(const models::BoardNode* board) {
     if (!provides.empty()) {
         std::cout << "    provides:\n";
         for (const auto& p : provides) {
-            std::cout << "      " << responsibility_name(p.responsibility)
+            std::cout << "      " << models::responsibility_name(p.responsibility)
                       << " [from " << p.manifest.string() << "]\n";
         }
     }
@@ -219,9 +203,7 @@ int main(int argc, char** argv) {
     const bool report_configuration = options.seen("--configuration");
     const bool report_tools = options.seen("--tools");
     const bool report_boards = options.seen("--boards");
-    auto manifest_path = options.positional().empty()
-                             ? std::filesystem::path("mm.mdy")
-                             : std::filesystem::path(options.positional().front());
+    auto manifest_path = mm::app::default_manifest(options.positional());
     manifest_path = mm::build::resolve_manifest(manifest_path);
 
     // enter_root is false: mm::model::Loaded::load enters and leaves the

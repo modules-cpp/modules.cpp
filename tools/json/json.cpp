@@ -32,21 +32,6 @@ import mm.json;
 
 namespace {
 
-[[nodiscard]] std::string_view name_of(mm::json::Status status) {
-    switch (status) {
-        case mm::json::Status::Ok: return "Ok";
-        case mm::json::Status::Malformed: return "Malformed";
-        case mm::json::Status::Truncated: return "Truncated";
-        case mm::json::Status::TooDeep: return "TooDeep";
-        case mm::json::Status::BadEscape: return "BadEscape";
-        case mm::json::Status::BadUnicode: return "BadUnicode";
-        case mm::json::Status::BadNumber: return "BadNumber";
-        case mm::json::Status::DuplicateKey: return "DuplicateKey";
-        case mm::json::Status::Overflow: return "Overflow";
-    }
-    return "Unknown";
-}
-
 [[nodiscard]] std::string_view name_of(mm::json::Token token) {
     switch (token) {
         case mm::json::Token::ObjectBegin: return "object-begin";
@@ -76,7 +61,7 @@ namespace {
 
 void report(const std::filesystem::path& file, const mm::json::Issue& issue) {
     std::cerr << file.string() << ":" << issue.line << ":" << issue.column << ": "
-              << issue.description << " (" << name_of(issue.status) << ")\n";
+              << issue.description << " (" << mm::json::name(issue.status) << ")\n";
 }
 
 [[nodiscard]] int check(const std::filesystem::path& file, const std::string& text) {

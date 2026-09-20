@@ -23,6 +23,19 @@ enum class PlatformResponsibility {
     Syscalls
 };
 
+// The manifest spelling of a responsibility: the value the provides: lists
+// use and parse_responsibility accepts.
+[[nodiscard]] std::string_view responsibility_name(PlatformResponsibility responsibility) {
+    switch (responsibility) {
+        case PlatformResponsibility::ResetVector: return "reset-vector";
+        case PlatformResponsibility::InitialStack: return "initial-stack";
+        case PlatformResponsibility::MemoryLayout: return "memory-layout";
+        case PlatformResponsibility::RuntimeInit: return "runtime-init";
+        case PlatformResponsibility::Syscalls: return "syscalls";
+    }
+    return {};
+}
+
 struct ResponsibilityOwner {
     PlatformResponsibility responsibility;
     std::string_view owner;

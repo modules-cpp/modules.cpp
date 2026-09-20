@@ -39,18 +39,10 @@ namespace {
 
 std::optional<mm::configure::Responsibility> parse_responsibility(std::string_view value);
 
-// Manifest lookup is unified in mm.mdy; these wrappers keep call sites unchanged.
-const std::vector<std::string>* lookup(const mm::mdy::MDYDocument& doc, std::string_view key) {
-    return mm::mdy::mdy_lookup(doc, key);
-}
-
-std::string first(const mm::mdy::MDYDocument& doc, std::string_view key) {
-    return mm::mdy::mdy_first(doc, key);
-}
-
-std::vector<std::string> all(const mm::mdy::MDYDocument& doc, std::string_view key) {
-    return mm::mdy::mdy_all(doc, key);
-}
+// Manifest lookup is unified in mm.mdy.
+using mm::mdy::lookup;
+using mm::mdy::first;
+using mm::mdy::all;
 
 std::string_view option_name(std::string_view declaration) {
     return declaration.substr(0, declaration.find_first_of(" \t"));
@@ -362,30 +354,10 @@ bool is_safe_relative_path(const std::filesystem::path& raw, const std::filesyst
     return true;
 }
 
-bool path_within(const std::filesystem::path& base, const std::filesystem::path& path) {
-    const auto relative = path.lexically_normal().lexically_relative(base.lexically_normal());
-    return !relative.empty() && !relative.is_absolute() && *relative.begin() != "..";
-}
-
+// One containment rule for the whole module, delegated to mm.configure.
 bool path_contained_in(const std::filesystem::path& container,
                        const std::filesystem::path& path) {
-    if (container.empty() || path.empty()) return false;
-    std::error_code ec;
-    auto resolved_container = std::filesystem::weakly_canonical(container, ec);
-    if (ec) return false;
-    if (!resolved_container.is_absolute())
-        resolved_container =
-            std::filesystem::absolute(container, ec).lexically_normal();
-    if (ec) return false;
-
-    auto resolved = std::filesystem::weakly_canonical(path, ec);
-    if (ec) return false;
-    if (!resolved.is_absolute())
-        resolved = std::filesystem::absolute(path, ec).lexically_normal();
-    if (ec) return false;
-
-    const auto relative = resolved.lexically_relative(resolved_container);
-    return !relative.empty() && *relative.begin() != "..";
+    return mm::configure::path_contained(container, path);
 }
 
 bool within_destination(const std::filesystem::path& destination,
@@ -1189,24 +1161,7 @@ bool valid_manifest(const mm::mdy::MDYDocument& doc, std::string_view kind, std:
 // a symlink into the tree.
 bool folder_within_library_source(const std::filesystem::path& source,
                                   const std::filesystem::path& folder) {
-    if (path_within(source, folder)) return true;
-
-    // weakly_canonical leaves a path that does not exist yet relative, the same
-    // case within_root documents; fall back to lexical resolution so the two
-    // sides are always compared in the same form.
-    const auto resolve = [](const std::filesystem::path& path) {
-        std::error_code ec;
-        auto resolved = std::filesystem::weakly_canonical(path, ec);
-        if (ec) return std::filesystem::path{};
-        if (!resolved.is_absolute())
-            resolved = std::filesystem::absolute(path, ec).lexically_normal();
-        return ec ? std::filesystem::path{} : resolved;
-    };
-
-    const auto canonical_source = resolve(source);
-    const auto canonical_folder = resolve(folder);
-    if (canonical_source.empty() || canonical_folder.empty()) return false;
-    return path_within(canonical_source, canonical_folder);
+    return path_contained_in(source, folder);
 }
 
 // The one traversal: the structural node, the parsed document, and the
@@ -1832,7 +1787,7 @@ bool library_interface_paths(const std::filesystem::path& root, const ManifestNo
             }
             if (!exists) continue;
             const auto canonical = std::filesystem::weakly_canonical(candidate, ec);
-            if (ec || !path_within(source, canonical)) {
+            if (ec || !path_contained_in(source, canonical)) {
                 std::cerr << tool << ": " << node.manifest.string()
                           << ": library interface path escapes source: "
                           << entry.path.string() << "\n";
@@ -1842,7 +1797,7 @@ bool library_interface_paths(const std::filesystem::path& root, const ManifestNo
     }
     const auto licence = std::filesystem::weakly_canonical(
         absolute_from_root(root, library.licence), ec);
-    if (ec || path_within(source, licence)) {
+    if (ec || path_contained_in(source, licence)) {
         std::cerr << tool << ": " << node.manifest.string()
                   << ": licence must resolve outside library source\n";
         return false;
@@ -2212,7 +2167,7 @@ bool parse_definitions(Project& project, const std::filesystem::path& root,
             const auto source_path = (node.dir / source).lexically_normal();
             const auto absolute_source = absolute_from_root(root, source_path);
             if (std::filesystem::path(source).is_absolute() ||
-                !path_within(root.lexically_normal(), absolute_source)) {
+                !path_contained_in(root, absolute_source)) {
                 std::cerr << policy.tool << ": " << node.manifest.string()
                           << ": source is outside the project: " << source << "\n";
                 return false;
@@ -2223,7 +2178,7 @@ bool parse_definitions(Project& project, const std::filesystem::path& root,
             if (!definition_path(root, node, licence, licence_path, "licence", policy.tool))
                 return false;
             library.licence = relative_to_root(root, licence_path);
-            if (path_within(absolute_source, absolute_from_root(root, library.licence))) {
+            if (path_contained_in(absolute_source, absolute_from_root(root, library.licence))) {
                 std::cerr << policy.tool << ": " << node.manifest.string()
                           << ": licence must be outside library source\n";
                 return false;
@@ -2244,7 +2199,7 @@ bool parse_definitions(Project& project, const std::filesystem::path& root,
                 const auto canonical_root = std::filesystem::weakly_canonical(root, ec);
                 if (ec) return false;
                 const auto canonical_cmake = std::filesystem::weakly_canonical(absolute_cmake, ec);
-                if (ec || !path_within(canonical_root, canonical_cmake)) {
+                if (ec || !path_contained_in(canonical_root, canonical_cmake)) {
                     std::cerr << policy.tool << ": " << node.manifest.string()
                               << ": cmake directory is outside the project: "
                               << cmake_dir.generic_string() << "\n";
@@ -2259,14 +2214,14 @@ bool parse_definitions(Project& project, const std::filesystem::path& root,
                 const auto cmakelists = absolute_cmake / "CMakeLists.txt";
                 const auto canonical_cmakelists = std::filesystem::weakly_canonical(cmakelists, ec);
                 const bool cmakelists_is_file = std::filesystem::is_regular_file(canonical_cmakelists, ec);
-                if (ec || !path_within(canonical_root, canonical_cmakelists) || !cmakelists_is_file) {
+                if (ec || !path_contained_in(canonical_root, canonical_cmakelists) || !cmakelists_is_file) {
                     std::cerr << policy.tool << ": " << node.manifest.string()
                               << ": external-build library requires cmake/CMakeLists.txt\n";
                     return false;
                 }
                 const auto canonical_source = std::filesystem::weakly_canonical(absolute_source, ec);
-                if (ec || path_within(canonical_source, canonical_cmake) ||
-                    path_within(canonical_source, canonical_cmakelists)) {
+                if (ec || path_contained_in(canonical_source, canonical_cmake) ||
+                    path_contained_in(canonical_source, canonical_cmakelists)) {
                     std::cerr << policy.tool << ": " << node.manifest.string()
                               << ": cmake directory must resolve outside library source\n";
                     return false;
@@ -2974,7 +2929,7 @@ std::filesystem::path find_project_root(std::filesystem::path dir) {
         const auto candidate = dir / "mm.mdy";
         if (safe_exists(candidate) &&
             first(mm::mdy::Parser::parse_file(candidate), "kind") == "project") {
-            return dir;
+            return std::filesystem::weakly_canonical(dir);
         }
         if (!dir.has_relative_path()) break;
     }
@@ -3178,6 +3133,13 @@ Project load_project(const std::filesystem::path& dir, const LoadPolicy& policy)
     return project;
 }
 
+std::size_t node_in_directory(const Project& project,
+                              const std::filesystem::path& directory) {
+    for (std::size_t i = 0; i < project.nodes.size(); ++i)
+        if (project.nodes[i].source_dir == directory) return i;
+    return no_target;
+}
+
 std::vector<mm::configure::OptionNode> configuration_nodes(const Project& project) {
     std::vector<mm::configure::OptionNode> nodes;
     if (!project.ok || project.nodes.size() != project.documents.size()) return nodes;
@@ -3276,7 +3238,7 @@ bool validate_library_checkout(const std::filesystem::path& project_root,
     const auto root = std::filesystem::weakly_canonical(project_root, ec);
     if (ec) return false;
     const auto canonical_source = std::filesystem::weakly_canonical(source, ec);
-    if (ec || !path_within(root, canonical_source)) {
+    if (ec || !path_contained_in(root, canonical_source)) {
         std::cerr << tool << ": " << library.manifest.string()
                   << ": library source resolves outside the project: "
                   << library.source.generic_string() << "\n";
@@ -3295,7 +3257,7 @@ bool validate_library_checkout(const std::filesystem::path& project_root,
             }
             if (!exists) continue;
             const auto canonical = std::filesystem::weakly_canonical(candidate, ec);
-            if (ec || !path_within(canonical_source, canonical)) {
+            if (ec || !path_contained_in(canonical_source, canonical)) {
                 std::cerr << tool << ": " << library.manifest.string()
                           << ": library interface path escapes source: "
                           << entry.path.generic_string() << "\n";
@@ -3305,7 +3267,7 @@ bool validate_library_checkout(const std::filesystem::path& project_root,
     }
     const auto licence = std::filesystem::weakly_canonical(
         absolute_from_root(project_root, library.licence), ec);
-    if (ec || path_within(canonical_source, licence)) {
+    if (ec || path_contained_in(canonical_source, licence)) {
         std::cerr << tool << ": " << library.manifest.string()
                   << ": licence must resolve outside library source\n";
         return false;
@@ -3313,7 +3275,7 @@ bool validate_library_checkout(const std::filesystem::path& project_root,
     if (!library.external_build.empty()) {
         const auto cmake_dir = std::filesystem::weakly_canonical(
             absolute_from_root(project_root, library.manifest.parent_path() / "cmake"), ec);
-        if (ec || path_within(canonical_source, cmake_dir)) {
+        if (ec || path_contained_in(canonical_source, cmake_dir)) {
             std::cerr << tool << ": " << library.manifest.string()
                       << ": cmake directory must resolve outside library source\n";
             return false;
@@ -4003,21 +3965,7 @@ int run(const Toolchain& toolchain, const std::string& command) {
 // would not do: $(), `` and $NAME all still expand inside them, so a path such
 // as "$(touch x).cppm" would execute rather than name a file.
 std::string shell_quote(const std::filesystem::path& path) {
-    const std::string& text = path.native();
-
-    std::string quoted;
-    quoted.reserve(text.size() + 2);
-
-    quoted += '\'';
-    for (const char c : text) {
-        if (c == '\'')
-            quoted += "'\\''";
-        else
-            quoted += c;
-    }
-    quoted += '\'';
-
-    return quoted;
+    return mm::configure::shell_quote(path.native());
 }
 
 int compile(const Toolchain& toolchain, BuildableNode& target,
@@ -4738,6 +4686,20 @@ const ProjectionSchema* find_projection_schema(std::string_view target_triple) {
     return nullptr;
 }
 
+// The one capture helper: version probes, driver projection queries, and the
+// configure front end's runner callback all run commands this way.
+CommandCapture capture_command(const std::string& command) {
+    CommandCapture result;
+    FILE* pipe = ::popen(command.c_str(), "r");
+    if (pipe == nullptr) return result;
+    result.launched = true;
+    char buffer[512];
+    while (std::fgets(buffer, sizeof(buffer), pipe) != nullptr)
+        result.output += buffer;
+    result.status = ::pclose(pipe);
+    return result;
+}
+
 namespace {
 
 class Fingerprint {
@@ -4769,32 +4731,6 @@ private:
 
     std::uint64_t value_ = 14695981039346656037ULL;
 };
-
-std::filesystem::path resolve_executable_path(std::string_view name) {
-    if (name.find('/') != std::string_view::npos) {
-        std::error_code ec;
-        auto p = std::filesystem::canonical(name, ec);
-        return ec ? std::filesystem::path(name) : p;
-    }
-    const char* path_env = std::getenv("PATH");
-    if (path_env == nullptr) return name;
-    std::string_view path_view(path_env);
-    while (!path_view.empty()) {
-        const auto colon = path_view.find(':');
-        const auto dir = colon == std::string_view::npos ? path_view : path_view.substr(0, colon);
-        if (!dir.empty()) {
-            auto candidate = std::filesystem::path(dir) / name;
-            std::error_code ec;
-            if (std::filesystem::is_regular_file(candidate, ec)) {
-                auto p = std::filesystem::canonical(candidate, ec);
-                return ec ? candidate : p;
-            }
-        }
-        if (colon == std::string_view::npos) break;
-        path_view = path_view.substr(colon + 1);
-    }
-    return name;
-}
 
 bool read_binary_file(const std::filesystem::path& path, std::string& contents,
                       std::string_view tool) {
@@ -4878,18 +4814,15 @@ bool fingerprint_directory(Fingerprint& fingerprint, const std::filesystem::path
 bool program_version(const std::filesystem::path& program, std::string& version,
                      std::string_view tool) {
     const std::string command = "LC_ALL=C " + shell_quote(program) + " --version";
-    FILE* pipe = ::popen(command.c_str(), "r");
-    if (pipe == nullptr) {
+    const auto result = capture_command(command);
+    if (!result.launched) {
         std::cerr << tool << ": failed to query version of " << program.string() << "\n";
         return false;
     }
-    version.clear();
-    char buffer[512];
-    while (std::fgets(buffer, sizeof(buffer), pipe) != nullptr) version += buffer;
-    const int status = ::pclose(pipe);
-    if (status != 0) {
+    version = std::move(result.output);
+    if (result.status != 0) {
         std::cerr << tool << ": version query failed for " << program.string()
-                  << " with status " << status << "\n";
+                  << " with status " << result.status << "\n";
         return false;
     }
     return true;
@@ -4925,9 +4858,9 @@ bool external_cache_identity(const std::filesystem::path& bridge_dir,
             return false;
     }
 
-    cmake_program = resolve_executable_path("cmake");
-    const auto c_program = resolve_executable_path(toolchain.c_compiler.invocation);
-    const auto cxx_program = resolve_executable_path(toolchain.compiler.invocation);
+    cmake_program = mm::configure::resolve_executable("cmake");
+    const auto c_program = mm::configure::resolve_executable(toolchain.c_compiler.invocation);
+    const auto cxx_program = mm::configure::resolve_executable(toolchain.compiler.invocation);
     std::string cmake_version;
     std::string c_version;
     std::string cxx_version;
@@ -5144,8 +5077,8 @@ bool extract_probe_options(
         return false;
     }
 
-    const auto cmd_driver_canonical = resolve_executable_path(tokens[0]);
-    const auto recorded_driver_canonical = resolve_executable_path(recorded_c_driver);
+    const auto cmd_driver_canonical = mm::configure::resolve_executable(tokens[0]);
+    const auto recorded_driver_canonical = mm::configure::resolve_executable(recorded_c_driver);
     if (cmd_driver_canonical != recorded_driver_canonical) {
         std::cerr << tool << ": external build C driver mismatch: command uses " << tokens[0]
                   << " (" << cmd_driver_canonical.string() << ") but configuration recorded "
@@ -5170,28 +5103,24 @@ bool query_driver_projection(
     std::string_view tool) {
     std::string command = "LC_ALL=C " + shell_quote(c_driver);
     for (const auto& opt : sanitised_options) {
-        command += " " + shell_quote(opt);
+        command += " " + mm::configure::shell_quote(opt);
     }
     // No -c: the driver answers --help=target by compiling a synthetic input
     // named help-dummy, and with -c it would also assemble it, leaving a
     // help-dummy.o in the working directory. The listing is the same.
     command += " -Q --help=target";
 
-    FILE* pipe = ::popen(command.c_str(), "r");
-    if (pipe == nullptr) {
+    const auto result = capture_command(command);
+    if (!result.launched) {
         std::cerr << tool << ": failed to execute driver query: " << command << "\n";
         return false;
     }
-    std::string output;
-    char buffer[512];
-    while (std::fgets(buffer, sizeof(buffer), pipe) != nullptr) output += buffer;
-    const int status = ::pclose(pipe);
-    if (status != 0) {
-        std::cerr << tool << ": driver query failed with status " << status << "\n";
+    if (result.status != 0) {
+        std::cerr << tool << ": driver query failed with status " << result.status << "\n";
         return false;
     }
 
-    return parse_driver_projection(output, schema, projection, tool);
+    return parse_driver_projection(result.output, schema, projection, tool);
 }
 
 bool parse_driver_projection(
@@ -5324,7 +5253,7 @@ bool publish_external_results(
             std::cerr << tool << ": cannot resolve artifact path: " << lines[i] << "\n";
             return false;
         }
-        if (!path_within(can_ext_dir, can_src)) {
+        if (!path_contained_in(can_ext_dir, can_src)) {
             std::cerr << tool << ": artifact resolves outside external build directory: "
                       << lines[i] << "\n";
             return false;
@@ -5460,8 +5389,8 @@ int external_link(
         return exit_manifest;
     }
 
-    const auto c_driver = resolve_executable_path(toolchain.c_compiler.invocation);
-    const auto cxx_driver = resolve_executable_path(toolchain.compiler.invocation);
+    const auto c_driver = mm::configure::resolve_executable(toolchain.c_compiler.invocation);
+    const auto cxx_driver = mm::configure::resolve_executable(toolchain.compiler.invocation);
     std::error_code driver_ec;
     const bool c_exists = c_driver.is_absolute() &&
                           std::filesystem::is_regular_file(c_driver, driver_ec) && !driver_ec;

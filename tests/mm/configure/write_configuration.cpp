@@ -14,16 +14,9 @@ import mm.test;
 
 namespace {
 
-std::string first(const mm::mdy::MDYDocument& document, std::string_view key) {
-    const auto found = document.metadata.find(key);
-    return found == document.metadata.end() || found->second.empty() ? std::string{}
-                                                                    : found->second.front();
-}
-
-std::vector<std::string> all(const mm::mdy::MDYDocument& document, std::string_view key) {
-    const auto found = document.metadata.find(key);
-    return found == document.metadata.end() ? std::vector<std::string>{} : found->second;
-}
+// Manifest lookup is unified in mm.mdy.
+using mm::mdy::first;
+using mm::mdy::all;
 
 mm::configure::Settings native_settings() {
     mm::configure::Settings settings;

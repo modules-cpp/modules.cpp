@@ -39,11 +39,8 @@ import mm.mdy;
 
 namespace {
 
-const std::vector<std::string>* lookup(const mm::mdy::MDYDocument& doc, std::string_view key) {
-    auto it = doc.metadata.find(key);
-    if (it != doc.metadata.end()) return &it->second;
-    return nullptr;
-}
+// Manifest lookup is unified in mm.mdy.
+using mm::mdy::lookup;
 
 // tests/main.cpp is the shared runner unit: entry in more than one kind:test
 // manifest, so collecting straight into a vector would hand cppcheck the
@@ -90,9 +87,7 @@ int main(int argc, char** argv) {
     if (cli != mm::app::Cli::ok) return mm::build::exit_usage;
 
     const bool verbose = options.verbose();
-    auto manifest_path = options.positional().empty()
-                             ? std::filesystem::path("mm.mdy")
-                             : std::filesystem::path(options.positional().front());
+    auto manifest_path = mm::app::default_manifest(options.positional());
     manifest_path = mm::build::resolve_manifest(manifest_path);
 
     std::filesystem::path root;
@@ -120,13 +115,8 @@ int main(int argc, char** argv) {
         policy.external = resolved_roots.external_root;
     auto project = mm::build::load_project(".", policy);
     if (!project.ok) return mm::build::exit_manifest;
-    std::size_t scope = mm::build::no_parent;
-    for (std::size_t i = 0; i < project.nodes.size(); ++i) {
-        if (project.nodes[i].source_dir == resolved_roots.requested_dir) {
-            scope = i;
-            break;
-        }
-    }
+    const std::size_t scope =
+        mm::build::node_in_directory(project, resolved_roots.requested_dir);
     if (scope == mm::build::no_parent) {
         std::cerr << "check: requested manifest is not in the project tree\n";
         return mm::build::exit_manifest;

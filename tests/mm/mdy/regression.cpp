@@ -40,15 +40,9 @@ MDYDocument parse_text(std::string_view text)
     return Parser::parse_file(file.path());
 }
 
-const std::vector<std::string>* values(const MDYDocument& doc, std::string_view key) {
-    const auto it = doc.metadata.find(key);
-    return it == doc.metadata.end() ? nullptr : &it->second;
-}
-
-std::string first(const MDYDocument& doc, std::string_view key) {
-    const auto* found = values(doc, key);
-    return found == nullptr || found->empty() ? std::string{} : found->front();
-}
+// Manifest lookup is unified in mm.mdy.
+using mm::mdy::lookup;
+using mm::mdy::first;
 
 // --- path shaped values -------------------------------------------------
 
@@ -77,7 +71,7 @@ void keeps_relative_paths_verbatim() {
         "folder: modules/mm/mdy\n"
         "---\n");
 
-    const auto* found = values(doc, "folder");
+    const auto* found = lookup(doc, "folder");
     mm::test::expect(found != nullptr && found->size() == 3, "expected three folder values");
     mm::test::expect((*found)[0] == "../b", "expected ../b to survive unchanged");
     mm::test::expect((*found)[1] == "../..", "expected ../.. to survive unchanged");
@@ -105,7 +99,7 @@ void keeps_file_extensions() {
         "file: mdy_types.cppm\n"
         "---\n");
 
-    const auto* found = values(doc, "file");
+    const auto* found = lookup(doc, "file");
     mm::test::expect(found != nullptr && found->size() == 2, "expected two file values");
     mm::test::expect((*found)[0] == "src/mdy.cpp", "expected a path with an extension to survive");
     mm::test::expect((*found)[1] == "mdy_types.cppm", "expected a .cppm extension to survive");
@@ -125,7 +119,7 @@ void repeated_keys_keep_declared_order() {
         "file: src/mdy.cpp\n"
         "---\n");
 
-    const auto* found = values(doc, "file");
+    const auto* found = lookup(doc, "file");
     mm::test::expect(found != nullptr && found->size() == 4, "expected four file values");
     mm::test::expect((*found)[0] == "mdy_types.cppm", "expected the types partition first");
     mm::test::expect((*found)[1] == "mdy_impl.cppm", "expected the impl partition second");
@@ -144,8 +138,8 @@ void interleaved_keys_keep_per_key_order() {
         "use: mm.two\n"
         "---\n");
 
-    const auto* files = values(doc, "file");
-    const auto* uses = values(doc, "use");
+    const auto* files = lookup(doc, "file");
+    const auto* uses = lookup(doc, "use");
 
     mm::test::expect(files != nullptr && files->size() == 2, "expected two file values");
     mm::test::expect((*files)[0] == "a.cppm" && (*files)[1] == "b.cppm",
@@ -180,7 +174,7 @@ void missing_key_is_absent() {
 
     mm::test::expect(doc.metadata.find("kind") == doc.metadata.end(),
                      "expected an undeclared key to be absent from the metadata");
-    mm::test::expect(values(doc, "name") != nullptr, "expected the declared key to be present");
+    mm::test::expect(lookup(doc, "name") != nullptr, "expected the declared key to be present");
 }
 
 // A key written with no value keeps the key. The walker turns an empty folder
@@ -192,7 +186,7 @@ void empty_value_keeps_the_key() {
         "folder:\n"
         "---\n");
 
-    const auto* found = values(doc, "folder");
+    const auto* found = lookup(doc, "folder");
     mm::test::expect(found != nullptr && found->size() == 1, "expected the key to survive");
     mm::test::expect(found->front().empty(), "expected an empty value rather than a dropped key");
 }

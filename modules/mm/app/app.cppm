@@ -215,6 +215,14 @@ Cli Options::parse(int argc, char** argv) {
     return Cli::ok;
 }
 
+// The manifest a tool operates on: the first positional argument, or the
+// default mm.mdy in the current directory when no positional was given.
+// Resolving that path is the caller's job (mm::build::resolve_manifest).
+[[nodiscard]] std::filesystem::path default_manifest(const std::vector<std::string>& positional) {
+    return positional.empty() ? std::filesystem::path("mm.mdy")
+                              : std::filesystem::path(positional.front());
+}
+
 // Validates a manifest path that has already been resolved (see
 // mm::build::resolve_manifest), sets root to the directory holding it, and
 // enters that directory when enter_root is true. Reports the reason on

@@ -6,6 +6,7 @@ module;
 #include <charconv>
 #include <cctype>
 #include <chrono>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -405,7 +406,7 @@ std::optional<CompilerRequest> parse_compiler(std::string_view value) {
     return result;
 }
 
-std::string shell_quote_command_arg(std::string_view arg) {
+std::string shell_quote(std::string_view arg) {
     std::string result = "'";
     for (const char c : arg) {
         if (c == '\'') result += "'\\''";
@@ -435,10 +436,59 @@ std::string candidate_c_compiler(std::string_view cpp_compiler) {
     return {};
 }
 
+// The host configure front end and the build engine both locate compiler
+// drivers this way, so the PATH walk lives in one place.
+std::filesystem::path resolve_executable(std::string_view name) {
+    if (name.find('/') != std::string_view::npos) {
+        std::error_code ec;
+        auto p = std::filesystem::canonical(name, ec);
+        return ec ? std::filesystem::path(name) : p;
+    }
+    const char* path_env = std::getenv("PATH");
+    if (path_env == nullptr) return name;
+    std::string_view path_view(path_env);
+    while (!path_view.empty()) {
+        const auto colon = path_view.find(':');
+        const auto dir = colon == std::string_view::npos ? path_view : path_view.substr(0, colon);
+        if (!dir.empty()) {
+            auto candidate = std::filesystem::path(dir) / name;
+            std::error_code ec;
+            if (std::filesystem::is_regular_file(candidate, ec)) {
+                auto p = std::filesystem::canonical(candidate, ec);
+                return ec ? candidate : p;
+            }
+        }
+        if (colon == std::string_view::npos) break;
+        path_view = path_view.substr(colon + 1);
+    }
+    return name;
+}
+
+bool path_contained(const std::filesystem::path& container,
+                    const std::filesystem::path& path) {
+    if (container.empty() || path.empty()) return false;
+    std::error_code ec;
+    auto resolved_container = std::filesystem::weakly_canonical(container, ec);
+    if (ec) return false;
+    if (!resolved_container.is_absolute())
+        resolved_container =
+            std::filesystem::absolute(container, ec).lexically_normal();
+    if (ec) return false;
+
+    auto resolved = std::filesystem::weakly_canonical(path, ec);
+    if (ec) return false;
+    if (!resolved.is_absolute())
+        resolved = std::filesystem::absolute(path, ec).lexically_normal();
+    if (ec) return false;
+
+    const auto relative = resolved.lexically_relative(resolved_container);
+    return !relative.empty() && *relative.begin() != "..";
+}
+
 std::optional<CompilerProbe> probe_compiler(std::string_view invocation,
                                             DriverCommandRunner run_command) {
     if (invocation.empty() || run_command == nullptr) return std::nullopt;
-    const auto quoted = shell_quote_command_arg(invocation);
+    const auto quoted = shell_quote(invocation);
     std::string machine;
     if (!run_command(quoted + " -dumpmachine", machine))
         return std::nullopt;

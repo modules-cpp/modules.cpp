@@ -16,6 +16,7 @@ module;
 
 module mm.ino;
 
+import mm.configure;
 import mm.mdy;
 
 namespace mm::ino {
@@ -413,11 +414,8 @@ TransformResult transform(std::span<const SourceFile> sources) {
     return result;
 }
 
-namespace {
-const std::vector<std::string>* lookup(const mm::mdy::MDYDocument& doc, std::string_view key) {
-    return mm::mdy::mdy_lookup(doc, key);
-}
-}
+// Manifest lookup is unified in mm.mdy.
+using mm::mdy::lookup;
 
 std::string sketch_header() {
     std::string out;
@@ -573,18 +571,6 @@ bool is_library_root(const std::filesystem::path& dir) {
 
 namespace {
 
-bool is_inside(const std::filesystem::path& base,
-               const std::filesystem::path& p) {
-    std::error_code ec;
-    auto can_base = std::filesystem::weakly_canonical(base, ec);
-    if (ec) return false;
-    auto can_p = std::filesystem::weakly_canonical(p, ec);
-    if (ec) return false;
-    auto rel = can_p.lexically_relative(can_base);
-    return !rel.empty() && !rel.is_absolute()
-           && *rel.begin() != "..";
-}
-
 bool is_valid_manifest_name(std::string_view name) {
     if (name.empty() || name == "." || name == "..") return false;
     for (const unsigned char c : name) {
@@ -634,7 +620,7 @@ bool walk_examples_dir(const std::filesystem::path& current_dir,
             continue;
         }
 
-        if (!is_inside(library_root, entry.path())) {
+        if (!mm::configure::path_contained(library_root, entry.path())) {
             plan.skipped.push_back("outside library root: "
                                   + entry.path().string());
             continue;
