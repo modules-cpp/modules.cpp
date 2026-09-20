@@ -178,6 +178,18 @@ bool within_root(const std::filesystem::path& path) {
     return !relative.empty() && *relative.begin() != "..";
 }
 
+bool apple_host() {
+    std::error_code ec;
+    return std::filesystem::is_directory("/System/Library", ec) && !ec;
+}
+
+bool uses_clang_modules(const Toolchain& toolchain) {
+    if (toolchain.family == CompilerFamily::Clang) return true;
+    // On macOS, gcc/g++ (including target-prefixed shims) commonly invoke
+    // Apple Clang. Do not pass GCC-only -fmodules-ts to those drivers.
+    return apple_host() && toolchain.compiler.invocation.find("g++") != std::string::npos;
+}
+
 // All source-manifest consumers share this gate. Configuration records have
 // their own schema and do not pass through it.
 bool valid_mm_version(const mm::mdy::MDYDocument& doc, const std::filesystem::path& manifest,
@@ -1125,8 +1137,9 @@ std::string shell_quote(const std::filesystem::path& path) {
 int compile(const Toolchain& toolchain, BuildableNode& target, const std::filesystem::path& build_dir) {
     std::error_code ec;
 
+    const bool clang_modules = uses_clang_modules(toolchain);
     const auto bmi_dir = build_dir / "bmi";
-    if (toolchain.family == CompilerFamily::Clang) {
+    if (clang_modules) {
         if (!within_root(bmi_dir)) {
             std::cerr << "build: refusing to write outside the project: " << bmi_dir.string()
                       << "\n";
@@ -1161,7 +1174,7 @@ int compile(const Toolchain& toolchain, BuildableNode& target, const std::filesy
         std::cout << "    " << source.path << "\n";
 
         std::string command = toolchain.compiler.invocation + " " + toolchain.compiler.arguments;
-        if (toolchain.family == CompilerFamily::Gcc) {
+        if (!clang_modules) {
             command += " -fmodules-ts -x c++";
         } else {
             command += " -fprebuilt-module-path=" + shell_quote(bmi_dir);

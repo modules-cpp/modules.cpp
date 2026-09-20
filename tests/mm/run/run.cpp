@@ -49,11 +49,11 @@ void constructs_an_option_image_command_without_forwarding() {
 
 void executes_directly_or_through_a_runner() {
     auto toolchain = mm::build::default_toolchain();
-    mm::test::expect(mm::run::execute(toolchain, false, "/bin/true") == 0,
+    mm::test::expect(mm::run::execute(toolchain, false, "true") == 0,
                      "expected a host executable to run directly");
-    mm::test::expect(mm::run::execute(toolchain, true, "/bin/true") == -1,
+    mm::test::expect(mm::run::execute(toolchain, true, "true") == -1,
                      "expected a target without a runner to be unavailable");
-    toolchain.runner = mm::build::ToolchainRunner{.invocation = "/bin/true"};
+    toolchain.runner = mm::build::ToolchainRunner{.invocation = "true"};
     mm::test::expect(mm::run::execute(toolchain, true, "guest image", {"a; false"}) == 0,
                      "expected a configured target runner to execute safely");
 }

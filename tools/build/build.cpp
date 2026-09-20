@@ -103,18 +103,24 @@ int main(int argc, char** argv) {
         return mm::build::exit_manifest;
     }
 
-    const auto root = std::filesystem::absolute(manifest_path).parent_path();
+    std::error_code ec;
+    // Keep every subsequent project/root comparison in the same namespace.
+    // On macOS /tmp is an alias for /private/tmp; retaining the user's lexical
+    // spelling here makes configured lane selection disagree with the manifest
+    // walk even though both paths name the same directory.
+    const auto requested_manifest_root = std::filesystem::absolute(manifest_path).parent_path();
+    const auto root = std::filesystem::weakly_canonical(requested_manifest_root, ec);
+    if (ec) {
+        std::cerr << "build: cannot resolve " << requested_manifest_root.string() << ": "
+                  << ec.message() << "\n";
+        return mm::build::exit_manifest;
+    }
     const auto found_project_root = mm::build::find_project_root(root);
     const auto project_root = found_project_root.empty() ? root : found_project_root;
     auto tree_root = root.lexically_relative(project_root);
     if (tree_root.empty()) tree_root = ".";
+    const auto requested_root = root;
 
-    std::error_code ec;
-    const auto requested_root = std::filesystem::weakly_canonical(root, ec);
-    if (ec) {
-        std::cerr << "build: cannot resolve " << root.string() << ": " << ec.message() << "\n";
-        return mm::build::exit_manifest;
-    }
     std::filesystem::current_path(project_root, ec);
     if (ec) {
         std::cerr << "build: cannot enter " << project_root.string() << ": " << ec.message()

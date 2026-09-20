@@ -54,6 +54,11 @@ bool available_program(std::string_view invocation) {
     return false;
 }
 
+bool apple_host() {
+    std::error_code ec;
+    return std::filesystem::is_directory("/System/Library", ec) && !ec;
+}
+
 std::string compile_flags(mm::configure::Build build, mm::configure::CompilerFamily family,
                           std::string_view target) {
     std::string flags(mm::configure::build_compile_flags(build));
@@ -157,8 +162,12 @@ int main(int argc, char** argv) {
         return mm::build::exit_usage;
     }
 
+    // Apple ships Clang under the gcc/g++ command names, but it does not
+    // support GCC's -fmodules-ts mode. Select Clang explicitly for the native
+    // Darwin lane; retain the historical GCC default everywhere else.
     const std::string requested = compilers.empty()
-                                      ? (target_lane ? target + "-g++" : std::string("gcc"))
+                                      ? (target_lane ? target + "-g++"
+                                                     : (apple_host() ? "clang++" : "gcc"))
                                       : compilers.front();
     const auto compiler = mm::configure::parse_compiler(requested);
     if (!compiler) {

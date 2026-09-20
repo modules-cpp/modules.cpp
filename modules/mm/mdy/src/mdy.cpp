@@ -81,6 +81,19 @@ MDYDocument Parser::parse_file(const std::filesystem::path& file_path) {
         return doc;
     }
 
+    // POSIX systems differ in how ifstream reports opening a directory:
+    // macOS may succeed initially and never set badbit during the empty read.
+    // A directory is not an MDY file, so classify it as an unreadable input
+    // explicitly and keep the status portable across standard libraries.
+    if (std::filesystem::is_directory(file_path, ec)) {
+        doc.status = ParseStatus::Unreadable;
+        return doc;
+    }
+    if (ec) {
+        doc.status = ParseStatus::Unreadable;
+        return doc;
+    }
+
     std::ifstream file(file_path);
     if (!file.is_open()) {
         doc.status = ParseStatus::Unreadable;
