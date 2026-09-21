@@ -563,6 +563,43 @@ void writes_toolchain_cmake_bare_metal_and_linux() {
                      "expected failure when C compiler is missing");
 }
 
+void cmake_bracket_brackets_plain_text() {
+    using mm::build::cmake_bracket_argument;
+    const auto plain = cmake_bracket_argument("foo/bar");
+    mm::test::expect(plain.has_value() && *plain == "[==[foo/bar]==]",
+                     "plain value gets 2 equals bracket argument");
+    const auto empty = cmake_bracket_argument("");
+    mm::test::expect(empty.has_value() && *empty == "[==[]==]",
+                     "empty string gets 2 equals bracket argument");
+}
+
+void cmake_bracket_avoids_embedded_closing() {
+    using mm::build::cmake_bracket_argument;
+    const auto arg = cmake_bracket_argument("abc]==]def");
+    mm::test::expect(arg.has_value(), "successfully brackets payload containing ]==]");
+    if (arg.has_value()) {
+        mm::test::expect(arg->find("abc]==]def") != std::string::npos, "payload preserved");
+        mm::test::expect(*arg != "[==[abc]==]def]==]", "does not use conflicting delimiter");
+    }
+}
+
+void cmake_bracket_rejects_disallowed_characters() {
+    using mm::build::cmake_bracket_argument;
+    mm::test::expect(!cmake_bracket_argument("has;semicolon").has_value(),
+                     "rejects semicolon");
+    mm::test::expect(!cmake_bracket_argument("has\nnewline").has_value(),
+                     "rejects newline");
+    mm::test::expect(!cmake_bracket_argument("has\rcarriage_return").has_value(),
+                     "rejects carriage return");
+}
+
+void cmake_bracket_exhausts_max_equals() {
+    using mm::build::cmake_bracket_argument;
+    const std::string payload = "]] ]=] ]==] ]===]";
+    mm::test::expect(!cmake_bracket_argument(payload, 3).has_value(),
+                     "fails when all delimiters up to max_equals are exhausted");
+}
+
 const mm::test::case_ cases[] = {
     {"inputs cmake escaping and validation", &inputs_cmake_escaping_and_validation},
     {"bridge board chain resolution", &bridge_board_chain_resolution},
@@ -574,6 +611,10 @@ const mm::test::case_ cases[] = {
     {"compile database escaped probe path", &compile_database_escaped_probe_path},
     {"compile database malformed is reported", &compile_database_malformed_is_reported},
     {"writes toolchain cmake for bare metal and linux", &writes_toolchain_cmake_bare_metal_and_linux},
+    {"brackets plain cmake argument",        &cmake_bracket_brackets_plain_text},
+    {"avoids embedded closing in cmake arg", &cmake_bracket_avoids_embedded_closing},
+    {"rejects disallowed chars in cmake arg",&cmake_bracket_rejects_disallowed_characters},
+    {"exhausts max equals in cmake arg",     &cmake_bracket_exhausts_max_equals},
 };
 
 const mm::test::registrar reg{"mm.build external", cases};
