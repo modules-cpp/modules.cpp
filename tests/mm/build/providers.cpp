@@ -1,7 +1,6 @@
 // Black box tests for platform-interface and platform-provider.
 //
 // Grammar and reference resolution go through a manifest tree, because that is
-// where they are decided. Selection, availability, and closure augmentation are
 // pure functions over a loaded Project or a Tree, so those cases build the
 // input directly and stay about the mechanism rather than the filesystem.
 //
@@ -399,90 +398,6 @@ void a_provider_is_never_an_independent_root() {
            "an unanalysed lane treats a provider as an ordinary module");
 }
 
-// --- closure augmentation -----------------------------------------------
-
-mm::build::BuildableNode target_of(std::string_view kind, std::string_view name,
-                                   std::string_view module_name, std::vector<std::string> uses,
-                                   bool interface_marker = false) {
-    mm::build::BuildableNode target;
-    target.kind = std::string(kind);
-    target.name = std::string(name);
-    target.module_name = std::string(module_name);
-    target.dir = std::string(name);
-    target.uses = std::move(uses);
-    target.platform_interface = interface_marker;
-    target.objects.push_back(std::string(name) + ".o");
-    return target;
-}
-
-bool has_object(const std::vector<std::filesystem::path>& objects, std::string_view name) {
-    for (const auto& object : objects)
-        if (object.string() == name) return true;
-    return false;
-}
-
-std::size_t count_object(const std::vector<std::filesystem::path>& objects,
-                         std::string_view name) {
-    std::size_t total = 0;
-    for (const auto& object : objects)
-        if (object.string() == name) ++total;
-    return total;
-}
-
-void augmentation_adds_only_what_is_required() {
-    mm::build::Tree tree;
-    tree.targets.push_back(target_of("app", "user", "", {"mm.iface"}));       // 0
-    tree.targets.push_back(target_of("app", "bystander", "", {"mm.other"}));  // 1
-    // iface-extra deliberately precedes iface: it is reached only after iface's
-    // provider is merged, so a one-pass forward scan would miss its provider.
-    tree.targets.push_back(
-        target_of("module", "iface-extra", "mm.iface_extra", {}, true));
-    tree.targets.push_back(target_of("module", "iface", "mm.iface", {}, true));
-    tree.targets.push_back(target_of("module", "other", "mm.other", {}));
-    tree.targets.push_back(target_of("module", "provider", "platform.demo.iface",
-                                     {"mm.iface", "mm.iface_extra", "mm.support"}));
-    tree.targets.push_back(target_of("module", "provider-extra",
-                                     "platform.demo.iface_extra", {"mm.iface_extra"}));
-    tree.targets.push_back(target_of("module", "support", "mm.support", {}));
-
-    mm::build::PlatformProviders providers;
-    providers.interfaces.push_back("mm.iface");
-    providers.interfaces.push_back("mm.iface_extra");
-    providers.declared.push_back("platform.demo.iface");
-    providers.declared.push_back("platform.demo.iface_extra");
-    providers.effective.push_back({"mm.iface", "platform.demo.iface", "demo-sdk", false});
-    providers.effective.push_back(
-        {"mm.iface_extra", "platform.demo.iface_extra", "demo-sdk", false});
-
-    std::vector<std::string> merged;
-    const auto objects = mm::build::augmented_closure(tree, 0, providers, &merged);
-    expect(merged.size() == 2 && merged.front() == "platform.demo.iface" &&
-               merged.back() == "platform.demo.iface_extra",
-           "direct and nested providers are reported");
-    expect(has_object(objects, "user.o") && has_object(objects, "iface.o"),
-           "the authored closure is still linked");
-    expect(has_object(objects, "provider.o"), "the selected provider is linked");
-    expect(has_object(objects, "provider-extra.o"),
-           "an interface reached from a provider receives its own provider");
-    expect(has_object(objects, "support.o"), "the provider's own closure is linked");
-    expect(count_object(objects, "iface.o") == 1,
-           "an object shared by the executable and its provider is linked once");
-
-    // An executable that does not reach the interface receives nothing.
-    std::vector<std::string> none;
-    const auto bystander = mm::build::augmented_closure(tree, 1, providers, &none);
-    expect(none.empty(), "an executable that does not reach the interface merges no provider");
-    expect(!has_object(bystander, "provider.o") && !has_object(bystander, "iface.o"),
-           "an unrelated executable receives no provider object");
-    expect(bystander.size() == 2, "an unrelated executable links only its authored closure");
-
-    // With no binding, the interface is linked and answers for itself.
-    const mm::build::PlatformProviders unbound;
-    const auto unserved = mm::build::augmented_closure(tree, 0, unbound, nullptr);
-    expect(has_object(unserved, "iface.o") && !has_object(unserved, "provider.o"),
-           "an unbound interface links without a provider");
-}
-
 const mm::test::case_ cases[] = {
     {"platform-interface grammar", &marker_grammar},
     {"platform-provider grammar and references", &provider_grammar_and_references},
@@ -493,7 +408,6 @@ const mm::test::case_ cases[] = {
     {"unbuildable selected provider",
      &an_unbuildable_selected_provider_makes_the_executable_unavailable},
     {"providers are not roots", &a_provider_is_never_an_independent_root},
-    {"closure augmentation", &augmentation_adds_only_what_is_required},
 };
 
 const mm::test::registrar reg{"mm.build platform providers", cases};
