@@ -33,61 +33,6 @@ void make_base_tree(const mm::test::scoped_tree& tree) {
     tree.manifest("boards", "kind: dir\nname: boards\n");
 }
 
-void validates_board_name_grammar() {
-    // Direct tests for is_safe_board_name
-    expect(mm::build::is_safe_board_name("pico"), "lowercase letters are safe");
-    expect(mm::build::is_safe_board_name("pico-w"), "dash is safe");
-    expect(mm::build::is_safe_board_name("pico2-arm"), "letters, numbers, dash are safe");
-    expect(mm::build::is_safe_board_name("pico2_w"), "underscore is safe");
-    expect(mm::build::is_safe_board_name("board.1"), "dot is safe");
-    expect(mm::build::is_safe_board_name("board+2"), "plus is safe");
-    expect(mm::build::is_safe_board_name("B1"), "uppercase is safe");
-    expect(mm::build::is_safe_board_name("123-board"), "lead digit is safe");
-
-    expect(!mm::build::is_safe_board_name(""), "empty name is not safe");
-    expect(!mm::build::is_safe_board_name("-lead-dash"), "lead dash is not safe");
-    expect(!mm::build::is_safe_board_name(".lead-dot"), "lead dot is not safe");
-    expect(!mm::build::is_safe_board_name("_lead-under"), "lead underscore is not safe");
-    expect(!mm::build::is_safe_board_name("+lead-plus"), "lead plus is not safe");
-    expect(!mm::build::is_safe_board_name("has space"), "space is not safe");
-    expect(!mm::build::is_safe_board_name("has\"quote"), "quote is not safe");
-    expect(!mm::build::is_safe_board_name("has'squote"), "single quote is not safe");
-    expect(!mm::build::is_safe_board_name("has\\backslash"), "backslash is not safe");
-    expect(!mm::build::is_safe_board_name("has;semicolon"), "semicolon is not safe");
-    expect(!mm::build::is_safe_board_name("has[bracket"), "open bracket is not safe");
-    expect(!mm::build::is_safe_board_name("has]bracket"), "close bracket is not safe");
-    expect(!mm::build::is_safe_board_name("a/b"), "slash is not safe");
-
-    // Manifest load checks
-    const mm::test::scoped_tree tree{"board_name_rejections"};
-    tree.manifest("", "kind: project\nname: p\nfolder: board\n");
-
-    tree.manifest_raw("board",
-                      "mm: 1.2\nkind: board\nname: bad board\nsdk: s\n"
-                      "cpu: cortex-m3\ninstruction-set: thumb\nfloat-abi: soft\n");
-    expect(!mm::build::load_project(tree.root()).ok, "space in board name rejected at load");
-
-    tree.manifest_raw("board",
-                      "mm: 1.2\nkind: board\nname: bad;board\nsdk: s\n"
-                      "cpu: cortex-m3\ninstruction-set: thumb\nfloat-abi: soft\n");
-    expect(!mm::build::load_project(tree.root()).ok, "semicolon in board name rejected at load");
-
-    tree.manifest_raw("board",
-                      "mm: 1.2\nkind: board\nname: bad\"board\nsdk: s\n"
-                      "cpu: cortex-m3\ninstruction-set: thumb\nfloat-abi: soft\n");
-    expect(!mm::build::load_project(tree.root()).ok, "quote in board name rejected at load");
-
-    tree.manifest_raw("board",
-                      "mm: 1.2\nkind: board\nname: bad[0]\nsdk: s\n"
-                      "cpu: cortex-m3\ninstruction-set: thumb\nfloat-abi: soft\n");
-    expect(!mm::build::load_project(tree.root()).ok, "bracket in board name rejected at load");
-
-    tree.manifest_raw("board",
-                      "mm: 1.2\nkind: board\nname: -badboard\nsdk: s\n"
-                      "cpu: cortex-m3\ninstruction-set: thumb\nfloat-abi: soft\n");
-    expect(!mm::build::load_project(tree.root()).ok, "leading dash in board name rejected at load");
-}
-
 void derives_from_resolves_platform_identity() {
     const mm::test::scoped_tree tree{"board_identity_derivation"};
     make_base_tree(tree);
@@ -706,7 +651,6 @@ void requires_board_exact_matching() {
 }
 
 const mm::test::case_ cases[] = {
-    {"validates board name grammar", &validates_board_name_grammar},
     {"derives-from resolves platform identity", &derives_from_resolves_platform_identity},
     {"path resolution precedes merging fixture", &path_resolution_precedes_merging_fixture},
     {"scalar overrides and merges", &scalar_overrides_and_merges},

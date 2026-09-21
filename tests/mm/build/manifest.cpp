@@ -18,6 +18,8 @@ import mm.test;
 
 namespace {
 
+using mm::test::expect;
+
 bool has_target(const mm::build::Tree& tree, std::string_view name) {
     for (const auto& target : tree.targets)
         if (target.name == name) return true;
@@ -386,6 +388,274 @@ void rejects_compilation_when_declared_sketch_missing() {
     mm::test::expect(status == mm::build::exit_manifest, "expected compile to fail on missing sketch");
 }
 
+
+// --- platform definitions and version gates -------------------------
+
+using mm::test::expect;
+
+void make_platform_tree(const mm::test::scoped_tree& tree) {
+    tree.manifest("", "kind: project\nname: p\nfolder: platforms\n");
+    tree.manifest("platforms",
+                  "kind: dir\nname: platforms\nfolder: sdk\nfolder: board\n");
+    tree.manifest_raw("platforms/sdk",
+                      "mm: 1.2\nkind: sdk\nname: arm-none-eabi-newlib\n"
+                      "target: arm-none-eabi\ncompiler-family: gcc\nruntime: newlib\n"
+                      "specs-profile: rdimon\n");
+    tree.manifest_raw("platforms/board",
+                      "mm: 1.2\nkind: board\nname: mps2-an385\n"
+                      "sdk: arm-none-eabi-newlib\ncpu: cortex-m3\n"
+                      "instruction-set: thumb\nfloat-abi: soft\n"
+                      "machine: mps2-an385\nlinker-script: link.ld\n"
+                      "file: vectors.cpp\nprovides: reset-vector\n"
+                      "provides: initial-stack\nprovides: memory-layout\n");
+    std::ofstream(tree.root() / "platforms/board/link.ld") << "SECTIONS {}\n";
+    std::ofstream(tree.root() / "platforms/board/vectors.cpp") << "int vector;\n";
+}
+
+void loads_sdk_and_board_definitions() {
+    const mm::test::scoped_tree tree{"platform_definitions"};
+    make_platform_tree(tree);
+    const auto project = mm::build::load_project(tree.root());
+    expect(project.ok && project.sdks.size() == 1 && project.boards.size() == 1,
+           "platform definitions load from the ordinary manifest walk");
+    expect(project.sdks.front().target == "arm-none-eabi" &&
+               project.sdks.front().specs_profile == "rdimon",
+           "SDK definition preserves target and profile");
+    expect(project.boards.front().sdk == "arm-none-eabi-newlib" &&
+               project.boards.front().sources.size() == 1,
+           "board definition resolves its SDK and project source");
+}
+
+void validates_platform_keys_by_version_and_kind() {
+    const mm::test::scoped_tree tree{"platform_key_gate"};
+    tree.manifest_raw("",
+                      "mm: 1.1\nkind: sdk\nname: old\ntarget: arm-none-eabi\n"
+                      "compiler-family: gcc\nruntime: newlib\n");
+    expect(!mm::build::load_project(tree.root()).ok,
+           "platform keys require manifest version 1.2");
+
+    tree.manifest_raw("",
+                      "mm: 1.2\nkind: sdk\nname: bad\ntarget: arm-none-eabi\n"
+                      "compiler-family: gcc\nruntime: newlib\nfile: source.cpp\n");
+    expect(!mm::build::load_project(tree.root()).ok,
+           "file is not valid on an SDK");
+
+    tree.manifest_raw("",
+                      "mm: 1.2\nkind: board\nname: bad\ntarget: arm-none-eabi\n");
+    expect(!mm::build::load_project(tree.root()).ok,
+           "target is not valid on a board");
+
+    tree.manifest_raw("",
+                      "mm: 1.2\nkind: module\nname: bad\nmodule: bad\n"
+                      "file: source.cpp\nrequires-board: mps2-an385\n");
+    expect(!mm::build::load_project(tree.root()).ok,
+           "requires-board is not valid on a module");
+
+    tree.manifest_raw("",
+                      "mm: 1.1\nkind: board\nname: old\nsecurity-domain: secure\n");
+    expect(!mm::build::load_project(tree.root()).ok,
+           "security-domain requires manifest version 1.2");
+
+    tree.manifest_raw("",
+                      "mm: 1.1\nkind: board\nname: old\nderives-from: mps2-an385\n");
+    expect(!mm::build::load_project(tree.root()).ok,
+           "derives-from requires manifest version 1.2");
+
+    tree.manifest_raw("",
+                      "mm: 1.2\nkind: module\nname: bad\nmodule: bad\n"
+                      "file: source.cpp\nderives-from: mps2-an385\n");
+    expect(!mm::build::load_project(tree.root()).ok,
+           "derives-from is not valid on a module");
+}
+
+void rejects_bad_references_and_registry_values() {
+    const mm::test::scoped_tree missing{"platform_missing_sdk"};
+    make_platform_tree(missing);
+    missing.manifest_raw("platforms/board",
+                         "mm: 1.2\nkind: board\nname: mps2-an385\n"
+                         "sdk: absent\ncpu: unknown\ninstruction-set: thumb\n"
+                         "float-abi: soft\nlinker-script: link.ld\nfile: vectors.cpp\n");
+    expect(!mm::build::load_project(missing.root()).ok,
+           "a missing SDK reference is rejected before processor lookup");
+
+    const mm::test::scoped_tree profile{"platform_unknown_profile"};
+    make_platform_tree(profile);
+    profile.manifest_raw("platforms/sdk",
+                         "mm: 1.2\nkind: sdk\nname: arm-none-eabi-newlib\n"
+                         "target: arm-none-eabi\ncompiler-family: gcc\nruntime: newlib\n"
+                         "specs-profile: unknown\n");
+    expect(!mm::build::load_project(profile.root()).ok,
+           "an unknown specs profile is rejected without invoking a compiler");
+
+    const mm::test::scoped_tree unknown_cpu{"platform_unknown_cpu"};
+    make_platform_tree(unknown_cpu);
+    unknown_cpu.manifest_raw("platforms/board",
+                             "mm: 1.2\nkind: board\nname: mps2-an385\n"
+                             "sdk: arm-none-eabi-newlib\ncpu: unknown\ninstruction-set: thumb\n"
+                             "float-abi: soft\nlinker-script: link.ld\nfile: vectors.cpp\n");
+    expect(!mm::build::load_project(unknown_cpu.root()).ok,
+           "an unknown processor combination is rejected by the processor registry");
+}
+
+void accepts_registered_processor_combinations() {
+    const mm::test::scoped_tree m0plus{"platform_cortex_m0plus"};
+    make_platform_tree(m0plus);
+    m0plus.manifest_raw("platforms/board",
+                        "mm: 1.2\nkind: board\nname: rp2040-ram\n"
+                        "sdk: arm-none-eabi-newlib\ncpu: cortex-m0plus\n"
+                        "instruction-set: thumb\nfloat-abi: soft\n"
+                        "machine: rp2040\nlinker-script: link.ld\n"
+                        "file: vectors.cpp\nprovides: reset-vector\n"
+                        "provides: initial-stack\nprovides: memory-layout\n");
+    expect(mm::build::load_project(m0plus.root()).ok,
+           "cortex-m0plus with thumb and soft is accepted");
+
+    const mm::test::scoped_tree m33{"platform_cortex_m33"};
+    make_platform_tree(m33);
+    m33.manifest_raw("platforms/board",
+                     "mm: 1.2\nkind: board\nname: rp2350-ram\n"
+                     "sdk: arm-none-eabi-newlib\ncpu: cortex-m33\n"
+                     "instruction-set: thumb\nfloat-abi: softfp\n"
+                     "machine: rp2350\nlinker-script: link.ld\n"
+                     "file: vectors.cpp\nprovides: reset-vector\n"
+                     "provides: initial-stack\nprovides: memory-layout\n");
+    const auto m33_project = mm::build::load_project(m33.root());
+    expect(m33_project.ok, "cortex-m33 with thumb and softfp is accepted");
+    expect(m33_project.boards.size() == 1 &&
+               m33_project.boards.front().security_domain == "non-secure" &&
+               m33_project.boards.front().compiler_arguments.size() == 3,
+           "an omitted security domain preserves the non-secure Cortex-M33 arguments");
+
+    const mm::test::scoped_tree secure_m33{"platform_secure_cortex_m33"};
+    make_platform_tree(secure_m33);
+    secure_m33.manifest_raw("platforms/board",
+                            "mm: 1.2\nkind: board\nname: pico2\n"
+                            "sdk: arm-none-eabi-newlib\ncpu: cortex-m33\n"
+                            "instruction-set: thumb\nfloat-abi: softfp\n"
+                            "security-domain: secure\nmachine: rp2350\n"
+                            "linker-script: link.ld\nfile: vectors.cpp\n"
+                            "provides: reset-vector\nprovides: initial-stack\n"
+                            "provides: memory-layout\n");
+    const auto secure_project = mm::build::load_project(secure_m33.root());
+    expect(secure_project.ok && secure_project.boards.size() == 1 &&
+               secure_project.boards.front().security_domain == "secure" &&
+               secure_project.boards.front().compiler_arguments.size() == 4 &&
+               secure_project.boards.front().compiler_arguments.back() == "-mcmse",
+           "the secure Cortex-M33 registry entry carries its CMSE argument");
+
+    secure_m33.manifest_raw("platforms/board",
+                            "mm: 1.2\nkind: board\nname: bad\n"
+                            "sdk: arm-none-eabi-newlib\ncpu: cortex-m33\n"
+                            "instruction-set: thumb\nfloat-abi: softfp\n"
+                            "security-domain: privileged\nlinker-script: link.ld\n"
+                            "file: vectors.cpp\n");
+    expect(!mm::build::load_project(secure_m33.root()).ok,
+           "an unknown security domain is rejected");
+}
+
+void accepts_the_hazard3_processor_combination() {
+    const mm::test::scoped_tree tree{"platform_hazard3"};
+    make_platform_tree(tree);
+    tree.manifest_raw("platforms/sdk",
+                      "mm: 1.2\nkind: sdk\nname: pico-riscv\n"
+                      "target: riscv32-pico-elf\ncompiler-family: gcc\nruntime: newlib\n");
+    tree.manifest_raw("platforms/board",
+                      "mm: 1.2\nkind: board\nname: pico2-riscv\n"
+                      "sdk: pico-riscv\ncpu: hazard3\n"
+                      "instruction-set: rv32imacb_zicsr_zifencei_zmmul_zaamo_zalrsc_"
+                      "zca_zcb_zcmp_zba_zbb_zbkb_zbs_xh3bextm\n"
+                      "float-abi: soft\nmachine: rp2350\nlinker-script: link.ld\n"
+                      "file: vectors.cpp\nprovides: reset-vector\n"
+                      "provides: initial-stack\nprovides: memory-layout\n"
+                      "provides: runtime-init\nprovides: syscalls\n");
+    const auto project = mm::build::load_project(tree.root());
+    expect(project.ok, "riscv32-pico-elf is a registered bare-metal target");
+    expect(project.boards.size() == 1 &&
+               project.boards.front().compiler_arguments.size() == 2 &&
+               project.boards.front().compiler_arguments[0] == "-mcpu=hazard3-rp2350" &&
+               project.boards.front().compiler_arguments[1] == "-mstrict-align",
+           "Hazard3 emits the SDK's measured preferred CPU profile and strict alignment");
+
+    tree.manifest_raw("platforms/sdk",
+                      "mm: 1.2\nkind: sdk\nname: pico-riscv\n"
+                      "target: riscv64-unknown-elf\ncompiler-family: gcc\nruntime: newlib\n");
+    expect(!mm::build::load_project(tree.root()).ok,
+           "an unregistered RISC-V triple is still rejected");
+}
+
+void external_directories_are_only_spelling_checked_by_the_walk() {
+    const mm::test::scoped_tree tree{"platform_external_directory"};
+    tree.manifest("", "kind: project\nname: p\nfolder: sdk\n");
+    tree.manifest_raw("sdk",
+                      "mm: 1.2\nkind: sdk\nname: m68k-linux-glibc\n"
+                      "target: m68k-linux-gnu\ncompiler-family: gcc\nruntime: glibc\n"
+                      "runtime-prefix: /directory/that/need/not/exist/here\n");
+    expect(mm::build::load_project(tree.root()).ok,
+           "the walk does not require an unselected SDK's machine directory");
+
+    tree.manifest_raw("sdk",
+                      "mm: 1.2\nkind: sdk\nname: m68k-linux-glibc\n"
+                      "target: m68k-linux-gnu\ncompiler-family: gcc\nruntime: glibc\n"
+                      "runtime-prefix: relative\n");
+    expect(!mm::build::load_project(tree.root()).ok,
+           "the walk rejects a relative machine directory");
+}
+
+void validates_board_name_grammar() {
+    // Direct tests for is_safe_board_name
+    expect(mm::build::is_safe_board_name("pico"), "lowercase letters are safe");
+    expect(mm::build::is_safe_board_name("pico-w"), "dash is safe");
+    expect(mm::build::is_safe_board_name("pico2-arm"), "letters, numbers, dash are safe");
+    expect(mm::build::is_safe_board_name("pico2_w"), "underscore is safe");
+    expect(mm::build::is_safe_board_name("board.1"), "dot is safe");
+    expect(mm::build::is_safe_board_name("board+2"), "plus is safe");
+    expect(mm::build::is_safe_board_name("B1"), "uppercase is safe");
+    expect(mm::build::is_safe_board_name("123-board"), "lead digit is safe");
+
+    expect(!mm::build::is_safe_board_name(""), "empty name is not safe");
+    expect(!mm::build::is_safe_board_name("-lead-dash"), "lead dash is not safe");
+    expect(!mm::build::is_safe_board_name(".lead-dot"), "lead dot is not safe");
+    expect(!mm::build::is_safe_board_name("_lead-under"), "lead underscore is not safe");
+    expect(!mm::build::is_safe_board_name("+lead-plus"), "lead plus is not safe");
+    expect(!mm::build::is_safe_board_name("has space"), "space is not safe");
+    expect(!mm::build::is_safe_board_name("has\"quote"), "quote is not safe");
+    expect(!mm::build::is_safe_board_name("has'squote"), "single quote is not safe");
+    expect(!mm::build::is_safe_board_name("has\\backslash"), "backslash is not safe");
+    expect(!mm::build::is_safe_board_name("has;semicolon"), "semicolon is not safe");
+    expect(!mm::build::is_safe_board_name("has[bracket"), "open bracket is not safe");
+    expect(!mm::build::is_safe_board_name("has]bracket"), "close bracket is not safe");
+    expect(!mm::build::is_safe_board_name("a/b"), "slash is not safe");
+
+    // Manifest load checks
+    const mm::test::scoped_tree tree{"board_name_rejections"};
+    tree.manifest("", "kind: project\nname: p\nfolder: board\n");
+
+    tree.manifest_raw("board",
+                      "mm: 1.2\nkind: board\nname: bad board\nsdk: s\n"
+                      "cpu: cortex-m3\ninstruction-set: thumb\nfloat-abi: soft\n");
+    expect(!mm::build::load_project(tree.root()).ok, "space in board name rejected at load");
+
+    tree.manifest_raw("board",
+                      "mm: 1.2\nkind: board\nname: bad;board\nsdk: s\n"
+                      "cpu: cortex-m3\ninstruction-set: thumb\nfloat-abi: soft\n");
+    expect(!mm::build::load_project(tree.root()).ok, "semicolon in board name rejected at load");
+
+    tree.manifest_raw("board",
+                      "mm: 1.2\nkind: board\nname: bad\"board\nsdk: s\n"
+                      "cpu: cortex-m3\ninstruction-set: thumb\nfloat-abi: soft\n");
+    expect(!mm::build::load_project(tree.root()).ok, "quote in board name rejected at load");
+
+    tree.manifest_raw("board",
+                      "mm: 1.2\nkind: board\nname: bad[0]\nsdk: s\n"
+                      "cpu: cortex-m3\ninstruction-set: thumb\nfloat-abi: soft\n");
+    expect(!mm::build::load_project(tree.root()).ok, "bracket in board name rejected at load");
+
+    tree.manifest_raw("board",
+                      "mm: 1.2\nkind: board\nname: -badboard\nsdk: s\n"
+                      "cpu: cortex-m3\ninstruction-set: thumb\nfloat-abi: soft\n");
+    expect(!mm::build::load_project(tree.root()).ok, "leading dash in board name rejected at load");
+}
+
 const mm::test::case_ cases[] = {
     { "walks a nested tree",                  &walks_a_nested_tree },
     { "separates tests and docs",             &separates_tests_and_docs_from_targets },
@@ -415,8 +685,15 @@ const mm::test::case_ cases[] = {
     { "includes main.cpp when helper files explicit", &includes_main_cpp_when_helper_files_explicit },
     { "avoids duplicate main.cpp when explicit", &avoids_duplicate_main_cpp_when_explicit },
     { "rejects compilation when declared sketch missing", &rejects_compilation_when_declared_sketch_missing },
+    {"loads SDK and board definitions", &loads_sdk_and_board_definitions},
+    {"validates platform keys by version and kind", &validates_platform_keys_by_version_and_kind},
+    {"rejects bad references and registry values", &rejects_bad_references_and_registry_values},
+    {"accepts registered processor combinations", &accepts_registered_processor_combinations},
+    {"accepts the hazard3 processor combination", &accepts_the_hazard3_processor_combination},
+    {"external directories are selection-scoped", &external_directories_are_only_spelling_checked_by_the_walk},
+    {"validates board name grammar", &validates_board_name_grammar},
 };
 
-const mm::test::registrar reg{"mm.build walk", cases};
+const mm::test::registrar reg{"mm.build manifest", cases};
 
 }

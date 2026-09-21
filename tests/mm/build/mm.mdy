@@ -6,10 +6,9 @@ use: mm.test
 use: mm.build
 use: mm.configure
 unit: tests/mm/build/quote.cpp
-unit: tests/mm/build/walk.cpp
+unit: tests/mm/build/manifest.cpp
 unit: tests/mm/build/graph.cpp
 unit: tests/mm/build/configuration.cpp
-unit: tests/mm/build/platform.cpp
 unit: tests/mm/build/library.cpp
 unit: tests/mm/build/providers.cpp
 unit: tests/mm/build/external.cpp
