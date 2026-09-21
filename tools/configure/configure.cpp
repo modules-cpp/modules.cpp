@@ -164,6 +164,24 @@ const mm::build::LibraryDefinition* find_library(const mm::build::Project& proje
     return nullptr;
 }
 
+// The configuration record admits project-relative paths only; its reader
+// refuses an absolute one as unsafe. A board definition resolved under this
+// tool carries absolute paths, because ManifestNode::dir is absolute for
+// configure and relative for every other tool, so what reaches the record is
+// relativised here. Without this, configuring a board that declares a linker
+// script wrote a record the build refused, and configure reads the record
+// before replacing it, so the tree could not be reconfigured either.
+std::filesystem::path project_relative(const std::filesystem::path& path) {
+    std::error_code ec;
+    const auto root = std::filesystem::current_path(ec);
+    if (ec) return path.lexically_normal();
+    const auto full = path.is_absolute() ? path : root / path;
+    const auto inside = full.lexically_normal().lexically_relative(root);
+    if (inside.empty() || *inside.begin() == "..")
+        return path.lexically_normal();
+    return inside;
+}
+
 int resolve_platform(const mm::build::Project& project,
                      std::string_view sdk_name, std::string_view board_name,
                      std::string_view target, mm::configure::CompilerFamily family,
@@ -246,9 +264,12 @@ int resolve_platform(const mm::build::Project& project,
         }
         platform.machine = board->machine;
         if (platform.link_ownership != mm::configure::LinkOwnership::External) {
-            platform.linker_script = board->linker_script;
+            platform.linker_script = project_relative(board->linker_script);
         }
-        platform.board_sources = board->sources;
+        platform.board_sources.clear();
+        platform.board_sources.reserve(board->sources.size());
+        for (const auto& source : board->sources)
+            platform.board_sources.push_back(project_relative(source));
         platform.compiler_arguments = board->compiler_arguments;
         for (const auto responsibility : board->provides) {
             const auto found = platform.responsibility_owners.find(responsibility);

@@ -299,7 +299,8 @@ void write_platform(std::ostream& out, const PlatformSettings& platform) {
         if (!platform.machine.empty()) out << "cross-board-machine: " << platform.machine << '\n';
         if (platform.link_ownership != LinkOwnership::External &&
             !platform.linker_script.empty()) {
-            out << "cross-board-linker-script: " << platform.linker_script.generic_string() << '\n';
+            out << "cross-board-linker-script: "
+                << platform.linker_script.generic_string() << '\n';
         }
         for (const auto& source : platform.board_sources)
             out << "cross-board-source: " << source.generic_string() << '\n';
