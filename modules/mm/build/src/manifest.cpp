@@ -4,12 +4,7 @@ module;
 
 #include <algorithm>
 #include <cstddef>
-#include <cstdint>
-#include <cstdio>
-#include <cstdlib>
 #include <filesystem>
-#include <fstream>
-#include <iomanip>
 #include <iostream>
 #include <map>
 #include <optional>
@@ -19,8 +14,6 @@ module;
 #include <string_view>
 #include <utility>
 #include <vector>
-
-#include <sys/wait.h>
 
 module mm.build;
 
@@ -32,12 +25,6 @@ import :config;
 import :manifest;
 import :compile;
 import :graph;
-
-// POSIX pipe declarations are hidden by newlib's strict C++ feature profile.
-// Version and ABI probes run only in the host build tool, while the module's
-// remaining interfaces stay compilable for target lanes.
-extern "C" std::FILE* popen(const char*, const char*);
-extern "C" int pclose(std::FILE*);
 
 namespace mm::build {
 // This unit implements the mm.build:manifest partition: manifest validation, the project walk, definitions, and project loading.
@@ -1552,7 +1539,6 @@ bool parse_definitions(Project& project, const std::filesystem::path& root,
     }
     return true;
 }
-
 
 std::map<std::string, std::size_t, std::less<>> modules_by_module_name(const Project& project) {
     std::map<std::string, std::size_t, std::less<>> modules;

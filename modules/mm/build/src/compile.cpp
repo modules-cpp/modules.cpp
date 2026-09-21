@@ -2,19 +2,11 @@
 // 32bitmicro LLC (C) 2026
 module;
 
-#include <algorithm>
-#include <cstddef>
-#include <cstdint>
-#include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
-#include <iomanip>
 #include <iostream>
 #include <map>
-#include <optional>
-#include <set>
-#include <sstream>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -31,12 +23,6 @@ import :detail;
 import :config;
 import :manifest;
 import :compile;
-
-// POSIX pipe declarations are hidden by newlib's strict C++ feature profile.
-// Version and ABI probes run only in the host build tool, while the module's
-// remaining interfaces stay compilable for target lanes.
-extern "C" std::FILE* popen(const char*, const char*);
-extern "C" int pclose(std::FILE*);
 
 namespace mm::build {
 // This unit implements the mm.build:compile partition: artifact paths, compile, link, install, and the module cache.

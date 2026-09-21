@@ -4,23 +4,11 @@ module;
 
 #include <algorithm>
 #include <cstddef>
-#include <cstdint>
-#include <cstdio>
-#include <cstdlib>
 #include <filesystem>
-#include <fstream>
-#include <iomanip>
 #include <iostream>
-#include <map>
-#include <optional>
-#include <set>
-#include <sstream>
 #include <string>
 #include <string_view>
-#include <utility>
 #include <vector>
-
-#include <sys/wait.h>
 
 module mm.build;
 
@@ -32,12 +20,6 @@ import :manifest;
 import :platform;
 import :compile;
 import :graph;
-
-// POSIX pipe declarations are hidden by newlib's strict C++ feature profile.
-// Version and ABI probes run only in the host build tool, while the module's
-// remaining interfaces stay compilable for target lanes.
-extern "C" std::FILE* popen(const char*, const char*);
-extern "C" int pclose(std::FILE*);
 
 namespace mm::build {
 // This unit implements the mm.build:graph partition: ordering, closures, and link-input computation.

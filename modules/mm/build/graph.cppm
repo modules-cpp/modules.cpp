@@ -4,12 +4,8 @@ module;
 
 #include <cstddef>
 #include <filesystem>
-#include <functional>
-#include <map>
-#include <optional>
 #include <string>
 #include <string_view>
-#include <utility>
 #include <vector>
 
 export module mm.build:graph;

@@ -20,8 +20,6 @@ module;
 #include <utility>
 #include <vector>
 
-#include <sys/wait.h>
-
 module mm.build;
 
 import mm.configure;
