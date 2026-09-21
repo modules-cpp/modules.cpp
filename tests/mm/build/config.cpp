@@ -13,6 +13,8 @@ import mm.test;
 
 namespace {
 
+using mm::test::expect;
+
 void write(const std::filesystem::path& path, std::string_view front_matter) {
     std::error_code ec;
     std::filesystem::create_directories(path.parent_path(), ec);
@@ -879,6 +881,93 @@ void loads_secure_cortex_m33_processor_snapshots() {
                      "pre-CMSE Cortex-M33 processor snapshot remains readable");
 }
 
+
+void hosted_lanes_declare_no_processor_arguments() {
+    const auto check = [](mm::build::CompilerFamily family, std::string_view target,
+                          std::string_view cpu) {
+        const auto* entry = mm::build::find_processor_entry(
+            family, target, cpu, "native", "native", "");
+        expect(entry != nullptr, "hosted combination is registered");
+        expect(mm::build::processor_argument_count(*entry) == 0,
+               "a native lane adds no processor arguments");
+    };
+    for (const auto family : {mm::build::CompilerFamily::Gcc, mm::build::CompilerFamily::Clang}) {
+        check(family, "aarch64-linux-gnu", "aarch64");
+        check(family, "x86_64-linux-gnu", "x86_64");
+    }
+}
+
+void bare_metal_rows_carry_their_cpu_arguments() {
+    const auto* m3 = mm::build::find_processor_entry(
+        mm::build::CompilerFamily::Gcc, "arm-none-eabi", "cortex-m3",
+        "thumb", "soft", "non-secure");
+    expect(m3 != nullptr && mm::build::processor_argument_count(*m3) == 3,
+           "cortex-m3 carries cpu, thumb and float arguments");
+    const auto* plain_m33 = mm::build::find_processor_entry(
+        mm::build::CompilerFamily::Gcc, "arm-none-eabi", "cortex-m33",
+        "thumb", "softfp", "non-secure");
+    const auto* secure_m33 = mm::build::find_processor_entry(
+        mm::build::CompilerFamily::Gcc, "arm-none-eabi", "cortex-m33",
+        "thumb", "softfp", "secure");
+    expect(plain_m33 != nullptr && secure_m33 != nullptr,
+           "both cortex-m33 domains are registered");
+    expect(secure_m33->arguments[3] == "-mcmse" &&
+               mm::build::processor_argument_count(*secure_m33) == 4,
+           "the secure domain appends the cmse argument");
+    const auto* hazard3 = mm::build::find_processor_entry(
+        mm::build::CompilerFamily::Gcc, "riscv32-pico-elf", "hazard3",
+        "rv32imacb_zicsr_zifencei_zmmul_zaamo_zalrsc_zca_zcb_zcmp_zba_zbb_zbkb_zbs_xh3bextm",
+        "soft", "non-secure");
+    expect(hazard3 != nullptr && hazard3->arguments[0] == "-mcpu=hazard3-rp2350",
+           "hazard3 keeps the measured pico argument");
+}
+
+void processor_lookup_is_keyed_on_family_and_security_domain() {
+    const auto* secure = mm::build::find_processor_entry(
+        mm::build::CompilerFamily::Gcc, "arm-none-eabi", "cortex-m33",
+        "thumb", "softfp", "secure");
+    expect(secure != nullptr, "the secure row is found by its full key");
+    expect(mm::build::find_processor_entry(
+               mm::build::CompilerFamily::Clang, "arm-none-eabi", "cortex-m33",
+               "thumb", "softfp", "secure") == nullptr,
+           "the table is keyed on the compiler that will be invoked");
+    const auto* defaulted = mm::build::find_processor_entry(
+        mm::build::CompilerFamily::Gcc, "arm-none-eabi", "cortex-m33",
+        "thumb", "softfp", "");
+    expect(defaulted != nullptr && defaulted->security_domain == "non-secure",
+           "an empty security domain defaults to non-secure");
+}
+
+void processor_lookup_by_arguments_matches_table_rows() {
+    const auto* m3 = mm::build::find_processor_entry_by_arguments(
+        mm::build::CompilerFamily::Gcc, "arm-none-eabi",
+        {"-mcpu=cortex-m3", "-mthumb", "-mfloat-abi=soft"});
+    expect(m3 != nullptr && m3->cpu == "cortex-m3",
+           "the argument list identifies its table row");
+    expect(mm::build::find_processor_entry_by_arguments(
+               mm::build::CompilerFamily::Gcc, "arm-none-eabi",
+               {"-mcpu=cortex-m3"}) == nullptr,
+           "a truncated argument list matches no row");
+    expect(mm::build::find_processor_entry_by_arguments(
+               mm::build::CompilerFamily::Clang, "arm-none-eabi",
+               {"-mcpu=cortex-m3", "-mthumb", "-mfloat-abi=soft"}) == nullptr,
+           "arguments never cross a family boundary");
+}
+
+void compiler_family_name_spells_the_invoked_compiler() {
+    expect(std::string(mm::build::compiler_family_name(mm::build::CompilerFamily::Gcc)) == "gcc",
+           "gcc spells gcc");
+    expect(std::string(mm::build::compiler_family_name(mm::build::CompilerFamily::Clang)) == "clang",
+           "clang spells clang");
+}
+
+void build_name_spells_the_selected_build() {
+    expect(std::string(mm::build::build_name(mm::build::Build::Debug)) == "debug",
+           "debug spells debug");
+    expect(std::string(mm::build::build_name(mm::build::Build::Release)) == "release",
+           "release spells release");
+}
+
 const mm::test::case_ cases[] = {
     {"loads the host selection", &loads_the_host_selection},
     {"loads the cross selection", &loads_the_cross_selection},
@@ -899,6 +988,12 @@ const mm::test::case_ cases[] = {
     {"loads cross-link external configuration", &loads_cross_link_external_configuration},
     {"detects stale configuration record", &detects_stale_configuration_record},
     {"loads secure Cortex-M33 processor snapshots", &loads_secure_cortex_m33_processor_snapshots},
+    {"hosted lanes declare no processor arguments", &hosted_lanes_declare_no_processor_arguments},
+    {"bare-metal rows carry their cpu arguments", &bare_metal_rows_carry_their_cpu_arguments},
+    {"processor lookup is keyed on family and security domain", &processor_lookup_is_keyed_on_family_and_security_domain},
+    {"processor lookup by arguments matches table rows", &processor_lookup_by_arguments_matches_table_rows},
+    {"compiler family name spells the invoked compiler", &compiler_family_name_spells_the_invoked_compiler},
+    {"build name spells the selected build", &build_name_spells_the_selected_build},
 };
 
 const mm::test::registrar reg{"mm.build config", cases};
