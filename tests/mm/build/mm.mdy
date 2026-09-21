@@ -9,10 +9,8 @@ unit: tests/mm/build/quote.cpp
 unit: tests/mm/build/manifest.cpp
 unit: tests/mm/build/graph.cpp
 unit: tests/mm/build/configuration.cpp
-unit: tests/mm/build/library.cpp
-unit: tests/mm/build/providers.cpp
+unit: tests/mm/build/platform.cpp
 unit: tests/mm/build/external.cpp
-unit: tests/mm/build/board.cpp
 unit: tests/mm/build/cache.cpp
 unit: tests/mm/build/graft.cpp
 unit: tests/main.cpp
