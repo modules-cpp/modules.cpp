@@ -81,7 +81,7 @@ void constructs_a_safely_quoted_picotool_command() {
 
 void executes_without_touching_hardware_in_the_test() {
     const auto toolchain = mm::build::default_toolchain();
-    mm::test::expect(mm::flash::execute(toolchain, "/bin/true", "image.uf2") == 0,
+    mm::test::expect(mm::flash::execute(toolchain, "true", "image.uf2") == 0,
                      "expected the common process wrapper to return the tool status");
 }
 

@@ -81,6 +81,15 @@ MDYDocument Parser::parse_file(const std::filesystem::path& file_path) {
         return doc;
     }
 
+    if (std::filesystem::is_directory(file_path, ec)) {
+        doc.status = ParseStatus::Unreadable;
+        return doc;
+    }
+    if (ec) {
+        doc.status = ParseStatus::Unreadable;
+        return doc;
+    }
+
     std::ifstream file(file_path);
     if (!file.is_open()) {
         doc.status = ParseStatus::Unreadable;

@@ -103,6 +103,11 @@ bool valid_scalar(std::string_view value, bool allow_empty = false) {
            value.find('\r') == std::string_view::npos && value.find('\0') == std::string_view::npos;
 }
 
+bool apple_host() {
+    std::error_code ec;
+    return std::filesystem::is_directory("/System/Library", ec) && !ec;
+}
+
 bool contained(const std::filesystem::path& root, const std::filesystem::path& path) {
     std::error_code ec;
     const auto canonical = std::filesystem::weakly_canonical(path, ec);
@@ -391,7 +396,12 @@ std::optional<CompilerRequest> parse_compiler(std::string_view value) {
         suffix = value.substr(driver + length);
     }
 
-    if (suffix.empty()) return result;
+    if (suffix.empty()) {
+        if (apple_host() && result.target_prefix.empty() &&
+            (value == "gcc" || value == "g++"))
+            result.family = CompilerFamily::Clang;
+        return result;
+    }
     if (!suffix.starts_with('-') || suffix.size() == 1) return std::nullopt;
 
     unsigned major = 0;
@@ -767,9 +777,20 @@ bool option_error(std::string_view tool, const OptionNode& node, std::string_vie
 
 bool relative_directory(const std::filesystem::path& root, const std::filesystem::path& path,
                         std::filesystem::path& result) {
-    result = path.is_absolute() ? path.lexically_relative(root) : path;
-    result = result.lexically_normal();
-    if (result.empty() || result.is_absolute() || !valid_scalar(result.generic_string())) return false;
+    if (path.is_absolute()) {
+        std::error_code ec;
+        const auto canonical_path = std::filesystem::weakly_canonical(path, ec);
+        if (ec) return false;
+        result = canonical_path.lexically_relative(root);
+        if (result.empty()) {
+            if (canonical_path != root) return false;
+            result = ".";
+        } else result = result.lexically_normal();
+    } else {
+        result = path.lexically_normal();
+        if (result.empty()) return false;
+    }
+    if (result.is_absolute() || !valid_scalar(result.generic_string())) return false;
     for (const auto& part : result)
         if (part == "..") return false;
     return contained(root, root / result);
