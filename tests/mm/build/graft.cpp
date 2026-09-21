@@ -132,127 +132,6 @@ void graft_allowlist_refusals() {
     }
 }
 
-void context_paths_and_prefixes() {
-    const std::filesystem::path proj_root = "/project";
-    const std::filesystem::path ext_root = "/external";
-    const std::filesystem::path build_dir = "out-host";
-
-    // 1. External invocation
-    mm::build::ArtifactContext ext_context(
-        ext_root, ext_root / build_dir, proj_root / "out/bin", true);
-    expect(ext_context.valid(), "external context is valid");
-    expect(ext_context.is_external(), "context reports external");
-
-    mm::build::BuildableNode ext_app;
-    ext_app.name = "blink";
-    ext_app.kind = "app";
-    ext_app.external = true;
-    ext_app.logical_dir = "sketches/blink";
-
-    mm::build::BuildableNode proj_mod;
-    proj_mod.name = "sketch";
-    proj_mod.kind = "module";
-    proj_mod.external = false;
-    proj_mod.logical_dir = "modules/mm/sketch";
-
-    expect(ext_context.prefix(ext_app) == "", "external node prefix is empty");
-    expect(ext_context.prefix(proj_mod) == "graft/project/",
-           "project node prefix in external context is graft/project/");
-
-    mm::build::TranslationUnit ext_unit{"sketches/blink/main.cpp", "", {}};
-    const auto ext_obj = ext_context.object_path(ext_app, ext_unit);
-    expect(ext_obj == ext_root / build_dir / "sketches/blink/main.cpp.o",
-           "external object lands under output_root / unit.path.o");
-
-    mm::build::TranslationUnit proj_unit{
-        "modules/mm/sketch/sketch.cppm", "", {}};
-    const auto proj_obj = ext_context.object_path(proj_mod, proj_unit);
-    expect(proj_obj ==
-           ext_root / build_dir /
-           "graft/project/modules/mm/sketch/sketch.cppm.o",
-           "project module object lands under graft/project/");
-
-    const auto board_obj = ext_context.board_object_path(
-        "platforms/rp2040/board.cpp", "rp2040");
-    expect(board_obj ==
-           ext_root / build_dir / "graft/project/platforms/rp2040/board.cpp.o",
-           "board unit object lands under graft/project/");
-
-    expect(ext_context.executable_path(ext_app) ==
-           ext_root / build_dir / "sketches/blink/blink",
-           "executable path matches output_root / logical_dir / name");
-    expect(ext_context.bmi_dir() == ext_root / build_dir / "bmi",
-           "bmi dir is under external output_root");
-
-    // 2. Project invocation
-    mm::build::ArtifactContext proj_context(
-        proj_root, proj_root / build_dir, proj_root / "out/bin", false);
-    expect(proj_context.valid(), "project context is valid");
-    expect(!proj_context.is_external(), "context reports non-external");
-    expect(proj_context.prefix(proj_mod) == "", "project prefix is empty");
-    expect(proj_context.object_path(proj_mod, proj_unit) ==
-           proj_root / build_dir / "modules/mm/sketch/sketch.cppm.o",
-           "project unit lands directly under lane directory");
-    expect(proj_context.board_object_path("platforms/rp2040/board.cpp",
-                                          "rp2040") ==
-           proj_root / build_dir / "platforms/rp2040/board.cpp.o",
-           "project board unit lands directly under lane directory");
-}
-
-void context_write_guards() {
-    const mm::test::scoped_tree tree{"context_guards"};
-    const auto out_dir = tree.root() / "out-host";
-    std::filesystem::create_directories(out_dir);
-
-    // 1. Output root as symlink out of tree is refused
-    const mm::test::scoped_tree outside_tree{"context_outside"};
-    const auto sym_out = tree.root() / "out-symlink";
-    std::error_code ec;
-    std::filesystem::create_directory_symlink(outside_tree.root(), sym_out, ec);
-    if (!ec) {
-        mm::build::ArtifactContext bad_context(tree.root(), sym_out);
-        expect(!bad_context.valid(),
-               "symlinked output root outside tree is refused");
-    }
-
-    // 2. Normal context validates paths inside tree & output root
-    mm::build::ArtifactContext context(tree.root(), out_dir,
-                                       tree.root() / "out/bin", false);
-    expect(context.valid(), "context is valid");
-
-    const auto valid_artifact = out_dir / "foo.o";
-    expect(context.check_artifact_path(valid_artifact),
-           "artifact inside output_root is accepted");
-
-    const auto outside_artifact = outside_tree.root() / "foo.o";
-    expect(!context.check_artifact_path(outside_artifact),
-           "artifact outside tree is refused");
-
-    // 3. Symlink planted beneath output root pointing outside tree
-    const auto planted_sym = out_dir / "leak_dir";
-    std::filesystem::create_directory_symlink(outside_tree.root(), planted_sym,
-                                              ec);
-    if (!ec) {
-        expect(!context.check_artifact_path(planted_sym / "stolen.o"),
-               "link planted beneath output root resolving outside is refused");
-    }
-
-    // 4. Install destination guard
-    const auto bin_dir = tree.root() / "out/bin";
-    std::filesystem::create_directories(bin_dir);
-    expect(context.check_install_path(bin_dir, bin_dir / "app"),
-           "installation destination inside tree is admitted");
-    expect(!context.check_install_path(outside_tree.root(),
-                                       outside_tree.root() / "app"),
-           "installation destination outside tree is refused");
-
-    // 5. External context has no installation destination
-    mm::build::ArtifactContext ext_context(tree.root(), out_dir,
-                                           tree.root() / "out/bin", true);
-    expect(!ext_context.check_install_path(bin_dir, bin_dir / "app"),
-           "external context refuses all installation paths");
-}
-
 void uniqueness_rules() {
     const mm::test::scoped_tree proj_tree{"graft_proj_unique"};
     proj_tree.manifest("", "kind: project\nname: proj\nfolder: blink\n");
@@ -502,8 +381,6 @@ const mm::test::case_ cases[] = {
     {"app root grafting", &app_root_grafting},
     {"dir root grafting", &dir_root_grafting},
     {"graft allowlist refusals", &graft_allowlist_refusals},
-    {"context paths and prefixes", &context_paths_and_prefixes},
-    {"context write guards", &context_write_guards},
     {"uniqueness rules", &uniqueness_rules},
     {"manifest gate refusals", &manifest_gate_refusals},
     {"source guard cases", &source_guard_cases},

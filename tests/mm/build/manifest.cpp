@@ -366,28 +366,6 @@ void avoids_duplicate_main_cpp_when_explicit() {
     mm::test::expect(loaded.targets[0].sources.size() == 2, "expected exactly 2 sources without duplicate main");
 }
 
-void rejects_compilation_when_declared_sketch_missing() {
-    const mm::test::scoped_tree tree{"sketchmissing"};
-    tree.manifest_raw("", "mm: 1.3\nkind: project\nname: p\nfolder: a\n");
-    tree.manifest_raw("a", "mm: 1.3\nkind: app\nname: a\nfile: main.cpp\nsketch: missing.ino\n");
-
-    // Create existing main.cpp so absence of main.cpp does not trigger generation
-    std::filesystem::create_directories(tree.root() / "a");
-    {
-        std::ofstream out(tree.root() / "a" / "main.cpp");
-        out << "int main() { return 0; }\n";
-    }
-
-    auto loaded = mm::build::load_tree(tree.root());
-    mm::test::expect(loaded.ok, "manifest load succeeds");
-    mm::test::expect(loaded.targets.size() == 1, "expected 1 target");
-
-    // Missing declared sketch must cause compile() to fail with exit_manifest
-    const int status = mm::build::compile(mm::build::default_toolchain(), loaded.targets[0],
-                                          tree.root() / "build", {});
-    mm::test::expect(status == mm::build::exit_manifest, "expected compile to fail on missing sketch");
-}
-
 
 // --- platform definitions and version gates -------------------------
 
@@ -684,7 +662,6 @@ const mm::test::case_ cases[] = {
     { "defaults main.cpp when file omitted for sketch app", &defaults_main_cpp_when_file_omitted_for_sketch_app },
     { "includes main.cpp when helper files explicit", &includes_main_cpp_when_helper_files_explicit },
     { "avoids duplicate main.cpp when explicit", &avoids_duplicate_main_cpp_when_explicit },
-    { "rejects compilation when declared sketch missing", &rejects_compilation_when_declared_sketch_missing },
     {"loads SDK and board definitions", &loads_sdk_and_board_definitions},
     {"validates platform keys by version and kind", &validates_platform_keys_by_version_and_kind},
     {"rejects bad references and registry values", &rejects_bad_references_and_registry_values},

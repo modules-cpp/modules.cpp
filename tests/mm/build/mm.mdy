@@ -5,13 +5,12 @@ name: build
 use: mm.test
 use: mm.build
 use: mm.configure
-unit: tests/mm/build/quote.cpp
 unit: tests/mm/build/manifest.cpp
+unit: tests/mm/build/compile.cpp
 unit: tests/mm/build/graph.cpp
 unit: tests/mm/build/config.cpp
 unit: tests/mm/build/platform.cpp
 unit: tests/mm/build/external.cpp
-unit: tests/mm/build/cache.cpp
 unit: tests/mm/build/graft.cpp
 unit: tests/main.cpp
 ---
