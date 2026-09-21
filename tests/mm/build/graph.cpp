@@ -365,6 +365,44 @@ void augmentation_adds_only_what_is_required() {
            "an unbound interface links without a provider");
 }
 
+
+// --- library link inputs
+
+void library_link_inputs_collect_the_checked_out_archives() {
+    const mm::test::scoped_tree tree{"graph_lib_inputs"};
+    std::filesystem::create_directories(tree.root() / "vendor" / "lib");
+    std::ofstream(tree.root() / "vendor" / "lib" / "vend.h") << "int vend();\n";
+
+    mm::build::Tree t;
+    auto& app = t.targets.emplace_back();
+    app.name = "app";
+    app.dir = "app";
+    auto& m1 = t.targets.emplace_back();
+    m1.name = "m1";
+    m1.dir = "mods/m1";
+    m1.library = "lib";
+    auto& m2 = t.targets.emplace_back();
+    m2.name = "m2";
+    m2.dir = "mods/m2";
+    m2.library = "lib";
+
+    mm::build::LibraryDefinition lib;
+    lib.name = "lib";
+    lib.manifest = "vendor/lib/mm.mdy";
+    lib.source = "vendor/lib";
+    lib.link_inputs = {"-lvendlib"};
+    const auto libraries = {lib};
+
+    std::vector<std::string> inputs;
+    const std::vector<std::size_t> reached = {0, 1, 2};
+    expect(mm::build::library_link_inputs(tree.root(), libraries, t, reached, inputs),
+           "a checked-out library contributes its link inputs");
+    expect(inputs.size() == 1 && inputs.front() == "-lvendlib",
+           "one contribution per library, deduplicated across wrappers");
+
+    expect(!mm::build::library_link_inputs(tree.root(), {}, t, reached, inputs),
+           "an unknown library is reported at the link stage");
+}
 const mm::test::case_ cases[] = {
     { "puts dependencies before dependents",     &puts_dependencies_before_dependents },
     { "orders a diamond dependency",             &orders_a_diamond_dependency },
@@ -383,6 +421,7 @@ const mm::test::case_ cases[] = {
     { "closure of a leaf is itself",             &closure_of_a_leaf_is_itself },
     { "closure keeps object order",              &closure_keeps_object_order_within_a_target },
     {"closure augmentation", &augmentation_adds_only_what_is_required},
+    {"library link inputs collect the checked out archives", &library_link_inputs_collect_the_checked_out_archives},
 };
 
 const mm::test::registrar reg{"mm.build graph", cases};
