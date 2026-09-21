@@ -87,7 +87,12 @@ int build_1(const std::string& compiler, const std::string& module_flags)
         {"modules/mm/json/src/scan.cpp",    "out/modules/mm/json/src/scan.o", {}},
         {"modules/mm/json/src/value.cpp",   "out/modules/mm/json/src/value.o", {}},
         {"modules/mm/build/build.cppm",     "out/modules/mm/build/build.o", "mm.build"},
-        {"modules/mm/build/src/build.cpp",  "out/modules/mm/build/src/build.o", {}},
+        {"modules/mm/build/src/manifest.cpp", "out/modules/mm/build/src/manifest.o", {}},
+        {"modules/mm/build/src/config.cpp",   "out/modules/mm/build/src/config.o", {}},
+        {"modules/mm/build/src/platform.cpp", "out/modules/mm/build/src/platform.o", {}},
+        {"modules/mm/build/src/graph.cpp",    "out/modules/mm/build/src/graph.o", {}},
+        {"modules/mm/build/src/compile.cpp",  "out/modules/mm/build/src/compile.o", {}},
+        {"modules/mm/build/src/external.cpp", "out/modules/mm/build/src/external.o", {}},
         {"tools/build/build.cpp",           "out/tools/build/build.o", {}},
     };
 

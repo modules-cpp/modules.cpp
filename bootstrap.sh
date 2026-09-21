@@ -131,8 +131,28 @@ if [ "${mm_build1_status}" -ne 0 ] || [ ! -x "${MM_BUILD}/build1" ]; then
         -o "${MM_BUILD}/modules/mm/build/build.o" || exit $?
 
     ${MCCP_MODULES} ${MM_MODULE_FLAGS} \
-        -c modules/mm/build/src/build.cpp \
-        -o "${MM_BUILD}/modules/mm/build/src/build.o" || exit $?
+        -c modules/mm/build/src/manifest.cpp \
+        -o "${MM_BUILD}/modules/mm/build/src/manifest.o" || exit $?
+
+    ${MCCP_MODULES} ${MM_MODULE_FLAGS} \
+        -c modules/mm/build/src/config.cpp \
+        -o "${MM_BUILD}/modules/mm/build/src/config.o" || exit $?
+
+    ${MCCP_MODULES} ${MM_MODULE_FLAGS} \
+        -c modules/mm/build/src/platform.cpp \
+        -o "${MM_BUILD}/modules/mm/build/src/platform.o" || exit $?
+
+    ${MCCP_MODULES} ${MM_MODULE_FLAGS} \
+        -c modules/mm/build/src/graph.cpp \
+        -o "${MM_BUILD}/modules/mm/build/src/graph.o" || exit $?
+
+    ${MCCP_MODULES} ${MM_MODULE_FLAGS} \
+        -c modules/mm/build/src/compile.cpp \
+        -o "${MM_BUILD}/modules/mm/build/src/compile.o" || exit $?
+
+    ${MCCP_MODULES} ${MM_MODULE_FLAGS} \
+        -c modules/mm/build/src/external.cpp \
+        -o "${MM_BUILD}/modules/mm/build/src/external.o" || exit $?
 
     ${MCCP_MODULES} ${MM_MODULE_FLAGS} \
         -c tools/build/build.cpp \
@@ -145,7 +165,12 @@ if [ "${mm_build1_status}" -ne 0 ] || [ ! -x "${MM_BUILD}/build1" ]; then
         "${MM_BUILD}/modules/mm/mdy/mdy.o" \
         "${MM_BUILD}/modules/mm/mdy/src/mdy.o" \
         "${MM_BUILD}/modules/mm/build/build.o" \
-        "${MM_BUILD}/modules/mm/build/src/build.o" \
+        "${MM_BUILD}/modules/mm/build/src/manifest.o" \
+        "${MM_BUILD}/modules/mm/build/src/config.o" \
+        "${MM_BUILD}/modules/mm/build/src/platform.o" \
+        "${MM_BUILD}/modules/mm/build/src/graph.o" \
+        "${MM_BUILD}/modules/mm/build/src/compile.o" \
+        "${MM_BUILD}/modules/mm/build/src/external.o" \
         "${MM_BUILD}/modules/mm/configure/configure.o" \
         "${MM_BUILD}/modules/mm/configure/src/configure.o" \
         "${MM_BUILD}/modules/mm/json/status.o" \

@@ -5,6 +5,7 @@ module;
 #include <map>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 export module mm.build;
@@ -771,5 +772,160 @@ struct ProjectionSchema {
 [[nodiscard]] bool prepare_module_cache(
     const Toolchain& toolchain, const Tree& tree,
     const std::filesystem::path& build_dir = "out");
+
+}
+
+// Internal to the module: helpers shared between mm.build's implementation
+// units (src/manifest.cpp, src/config.cpp, src/platform.cpp, src/graph.cpp,
+// src/compile.cpp, src/external.cpp). Unexported, so importers of mm.build
+// never see them; each name is defined exactly once, in the unit that owns
+// it.
+namespace mm::build {
+
+std::optional<mm::configure::Responsibility> parse_responsibility(std::string_view value);
+
+const std::vector<std::string>* lookup(const mm::mdy::MDYDocument& doc, std::string_view key);
+std::string first(const mm::mdy::MDYDocument& doc, std::string_view key);
+std::vector<std::string> all(const mm::mdy::MDYDocument& doc, std::string_view key);
+
+bool structural_property_name(std::string_view name);
+std::vector<std::string> structural_property_declarations(
+    const std::vector<std::string>& declarations);
+
+struct ManifestVersionRule {
+    std::string_view name;
+    int number;
+    bool rejects_unknown_keys;
+};
+
+constexpr ManifestVersionRule manifest_versions[] = {
+    {"1.0", 10, false},
+    {"1.1", 11, true},
+    {"1.2", 12, true},
+    {"1.3", 13, true},
+};
+
+const ManifestVersionRule* manifest_version(std::string_view version) {
+    for (const auto& candidate : manifest_versions)
+        if (candidate.name == version) return &candidate;
+    return nullptr;
+}
+
+std::string supported_manifest_versions() {
+    std::string result;
+    for (const auto& version : manifest_versions) {
+        if (!result.empty()) result += ", ";
+        result += version.name;
+    }
+    return result;
+}
+
+std::string_view manifest_version_name(int number) {
+    for (const auto& version : manifest_versions)
+        if (version.number == number) return version.name;
+    return "unknown";
+}
+
+struct ProcessorEntry {
+    CompilerFamily family;
+    std::string_view target;
+    std::string_view cpu;
+    std::string_view instruction_set;
+    std::string_view float_abi;
+    std::string_view security_domain;
+    std::string_view arguments[4];
+};
+
+constexpr ProcessorEntry processor_table[] = {
+    // Hosted rows, one per family because the table is keyed on the compiler
+    // that will be invoked. A native lane wants no processor argument at all,
+    // so both families contribute an empty list and differ only in the key; a
+    // board selected with clang would otherwise be rejected as an unknown
+    // processor combination for a difference that has no effect on any command.
+    {CompilerFamily::Gcc, "aarch64-linux-gnu", "aarch64", "native", "native",
+     "non-secure", {}},
+    {CompilerFamily::Clang, "aarch64-linux-gnu", "aarch64", "native", "native",
+     "non-secure", {}},
+    {CompilerFamily::Gcc, "x86_64-linux-gnu", "x86_64", "native", "native",
+     "non-secure", {}},
+    {CompilerFamily::Clang, "x86_64-linux-gnu", "x86_64", "native", "native",
+     "non-secure", {}},
+    {CompilerFamily::Gcc, "arm-none-eabi", "cortex-m3", "thumb", "soft", "non-secure",
+     {"-mcpu=cortex-m3", "-mthumb", "-mfloat-abi=soft"}},
+    {CompilerFamily::Gcc, "arm-none-eabi", "cortex-m0plus", "thumb", "soft", "non-secure",
+     {"-mcpu=cortex-m0plus", "-mthumb", "-mfloat-abi=soft"}},
+    {CompilerFamily::Gcc, "arm-none-eabi", "cortex-m33", "thumb", "softfp", "non-secure",
+     {"-mcpu=cortex-m33", "-mthumb", "-mfloat-abi=softfp"}},
+    {CompilerFamily::Gcc, "arm-none-eabi", "cortex-m33", "thumb", "softfp", "secure",
+     {"-mcpu=cortex-m33", "-mthumb", "-mfloat-abi=softfp", "-mcmse"}},
+    // RP2350's Hazard3 cores, measured with the Pico SDK toolchain. GCC 16.1
+    // accepts the SDK's preferred CPU profile, so project objects use the same
+    // selection rather than the SDK's compatibility fallback.
+    {CompilerFamily::Gcc, "riscv32-pico-elf", "hazard3",
+     "rv32imacb_zicsr_zifencei_zmmul_zaamo_zalrsc_zca_zcb_zcmp_zba_zbb_zbkb_zbs_xh3bextm",
+     "soft", "non-secure", {"-mcpu=hazard3-rp2350", "-mstrict-align"}},
+};
+
+std::size_t processor_argument_count(const ProcessorEntry& entry) {
+    std::size_t count = 0;
+    while (count < std::size(entry.arguments) && !entry.arguments[count].empty()) ++count;
+    return count;
+}
+
+const ProcessorEntry* find_processor_entry(
+    CompilerFamily family,
+    std::string_view target,
+    std::string_view cpu,
+    std::string_view instruction_set,
+    std::string_view float_abi,
+    std::string_view security_domain) {
+    if (security_domain.empty()) security_domain = "non-secure";
+    for (const auto& entry : processor_table) {
+        if (entry.family == family && entry.target == target &&
+            entry.cpu == cpu && entry.instruction_set == instruction_set &&
+            entry.float_abi == float_abi && entry.security_domain == security_domain) {
+            return &entry;
+        }
+    }
+    return nullptr;
+}
+
+const ProcessorEntry* find_processor_entry_by_arguments(
+    CompilerFamily family,
+    std::string_view target,
+    const std::vector<std::string>& arguments) {
+    for (const auto& entry : processor_table) {
+        if (entry.family != family || entry.target != target ||
+            arguments.size() != processor_argument_count(entry))
+            continue;
+        bool equal = true;
+        for (std::size_t i = 0; i < arguments.size(); ++i)
+            if (arguments[i] != entry.arguments[i]) equal = false;
+        if (equal) return &entry;
+    }
+    return nullptr;
+}
+
+bool safe_exists(const std::filesystem::path& path);
+bool is_safe_name(std::string_view name);
+bool is_safe_relative_path(const std::filesystem::path& raw, const std::filesystem::path& joined);
+bool path_within(const std::filesystem::path& base, const std::filesystem::path& path);
+bool path_contained_in(const std::filesystem::path& container, const std::filesystem::path& path);
+bool within_root(const std::filesystem::path& path);
+std::filesystem::path absolute_from_root(const std::filesystem::path& root,
+                                          const std::filesystem::path& path);
+std::filesystem::path relative_to_root(const std::filesystem::path& root,
+                                       const std::filesystem::path& path);
+
+bool valid_mm_version(const mm::mdy::MDYDocument& doc, const std::filesystem::path& manifest,
+                      const LoadPolicy& policy);
+bool valid_manifest(const mm::mdy::MDYDocument& doc, std::string_view kind, std::string_view name,
+                    const std::filesystem::path& manifest, const LoadPolicy& policy);
+
+bool observe_checkout(const std::filesystem::path& path, bool& present,
+                      const std::filesystem::path& manifest, std::string_view tool);
+
+std::map<std::string, std::size_t, std::less<>> modules_by_module_name(const Project& project);
+std::size_t index_of_module(const Tree& tree, const std::string& module_name);
 
 }

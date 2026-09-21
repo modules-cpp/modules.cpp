@@ -7,7 +7,12 @@ use: mm.json
 use: mm.mdy
 use: mm.configure
 file: build.cppm
-file: src/build.cpp
+file: src/manifest.cpp
+file: src/config.cpp
+file: src/platform.cpp
+file: src/graph.cpp
+file: src/compile.cpp
+file: src/external.cpp
 ---
 
 # mm.build
