@@ -1,5 +1,12 @@
 $root out/bootstrap-bmi
 mm.build mm.build.gcm
+mm.build:compile mm.build-compile.gcm
+mm.build:config mm.build-config.gcm
+mm.build:detail mm.build-detail.gcm
+mm.build:external mm.build-external.gcm
+mm.build:graph mm.build-graph.gcm
+mm.build:manifest mm.build-manifest.gcm
+mm.build:platform mm.build-platform.gcm
 mm.configure mm.configure.gcm
 mm.json mm.json.gcm
 mm.json:scan mm.json-scan.gcm

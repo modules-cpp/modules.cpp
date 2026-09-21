@@ -126,6 +126,37 @@ if [ "${mm_build1_status}" -ne 0 ] || [ ! -x "${MM_BUILD}/build1" ]; then
         -c modules/mm/json/src/value.cpp \
         -o "${MM_BUILD}/modules/mm/json/src/value.o" || exit $?
 
+    # mm.build's partitions precede its primary interface, and a partition
+    # precedes any partition that imports it: config, then manifest, then
+    # detail, platform, compile, graph, and external.
+    ${MCCP_MODULES} ${MM_MODULE_FLAGS} \
+        -c modules/mm/build/config.cppm \
+        -o "${MM_BUILD}/modules/mm/build/config.o" || exit $?
+
+    ${MCCP_MODULES} ${MM_MODULE_FLAGS} \
+        -c modules/mm/build/manifest.cppm \
+        -o "${MM_BUILD}/modules/mm/build/manifest.o" || exit $?
+
+    ${MCCP_MODULES} ${MM_MODULE_FLAGS} \
+        -c modules/mm/build/detail.cppm \
+        -o "${MM_BUILD}/modules/mm/build/detail.o" || exit $?
+
+    ${MCCP_MODULES} ${MM_MODULE_FLAGS} \
+        -c modules/mm/build/platform.cppm \
+        -o "${MM_BUILD}/modules/mm/build/platform.o" || exit $?
+
+    ${MCCP_MODULES} ${MM_MODULE_FLAGS} \
+        -c modules/mm/build/compile.cppm \
+        -o "${MM_BUILD}/modules/mm/build/compile.o" || exit $?
+
+    ${MCCP_MODULES} ${MM_MODULE_FLAGS} \
+        -c modules/mm/build/graph.cppm \
+        -o "${MM_BUILD}/modules/mm/build/graph.o" || exit $?
+
+    ${MCCP_MODULES} ${MM_MODULE_FLAGS} \
+        -c modules/mm/build/external.cppm \
+        -o "${MM_BUILD}/modules/mm/build/external.o" || exit $?
+
     ${MCCP_MODULES} ${MM_MODULE_FLAGS} \
         -c modules/mm/build/build.cppm \
         -o "${MM_BUILD}/modules/mm/build/build.o" || exit $?
@@ -164,6 +195,13 @@ if [ "${mm_build1_status}" -ne 0 ] || [ ! -x "${MM_BUILD}/build1" ]; then
     ${MCCP} ${MM_CPPFLAGS} \
         "${MM_BUILD}/modules/mm/mdy/mdy.o" \
         "${MM_BUILD}/modules/mm/mdy/src/mdy.o" \
+        "${MM_BUILD}/modules/mm/build/config.o" \
+        "${MM_BUILD}/modules/mm/build/manifest.o" \
+        "${MM_BUILD}/modules/mm/build/detail.o" \
+        "${MM_BUILD}/modules/mm/build/platform.o" \
+        "${MM_BUILD}/modules/mm/build/compile.o" \
+        "${MM_BUILD}/modules/mm/build/graph.o" \
+        "${MM_BUILD}/modules/mm/build/external.o" \
         "${MM_BUILD}/modules/mm/build/build.o" \
         "${MM_BUILD}/modules/mm/build/src/manifest.o" \
         "${MM_BUILD}/modules/mm/build/src/config.o" \

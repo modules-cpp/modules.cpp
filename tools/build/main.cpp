@@ -65,7 +65,8 @@ int run(const std::string& command)
 // tools/build/mm.mdy declares as the "build" app target), in the order
 // -fmodules-ts needs an interface compiled before whatever imports it.
 // mm.json precedes mm.build because build reads compile_commands.json
-// through it; its partitions precede its primary interface.
+// through it; each module's partitions precede its primary interface,
+// and a partition precedes any partition that imports it.
 //
 int build_1(const std::string& compiler, const std::string& module_flags)
 {
@@ -86,6 +87,13 @@ int build_1(const std::string& compiler, const std::string& module_flags)
         {"modules/mm/json/json.cppm",       "out/modules/mm/json/json.o", "mm.json"},
         {"modules/mm/json/src/scan.cpp",    "out/modules/mm/json/src/scan.o", {}},
         {"modules/mm/json/src/value.cpp",   "out/modules/mm/json/src/value.o", {}},
+        {"modules/mm/build/config.cppm",    "out/modules/mm/build/config.o", "mm.build:config"},
+        {"modules/mm/build/manifest.cppm",  "out/modules/mm/build/manifest.o", "mm.build:manifest"},
+        {"modules/mm/build/detail.cppm",    "out/modules/mm/build/detail.o", "mm.build:detail"},
+        {"modules/mm/build/platform.cppm",  "out/modules/mm/build/platform.o", "mm.build:platform"},
+        {"modules/mm/build/compile.cppm",   "out/modules/mm/build/compile.o", "mm.build:compile"},
+        {"modules/mm/build/graph.cppm",     "out/modules/mm/build/graph.o", "mm.build:graph"},
+        {"modules/mm/build/external.cppm",  "out/modules/mm/build/external.o", "mm.build:external"},
         {"modules/mm/build/build.cppm",     "out/modules/mm/build/build.o", "mm.build"},
         {"modules/mm/build/src/manifest.cpp", "out/modules/mm/build/src/manifest.o", {}},
         {"modules/mm/build/src/config.cpp",   "out/modules/mm/build/src/config.o", {}},

@@ -6,7 +6,14 @@ module: mm.build
 use: mm.json
 use: mm.mdy
 use: mm.configure
-file: build.cppm
+file: config.cppm mm.build:config
+file: manifest.cppm mm.build:manifest
+file: detail.cppm mm.build:detail
+file: platform.cppm mm.build:platform
+file: compile.cppm mm.build:compile
+file: graph.cppm mm.build:graph
+file: external.cppm mm.build:external
+file: build.cppm mm.build
 file: src/manifest.cpp
 file: src/config.cpp
 file: src/platform.cpp
@@ -18,3 +25,13 @@ file: src/external.cpp
 # mm.build
 
 The shared project and build model: the manifest walk, the dependency graph, the compiler and linker driver, shell quoting, and common process status handling. Application and target-runner command construction lives in mm.run.
+
+The exported API lives in six partitions, listed before the primary interface
+because source order is declared: :config holds the toolchain and lane
+record; :manifest the tree model :config's SdkDefinition builds on;
+:platform, :compile, :graph, and :external the analysis, driver, ordering,
+and external-lane APIs that consume both. :detail holds the helpers more
+than one implementation unit shares; it is not re-exported by the primary
+interface, so importers of mm.build see exactly the six partitions. Each
+implementation unit implements one partition's functions and imports the
+partitions it consumes.

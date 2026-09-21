@@ -24,8 +24,14 @@ module;
 
 module mm.build;
 
+import mm.configure;
 import mm.json;
 import mm.mdy;
+import :detail;
+import :manifest;
+import :platform;
+import :compile;
+import :graph;
 
 // POSIX pipe declarations are hidden by newlib's strict C++ feature profile.
 // Version and ABI probes run only in the host build tool, while the module's
@@ -34,7 +40,7 @@ extern "C" std::FILE* popen(const char*, const char*);
 extern "C" int pclose(std::FILE*);
 
 namespace mm::build {
-// This unit holds the mm.build implementation for: h.
+// This unit implements the mm.build:graph partition: ordering, closures, and link-input computation.
 std::size_t index_of_module(const Tree& tree, const std::string& module_name) {
     for (std::size_t i = 0; i < tree.targets.size(); ++i)
         if (tree.targets[i].kind == "module" && tree.targets[i].module_name == module_name)

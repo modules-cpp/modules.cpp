@@ -24,8 +24,13 @@ module;
 
 module mm.build;
 
+import mm.configure;
 import mm.json;
 import mm.mdy;
+import :detail;
+import :config;
+import :manifest;
+import :compile;
 
 // POSIX pipe declarations are hidden by newlib's strict C++ feature profile.
 // Version and ABI probes run only in the host build tool, while the module's
@@ -34,7 +39,7 @@ extern "C" std::FILE* popen(const char*, const char*);
 extern "C" int pclose(std::FILE*);
 
 namespace mm::build {
-// This unit holds the mm.build implementation for: ile.
+// This unit implements the mm.build:compile partition: artifact paths, compile, link, install, and the module cache.
 bool within_destination(const std::filesystem::path& destination,
                         const std::filesystem::path& path,
                         const std::filesystem::path& tree_root) {

@@ -24,8 +24,13 @@ module;
 
 module mm.build;
 
+import mm.configure;
 import mm.json;
 import mm.mdy;
+import :detail;
+import :config;
+import :manifest;
+import :compile;
 
 // POSIX pipe declarations are hidden by newlib's strict C++ feature profile.
 // Version and ABI probes run only in the host build tool, while the module's
