@@ -2,7 +2,6 @@
 // 32bitmicro LLC (C) 2026
 #include <array>
 #include <cstddef>
-#include <span>
 #include <vector>
 
 import mm.mcu;

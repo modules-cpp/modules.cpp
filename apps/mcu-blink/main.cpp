@@ -1,8 +1,5 @@
 // Pawel Wodnicki (C) 2026
 // 32bitmicro LLC (C) 2026
-#include <optional>
-#include <span>
-#include <string_view>
 
 import mm.mcu;
 

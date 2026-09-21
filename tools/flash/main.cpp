@@ -5,7 +5,6 @@
 #include <cstdlib>
 #include <filesystem>
 #include <iostream>
-#include <string>
 
 import mm.app;
 import mm.build;

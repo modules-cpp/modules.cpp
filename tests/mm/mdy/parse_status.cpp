@@ -6,8 +6,6 @@
 // legitimately empty document - an empty file is not an error.
 
 #include <filesystem>
-#include <fstream>
-#include <string_view>
 
 import mm.mdy;
 import mm.test;

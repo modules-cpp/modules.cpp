@@ -4,7 +4,6 @@ module;
 
 #include <array>
 #include <cstddef>
-#include <span>
 
 module mm.rtc.pcf85063;
 

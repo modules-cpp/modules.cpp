@@ -6,7 +6,6 @@
 #include <array>
 #include <cstddef>
 #include <span>
-#include <vector>
 
 import mm.mcu;
 

@@ -3,7 +3,6 @@
 module;
 
 #include <cstddef>
-#include <span>
 
 export module mm.fonts:renderer;
 

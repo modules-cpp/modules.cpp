@@ -1,5 +1,4 @@
 // Manifest-side platform definition and version-gate tests.
-#include <filesystem>
 #include <fstream>
 
 import mm.build;

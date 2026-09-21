@@ -3,12 +3,10 @@
 #include <cerrno>
 #include <chrono>
 #include <csignal>
-#include <cstdint>
 #include <array>
 #include <fcntl.h>
 #include <linux/gpio.h>
 #include <linux/spi/spi.h>
-#include <optional>
 #include <sys/ioctl.h>
 #include <sys/time.h>
 #include <unistd.h>

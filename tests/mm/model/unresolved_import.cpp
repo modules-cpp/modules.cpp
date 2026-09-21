@@ -6,10 +6,6 @@
 // than declared_by().uses(), with no signal to a caller that anything was
 // lost. This pins the fixed behavior: load() fails outright instead.
 
-#include <filesystem>
-#include <fstream>
-#include <string>
-#include <string_view>
 
 import mm.model;
 import mm.test;

@@ -2,7 +2,6 @@
 // 32bitmicro LLC (C) 2026
 module;
 
-#include <cstddef>
 #include <span>
 #include <string>
 #include <string_view>

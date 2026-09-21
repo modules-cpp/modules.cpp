@@ -11,11 +11,8 @@
 // fixed correction: load() still succeeds generally, but the
 // repository-specific fixed data is absent rather than null or fabricated.
 
-#include <cstddef>
 #include <filesystem>
 #include <fstream>
-#include <string>
-#include <string_view>
 
 import mm.model;
 import mm.test;

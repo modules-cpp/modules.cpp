@@ -9,7 +9,6 @@ module;
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
-#include <cstdlib>
 #include <filesystem>
 #include <fcntl.h>
 #include <fstream>

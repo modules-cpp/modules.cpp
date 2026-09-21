@@ -46,7 +46,8 @@ RULES = {
     "charconv": r"std::(from_chars|to_chars|chars_format)\b",
     "chrono": r"std::chrono\b",
     "cmath": r"std::(abs|fabs|floor|ceil|round|pow|sqrt|sin|cos|tan|log|exp|"
-             r"fmod|isnan|isinf)\b",
+             r"fmod|isnan|isinf|isfinite|isnormal|signbit|trunc|hypot|"
+             r"atan2|log2|log10|cbrt|copysign)\b",
     "compare": r"std::(strong_ordering|weak_ordering|partial_ordering)\b",
     "cstddef": r"(std::)?\b(size_t|ptrdiff_t|nullptr_t)\b|std::byte\b",
     "cstdint": r"(std::)?\bu?int(8|16|32|64|max|ptr)_t\b",
@@ -60,7 +61,7 @@ RULES = {
                r"EXIT_SUCCESS|EXIT_FAILURE)\b",
     "cstring": r"std::(strlen|strcmp|strncmp|strcpy|strncpy|memcpy|memmove|"
         r"memset|"
-               r"memcmp|strchr|strstr)\b",
+               r"memcmp|strchr|strrchr|strstr|strerror|strcat|strncat)\b",
     "ctime": r"std::(time_t|tm|time|localtime|gmtime|strftime|mktime)\b",
     "exception": r"std::(exception|terminate|current_exception)\b",
     "filesystem": r"std::filesystem\b",
@@ -129,8 +130,10 @@ def strip_noise(text):
     text = re.sub(r"/\*.*?\*/", " ", text, flags=re.S)
     text = re.sub(r"//[^\n]*", " ", text)
     text = re.sub(r'R"([^(]*)\(.*?\)\1"', ' "" ', text, flags=re.S)
-    text = re.sub(r'"(\\.|[^"\\])*"', ' "" ', text)
+    # Character literals first: '"' is a quote to C++ and would otherwise open
+    # a string literal here, swallowing the code up to the next quote.
     text = re.sub(r"'(\\.|[^'\\])'", " '' ", text)
+    text = re.sub(r'"(\\.|[^"\\\n])*"', ' "" ', text)
     return text
 
 

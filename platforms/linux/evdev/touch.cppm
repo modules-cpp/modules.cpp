@@ -4,7 +4,6 @@ module;
 
 #include <algorithm>
 #include <cerrno>
-#include <cstring>
 #include <fcntl.h>
 #include <linux/input.h>
 #include <span>

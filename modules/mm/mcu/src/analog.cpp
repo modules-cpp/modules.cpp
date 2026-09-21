@@ -7,9 +7,8 @@
 module;
 
 #include <cstdint>
-#include <limits>
-#include <optional>
 #include <span>
+#include <limits>
 
 module mm.mcu;
 

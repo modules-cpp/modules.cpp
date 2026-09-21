@@ -2,11 +2,9 @@
 // 32bitmicro LLC (C) 2026
 module;
 #include <fstream>
-#include <iostream>
 #include <string>
 #include <string_view>
 #include <vector>
-#include <map>
 #include <filesystem>
 
 module mm.mdy;

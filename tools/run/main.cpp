@@ -4,8 +4,6 @@
 // 32bitmicro LLC (C) 2026
 #include <filesystem>
 #include <iostream>
-#include <string>
-#include <vector>
 
 import mm.app;
 import mm.build;

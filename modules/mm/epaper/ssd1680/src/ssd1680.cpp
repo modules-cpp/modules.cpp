@@ -4,7 +4,6 @@ module;
 
 #include <array>
 #include <cstddef>
-#include <optional>
 #include <span>
 
 module mm.epaper.ssd1680;

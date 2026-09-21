@@ -6,7 +6,6 @@ module;
 #include <cerrno>
 #include <cstddef>
 #include <cstdint>
-#include <cstring>
 #include <drm/drm.h>
 #include <drm/drm_mode.h>
 #include <fcntl.h>

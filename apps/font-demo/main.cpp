@@ -14,7 +14,6 @@
 // upright, and the packed frame is what turns.
 #include <array>
 #include <cstddef>
-#include <span>
 
 import mm.display;
 import mm.fonts;

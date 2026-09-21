@@ -7,7 +7,6 @@
 #include <cstring>
 #include <drm/drm.h>
 #include <drm/drm_mode.h>
-#include <fcntl.h>
 #include <sys/mman.h>
 #include <string>
 #include <vector>
