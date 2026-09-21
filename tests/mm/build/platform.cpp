@@ -21,6 +21,7 @@
 >>>>>>> f0dd29c (test: group provider and board tests under mm.build platform)
 
 import mm.build;
+import mm.configure;
 import mm.test;
 
 namespace {
@@ -1666,6 +1667,92 @@ void requires_board_exact_matching() {
            "unavailable reason indicates selected board");
 }
 
+
+// --- :platform API tests beyond provider selection
+
+void can_link_executable_reports_unresolved_responsibilities() {
+    mm::build::Platform platform;
+    expect(mm::build::can_link_executable(&platform, "build", "app"),
+           "a platform without unresolved responsibilities links");
+    expect(mm::build::can_link_executable(nullptr, "build", "app"),
+           "a host lane without a platform links");
+    platform.models_responsibilities = true;
+    platform.unresolved.push_back(mm::configure::Responsibility::Syscalls);
+    expect(!mm::build::can_link_executable(&platform, "build", "app"),
+           "an unresolved responsibility blocks the link");
+}
+
+void configuration_nodes_follow_the_project_walk() {
+    const mm::test::scoped_tree tree{"platform_confignodes"};
+    tree.manifest("", "kind: project\nname: p\nfolder: mods\n");
+    tree.manifest("mods", "kind: dir\nname: mods\nfolder: a\nfolder: b\n");
+    tree.manifest("mods/a", "kind: module\nname: a\nmodule: mm.a\nfile: a.cppm\n");
+    tree.manifest("mods/b", "kind: module\nname: b\nmodule: mm.b\nfile: b.cppm\n");
+    const auto project = mm::build::load_project(tree.root());
+    expect(project.ok, "the project loads");
+    const auto nodes = mm::build::configuration_nodes(project);
+    expect(nodes.size() == project.nodes.size(),
+           "one configuration node per walked node");
+    for (std::size_t i = 0; i < nodes.size(); ++i)
+        expect(nodes[i].name == project.nodes[i].name,
+               "configuration nodes stay parallel to the walk");
+}
+
+void structural_validation_enforces_lanes_core_and_library() {
+    auto node = [](std::string_view name, std::string_view module,
+                   const std::vector<std::string>& uses) {
+        mm::configure::OptionNode n;
+        n.manifest = "mm.mdy";
+        n.name = std::string(name);
+        n.kind = "module";
+        n.module_name = std::string(module);
+        n.uses = uses;
+        return n;
+    };
+    const auto nodes = {node("a", "mm.a", {}), node("b", "mm.b", {"mm.a"})};
+
+    mm::build::StructuralProperties properties;
+    properties.nodes.resize(nodes.size());
+    expect(mm::build::validate_structural_properties(nodes, properties, "test"),
+           "default capabilities and core status validate");
+
+    mm::build::StructuralProperties short_properties;
+    short_properties.nodes.resize(1);
+    expect(!mm::build::validate_structural_properties(nodes, short_properties, "test"),
+           "a properties vector shorter than the walk is rejected");
+
+    properties.nodes[0].buildable_host.value = false;
+    properties.nodes[0].buildable_host.value_source = "mods/a/mm.mdy";
+    expect(!mm::build::validate_structural_properties(nodes, properties, "test"),
+           "a host-only consumer cannot use a host-unbuildable module");
+
+    properties.nodes[0].buildable_host.value = true;
+    properties.nodes[0].core.value = false;
+    expect(!mm::build::validate_structural_properties(nodes, properties, "test"),
+           "a core consumer cannot use a non-core module");
+}
+
+void load_test_loads_a_test_manifest() {
+    const mm::test::scoped_tree tree{"platform_loadtest"};
+    tree.manifest("", "kind: project\nname: p\nfolder: tests\n");
+    tree.manifest("tests", "kind: dir\nname: tests\nfolder: t\n");
+    tree.manifest("tests/t", "kind: test\nname: t\nunit: t.cpp\n");
+    tree.manifest("tests/t/wrong", "kind: app\nname: wrong\nfile: w.cpp\n");
+
+    bool ok = false;
+    const auto target = mm::build::load_test(tree.root() / "tests" / "t" / "mm.mdy", ok);
+    expect(ok, "a kind:test manifest loads");
+    expect(target.kind == "test" && target.name == "t", "the target records its identity");
+    expect(target.sources.size() == 1 && target.sources.front().path == "t.cpp",
+           "the declared unit becomes the target source");
+
+    ok = true;
+    mm::build::load_test(tree.root() / "tests" / "t" / "wrong" / "mm.mdy", ok);
+    expect(!ok, "a non-test manifest fails the load");
+    ok = true;
+    mm::build::load_test(tree.root() / "tests" / "missing" / "mm.mdy", ok);
+    expect(!ok, "an absent manifest fails the load");
+}
 const mm::test::case_ cases[] = {
     {"library definition", &library_definition},
     {"library source boundary", &source_boundary},
@@ -1694,7 +1781,14 @@ const mm::test::case_ cases[] = {
     {"rejects linker script on externally linked board", &rejects_linker_script_on_externally_linked_board},
     {"diagnostics name supplying manifest", &diagnostics_name_supplying_manifest},
     {"requires-board exact matching", &requires_board_exact_matching},
+<<<<<<< HEAD
 >>>>>>> f0dd29c (test: group provider and board tests under mm.build platform)
+=======
+    {"can link executable reports unresolved responsibilities", &can_link_executable_reports_unresolved_responsibilities},
+    {"configuration nodes follow the project walk", &configuration_nodes_follow_the_project_walk},
+    {"structural validation enforces lanes core and library", &structural_validation_enforces_lanes_core_and_library},
+    {"load test loads a test manifest", &load_test_loads_a_test_manifest},
+>>>>>>> 88ee769 (test: cover link gate, configuration nodes, structural rules and test loading)
 };
 
 const mm::test::registrar reg{"mm.build platform", cases};
