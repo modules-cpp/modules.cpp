@@ -128,7 +128,11 @@ void fence_in_body_is_not_front_matter() {
         "after\n");
 
     mm::test::expect(doc.metadata.size() == 1, "expected a later --- not to reopen front matter");
-    mm::test::expect(doc.body.size() == 3, "expected the body fence to be kept as content");
+    mm::test::expect(doc.body.size() == 1,
+                     "expected the body fence to join the surrounding plain lines");
+    mm::test::expect(doc.body.size() == 1 && doc.body[0].type == BlockType::Paragraph &&
+                     doc.body[0].content == "before --- after",
+                     "expected the fence to stay content inside one joined paragraph");
 }
 
 void blank_body_lines_are_skipped() {
