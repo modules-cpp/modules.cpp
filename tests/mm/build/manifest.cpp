@@ -634,6 +634,86 @@ void validates_board_name_grammar() {
     expect(!mm::build::load_project(tree.root()).ok, "leading dash in board name rejected at load");
 }
 
+
+// --- :manifest API tests beyond the walk
+
+void resolve_manifest_maps_directories_to_their_manifest() {
+    const mm::test::scoped_tree tree{"manifest_resolve"};
+    tree.manifest("", "kind: project\nname: p\n");
+    expect(mm::build::resolve_manifest(tree.root()) == tree.root() / "mm.mdy",
+           "a directory resolves to the manifest it holds");
+    expect(mm::build::resolve_manifest(tree.root() / "mm.mdy") == tree.root() / "mm.mdy",
+           "a manifest path resolves to itself");
+}
+
+void find_project_root_stops_at_the_project_manifest() {
+    const mm::test::scoped_tree tree{"manifest_root_nested"};
+    tree.manifest("", "kind: project\nname: p\nfolder: a\n");
+    tree.manifest("a", "kind: dir\nname: a\n");
+    expect(mm::build::find_project_root(tree.root() / "a") == tree.root(),
+           "a nested directory walks up to the project root");
+}
+
+void find_project_root_is_empty_outside_a_project() {
+    const mm::test::scoped_tree tree{"manifest_root_outside"};
+    tree.manifest("a", "kind: dir\nname: a\n");
+    expect(mm::build::find_project_root(tree.root() / "a").empty(),
+           "a tree with no project manifest has no root");
+}
+
+void resolve_roots_records_the_requested_node_and_directories() {
+    const mm::test::scoped_tree tree{"manifest_roots_ok"};
+    tree.manifest("", "kind: project\nname: p\nfolder: a\n");
+    tree.manifest("a", "kind: dir\nname: a\n");
+    auto roots = mm::build::resolve_roots(tree.root() / "a");
+    expect(roots.ok, "a directory inside the project resolves");
+    expect(roots.project_root == tree.root(), "the project root is recorded");
+    expect(roots.tools_dir == tree.root() / "out" / "bin",
+           "the tools directory is derived from the project root");
+    expect(roots.requested_node == "a", "the requested node is named");
+    expect(roots.requested_manifest.filename() == "mm.mdy",
+           "the requested manifest is recorded");
+}
+
+void resolve_roots_rejects_a_path_that_is_not_a_manifest() {
+    const mm::test::scoped_tree tree{"manifest_roots_bad"};
+    tree.manifest("", "kind: project\nname: p\n");
+    expect(!mm::build::resolve_roots(tree.root() / "missing").ok,
+           "an absent manifest fails the resolution");
+    expect(!mm::build::resolve_roots(tree.root() / "mm.mdy" / "x").ok,
+           "a path that does not end in mm.mdy fails the resolution");
+}
+
+void parse_unit_splits_path_and_module_name() {
+    const auto plain = mm::build::parse_unit("src/a.cppm");
+    expect(plain.path == "src/a.cppm" && plain.module_name.empty(),
+           "a bare unit names only its path");
+    const auto named = mm::build::parse_unit("src/a.cppm mm.a");
+    expect(named.path == "src/a.cppm" && named.module_name == "mm.a",
+           "a unit may carry its module name");
+    const auto tabbed = mm::build::parse_unit("src/a.cppm\txx.b");
+    expect(tabbed.module_name == "xx.b", "tabs separate the name as well");
+}
+
+void version_rule_table_drives_the_supported_versions_string() {
+    expect(std::size(mm::build::manifest_versions) == 4, "four versions are supported");
+    expect(!mm::build::manifest_versions[0].rejects_unknown_keys,
+           "1.0 predates strict key checking");
+    for (std::size_t i = 1; i < std::size(mm::build::manifest_versions); ++i)
+        expect(mm::build::manifest_versions[i].rejects_unknown_keys,
+               "later versions reject unknown keys");
+    expect(mm::build::supported_manifest_versions() == "1.0, 1.1, 1.2, 1.3",
+           "the supported string lists every version in order");
+    const auto* v12 = mm::build::manifest_version("1.2");
+    expect(v12 != nullptr && v12->number == 12, "a version name finds its rule");
+    expect(mm::build::manifest_version("9.9") == nullptr,
+           "an unknown version finds no rule");
+    expect(std::string(mm::build::manifest_version_name(13)) == "1.3",
+           "a version number spells its name");
+    expect(std::string(mm::build::manifest_version_name(-1)) == "unknown",
+           "a foreign number spells unknown");
+}
+
 const mm::test::case_ cases[] = {
     { "walks a nested tree",                  &walks_a_nested_tree },
     { "separates tests and docs",             &separates_tests_and_docs_from_targets },
@@ -669,6 +749,13 @@ const mm::test::case_ cases[] = {
     {"accepts the hazard3 processor combination", &accepts_the_hazard3_processor_combination},
     {"external directories are selection-scoped", &external_directories_are_only_spelling_checked_by_the_walk},
     {"validates board name grammar", &validates_board_name_grammar},
+    {"resolve manifest maps directories to their manifest", &resolve_manifest_maps_directories_to_their_manifest},
+    {"find project root stops at the project manifest", &find_project_root_stops_at_the_project_manifest},
+    {"find project root is empty outside a project", &find_project_root_is_empty_outside_a_project},
+    {"resolve roots records the requested node and directories", &resolve_roots_records_the_requested_node_and_directories},
+    {"resolve roots rejects a path that is not a manifest", &resolve_roots_rejects_a_path_that_is_not_a_manifest},
+    {"parse unit splits path and module name", &parse_unit_splits_path_and_module_name},
+    {"version rule table drives the supported versions string", &version_rule_table_drives_the_supported_versions_string},
 };
 
 const mm::test::registrar reg{"mm.build manifest", cases};
