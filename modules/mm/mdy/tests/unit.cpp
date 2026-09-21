@@ -83,6 +83,9 @@ void parse_line_reads_empty_line() {
     mm::test::expect(block.content.empty(), "expected an Empty block to carry no content");
 }
 
+// The Paragraph classification means "a line that starts or continues a
+// paragraph run", not "a whole paragraph"; the run is formed by
+// parse_file and parse, which join consecutive plain lines.
 void parse_line_defaults_to_paragraph() {
     const auto block = parse_line("just some prose");
     mm::test::expect(block.type == BlockType::Paragraph, "expected plain text to yield Paragraph");

@@ -22,6 +22,22 @@ std::string_view trim(std::string_view text)
     return text.substr(first, last - first + 1);
 }
 
+// True when the line starts a heading or list block instead of
+// continuing a paragraph run.
+bool starts_block(std::string_view line) {
+    return line.starts_with("# ") || line.starts_with("## ") ||
+           line.starts_with("### ") || line.starts_with("- ") ||
+           line.starts_with("* ");
+}
+
+// Emit the pending paragraph run, if any.
+void flush_paragraph(std::vector<Block>& blocks, std::string& pending) {
+    if (!pending.empty()) {
+        blocks.push_back({BlockType::Paragraph, std::move(pending)});
+        pending.clear();
+    }
+}
+
 // C++20 parsing helper function
 Block parse_line(std::string_view line) {
     // 1. Trim leading space if necessary (simplified)
@@ -57,15 +73,28 @@ std::vector<Block> Parser::parse(const std::filesystem::path& file_path) {
 
     std::ifstream file(file_path);
     std::string current_line;
+    std::string pending;
 
     while (std::getline(file, current_line)) {
         std::string_view view(current_line);
-        
-        // Skip empty lines gracefully
-        if (view.empty()) continue; 
-        
-        parsed_blocks.push_back(parse_line(view));
+
+        // Empty lines separate paragraph runs gracefully
+        if (view.empty()) {
+            flush_paragraph(parsed_blocks, pending);
+            continue;
+        }
+
+        if (starts_block(view)) {
+            flush_paragraph(parsed_blocks, pending);
+            parsed_blocks.push_back(parse_line(view));
+            continue;
+        }
+
+        if (pending.empty()) pending = std::string(view);
+        else pending += " " + std::string(view);
     }
+
+    flush_paragraph(parsed_blocks, pending);
 
     return parsed_blocks;
 }
@@ -97,6 +126,7 @@ MDYDocument Parser::parse_file(const std::filesystem::path& file_path) {
     }
 
     std::string current_line;
+    std::string pending;
 
     // State machine states
     enum class ParseState { ExpectingStartFence, InsideFrontMatter, InsideBody };
@@ -138,11 +168,23 @@ MDYDocument Parser::parse_file(const std::filesystem::path& file_path) {
             }
         }
         else {
-            // We are in the body. Skip empty spacer lines, parse the rest.
-            if (line_view.empty()) continue;
-            doc.body.push_back(parse_line(line_view));
+            // Body: plain lines accumulate into a paragraph run; headings and
+            // list items end the run; empty lines separate runs.
+            if (line_view.empty()) {
+                flush_paragraph(doc.body, pending);
+                continue;
+            }
+            if (starts_block(line_view)) {
+                flush_paragraph(doc.body, pending);
+                doc.body.push_back(parse_line(line_view));
+                continue;
+            }
+            if (pending.empty()) pending = std::string(line_view);
+            else pending += " " + std::string(line_view);
         }
     }
+
+    flush_paragraph(doc.body, pending);
 
     // is_open() is true for a path that opens but cannot actually be read,
     // such as a directory (POSIX open() on a directory succeeds; the

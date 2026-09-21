@@ -147,6 +147,136 @@ void blank_body_lines_are_skipped() {
     mm::test::expect(doc.body.size() == 2, "expected blank spacer lines to be dropped from the body");
 }
 
+void consecutive_plain_lines_form_one_paragraph() {
+    const auto doc = parse_text(
+        "---\n"
+        "mm: 1.0\n"
+        "---\n"
+        "First line of the paragraph.\n"
+        "Second line of the same paragraph.\n");
+
+    mm::test::expect(doc.body.size() == 1,
+                     "expected the two plain lines to join into one paragraph");
+    mm::test::expect(doc.body.size() == 1 && doc.body[0].type == BlockType::Paragraph &&
+                     doc.body[0].content ==
+                     "First line of the paragraph. Second line of the same paragraph.",
+                     "expected the joined content with a single space between the lines");
+}
+
+void long_plain_run_joins_with_single_spaces() {
+    const auto doc = parse_text(
+        "---\n"
+        "mm: 1.0\n"
+        "---\n"
+        "one\n"
+        "two\n"
+        "three\n");
+
+    mm::test::expect(doc.body.size() == 1, "expected the three plain lines to join into one paragraph");
+    mm::test::expect(doc.body.size() == 1 && doc.body[0].content == "one two three",
+                     "expected the run joined with single spaces, not newlines or double spaces");
+}
+
+void heading_ends_paragraph_run() {
+    const auto doc = parse_text(
+        "---\n"
+        "mm: 1.0\n"
+        "---\n"
+        "one\n"
+        "two\n"
+        "# Title\n");
+
+    mm::test::expect(doc.body.size() == 2,
+                     "expected the run and the heading to form two blocks");
+    mm::test::expect(doc.body.size() == 2 && doc.body[0].type == BlockType::Paragraph &&
+                     doc.body[0].content == "one two",
+                     "expected the joined run to end at the heading");
+    mm::test::expect(doc.body.size() == 2 && doc.body[1].type == BlockType::Heading1 &&
+                     doc.body[1].content == "Title",
+                     "expected the heading to parse as its own block");
+}
+
+void list_ends_paragraph_run() {
+    const auto doc = parse_text(
+        "---\n"
+        "mm: 1.0\n"
+        "---\n"
+        "one\n"
+        "two\n"
+        "- item\n");
+
+    mm::test::expect(doc.body.size() == 2,
+                     "expected the run and the list item to form two blocks");
+    mm::test::expect(doc.body.size() == 2 && doc.body[0].type == BlockType::Paragraph &&
+                     doc.body[0].content == "one two",
+                     "expected the joined run to end at the list line");
+    mm::test::expect(doc.body.size() == 2 && doc.body[1].type == BlockType::UnorderedList &&
+                     doc.body[1].content == "item",
+                     "expected the list line to parse as its own block");
+}
+
+void empty_line_splits_paragraph_runs() {
+    const auto doc = parse_text(
+        "---\n"
+        "mm: 1.0\n"
+        "---\n"
+        "one\n"
+        "\n"
+        "two\n");
+
+    mm::test::expect(doc.body.size() == 2, "expected the empty line to separate two runs");
+    mm::test::expect(doc.body.size() == 2 && doc.body[0].content == "one" &&
+                     doc.body[1].content == "two",
+                     "expected each run to keep its own single-line content");
+}
+
+void final_paragraph_run_at_end_of_file() {
+    const auto doc = parse_text(
+        "---\n"
+        "mm: 1.0\n"
+        "---\n"
+        "one\n"
+        "two\n");
+
+    mm::test::expect(doc.body.size() == 1,
+                     "expected the final run without a trailing empty line to parse");
+    mm::test::expect(doc.body.size() == 1 && doc.body[0].content == "one two",
+                     "expected the final run to join into one paragraph");
+}
+
+void run_ordering_with_headings_lists_and_blanks() {
+    const auto doc = parse_text(
+        "---\n"
+        "mm: 1.0\n"
+        "---\n"
+        "# Title\n"
+        "one\n"
+        "two\n"
+        "- item\n"
+        "\n"
+        "three\n");
+
+    mm::test::expect(doc.body.size() == 4, "expected four blocks from heading, run, list, run");
+    mm::test::expect(doc.body.size() == 4 && doc.body[0].type == BlockType::Heading1 &&
+                     doc.body[1].type == BlockType::Paragraph && doc.body[1].content == "one two" &&
+                     doc.body[2].type == BlockType::UnorderedList &&
+                     doc.body[3].type == BlockType::Paragraph && doc.body[3].content == "three",
+                     "expected the run rule to hold across the whole body");
+}
+
+void single_line_paragraph_parses_as_before() {
+    const auto doc = parse_text(
+        "---\n"
+        "mm: 1.0\n"
+        "---\n"
+        "just some prose\n");
+
+    mm::test::expect(doc.body.size() == 1, "expected one paragraph block");
+    mm::test::expect(doc.body.size() == 1 && doc.body[0].type == BlockType::Paragraph &&
+                     doc.body[0].content == "just some prose",
+                     "expected single-line prose to parse exactly as before the run change");
+}
+
 void handles_crlf_line_endings() {
     const auto doc = parse_text(
         "---\r\n"
@@ -216,6 +346,14 @@ const mm::test::case_ cases[] = {
     { "document without front matter is body",    &document_without_front_matter_is_all_body },
     { "fence in body is not front matter",        &fence_in_body_is_not_front_matter },
     { "blank body lines are skipped",             &blank_body_lines_are_skipped },
+    { "consecutive plain lines form one paragraph", &consecutive_plain_lines_form_one_paragraph },
+    { "long plain run joins with single spaces",   &long_plain_run_joins_with_single_spaces },
+    { "heading ends paragraph run",               &heading_ends_paragraph_run },
+    { "list ends paragraph run",                  &list_ends_paragraph_run },
+    { "empty line splits paragraph runs",         &empty_line_splits_paragraph_runs },
+    { "final paragraph run at end of file",       &final_paragraph_run_at_end_of_file },
+    { "run ordering with headings lists and blanks", &run_ordering_with_headings_lists_and_blanks },
+    { "single line paragraph parses as before",   &single_line_paragraph_parses_as_before },
     { "handles CRLF line endings",                &handles_crlf_line_endings },
     { "empty input yields empty document",        &empty_input_yields_empty_document },
     { "parse_file reads from disk",               &parse_file_reads_from_disk },
