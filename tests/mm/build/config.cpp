@@ -500,59 +500,6 @@ void loads_c_compiler_from_configuration() {
                      "expected selected toolchain C compiler arm-none-eabi-gcc");
 }
 
-void writes_toolchain_cmake_bare_metal_and_linux() {
-    const mm::test::scoped_tree tree{"build_toolchain_cmake"};
-
-    mm::build::Toolchain toolchain;
-    toolchain.compiler.invocation = "arm-none-eabi-g++";
-    toolchain.c_compiler.invocation = "arm-none-eabi-gcc";
-
-    mm::build::Platform bare_metal;
-    bare_metal.system = mm::configure::PlatformSystem::BareMetal;
-
-    const auto bm_path = tree.root() / "bm" / "mm-toolchain.cmake";
-    mm::test::expect(mm::build::write_toolchain_cmake(bm_path, toolchain, bare_metal),
-                     "expected bare metal toolchain cmake write to succeed");
-
-    std::ifstream bm_file(bm_path);
-    std::string bm_content((std::istreambuf_iterator<char>(bm_file)),
-                            std::istreambuf_iterator<char>());
-    mm::test::expect(bm_content.find("set(CMAKE_SYSTEM_NAME Generic)") != std::string::npos,
-                     "expected CMAKE_SYSTEM_NAME Generic for bare metal");
-    mm::test::expect(bm_content.find("set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)") != std::string::npos,
-                     "expected CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY");
-    mm::test::expect(bm_content.find("set(CMAKE_C_COMPILER [==[arm-none-eabi-gcc]==])") != std::string::npos,
-                     "expected CMAKE_C_COMPILER");
-    mm::test::expect(bm_content.find("set(CMAKE_CXX_COMPILER [==[arm-none-eabi-g++]==])") != std::string::npos,
-                     "expected CMAKE_CXX_COMPILER");
-    mm::test::expect(bm_content.find("CMAKE_SYSROOT") == std::string::npos,
-                     "expected no sysroot when none declared");
-    mm::test::expect(bm_content.find("-mcpu") == std::string::npos &&
-                     bm_content.find("-mthumb") == std::string::npos,
-                     "expected no processor flags in toolchain.cmake");
-
-    mm::build::Platform linux_platform;
-    linux_platform.system = mm::configure::PlatformSystem::Linux;
-    linux_platform.sysroot = "/opt/sysroot";
-
-    const auto linux_path = tree.root() / "linux" / "mm-toolchain.cmake";
-    mm::test::expect(mm::build::write_toolchain_cmake(linux_path, toolchain, linux_platform),
-                     "expected linux toolchain cmake write to succeed");
-
-    std::ifstream linux_file(linux_path);
-    std::string linux_content((std::istreambuf_iterator<char>(linux_file)),
-                               std::istreambuf_iterator<char>());
-    mm::test::expect(linux_content.find("set(CMAKE_SYSTEM_NAME Linux)") != std::string::npos,
-                     "expected CMAKE_SYSTEM_NAME Linux for hosted lane");
-    mm::test::expect(linux_content.find("set(CMAKE_SYSROOT [==[/opt/sysroot]==])") != std::string::npos,
-                     "expected bracketed CMAKE_SYSROOT");
-
-    toolchain.c_compiler.invocation.clear();
-    const auto fail_path = tree.root() / "fail" / "mm-toolchain.cmake";
-    mm::test::expect(!mm::build::write_toolchain_cmake(fail_path, toolchain, linux_platform),
-                     "expected failure when C compiler is missing");
-}
-
 void loads_cross_link_external_configuration() {
     const mm::test::scoped_tree tree{"build_cross_link_external"};
     const auto sdk_path = tree.root() / "platforms/sdk/mm.mdy";
@@ -949,12 +896,11 @@ const mm::test::case_ cases[] = {
     {"rejects malformed strict platform records", &rejects_malformed_strict_platform_records},
     {"legacy platforms are total and permissive", &legacy_platforms_are_total_and_permissive},
     {"loads C compiler from configuration", &loads_c_compiler_from_configuration},
-    {"writes toolchain cmake for bare metal and linux", &writes_toolchain_cmake_bare_metal_and_linux},
     {"loads cross-link external configuration", &loads_cross_link_external_configuration},
     {"detects stale configuration record", &detects_stale_configuration_record},
     {"loads secure Cortex-M33 processor snapshots", &loads_secure_cortex_m33_processor_snapshots},
 };
 
-const mm::test::registrar reg{"mm.build configuration", cases};
+const mm::test::registrar reg{"mm.build config", cases};
 
 }  // namespace

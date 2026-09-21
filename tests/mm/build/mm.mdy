@@ -8,7 +8,7 @@ use: mm.configure
 unit: tests/mm/build/quote.cpp
 unit: tests/mm/build/manifest.cpp
 unit: tests/mm/build/graph.cpp
-unit: tests/mm/build/configuration.cpp
+unit: tests/mm/build/config.cpp
 unit: tests/mm/build/platform.cpp
 unit: tests/mm/build/external.cpp
 unit: tests/mm/build/cache.cpp
