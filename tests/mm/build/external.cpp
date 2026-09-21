@@ -600,6 +600,17 @@ void cmake_bracket_exhausts_max_equals() {
                      "fails when all delimiters up to max_equals are exhausted");
 }
 
+
+// --- external link gate
+
+void external_link_requires_a_selected_sdk() {
+    const mm::build::Project project;
+    mm::build::Platform platform;
+    expect(mm::build::external_link(project, platform, mm::build::default_toolchain(),
+                                    "app", {}, "build", "build/app")
+               == mm::build::exit_manifest,
+           "an external link without a selected SDK is rejected");
+}
 const mm::test::case_ cases[] = {
     {"inputs cmake escaping and validation", &inputs_cmake_escaping_and_validation},
     {"bridge board chain resolution", &bridge_board_chain_resolution},
@@ -615,6 +626,7 @@ const mm::test::case_ cases[] = {
     {"avoids embedded closing in cmake arg", &cmake_bracket_avoids_embedded_closing},
     {"rejects disallowed chars in cmake arg",&cmake_bracket_rejects_disallowed_characters},
     {"exhausts max equals in cmake arg",     &cmake_bracket_exhausts_max_equals},
+    {"external link requires a selected sdk", &external_link_requires_a_selected_sdk},
 };
 
 const mm::test::registrar reg{"mm.build external", cases};
