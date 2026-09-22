@@ -43,7 +43,7 @@
 // is read by tools/model, never by the build path itself.
 //
 // operations() is fixed, hand authored data, the same reasoning as
-// build0/build1/c++ in tools(): docs/modules.mdy's nine *.sh scripts and
+// build0/build1/c++ in tools(): docs/modules.mdy's twelve *.sh scripts and
 // how they relate are not something any manifest declares, so nothing here
 // is derived from a walk, and none of it is meaningful for a project other
 // than this one. Rather than embed a null Tool* for whichever of the nine
@@ -134,11 +134,13 @@ private:
     const std::filesystem::path& project_root, bool verbose = false);
 
 // Reorders operations into the documented recommended order: clean,
-// bootstrap, build, then test, document, check, model (the order they are
-// listed in docs/modules.mdy's "Build and development workflow"). Not
-// authoritative over what may actually run: an operation not present in
-// operations is silently skipped, and this never rejects an order a caller
-// chooses to run operations in on their own.
+// bootstrap, configure, build, test, document, check, model (the order
+// they are listed in docs/modules.mdy's "Build and development workflow"),
+// then the utility scripts json, run, flash, and debug, which the
+// workflow sequence does not list but the twelve-script inventory does.
+// Not authoritative over what may actually run: an operation not present
+// in operations is silently skipped, and this never rejects an order a
+// caller chooses to run operations in on their own.
 [[nodiscard]] std::vector<const models::Operation*> recommended_sequence(
     const std::vector<const models::Operation*>& operations);
 

@@ -922,7 +922,7 @@ private:
     bool ok_ = false;
 };
 
-// Fixed, hand authored data: the eleven *.sh scripts and how they relate are
+// Fixed, hand authored data: the twelve *.sh scripts and how they relate are
 // not something any manifest declares, the same reasoning as build0/build1
 // in build_tools(). invokes() is precomputed per branch rather than derived
 // on demand, since it only ever needs to hand back what was given at
@@ -972,6 +972,7 @@ std::vector<std::unique_ptr<models::Operation>> build_operations(
     const auto* test_runner = find_tool(tools, "test");
     const auto* check = find_tool(tools, "check");
     const auto* model = find_tool(tools, "model");
+    const auto* json_tool = find_tool(tools, "json");
     const auto* run_tool = find_tool(tools, "run");
     const auto* flash_tool = find_tool(tools, "flash");
     const auto* debug_tool = find_tool(tools, "debug");
@@ -989,7 +990,7 @@ std::vector<std::unique_ptr<models::Operation>> build_operations(
     // of the above resolved to a real Tool.
     if (cxx == nullptr || build0 == nullptr || build1 == nullptr || build == nullptr ||
         main_tool == nullptr || mdy == nullptr || test_runner == nullptr || check == nullptr ||
-        model == nullptr || run_tool == nullptr || flash_tool == nullptr ||
+        model == nullptr || json_tool == nullptr || run_tool == nullptr || flash_tool == nullptr ||
         debug_tool == nullptr || configure == nullptr)
         return {};
 
@@ -1003,23 +1004,29 @@ std::vector<std::unique_ptr<models::Operation>> build_operations(
     };
 
     std::vector<std::unique_ptr<models::Operation>> result;
-    result.reserve(11);
+    result.reserve(12);
 
     // bootstrap.sh: compile build0, then either build0 builds build1
     // (branch 0) or, only if that leaves no executable build1, the same
-    // fixed steps run by hand instead (branch 1). Both paths then invoke
-    // build1 twice to stage only build and configure with their closures.
+    // fixed steps run by hand instead (branch 1): 25 -c compiles in the
+    // documented partition/interface order plus one link, all driven
+    // directly by the host c++ compiler. Both paths then invoke build1
+    // twice to stage only build and configure with their closures.
     {
         std::vector<models::ArtifactKind> produces = {
             models::ArtifactKind::Staged, models::ArtifactKind::ModuleObject,
             models::ArtifactKind::ToolObject, models::ArtifactKind::ToolExecutable,
             models::ArtifactKind::InstalledBinary,
         };
+        std::vector<const models::Tool*> fallback = {cxx, build0};
+        fallback.insert(fallback.end(), 26, cxx);
+        fallback.push_back(build1);
+        fallback.push_back(build1);
         result.push_back(std::make_unique<RealOperation>(
             "bootstrap", "bootstrap.sh", models::Role::Required,
             std::vector<std::vector<const models::Tool*>>{
                 {cxx, build0, build1, build1},
-                {cxx, build0, cxx, cxx, cxx, cxx, cxx, cxx, build1, build1},
+                std::move(fallback),
             },
             std::vector<models::ArtifactKind>{}, std::move(produces)));
     }
@@ -1040,15 +1047,30 @@ std::vector<std::unique_ptr<models::Operation>> build_operations(
         std::vector<std::vector<const models::Tool*>>{{build}},
         std::vector<models::ArtifactKind>{models::ArtifactKind::InstalledBinary}, full_build));
 
-    result.push_back(std::make_unique<RealOperation>(
-        "test", "test.sh", models::Role::Optional,
-        std::vector<std::vector<const models::Tool*>>{
-            {build0, build1, build, main_tool, mdy, test_runner, test_runner, test_runner,
-             test_runner, test_runner, test_runner, test_runner, test_runner, test_runner,
-             test_runner, test_runner}},
-        std::vector<models::ArtifactKind>{models::ArtifactKind::Staged,
-                                          models::ArtifactKind::InstalledBinary},
-        std::vector<models::ArtifactKind>{models::ArtifactKind::TestBuild}));
+    // test.sh first drives the staged and installed tools (build0's usage
+    // and help, build1's help, build's help, configure's unknown-option
+    // check, main's three output modes, mdy's smoke run), then one test
+    // runner invocation per suite. Branch 0 is the full non-Darwin roster
+    // (25 suites); branch 1 is Darwin, which skips tests/mm/linux/ because
+    // Linux DRM headers are unavailable on macOS (24 suites). A suite
+    // added to test.sh must update these two counts with it.
+    {
+        std::vector<std::vector<const models::Tool*>> branches;
+        branches.reserve(2);
+        for (std::size_t darwin = 0; darwin < 2; ++darwin) {
+            std::vector<const models::Tool*> branch = {
+                build0, build0, build1, build, configure, main_tool, main_tool, main_tool, mdy};
+            const std::size_t suites = darwin == 0 ? 25 : 24;
+            branch.insert(branch.end(), suites, test_runner);
+            branches.push_back(std::move(branch));
+        }
+        result.push_back(std::make_unique<RealOperation>(
+            "test", "test.sh", models::Role::Optional,
+            std::move(branches),
+            std::vector<models::ArtifactKind>{models::ArtifactKind::Staged,
+                                              models::ArtifactKind::InstalledBinary},
+            std::vector<models::ArtifactKind>{models::ArtifactKind::TestBuild}));
+    }
 
     result.push_back(std::make_unique<RealOperation>(
         "document", "document.sh", models::Role::Optional,
@@ -1065,6 +1087,14 @@ std::vector<std::unique_ptr<models::Operation>> build_operations(
     result.push_back(std::make_unique<RealOperation>(
         "model", "model.sh", models::Role::Optional,
         std::vector<std::vector<const models::Tool*>>{{model}},
+        std::vector<models::ArtifactKind>{models::ArtifactKind::InstalledBinary},
+        std::vector<models::ArtifactKind>{}));
+
+    // json.sh validates and formats JSON through the installed json tool;
+    // a utility, not part of the self-hosting chain.
+    result.push_back(std::make_unique<RealOperation>(
+        "json", "json.sh", models::Role::Optional,
+        std::vector<std::vector<const models::Tool*>>{{json_tool}},
         std::vector<models::ArtifactKind>{models::ArtifactKind::InstalledBinary},
         std::vector<models::ArtifactKind>{}));
 
@@ -1696,9 +1726,9 @@ std::unique_ptr<models::Configuration> configuration(const std::filesystem::path
 
 std::vector<const models::Operation*> recommended_sequence(
     const std::vector<const models::Operation*>& operations) {
-    static constexpr std::array<std::string_view, 11> order = {
+    static constexpr std::array<std::string_view, 12> order = {
         "clean", "bootstrap", "configure", "build", "test", "document", "check", "model",
-        "run", "flash", "debug",
+        "json", "run", "flash", "debug",
     };
 
     std::vector<const models::Operation*> result;
