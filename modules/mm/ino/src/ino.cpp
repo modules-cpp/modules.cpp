@@ -473,6 +473,64 @@ std::string sketch_header() {
         out += "inline constexpr unsigned int A" + std::to_string(channel) +
                " = " + std::to_string(channel) + ";\n";
     }
+    out += "\n";
+
+    // The mathematical constants the Arduino toolchain defines as macros. A
+    // sketch writes PI and expects it to be there; mm.sketch exports the
+    // functions of docs/modules-sketch.mdy's Math and trigonometry section
+    // but names none of these values.
+    out += "// Mathematical constants, spelled as a sketch spells them.\n";
+    out += "// docs/modules-sketch.mdy exports the trigonometry; these are\n";
+    out += "// the values it takes, at the precision a double can hold.\n";
+    out += "inline constexpr double PI = 3.1415926535897932384626433832795;\n";
+    out += "inline constexpr double HALF_PI = "
+           "1.5707963267948966192313216916398;\n";
+    out += "inline constexpr double TWO_PI = "
+           "6.283185307179586476925286766559;\n";
+    out += "inline constexpr double EULER = "
+           "2.718281828459045235360287471352;\n";
+    out += "inline constexpr double DEG_TO_RAD = "
+           "0.017453292519943295769236907684886;\n";
+    out += "inline constexpr double RAD_TO_DEG = "
+           "57.295779513082320876798154814105;\n";
+    out += "\n";
+
+    // The cooperative hook a sketch calls inside its own waiting loop. The
+    // Arduino toolchain spells it yield; this project spells the same
+    // behaviour dispatch, and docs/modules-sketch.mdy describes it there.
+    out += "// The foreign spelling of dispatch, which is what a sketch\n";
+    out += "// calls to let handlers run inside a wait of its own.\n";
+    out += "inline void yield() { dispatch(); }\n";
+    out += "\n";
+
+    // AVR's binary.h, which a sketch reaches through Arduino.h. Every bit
+    // pattern from one to eight digits is a separate name there, so every
+    // one of them is a separate name here.
+    out += "// Bit patterns one to eight digits wide, as AVR's binary.h\n";
+    out += "// spells them. Constants rather than macros: each has a type,\n";
+    out += "// a scope, and a value the compiler can see.\n";
+    for (int width = 1; width <= 8; ++width) {
+        const unsigned int count = 1u << width;
+        for (unsigned int value = 0; value < count; ++value) {
+            std::string digits;
+            for (int bit = width - 1; bit >= 0; --bit)
+                digits += ((value >> bit) & 1u) ? '1' : '0';
+            const std::string declarator =
+                "B" + digits + " = " + std::to_string(value);
+            // Four to a line: one name per line reads no better and runs to
+            // five hundred of them. Only the first line of a width opens the
+            // declaration; the rest are further declarators in it.
+            if (value == 0) {
+                out += "inline constexpr unsigned int ";
+            } else if (value % 4 == 0) {
+                out += ",\n    ";
+            } else {
+                out += ", ";
+            }
+            out += declarator;
+        }
+        out += ";\n";
+    }
     return out;
 }
 

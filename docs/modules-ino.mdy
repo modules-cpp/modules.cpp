@@ -265,6 +265,10 @@ using std::size_t;    using std::ptrdiff_t;
 #define PSTR(string_literal) (string_literal)
 #define PROGMEM
 inline constexpr unsigned int A0 = 0;  // through A7
+inline constexpr double PI = 3.1415926535897932384626433832795;
+inline constexpr double HALF_PI, TWO_PI, EULER, DEG_TO_RAD, RAD_TO_DEG
+inline void yield() { dispatch(); }
+inline constexpr unsigned int B0 = 0;  // through B11111111
 Closing fence
 
 Three of those lines are spellings this specification and
@@ -278,6 +282,26 @@ The analog channel names number the channels in declaration order. A board's
 real mapping belongs to mm.mcu, so a sketch naming a channel its board does not
 have fails when it reads that channel, latching Status::Unsupported, rather
 than when it names it.
+
+The mathematical constants are the values docs/modules-sketch.mdy's Math and
+trigonometry section takes but does not name: it exports sin, cos, tan and
+pow through using declarations, and a sketch that writes sin(angle * PI / 180)
+needs the constant as well as the function. They are declared at the precision
+of a double, which is the precision every one of those functions works in.
+
+yield is the foreign spelling of dispatch, which docs/modules-sketch.mdy
+describes under Dispatch and latency: the point at which a sketch waiting in a
+loop of its own lets interrupt handlers and the serial callback run. The
+behaviour is not declined here, only the name, so the header forwards one to
+the other rather than defining anything.
+
+The bit patterns are AVR's binary.h, which a sketch reaches through Arduino.h.
+Every pattern from one to eight digits is a separate name there, so every one
+of them is a separate name here, and there are five hundred and ten of them.
+They are constants rather than macros for the reason constrain and map are
+functions rather than macros: a name with a type and a scope is the one this
+project can reason about, and nothing about a bit pattern needs the
+preprocessor.
 
 Because the header is generated and verified byte-for-byte by the sketch
 tool for sketch applications (whether external or registered in-tree), it is

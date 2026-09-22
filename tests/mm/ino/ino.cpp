@@ -315,6 +315,20 @@ void sketch_header_synthesis() {
     expect(header.find("A0 = 0;") != std::string::npos &&
                header.find("A7 = 7;") != std::string::npos,
            "the analog channel names are present");
+    expect(header.find("inline constexpr double PI = 3.14159") !=
+               std::string::npos &&
+               header.find("TWO_PI = 6.28318") != std::string::npos &&
+               header.find("RAD_TO_DEG = 57.2957") != std::string::npos,
+           "the mathematical constants a sketch names are present");
+    expect(header.find("inline void yield() { dispatch(); }") !=
+               std::string::npos,
+           "yield is the foreign spelling of dispatch");
+    expect(header.find("B0 = 0, B1 = 1;") != std::string::npos &&
+               header.find("B11111111 = 255;") != std::string::npos,
+           "the binary constants span one to eight digits");
+    expect(header.find("B01 = 1") != std::string::npos &&
+               header.find("B00000001 = 1") != std::string::npos,
+           "a leading zero is part of the name, not of the value");
     expect(header.find("do not edit by hand") !=
                std::string::npos,
            "the header says it is generated");
