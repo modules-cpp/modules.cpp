@@ -238,6 +238,18 @@ using std::sin;
 using std::cos;
 using std::tan;
 
+using std::asin;   using std::acos;   using std::atan;   using std::atan2;
+using std::sinh;   using std::cosh;   using std::tanh;
+using std::exp;    using std::log;    using std::log10;  using std::log2;
+using std::cbrt;   using std::hypot;  using std::fabs;   using std::fmod;
+using std::floor;  using std::ceil;   using std::round;  using std::trunc;
+using std::isnan;  using std::isinf;  using std::isfinite; using std::signbit;
+
+using std::fabsf;  using std::fmodf;  using std::powf;   using std::sqrtf;
+using std::sinf;   using std::cosf;   using std::tanf;   using std::atan2f;
+using std::expf;   using std::logf;   using std::floorf; using std::ceilf;
+using std::roundf; using std::hypotf;
+
 long sq(long x);
 double sq(double x);
 
@@ -249,6 +261,8 @@ double map(double x, double in_min, double in_max, double out_min, double out_ma
 Closing fence
 
 min, max, abs, pow, sqrt, sin, cos, and tan are exported in mm::sketch via using declarations of the standard library routines from <algorithm> and <cmath>, making them available unqualified in sketches.
+
+The remaining names are exported the same way and for the same reason: a sketch reaches for round, hypot, fmod or atan2 without qualifying them, and a using declaration is what makes the standard routine answer to that spelling. Nothing is reimplemented, so each has the standard's behaviour, including its overloads for float, double, and long double. The float-suffixed C spellings are exported beside them because a sketch written for a machine without double-precision hardware writes sqrtf rather than sqrt, and the two are not interchangeable to a reader deciding what a line costs.
 
 constrain, map, and sq are ordinary overloaded functions on long and double. Because they are functions rather than preprocessor macros, each argument is evaluated exactly once: an expression such as constrain(i++, 0, 9) increments i once, avoiding the multiple-evaluation defects of traditional macro definitions. If in_max equals in_min in map, the function returns out_min to prevent division by zero.
 
@@ -546,6 +560,41 @@ byte, word, and boolean provide standard type aliases.
 
 The String class is declined. Standard ISO C++ std::string provides string operations, integrating with Serial.print and future text methods.
 
+## Print and Printable
+
+Opening fence
+class Printable {
+public:
+    virtual ~Printable() = default;
+    virtual std::size_t printTo(Print& out) const = 0;
+};
+
+class Print {
+public:
+    virtual ~Print() = default;
+
+    virtual std::size_t write(byte b) = 0;
+    virtual std::size_t write(const byte* buffer, std::size_t size);
+    std::size_t write(const char* buffer, std::size_t size);
+    std::size_t write(const char* s);
+
+    std::size_t print(...);    // the SerialPort overload set
+    std::size_t println(...);  // and a Printable
+};
+
+class SerialPort : public Print { ... };
+Closing fence
+
+A vendored library arrives with two of its own shapes. It prints an object it defines by deriving that object from Printable and supplying printTo, and it prints to a destination of its own -- a shift register, a parallel port, a second UART -- by deriving that destination from Print and supplying write. Both are ordinary Arduino, and a library that does either is unusable without them however complete the rest of the vocabulary is.
+
+Print is the single level of virtual dispatch docs/modules-c++20.mdy permits: a base with a virtual destructor, one pure virtual function, and concrete classes that override it. Everything else Print offers is written once in terms of write, so a destination supplies one function and receives the whole print and println overload set, formatted exactly as the console formats it.
+
+SerialPort derives from Print, which is what lets a library hold a Print& and be given Serial. It keeps its own print and println overloads, because those reach the console directly rather than through a virtual call, and names Print's with using declarations so the overloads only Print declares -- printing a Printable -- remain reachable on Serial.
+
+Declaring write in a derived class hides Print's other write overloads, as it does in Arduino. A destination that also wants the buffered ones says using Print::write.
+
+printTo receives the destination and returns the number of bytes it wrote, and Print::print(const Printable&) is that call. Nothing else is required of a printable object.
+
 PROGMEM and the F("...") macro are declined as behaviour. In the modules.cpp toolchain, constant placement in flash or RAM is determined automatically by the linker, so there is nothing for either to do.
 
-The spellings are a separate matter. A vendored library writes F("...") in its own header whether or not this module wants the behaviour, so the compatibility header that mm.ino synthesises for an application declaring sketch-library defines F, PSTR, and PROGMEM as inert: the argument is its own value and PROGMEM expands to nothing. Nothing is exported from mm::sketch for them, and a sketch that does not reach a library never sees them. docs/modules-ino.mdy owns that header.
+The spellings are a separate matter. A vendored library writes F("...") in its own header whether or not this module wants the behaviour, so the compatibility header that mm.ino synthesises for every sketch application defines F, PSTR, and PROGMEM as inert: the argument is its own value and PROGMEM expands to nothing. Nothing is exported from mm::sketch for them. docs/modules-ino.mdy owns that header, and the flash readers, the C allocator, and the bit-pattern names it also defines.

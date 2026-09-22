@@ -42,6 +42,13 @@ struct TransformResult {
 // same way main.cpp is.
 [[nodiscard]] std::string sketch_header();
 
+// The other names a vendored library includes by, each one a header its own
+// toolchain ships separately and this project keeps in one place. Each is
+// generated beside Arduino.h and forwards to it, so a library reaching for
+// Print.h or Wire.h finds the same declarations under the name it wrote.
+[[nodiscard]] std::span<const std::string_view> sketch_alias_headers();
+[[nodiscard]] std::string sketch_alias_header(std::string_view name);
+
 [[nodiscard]] bool check_application(const std::filesystem::path& app_dir,
                                      const mm::mdy::MDYDocument& doc,
                                      std::string& error);

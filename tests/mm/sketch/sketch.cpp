@@ -506,6 +506,79 @@ void math_operations() {
     expect(map(LONG_MAX, LONG_MIN, LONG_MAX, 0L, 100L) == 100L, "map LONG_MAX to 100");
 }
 
+// A sink of its own and an object that prints itself: the two shapes a
+// vendored library derives, exercised against each other rather than
+// against the console.
+class Recorder : public Print {
+public:
+    // Declaring write(byte) hides the buffered overloads, exactly as it does
+    // in a vendored library, so the sink says which it also wants.
+    using Print::write;
+
+    std::size_t write(byte b) override {
+        text.push_back(static_cast<char>(b));
+        return 1;
+    }
+    std::string text;
+};
+
+class Point : public Printable {
+public:
+    Point(int x, int y) : x_(x), y_(y) {}
+    std::size_t printTo(Print& out) const override {
+        std::size_t written = out.print('(');
+        written += out.print(x_);
+        written += out.print(", ");
+        written += out.print(y_);
+        written += out.print(')');
+        return written;
+    }
+
+private:
+    int x_ = 0;
+    int y_ = 0;
+};
+
+void print_sink_and_printable() {
+    Recorder sink;
+    expect(sink.print("text") == 4 && sink.text == "text",
+           "a sink prints a string through its own write");
+
+    sink.text.clear();
+    expect(sink.print(255, HEX) == 2 && sink.text == "FF",
+           "a sink formats hexadecimal in upper case");
+
+    sink.text.clear();
+    expect(sink.print(-1, DEC) == 2 && sink.text == "-1",
+           "decimal carries the sign");
+
+    sink.text.clear();
+    sink.print(10, BIN);
+    expect(sink.text == "1010", "binary prints the bit pattern");
+
+    sink.text.clear();
+    expect(sink.print(1, static_cast<Base>(7)) == 0,
+           "a base outside the four prints nothing");
+
+    sink.text.clear();
+    expect(sink.print(3.5, 2) == 4 && sink.text == "3.50",
+           "a double prints at the requested precision");
+
+    sink.text.clear();
+    const std::size_t written = sink.println(Point{3, 4});
+    expect(sink.text == "(3, 4)\r\n" && written == sink.text.size(),
+           "a printable object reaches the sink through printTo");
+
+    // The console is a Print too, which is what lets a library hold one.
+    Print& as_base = Serial;
+    expect(&as_base == &Serial, "Serial is usable where a sink is asked for");
+
+    sink.text.clear();
+    const byte bytes[] = {'a', 'b', 'c'};
+    expect(sink.write(bytes, 3) == 3 && sink.text == "abc",
+           "the buffered write walks the default implementation");
+}
+
 void character_classifiers() {
     expect(isAlpha('a'), "isAlpha('a') should be true");
     expect(isAlpha('Z'), "isAlpha('Z') should be true");
@@ -1799,6 +1872,7 @@ const mm::test::case_ cases[] = {
     {"digital io and led", &digital_io_and_led},
     {"time and delay", &time_and_delay},
     {"serial communication", &serial_communication},
+    {"print sink and printable", &print_sink_and_printable},
     {"serial formatting", &serial_formatting},
     {"serial input and waiting", &serial_input_and_waiting},
     {"serial event callback", &serial_event_callback},

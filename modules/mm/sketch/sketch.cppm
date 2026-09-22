@@ -102,6 +102,56 @@ using std::sin;
 using std::cos;
 using std::tan;
 
+// The rest of <cmath> a sketch reaches for. Each is the standard routine
+// under the name the sketch writes, so an expression carried over from a
+// sketch means here what it meant there.
+using std::asin;
+using std::acos;
+using std::atan;
+using std::atan2;
+using std::sinh;
+using std::cosh;
+using std::tanh;
+using std::exp;
+using std::log;
+using std::log10;
+using std::log2;
+using std::cbrt;
+using std::hypot;
+using std::fabs;
+using std::fmod;
+using std::floor;
+using std::ceil;
+using std::round;
+using std::trunc;
+using std::frexp;
+using std::ldexp;
+using std::modf;
+using std::isnan;
+using std::isinf;
+using std::isfinite;
+using std::signbit;
+
+// The float-suffixed C spellings, which a sketch written for a machine
+// without double-precision hardware uses to stay in single precision.
+using std::fabsf;
+using std::fmodf;
+using std::powf;
+using std::sqrtf;
+using std::sinf;
+using std::cosf;
+using std::tanf;
+using std::atan2f;
+using std::expf;
+using std::logf;
+using std::floorf;
+using std::ceilf;
+using std::roundf;
+using std::hypotf;
+using std::frexpf;
+using std::ldexpf;
+using std::modff;
+
 long sq(long x);
 double sq(double x);
 
@@ -208,13 +258,74 @@ inline constexpr Base HEX = Base::Hex;
 inline constexpr Base OCT = Base::Oct;
 inline constexpr Base BIN = Base::Bin;
 
-class SerialPort {
+class Print;
+
+// A vendored library prints an object of its own by deriving from Printable
+// and a sink of its own by deriving from Print. Both are the Arduino shapes,
+// and both are the single level of virtual dispatch docs/modules-c++20.mdy
+// permits: Print is the base, a sink is a concrete class, and printTo is the
+// one thing a printable object supplies.
+class Printable {
 public:
+    virtual ~Printable() = default;
+    virtual std::size_t printTo(Print& out) const = 0;
+};
+
+// Everything a sink can print, written once in terms of the one thing a sink
+// must supply: write. The formatting matches SerialPort's, which keeps its
+// own copies because they reach the console without a virtual call.
+class Print {
+public:
+    virtual ~Print() = default;
+
+    virtual std::size_t write(byte b) = 0;
+    virtual std::size_t write(const byte* buffer, std::size_t size);
+    std::size_t write(const char* buffer, std::size_t size);
+    std::size_t write(const char* s);
+
+    std::size_t print(const char* s);
+    std::size_t print(char c);
+    std::size_t print(std::string_view s);
+    std::size_t print(bool b);
+    std::size_t print(int n, Base base = DEC);
+    std::size_t print(unsigned int n, Base base = DEC);
+    std::size_t print(long n, Base base = DEC);
+    std::size_t print(unsigned long n, Base base = DEC);
+    std::size_t print(double n, int digits = 2);
+    std::size_t print(const Printable& object);
+    std::size_t print(unsigned char n, Base base = DEC) { return print(static_cast<unsigned int>(n), base); }
+    std::size_t print(short n, Base base = DEC) { return print(static_cast<int>(n), base); }
+    std::size_t print(unsigned short n, Base base = DEC) { return print(static_cast<unsigned int>(n), base); }
+
+    std::size_t println(const char* s);
+    std::size_t println(char c);
+    std::size_t println(std::string_view s);
+    std::size_t println(bool b);
+    std::size_t println(int n, Base base = DEC);
+    std::size_t println(unsigned int n, Base base = DEC);
+    std::size_t println(long n, Base base = DEC);
+    std::size_t println(unsigned long n, Base base = DEC);
+    std::size_t println(double n, int digits = 2);
+    std::size_t println(const Printable& object);
+    std::size_t println(unsigned char n, Base base = DEC) { return println(static_cast<unsigned int>(n), base); }
+    std::size_t println(short n, Base base = DEC) { return println(static_cast<int>(n), base); }
+    std::size_t println(unsigned short n, Base base = DEC) { return println(static_cast<unsigned int>(n), base); }
+    std::size_t println();
+};
+
+class SerialPort : public Print {
+public:
+    // The console's own overloads answer every call a sketch makes on
+    // Serial; these bring in the ones only Print declares, such as printing
+    // a Printable, without displacing any of them.
+    using Print::print;
+    using Print::println;
+
     bool begin(unsigned long baud = 9600);
     bool end();
 
-    std::size_t write(byte b);
-    std::size_t write(const byte* buffer, std::size_t size);
+    std::size_t write(byte b) override;
+    std::size_t write(const byte* buffer, std::size_t size) override;
     std::size_t write(const char* buffer, std::size_t size);
     std::size_t write(const char* s);
 

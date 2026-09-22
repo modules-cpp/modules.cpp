@@ -390,6 +390,25 @@ int main(int argc, char** argv) {
                         check_failed = true;
                     }
                 }
+                for (const auto& alias : mm::ino::sketch_alias_headers()) {
+                    const std::string name(alias);
+                    const auto alias_path = app_node.dir / name;
+                    if (!std::filesystem::exists(alias_path, ec)) {
+                        std::cerr << "sketch: missing generated " << name
+                                  << " in " << app_node.dir.string() << "\n";
+                        check_failed = true;
+                        continue;
+                    }
+                    std::ifstream in_alias(alias_path);
+                    std::ostringstream ss_alias;
+                    ss_alias << in_alias.rdbuf();
+                    if (ss_alias.str() != mm::ino::sketch_alias_header(alias)) {
+                        std::cerr << "sketch: committed " << name
+                                  << " does not match this release in "
+                                  << app_node.dir.string() << "\n";
+                        check_failed = true;
+                    }
+                }
             }
             if (check_failed) return 65;
             return 0;
@@ -477,6 +496,17 @@ int main(int argc, char** argv) {
                 std::cerr << "sketch: cannot write Arduino.h in "
                           << app_node.dir.string() << ": " << err << "\n";
                 return 65;
+            }
+            for (const auto& alias : mm::ino::sketch_alias_headers()) {
+                const std::string name(alias);
+                if (!mm::ino::write_guarded(
+                        app_node.dir, name,
+                        mm::ino::sketch_alias_header(alias), err,
+                        name + ".tmp")) {
+                    std::cerr << "sketch: cannot write " << name << " in "
+                              << app_node.dir.string() << ": " << err << "\n";
+                    return 65;
+                }
             }
         }
         if (!tree_above) {
@@ -699,6 +729,16 @@ int main(int argc, char** argv) {
     if (verbose) {
         std::cerr << "sketch: wrote Arduino.h to " << abs_dir.string()
                   << "/Arduino.h\n";
+    }
+    for (const auto& alias : mm::ino::sketch_alias_headers()) {
+        const std::string name(alias);
+        if (!mm::ino::write_guarded(abs_dir, name,
+                                    mm::ino::sketch_alias_header(alias),
+                                    header_err, name + ".tmp")) {
+            std::cerr << "sketch: cannot write " << name << ": "
+                      << header_err << "\n";
+            return 65;
+        }
     }
 
     if (tree_above && !parent_msg.empty()) {

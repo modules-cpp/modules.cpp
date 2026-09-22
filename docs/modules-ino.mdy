@@ -264,6 +264,10 @@ using std::size_t;    using std::ptrdiff_t;
 #define F(string_literal) (string_literal)
 #define PSTR(string_literal) (string_literal)
 #define PROGMEM
+using std::malloc;  // and calloc, realloc, free
+using std::memcpy;  // and the other <cstring> routines
+inline std::uint8_t pgm_read_byte(const void* address);  // and the rest
+#define NAN, #define INFINITY
 inline constexpr unsigned int A0 = 0;  // through A7
 inline constexpr double PI = 3.1415926535897932384626433832795;
 inline constexpr double HALF_PI, TWO_PI, EULER, DEG_TO_RAD, RAD_TO_DEG
@@ -295,6 +299,15 @@ loop of its own lets interrupt handlers and the serial callback run. The
 behaviour is not declined here, only the name, so the header forwards one to
 the other rather than defining anything.
 
+The C allocator and the string routines are there because a sketch library
+reaches them through Arduino.h rather than by naming <stdlib.h> or <string.h>
+itself, which is the same reason the integer types are there.
+
+The flash readers are the other half of PROGMEM. Nothing was placed in a
+separate address space, so pgm_read_byte reads the object it is given the
+address of, and _near and _far are the same read. memcpy_P and its neighbours
+are the same statement about the string routines.
+
 The bit patterns are AVR's binary.h, which a sketch reaches through Arduino.h.
 Every pattern from one to eight digits is a separate name there, so every one
 of them is a separate name here, and there are five hundred and ten of them.
@@ -308,6 +321,23 @@ tool for sketch applications (whether external or registered in-tree), it is
 not authored project code: the preprocessor directives in it are the ones a
 foreign library requires, and docs/modules-c++20.mdy's prohibition governs what
 this project authors for itself.
+
+## The headers a library includes by other names
+
+The Arduino toolchain ships Print.h, Printable.h, Wire.h and SPI.h as separate
+files, and a vendored library includes whichever it needs by that name. Every
+one of them names a class mm.sketch already exports, so the sketch tool writes
+each as a one-line header beside Arduino.h that includes it. A library reaching
+for Print.h finds Print; nothing is declared twice, and the compatibility
+surface stays in one file.
+
+A name with nothing behind it is not generated. Stream.h is the case that makes
+the rule worth stating: mm.sketch exports no Stream, so a header that resolved
+and then failed to declare one would turn a missing-file diagnostic naming the
+library's dependency into a wall of missing-class errors inside it.
+
+These are generated, committed, regenerated and checked exactly as Arduino.h
+is, and sketch --check reports each by name.
 
 The build puts the application directory on the include path ahead of the
 library directories, which is what lets a library header two directories away

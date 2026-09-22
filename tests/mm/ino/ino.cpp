@@ -225,6 +225,15 @@ void write_guarded_lifecycle() {
            "error message must mention temporary file exists");
 }
 
+// A complete application carries the generated headers as well as the
+// generated main.cpp, which is what check_application asks for.
+void write_generated_headers(const std::filesystem::path& dir) {
+    std::ofstream(dir / "Arduino.h") << mm::ino::sketch_header();
+    for (const auto& alias : mm::ino::sketch_alias_headers())
+        std::ofstream(dir / std::string(alias))
+            << mm::ino::sketch_alias_header(alias);
+}
+
 void check_application_rules() {
     const mm::test::scoped_tree tree{"ino_check"};
     const auto dir = tree.root();
@@ -250,10 +259,7 @@ void check_application_rules() {
         f << tr.output;
     }
     // main.cpp includes it, so a complete application has one.
-    {
-        std::ofstream f(dir / "Arduino.h");
-        f << mm::ino::sketch_header();
-    }
+    write_generated_headers(dir);
 
     mm::mdy::MDYDocument doc_valid;
     doc_valid.metadata["kind"] = {"app"};
@@ -329,6 +335,13 @@ void sketch_header_synthesis() {
     expect(header.find("B01 = 1") != std::string::npos &&
                header.find("B00000001 = 1") != std::string::npos,
            "a leading zero is part of the name, not of the value");
+    for (const auto& alias : mm::ino::sketch_alias_headers()) {
+        const auto forwarder = mm::ino::sketch_alias_header(alias);
+        expect(forwarder.find("#include \"Arduino.h\"") != std::string::npos,
+               "a forwarding header forwards to Arduino.h");
+        expect(forwarder.find(std::string(alias)) != std::string::npos,
+               "a forwarding header names the spelling it answers to");
+    }
     expect(header.find("do not edit by hand") !=
                std::string::npos,
            "the header says it is generated");
@@ -365,13 +378,28 @@ void sketch_header_is_checked() {
     expect(!mm::ino::check_application(dir, doc, error),
            "a hand-edited header is refused");
 
-    std::ofstream(dir / "Arduino.h") << mm::ino::sketch_header();
+    write_generated_headers(dir);
     expect(mm::ino::check_application(dir, doc, error),
-           "the generated header passes");
+           "the generated headers pass");
 
     doc.metadata.erase("sketch-library");
     expect(mm::ino::check_application(dir, doc, error),
-           "the generated header passes without a library too");
+           "the generated headers pass without a library too");
+
+    // Each name a library may include by is checked on the same terms.
+    std::filesystem::remove(dir / "Wire.h");
+    expect(!mm::ino::check_application(dir, doc, error),
+           "a missing forwarding header is refused");
+    expect(error.find("Wire.h") != std::string::npos,
+           "the error names the missing forwarding header");
+
+    std::ofstream(dir / "Wire.h") << "#pragma once\n";
+    expect(!mm::ino::check_application(dir, doc, error),
+           "a hand-edited forwarding header is refused");
+
+    write_generated_headers(dir);
+    expect(mm::ino::check_application(dir, doc, error),
+           "the regenerated forwarding header passes");
 }
 
 void library_discovery_flat() {

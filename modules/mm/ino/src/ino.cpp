@@ -443,6 +443,10 @@ std::string sketch_header() {
     out += "\n";
     out += "#include <cstddef>\n";
     out += "#include <cstdint>\n";
+    out += "#include <cmath>\n";
+    out += "#include <cstdio>\n";
+    out += "#include <cstdlib>\n";
+    out += "#include <cstring>\n";
     out += "\n";
     out += "import mm.sketch;\n";
     out += "\n";
@@ -458,12 +462,92 @@ std::string sketch_header() {
     out += "using std::int64_t;   using std::uint64_t;\n";
     out += "using std::size_t;    using std::ptrdiff_t;\n";
     out += "\n";
+    out += "// The C allocator and the string routines, which a sketch\n";
+    out += "// library reaches through Arduino.h rather than by naming\n";
+    out += "// <stdlib.h> or <string.h> itself.\n";
+    out += "using std::malloc;    using std::calloc;\n";
+    out += "using std::realloc;   using std::free;\n";
+    out += "using std::memcpy;    using std::memmove;\n";
+    out += "using std::memset;    using std::memcmp;\n";
+    out += "using std::strlen;    using std::strcmp;\n";
+    out += "using std::strncmp;   using std::strcpy;\n";
+    out += "using std::strncpy;   using std::strcat;\n";
+    out += "using std::strncat;   using std::strstr;\n";
+    out += "using std::strchr;    using std::strrchr;\n";
+    out += "using std::strtok;\n";
+    out += "using std::sprintf;   using std::snprintf;\n";
+    out += "using std::vsnprintf; using std::sscanf;\n";
+    out += "using std::atoi;      using std::atol;\n";
+    out += "using std::atof;      using std::strtol;\n";
+    out += "using std::strtoul;   using std::strtod;\n";
+    out += "\n";
     out += "// Flash-string spellings. docs/modules-sketch.mdy declines the\n";
     out += "// behaviour, not the spelling: placement is the linker's\n";
     out += "// business here, so each of these is inert.\n";
     out += "#define F(string_literal) (string_literal)\n";
     out += "#define PSTR(string_literal) (string_literal)\n";
     out += "#define PROGMEM\n";
+    out += "\n";
+    out += "// The floating-point spellings <cmath> defines as macros, which\n";
+    out += "// a sketch writes without including it.\n";
+    out += "using std::isnan;\n";
+    out += "using std::isinf;\n";
+    out += "#ifndef NAN\n";
+    out += "#define NAN (__builtin_nanf(\"\"))\n";
+    out += "#endif\n";
+    out += "#ifndef INFINITY\n";
+    out += "#define INFINITY (__builtin_inff())\n";
+    out += "#endif\n";
+    out += "\n";
+    out += "// The AVR flash readers. Nothing was placed in a separate\n";
+    out += "// address space, so each one reads the object it is given the\n";
+    out += "// address of. _near and _far are the same read here.\n";
+    out += "inline std::uint8_t pgm_read_byte(const void* address) {\n";
+    out += "    return *static_cast<const std::uint8_t*>(address);\n";
+    out += "}\n";
+    out += "inline std::uint16_t pgm_read_word(const void* address) {\n";
+    out += "    return *static_cast<const std::uint16_t*>(address);\n";
+    out += "}\n";
+    out += "inline std::uint32_t pgm_read_dword(const void* address) {\n";
+    out += "    return *static_cast<const std::uint32_t*>(address);\n";
+    out += "}\n";
+    out += "inline float pgm_read_float(const void* address) {\n";
+    out += "    return *static_cast<const float*>(address);\n";
+    out += "}\n";
+    out += "inline void* pgm_read_ptr(const void* address) {\n";
+    out += "    return *static_cast<void* const*>(address);\n";
+    out += "}\n";
+    out += "inline std::uint8_t pgm_read_byte_near(const void* a)"
+           " { return pgm_read_byte(a); }\n";
+    out += "inline std::uint8_t pgm_read_byte_far(const void* a)"
+           " { return pgm_read_byte(a); }\n";
+    out += "inline std::uint16_t pgm_read_word_near(const void* a)"
+           " { return pgm_read_word(a); }\n";
+    out += "inline std::uint16_t pgm_read_word_far(const void* a)"
+           " { return pgm_read_word(a); }\n";
+    out += "inline std::uint32_t pgm_read_dword_near(const void* a)"
+           " { return pgm_read_dword(a); }\n";
+    out += "inline std::uint32_t pgm_read_dword_far(const void* a)"
+           " { return pgm_read_dword(a); }\n";
+    out += "inline float pgm_read_float_near(const void* a)"
+           " { return pgm_read_float(a); }\n";
+    out += "inline float pgm_read_float_far(const void* a)"
+           " { return pgm_read_float(a); }\n";
+    out += "inline void* pgm_read_ptr_near(const void* a)"
+           " { return pgm_read_ptr(a); }\n";
+    out += "inline void* pgm_read_ptr_far(const void* a)"
+           " { return pgm_read_ptr(a); }\n";
+    out += "\n";
+    out += "// The flash counterparts of the string routines, which read\n";
+    out += "// from the same memory for the same reason.\n";
+    out += "inline void* memcpy_P(void* d, const void* s, std::size_t n)"
+           " { return std::memcpy(d, s, n); }\n";
+    out += "inline char* strcpy_P(char* d, const char* s)"
+           " { return std::strcpy(d, s); }\n";
+    out += "inline std::size_t strlen_P(const char* s)"
+           " { return std::strlen(s); }\n";
+    out += "inline int strcmp_P(const char* a, const char* b)"
+           " { return std::strcmp(a, b); }\n";
     out += "\n";
     out += "// Analog channel names, numbered in declaration order. A board's\n";
     out += "// real mapping belongs to mm.mcu; until it is asked, a sketch\n";
@@ -531,6 +615,33 @@ std::string sketch_header() {
         }
         out += ";\n";
     }
+    return out;
+}
+
+std::span<const std::string_view> sketch_alias_headers() {
+    // Every one of these names a class mm.sketch already exports: Print and
+    // Printable from its own section, Wire from the I2C section, SPI from
+    // the SPI one. A name with nothing behind it is not listed, because a
+    // header that resolves and then fails to declare what was wanted is a
+    // worse diagnostic than one that does not resolve.
+    static constexpr std::string_view names[] = {
+        "Print.h", "Printable.h", "Wire.h", "SPI.h",
+    };
+    return names;
+}
+
+std::string sketch_alias_header(std::string_view name) {
+    std::string out;
+    out += "// Generated by sketch (mm: 1.3) -- do not edit by hand.\n";
+    out += "//\n";
+    out += "// A vendored library includes ";
+    out += std::string(name);
+    out += " because its own\n";
+    out += "// toolchain ships one. Everything it declares is in Arduino.h\n";
+    out += "// here, which is beside this file and generated with it.\n";
+    out += "#pragma once\n";
+    out += "\n";
+    out += "#include \"Arduino.h\"\n";
     return out;
 }
 
@@ -613,6 +724,23 @@ bool check_application(const std::filesystem::path& app_dir,
         error = "committed Arduino.h does not match this release in " +
                 app_dir.string();
         return false;
+    }
+
+    for (const auto& name : sketch_alias_headers()) {
+        const std::filesystem::path alias = app_dir / std::string(name);
+        std::ifstream in_alias(alias);
+        if (!in_alias) {
+            error = "missing generated " + std::string(name) + " in " +
+                    app_dir.string();
+            return false;
+        }
+        std::ostringstream ss_alias;
+        ss_alias << in_alias.rdbuf();
+        if (ss_alias.str() != sketch_alias_header(name)) {
+            error = "committed " + std::string(name) +
+                    " does not match this release in " + app_dir.string();
+            return false;
+        }
     }
 
     return true;

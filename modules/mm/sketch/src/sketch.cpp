@@ -8,6 +8,7 @@ module;
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <optional>
 #include <random>
 #include <span>
 #include <string>
@@ -1577,6 +1578,156 @@ int timed_read(const Deadline& deadline) {
 
 } // namespace
 
+// --- Print -------------------------------------------------------------
+//
+// A sink supplies write; everything else is written here once, in terms of
+// it. The number formatting is SerialPort's, which keeps its own copies
+// because it reaches the console directly rather than through a virtual
+// call, and the two are expected to agree character for character.
+
+namespace {
+
+bool is_valid_base(Base b) {
+    return b == Base::Bin || b == Base::Oct || b == Base::Dec || b == Base::Hex;
+}
+
+// Formats into caller storage and reports the length, or none when the
+// value does not fit or the base is not one of the four. Shared by every
+// Print overload so one buffer size and one base policy govern them all.
+std::optional<std::size_t> format_unsigned(char* buffer, std::size_t capacity,
+                                           unsigned long long value, Base base) {
+    if (!is_valid_base(base)) return std::nullopt;
+    auto res = std::to_chars(buffer, buffer + capacity, value,
+                             static_cast<int>(base));
+    if (res.ec != std::errc{}) return std::nullopt;
+    if (base == Base::Hex) {
+        for (char* p = buffer; p < res.ptr; ++p)
+            if (*p >= 'a' && *p <= 'f')
+                *p = static_cast<char>(*p - 'a' + 'A');
+    }
+    return static_cast<std::size_t>(res.ptr - buffer);
+}
+
+std::optional<std::size_t> format_signed(char* buffer, std::size_t capacity,
+                                         long long value, Base base) {
+    if (!is_valid_base(base)) return std::nullopt;
+    // Only decimal carries the sign; the other bases print the bit pattern,
+    // which is what a sketch reading Serial.print(-1, HEX) expects.
+    if (base != Base::Dec)
+        return format_unsigned(buffer, capacity,
+                               static_cast<unsigned long long>(value), base);
+    auto res = std::to_chars(buffer, buffer + capacity, value);
+    if (res.ec != std::errc{}) return std::nullopt;
+    return static_cast<std::size_t>(res.ptr - buffer);
+}
+
+} // namespace
+
+std::size_t Print::write(const byte* buffer, std::size_t size) {
+    if (buffer == nullptr) return 0;
+    std::size_t written = 0;
+    for (std::size_t i = 0; i < size; ++i) {
+        if (write(buffer[i]) != 1) break;
+        ++written;
+    }
+    return written;
+}
+
+std::size_t Print::write(const char* buffer, std::size_t size) {
+    return write(reinterpret_cast<const byte*>(buffer), size);
+}
+
+std::size_t Print::write(const char* s) {
+    if (s == nullptr) return 0;
+    return write(reinterpret_cast<const byte*>(s), std::string_view(s).size());
+}
+
+std::size_t Print::print(const char* s) {
+    if (s == nullptr) return 0;
+    return write(reinterpret_cast<const byte*>(s), std::string_view(s).size());
+}
+
+std::size_t Print::print(char c) {
+    return write(static_cast<byte>(c));
+}
+
+std::size_t Print::print(std::string_view s) {
+    return write(reinterpret_cast<const byte*>(s.data()), s.size());
+}
+
+std::size_t Print::print(bool b) {
+    return write(static_cast<byte>(b ? '1' : '0'));
+}
+
+std::size_t Print::print(int n, Base base) {
+    char buf[64];
+    const auto length = format_signed(buf, sizeof(buf), n, base);
+    if (!length) {
+        record_failure(Status::BadArgument, "Print.print");
+        return 0;
+    }
+    return write(reinterpret_cast<const byte*>(buf), *length);
+}
+
+std::size_t Print::print(unsigned int n, Base base) {
+    char buf[64];
+    const auto length = format_unsigned(buf, sizeof(buf), n, base);
+    if (!length) {
+        record_failure(Status::BadArgument, "Print.print");
+        return 0;
+    }
+    return write(reinterpret_cast<const byte*>(buf), *length);
+}
+
+std::size_t Print::print(long n, Base base) {
+    char buf[64];
+    const auto length = format_signed(buf, sizeof(buf), n, base);
+    if (!length) {
+        record_failure(Status::BadArgument, "Print.print");
+        return 0;
+    }
+    return write(reinterpret_cast<const byte*>(buf), *length);
+}
+
+std::size_t Print::print(unsigned long n, Base base) {
+    char buf[64];
+    const auto length = format_unsigned(buf, sizeof(buf), n, base);
+    if (!length) {
+        record_failure(Status::BadArgument, "Print.print");
+        return 0;
+    }
+    return write(reinterpret_cast<const byte*>(buf), *length);
+}
+
+std::size_t Print::print(double n, int digits) {
+    char buf[64];
+    const int precision = digits >= 0 ? digits : 0;
+    auto res = std::to_chars(buf, buf + sizeof(buf), n,
+                             std::chars_format::fixed, precision);
+    if (res.ec != std::errc{}) {
+        record_failure(Status::BadArgument, "Print.print");
+        return 0;
+    }
+    return write(reinterpret_cast<const byte*>(buf),
+                 static_cast<std::size_t>(res.ptr - buf));
+}
+
+std::size_t Print::print(const Printable& object) {
+    return object.printTo(*this);
+}
+
+std::size_t Print::println(const char* s) { return print(s) + print("\r\n"); }
+std::size_t Print::println(char c) { return print(c) + print("\r\n"); }
+std::size_t Print::println(std::string_view s) { return print(s) + print("\r\n"); }
+std::size_t Print::println(bool b) { return print(b) + print("\r\n"); }
+std::size_t Print::println(int n, Base base) { return print(n, base) + print("\r\n"); }
+std::size_t Print::println(unsigned int n, Base base) { return print(n, base) + print("\r\n"); }
+std::size_t Print::println(long n, Base base) { return print(n, base) + print("\r\n"); }
+std::size_t Print::println(unsigned long n, Base base) { return print(n, base) + print("\r\n"); }
+std::size_t Print::println(double n, int digits) { return print(n, digits) + print("\r\n"); }
+std::size_t Print::println(const Printable& object) { return print(object) + print("\r\n"); }
+std::size_t Print::println() { return print("\r\n"); }
+
 std::size_t SerialPort::write(byte b) {
     CallScope scope{"Serial.write"};
     return serial_write(&b, 1);
@@ -1620,12 +1771,6 @@ std::size_t SerialPort::print(bool b) {
     const char c = b ? '1' : '0';
     return serial_write(reinterpret_cast<const byte*>(&c), 1);
 }
-
-namespace {
-bool is_valid_base(Base b) {
-    return b == Base::Bin || b == Base::Oct || b == Base::Dec || b == Base::Hex;
-}
-} // namespace
 
 std::size_t SerialPort::print(int n, Base base) {
     CallScope scope{"Serial.print"};
