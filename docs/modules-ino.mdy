@@ -270,6 +270,7 @@ using std::malloc;  // and calloc, realloc, free
 using std::memcpy;  // and the other <cstring> routines
 inline std::uint8_t pgm_read_byte(const void* address);  // and the rest
 #define NAN, #define INFINITY
+#define word(...) makeWord(__VA_ARGS__)
 inline constexpr unsigned int A0 = 0;  // through A7
 inline constexpr double PI = 3.1415926535897932384626433832795;
 inline constexpr double HALF_PI, TWO_PI, EULER, DEG_TO_RAD, RAD_TO_DEG
@@ -300,6 +301,12 @@ describes under Dispatch and latency: the point at which a sketch waiting in a
 loop of its own lets interrupt handlers and the serial callback run. The
 behaviour is not declined here, only the name, so the header forwards one to
 the other rather than defining anything.
+
+word is the one spelling here that has to be a macro rather than a constant or
+a function. mm.sketch exports both a type named word and a function named
+makeWord, and a sketch writes word(h, l) for the second and word x for the
+first. A function-like macro expands only where a call follows, which is what
+lets one name do both, and is why upstream defines it the same way.
 
 The C allocator and the string routines are there because a sketch library
 reaches them through the compatibility header rather than by naming

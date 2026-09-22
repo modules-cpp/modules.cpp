@@ -319,6 +319,9 @@ void sketch_header_synthesis() {
     expect(header.find("#define PROGMEM\n") !=
                std::string::npos,
            "PROGMEM is accepted and inert");
+    expect(header.find("#define word(...) makeWord(__VA_ARGS__)") !=
+               std::string::npos,
+           "the word spelling reaches mm.sketch's function");
     expect(header.find("A0 = 0;") != std::string::npos &&
                header.find("A7 = 7;") != std::string::npos,
            "the analog channel names are present");

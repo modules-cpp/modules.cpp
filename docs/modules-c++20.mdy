@@ -128,6 +128,15 @@ and only for the entries listed here.
 
 - mm.test's expect and failure use throw, and run_all catches them, which conflicts with the exceptions rule above. This is deliberate and load-bearing: it is the mechanism by which a failed assertion unwinds out of a test body without the test author writing manual control flow. It is the one permitted exception to the exceptions rule, confined to mm.test, until a non-throwing mechanism replaces it. No other module MAY introduce throw or catch on the strength of this precedent.
 - mm.test's registrar constructor template, declared as template <std::size_t N> registrar(std::string_view name, const case_ (&cases)[N]), is a hand-written template and conflicts with the templates rule above. It MAY remain until replaced by a non-template mechanism, such as an explicit count parameter at each call site, tracked as technical debt rather than used as precedent elsewhere.
+- mm.sketch's Stream derives from its Print, and a vendored library derives
+  from Stream, which is a second level of virtual dispatch rather than the
+  single level the permitted-features rule allows. It is recorded here rather
+  than argued in review each time, and what it buys is stated in
+  docs/modules-sketch.mdy under Stream: this is not a hierarchy this project
+  invented but the shape a transport library arrives in, and Print is already
+  accepted on the same grounds. Removing it means vendored transport libraries
+  stop compiling, so it goes when they do. No module MAY add a third level on
+  the strength of this entry.
 - modules/mm/ino/src/guard.cpp includes POSIX <fcntl.h> and <unistd.h> and
   invokes openat, write, close, renameat, and unlinkat. This narrow exception
   to standard-library-only includes is required for the source guard: ISO C++20

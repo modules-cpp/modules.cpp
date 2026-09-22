@@ -91,6 +91,12 @@ using byte = unsigned char;
 using word = unsigned short;
 using boolean = bool;
 
+// The value a sketch builds with the word(...) spelling, which the generated
+// compatibility header defines in terms of these. A function rather than a
+// macro here, for the reason every other one of these is.
+[[nodiscard]] unsigned short makeWord(unsigned short value);
+[[nodiscard]] unsigned short makeWord(byte high, byte low);
+
 enum BitOrder : byte { LSBFIRST = 0, MSBFIRST = 1 };
 
 byte shiftIn(unsigned int data_pin, unsigned int clock_pin, BitOrder bit_order);
@@ -454,6 +460,8 @@ public:
     std::size_t print(long n, Base base = DEC);
     std::size_t print(unsigned long n, Base base = DEC);
     std::size_t print(double n, int digits = 2);
+    std::size_t print(long long n, Base base = DEC);
+    std::size_t print(unsigned long long n, Base base = DEC);
     std::size_t print(const Printable& object);
     std::size_t print(const String& s);
     std::size_t print(unsigned char n, Base base = DEC) { return print(static_cast<unsigned int>(n), base); }
@@ -469,15 +477,83 @@ public:
     std::size_t println(long n, Base base = DEC);
     std::size_t println(unsigned long n, Base base = DEC);
     std::size_t println(double n, int digits = 2);
+    std::size_t println(long long n, Base base = DEC);
+    std::size_t println(unsigned long long n, Base base = DEC);
     std::size_t println(const Printable& object);
     std::size_t println(const String& s);
     std::size_t println(unsigned char n, Base base = DEC) { return println(static_cast<unsigned int>(n), base); }
     std::size_t println(short n, Base base = DEC) { return println(static_cast<int>(n), base); }
     std::size_t println(unsigned short n, Base base = DEC) { return println(static_cast<unsigned int>(n), base); }
     std::size_t println();
+
+    // A sink's own sticky error, which is what a library reads after
+    // printing. It is separate from lastError: this one belongs to the sink
+    // and says whether anything printed to it failed, and the latch belongs
+    // to the module and says what failed first anywhere.
+    [[nodiscard]] int getWriteError() const { return write_error_; }
+    void clearWriteError() { setWriteError(0); }
+
+    // How much can be written without blocking. Zero means a single write
+    // may block, which is the answer for a sink that does not buffer.
+    [[nodiscard]] virtual int availableForWrite() { return 0; }
+
+    // Empty here, because a sink that holds nothing has nothing to flush.
+    virtual void flush() {}
+
+protected:
+    void setWriteError(int error = 1) { write_error_ = error; }
+
+private:
+    int write_error_ = 0;
 };
 
-class SerialPort : public Print {
+// A source that can also print: the shape a vendored library derives to make
+// a transport of its own, and the shape it takes a reference to. Three
+// virtual functions are all a stream supplies; the waiting and the parsing
+// are written once here on top of them.
+//
+// docs/modules-c++20.mdy permits a single level of virtual dispatch where the
+// architecture relies on it. This is the second, and docs/modules-sketch.mdy
+// records the justification: Stream is not a hierarchy this project invented,
+// it is the shape a library arrives in, and Print is already accepted on the
+// same grounds.
+class Stream : public Print {
+public:
+    virtual int available() = 0;
+    virtual int read() = 0;
+    virtual int peek() = 0;
+
+    void setTimeout(unsigned long ms);
+    [[nodiscard]] unsigned long getTimeout() const;
+
+    bool find(const char* target);
+    bool find(char target);
+    bool findUntil(const char* target, const char* terminator);
+    bool findUntil(const char* target, char terminator);
+
+    long parseInt();
+    double parseFloat();
+
+    std::size_t readBytes(char* buffer, std::size_t length);
+    std::size_t readBytes(byte* buffer, std::size_t length);
+    std::size_t readBytesUntil(char terminator, char* buffer, std::size_t length);
+    std::size_t readBytesUntil(byte terminator, byte* buffer, std::size_t length);
+
+    [[nodiscard]] String readString();
+    [[nodiscard]] String readStringUntil(char terminator);
+
+protected:
+    // One byte, or -1 when the deadline passed or an exit was requested.
+    // dispatch runs between polls, so a handler still reaches the sketch
+    // while it waits.
+    [[nodiscard]] int timedRead();
+    [[nodiscard]] int timedPeek();
+
+private:
+    unsigned long timeout_ms_ = 1000;
+};
+
+class SerialPort : public Stream {
 public:
     // The console's own overloads answer every call a sketch makes on
     // Serial; these bring in the ones only Print declares, such as printing
@@ -490,6 +566,7 @@ public:
 
     std::size_t write(byte b) override;
     std::size_t write(const byte* buffer, std::size_t size) override;
+    [[nodiscard]] int availableForWrite() override;
     std::size_t write(const char* buffer, std::size_t size);
     std::size_t write(const char* s);
 
@@ -520,15 +597,16 @@ public:
     std::size_t println(unsigned short n, Base base = DEC) { return println(static_cast<unsigned int>(n), base); }
     std::size_t println();
 
-    [[nodiscard]] int available();
-    int read();
-    int peek();
-    bool flush();
+    [[nodiscard]] int available() override;
+    int read() override;
+    int peek() override;
+    // Print declares this, so the console answers it with Print's shape. The
+    // status is in the error latch, as it is for every other console call
+    // that cannot report one.
+    void flush() override;
     [[nodiscard]] bool connected();
     explicit operator bool() { return connected(); }
 
-    void setTimeout(unsigned long ms);
-    [[nodiscard]] unsigned long getTimeout() const;
 
     std::size_t readBytes(char* buffer, std::size_t length);
     std::size_t readBytes(byte* buffer, std::size_t length);

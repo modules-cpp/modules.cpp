@@ -263,7 +263,11 @@ void serial_formatting() {
     expect(Serial.begin(115200), "Serial.begin");
     expect(Serial.connected(), "Serial.connected should be true");
     expect(bool(Serial), "operator bool(Serial) should be true");
-    expect(Serial.flush(), "Serial.flush should succeed");
+    // Print declares flush void, so what succeeded is read from the latch
+    // and from the sink's own error rather than from a return value.
+    Serial.clearWriteError();
+    Serial.flush();
+    expect(Serial.getWriteError() == 0, "Serial.flush should succeed");
 
     test_console_clear_written();
     Serial.print(true);
@@ -640,6 +644,95 @@ void print_sink_and_printable() {
     const byte bytes[] = {'a', 'b', 'c'};
     expect(sink.write(bytes, 3) == 3 && sink.text == "abc",
            "the buffered write walks the default implementation");
+
+    // The surface a vendored library reaches for on a sink of its own.
+    Recorder fresh;
+    expect(fresh.getWriteError() == 0, "a fresh sink has no error");
+    expect(fresh.print(1, static_cast<Base>(7)) == 0 &&
+               fresh.getWriteError() != 0,
+           "a refused format marks the sink");
+    fresh.clearWriteError();
+    expect(fresh.getWriteError() == 0, "and the mark is cleared");
+    expect(fresh.availableForWrite() == 0,
+           "a sink that does not buffer reports no room");
+    fresh.flush();
+
+    sink.text.clear();
+    expect(sink.print(-1LL, DEC) == 2 && sink.text == "-1",
+           "a long long prints");
+    sink.text.clear();
+    expect(sink.print(255ULL, HEX) == 2 && sink.text == "FF",
+           "an unsigned long long prints in the base it is given");
+}
+
+// A stream of its own: the shape a vendored transport library derives, and
+// the one the console is now an instance of.
+class Source : public Stream {
+public:
+    using Stream::readBytes;
+    using Stream::readBytesUntil;
+
+    // Nothing arrives later than what it was given, so waiting for more
+    // would only cost the suite a second per case.
+    explicit Source(std::string text) : text_(std::move(text)) {
+        setTimeout(0);
+    }
+
+    int available() override {
+        return static_cast<int>(text_.size() - position_);
+    }
+
+    int read() override {
+        if (position_ >= text_.size()) return -1;
+        return static_cast<unsigned char>(text_[position_++]);
+    }
+
+    int peek() override {
+        if (position_ >= text_.size()) return -1;
+        return static_cast<unsigned char>(text_[position_]);
+    }
+
+    std::size_t write(byte) override { return 0; }
+
+private:
+    std::string text_;
+    std::size_t position_ = 0;
+};
+
+void stream_source() {
+    expect(Source("x-42y").parseInt() == -42, "parseInt skips and takes");
+    expect(Source("x2.5y").parseFloat() == 2.5, "parseFloat skips and takes");
+    expect(Source("head,tail").readStringUntil(',') == String("head"),
+           "readStringUntil stops at the terminator");
+    expect(Source("haystack").find("stack"), "find walks to the target");
+
+    expect(Source("text").parseInt() == 0, "a source with no number answers 0");
+    expect(!Source("haystack").find("needle"), "a target that is not there");
+    expect(Source("one,two").readString() == String("one,two"),
+           "readString takes the rest");
+
+    Source counted("abcdef");
+    char buffer[4] = {};
+    expect(counted.readBytes(buffer, 3) == 3 &&
+               std::string_view(buffer, 3) == "abc",
+           "readBytes takes what was asked for");
+
+    Source terminated("head,tail");
+    expect(terminated.readBytesUntil(',', buffer, sizeof(buffer)) == 4 &&
+               std::string_view(buffer, 4) == "head",
+           "readBytesUntil stops at the terminator");
+
+    Source timed("");
+    expect(timed.getTimeout() == 0, "a stream keeps its own timeout");
+    timed.setTimeout(5);
+    expect(timed.getTimeout() == 5, "and answers what it was set to");
+    timed.setTimeout(0);
+    expect(timed.readString().isEmpty(), "an empty source answers nothing");
+
+    // A stream is a sink too, which is what lets a library print to it.
+    Stream& as_stream = Serial;
+    Print& as_print = as_stream;
+    expect(&as_print == &Serial, "the console is a stream and a sink");
 }
 
 void sketch_string() {
@@ -757,6 +850,10 @@ void sketch_string() {
     // reaches for.
     expect(String("interop").str() == "interop", "the standard string is there");
     expect(String("interop").view() == "interop", "and a view of it");
+
+    // makeWord, which the word(...) spelling reaches.
+    expect(makeWord(258) == 258, "one argument is the value");
+    expect(makeWord(1, 2) == 258, "two arguments are the halves");
 
     // A sink prints it.
     Recorder sink;
@@ -2060,6 +2157,7 @@ const mm::test::case_ cases[] = {
     {"pin values convert outward only", &pin_values_convert_outward_only},
     {"print sink and printable", &print_sink_and_printable},
     {"sketch string", &sketch_string},
+    {"stream source", &stream_source},
     {"serial formatting", &serial_formatting},
     {"serial input and waiting", &serial_input_and_waiting},
     {"serial event callback", &serial_event_callback},

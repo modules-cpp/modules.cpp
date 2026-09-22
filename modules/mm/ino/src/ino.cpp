@@ -488,6 +488,12 @@ std::string sketch_header() {
     out += "// Flash-string spellings. docs/modules-sketch.mdy declines the\n";
     out += "// behaviour, not the spelling: placement is the linker's\n";
     out += "// business here, so each of these is inert.\n";
+    out += "// The word(...) spelling, which is a macro upstream because it\n";
+    out += "// has to coexist with the type of the same name: a function-like\n";
+    out += "// macro expands only where a call follows, so word x still\n";
+    out += "// declares a variable and word(h, l) still builds a value.\n";
+    out += "#define word(...) makeWord(__VA_ARGS__)\n";
+    out += "\n";
     out += "#define F(string_literal) (string_literal)\n";
     out += "#define PSTR(string_literal) (string_literal)\n";
     out += "#define PROGMEM\n";

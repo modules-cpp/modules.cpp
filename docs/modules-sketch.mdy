@@ -569,6 +569,47 @@ Closing fence
 
 byte, word, and boolean provide standard type aliases.
 
+makeWord builds a word from one value or from two halves, high byte first. The word(...) spelling a sketch writes reaches it through the generated compatibility header, which defines it as a macro for the one reason a macro is required here: word is also a type, and a function-like macro expands only where a call follows, so word x still declares a variable. docs/modules-ino.mdy owns that definition.
+
+## Stream
+
+Opening fence
+class Stream : public Print {
+public:
+    virtual int available() = 0;
+    virtual int read() = 0;
+    virtual int peek() = 0;
+
+    void setTimeout(unsigned long ms);
+    unsigned long getTimeout() const;
+
+    bool find(const char* target);
+    bool find(char target);
+    bool findUntil(const char* target, const char* terminator);
+    bool findUntil(const char* target, char terminator);
+
+    long parseInt();
+    double parseFloat();
+
+    std::size_t readBytes(...);
+    std::size_t readBytesUntil(...);
+    String readString();
+    String readStringUntil(char terminator);
+};
+
+class SerialPort : public Stream { ... };
+Closing fence
+
+A vendored library that speaks over something -- a second UART, an RS-485 transceiver, a radio -- derives from Stream and supplies three functions: available, read and peek. Everything else is written once on top of them, so such a library receives the waiting and the parsing rather than writing them.
+
+This is a second level of virtual dispatch, which docs/modules-c++20.mdy permits a single level of and records this one under Known non-conformance. What it buys is the paragraph above: Stream is not a hierarchy this project invented, it is the shape a transport library arrives in, and a library that derives from it does not compile without it. Print is already accepted on the same grounds, and Stream is Print plus three functions.
+
+Waiting is bounded by the stream's own timeout, which defaults to one second, and by a deadline rather than by arithmetic on millis: a platform with no clock answers that the deadline has passed, so a stream on such a platform does not wait rather than waiting for ever. dispatch runs between polls, so a handler still reaches the sketch while a stream waits, and requestExit ends a wait the way it ends a delay.
+
+SerialPort derives from Stream and keeps its own copies of the waiting reads, for the reason it keeps its own print overloads: those reach the console's own waiting read directly rather than by polling through a virtual call. The two are expected to answer the same, and the console inherits Stream's timeout rather than keeping a second one, so a library holding a Stream& to Serial sets the timeout the console reads.
+
+Where the two differ is the return type of readString and readStringUntil. Stream's answer a String, because that is what a vendored library assigns them to. SerialPort's answer a std::string, because that is what this project's own code should use, and because the console's versions predate String.
+
 ## String
 
 Opening fence
@@ -634,6 +675,8 @@ String exists because a vendored library returns one, takes one, and stores one.
 
 It is a std::string with the sketch surface on it. The storage, the allocation, the growth and the character handling are the standard library's, and what this class adds is the vocabulary and the edges a sketch expects: an index past the end reads a null character rather than past the buffer, setCharAt past the end does nothing, a search that finds nothing answers -1, substring clamps both bounds and accepts them in either order, and text that will not parse converts to 0. None of those are error conditions, so none of them latch a Status: a sketch that indexes past the end of a string has not asked the machine for anything.
 
+compareTo is strcmp, because that is what the toolchain these libraries were written against uses. The sign is the comparison; the magnitude is the C library's and is not a promise this module makes. It is stated because it is observable: a library that prints compareTo's answer prints that number, and a library that thresholds it compares against that number. Clamping to -1, 0 and 1 would be tidier and would be a different answer from the one a vendored library expects.
+
 str and view reach the standard string underneath, which is what this project's own code uses when it is handed one. Nothing converts implicitly in either direction. The constructor from std::string_view is explicit for a mechanical reason worth recording: an implicit one lets a comparison between two std::string_views resolve through String and become ambiguous with the standard's own operator.
 
 The case of a rendered number differs between String and Print, and both are deliberate. String(255, 16) is "ff", because the C conversion these libraries were written against produces lower case; Serial.print(255, HEX) is "FF", because the print they were written against produces upper. A base outside 2 to 36 renders nothing. Only decimal carries a sign; every other base renders the bit pattern at the width of the argument's own type, so String(-1, 16) answers for an int what an int holds.
@@ -660,11 +703,19 @@ public:
     std::size_t write(const char* buffer, std::size_t size);
     std::size_t write(const char* s);
 
-    std::size_t print(...);    // the SerialPort overload set
-    std::size_t println(...);  // and a Printable
+    std::size_t print(...);    // the SerialPort overload set, long long,
+    std::size_t println(...);  // a Printable, and a String
+
+    int getWriteError() const;
+    void clearWriteError();
+    virtual int availableForWrite();
+    virtual void flush();
+
+protected:
+    void setWriteError(int error = 1);
 };
 
-class SerialPort : public Print { ... };
+class SerialPort : public Stream { ... };
 Closing fence
 
 A vendored library arrives with two of its own shapes. It prints an object it defines by deriving that object from Printable and supplying printTo, and it prints to a destination of its own -- a shift register, a parallel port, a second UART -- by deriving that destination from Print and supplying write. Both are ordinary in the toolchain such a library was written for, and a library that does either is unusable without them however complete the rest of the vocabulary is.
@@ -672,6 +723,12 @@ A vendored library arrives with two of its own shapes. It prints an object it de
 Print is the single level of virtual dispatch docs/modules-c++20.mdy permits: a base with a virtual destructor, one pure virtual function, and concrete classes that override it. Everything else Print offers is written once in terms of write, so a destination supplies one function and receives the whole print and println overload set, formatted exactly as the console formats it.
 
 SerialPort derives from Print, which is what lets a library hold a Print& and be given Serial. It keeps its own print and println overloads, because those reach the console directly rather than through a virtual call, and names Print's with using declarations so the overloads only Print declares -- printing a Printable -- remain reachable on Serial.
+
+Print carries its own sticky error. getWriteError reports it, clearWriteError resets it, and setWriteError is how a derived sink marks one; Print marks it itself whenever a format is refused. It is separate from lastError and answers a different question: this one belongs to the sink and says whether anything printed to it failed, and the latch belongs to the module and says what failed first anywhere. A library reads the first after printing.
+
+availableForWrite reports how much can be written without blocking, and answers zero by default, which means a single write may block. flush is empty by default, because a sink that holds nothing has nothing to flush. Both are virtual, so a buffering sink overrides them.
+
+SerialPort's flush answers Print's shape and therefore returns nothing. What it would have reported is in the error latch and in the console's own write error, as it is for every other console call that cannot return a status.
 
 Declaring write in a derived class hides Print's other write overloads, as it does in the toolchain these libraries were written for. A destination that also wants the buffered ones says using Print::write.
 

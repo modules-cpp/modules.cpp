@@ -54,6 +54,12 @@ using std::strtoul;   using std::strtod;
 // Flash-string spellings. docs/modules-sketch.mdy declines the
 // behaviour, not the spelling: placement is the linker's
 // business here, so each of these is inert.
+// The word(...) spelling, which is a macro upstream because it
+// has to coexist with the type of the same name: a function-like
+// macro expands only where a call follows, so word x still
+// declares a variable and word(h, l) still builds a value.
+#define word(...) makeWord(__VA_ARGS__)
+
 #define F(string_literal) (string_literal)
 #define PSTR(string_literal) (string_literal)
 #define PROGMEM

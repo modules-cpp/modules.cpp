@@ -152,7 +152,6 @@ static std::minstd_rand random_engine_{1};
 
 using SerialCallback = void (*)();
 static SerialCallback serial_callback_ = nullptr;
-static unsigned long timeout_ms_ = 1000;
 
 struct InterruptEntry {
     bool active = false;
@@ -387,7 +386,7 @@ int run(Setup setup, Loop loop) {
     ring_tail_ = 0;
     ring_count_ = 0;
     serial_callback_ = nullptr;
-    timeout_ms_ = 1000;
+    Serial.setTimeout(1000);
     dispatching_ = false;
     spi_begun_ = false;
     wire_begun_ = false;
@@ -1720,8 +1719,11 @@ String& String::operator+=(unsigned long value) { concat(value); return *this; }
 String& String::operator+=(double value) { concat(value); return *this; }
 
 int String::compareTo(const String& other) const {
-    const int result = text_.compare(other.text_);
-    return result < 0 ? -1 : (result > 0 ? 1 : 0);
+    // strcmp, because that is what upstream's compareTo is, and a library
+    // that prints or thresholds this value sees whatever the C library
+    // answers. The sign is the comparison; the magnitude is the C library's
+    // and is not a promise this project can make.
+    return std::strcmp(text_.c_str(), other.text_.c_str());
 }
 
 bool String::equals(const String& other) const { return text_ == other.text_; }
@@ -2015,6 +2017,7 @@ std::size_t Print::print(int n, Base base) {
     char buf[64];
     const auto length = format_signed(buf, sizeof(buf), n, base);
     if (!length) {
+        setWriteError();
         record_failure(Status::BadArgument, "Print.print");
         return 0;
     }
@@ -2025,6 +2028,7 @@ std::size_t Print::print(unsigned int n, Base base) {
     char buf[64];
     const auto length = format_unsigned(buf, sizeof(buf), n, base);
     if (!length) {
+        setWriteError();
         record_failure(Status::BadArgument, "Print.print");
         return 0;
     }
@@ -2035,6 +2039,7 @@ std::size_t Print::print(long n, Base base) {
     char buf[64];
     const auto length = format_signed(buf, sizeof(buf), n, base);
     if (!length) {
+        setWriteError();
         record_failure(Status::BadArgument, "Print.print");
         return 0;
     }
@@ -2045,6 +2050,7 @@ std::size_t Print::print(unsigned long n, Base base) {
     char buf[64];
     const auto length = format_unsigned(buf, sizeof(buf), n, base);
     if (!length) {
+        setWriteError();
         record_failure(Status::BadArgument, "Print.print");
         return 0;
     }
@@ -2057,11 +2063,34 @@ std::size_t Print::print(double n, int digits) {
     auto res = std::to_chars(buf, buf + sizeof(buf), n,
                              std::chars_format::fixed, precision);
     if (res.ec != std::errc{}) {
+        setWriteError();
         record_failure(Status::BadArgument, "Print.print");
         return 0;
     }
     return write(reinterpret_cast<const byte*>(buf),
                  static_cast<std::size_t>(res.ptr - buf));
+}
+
+std::size_t Print::print(long long n, Base base) {
+    char buf[80];
+    const auto length = format_signed(buf, sizeof(buf), n, base);
+    if (!length) {
+        setWriteError();
+        record_failure(Status::BadArgument, "Print.print");
+        return 0;
+    }
+    return write(reinterpret_cast<const byte*>(buf), *length);
+}
+
+std::size_t Print::print(unsigned long long n, Base base) {
+    char buf[80];
+    const auto length = format_unsigned(buf, sizeof(buf), n, base);
+    if (!length) {
+        setWriteError();
+        record_failure(Status::BadArgument, "Print.print");
+        return 0;
+    }
+    return write(reinterpret_cast<const byte*>(buf), *length);
 }
 
 std::size_t Print::print(const Printable& object) {
@@ -2079,9 +2108,198 @@ std::size_t Print::println(unsigned int n, Base base) { return print(n, base) + 
 std::size_t Print::println(long n, Base base) { return print(n, base) + print("\r\n"); }
 std::size_t Print::println(unsigned long n, Base base) { return print(n, base) + print("\r\n"); }
 std::size_t Print::println(double n, int digits) { return print(n, digits) + print("\r\n"); }
+std::size_t Print::println(long long n, Base base) { return print(n, base) + print("\r\n"); }
+std::size_t Print::println(unsigned long long n, Base base) { return print(n, base) + print("\r\n"); }
 std::size_t Print::println(const Printable& object) { return print(object) + print("\r\n"); }
 std::size_t Print::println(const String& s) { return print(s) + print("\r\n"); }
 std::size_t Print::println() { return print("\r\n"); }
+
+// --- Stream ------------------------------------------------------------
+//
+// Written once on top of the three virtual functions a stream supplies. The
+// console keeps its own copies of these, because those reach the console's
+// waiting read directly rather than by polling through a virtual call, and
+// the two are expected to answer the same.
+
+void Stream::setTimeout(unsigned long ms) { timeout_ms_ = ms; }
+
+unsigned long Stream::getTimeout() const { return timeout_ms_; }
+
+int Stream::timedRead() {
+    // Deadline, rather than millis arithmetic: a platform with no clock
+    // answers that the deadline has passed, so a stream on such a platform
+    // does not wait rather than waiting for ever.
+    Deadline deadline{timeout_ms_};
+    for (;;) {
+        const int c = read();
+        if (c >= 0) return c;
+        if (exitRequested() || deadline.expired()) return -1;
+        dispatch();
+    }
+}
+
+int Stream::timedPeek() {
+    Deadline deadline{timeout_ms_};
+    for (;;) {
+        const int c = peek();
+        if (c >= 0) return c;
+        if (exitRequested() || deadline.expired()) return -1;
+        dispatch();
+    }
+}
+
+std::size_t Stream::readBytes(char* buffer, std::size_t length) {
+    if (buffer == nullptr || length == 0) return 0;
+    std::size_t count = 0;
+    while (count < length) {
+        const int c = timedRead();
+        if (c < 0) break;
+        buffer[count++] = static_cast<char>(c);
+    }
+    return count;
+}
+
+std::size_t Stream::readBytes(byte* buffer, std::size_t length) {
+    return readBytes(reinterpret_cast<char*>(buffer), length);
+}
+
+std::size_t Stream::readBytesUntil(char terminator, char* buffer,
+                                   std::size_t length) {
+    if (buffer == nullptr || length == 0) return 0;
+    std::size_t count = 0;
+    while (count < length) {
+        const int c = timedRead();
+        if (c < 0) break;
+        if (static_cast<char>(c) == terminator) break;
+        buffer[count++] = static_cast<char>(c);
+    }
+    return count;
+}
+
+std::size_t Stream::readBytesUntil(byte terminator, byte* buffer,
+                                   std::size_t length) {
+    return readBytesUntil(static_cast<char>(terminator),
+                          reinterpret_cast<char*>(buffer), length);
+}
+
+String Stream::readString() {
+    std::string text;
+    for (;;) {
+        const int c = timedRead();
+        if (c < 0) break;
+        text.push_back(static_cast<char>(c));
+    }
+    return String(std::string_view(text));
+}
+
+String Stream::readStringUntil(char terminator) {
+    std::string text;
+    for (;;) {
+        const int c = timedRead();
+        if (c < 0) break;
+        if (static_cast<char>(c) == terminator) break;
+        text.push_back(static_cast<char>(c));
+    }
+    return String(std::string_view(text));
+}
+
+bool Stream::findUntil(const char* target, const char* terminator) {
+    if (target == nullptr || *target == '\0') return true;
+    const std::string_view wanted(target);
+    const std::string_view stop(terminator != nullptr ? terminator : "");
+    std::size_t matched = 0;
+    std::size_t stopped = 0;
+    for (;;) {
+        const int c = timedRead();
+        if (c < 0) return false;
+        const char seen = static_cast<char>(c);
+
+        matched = seen == wanted[matched] ? matched + 1
+                                          : (seen == wanted[0] ? 1 : 0);
+        if (matched == wanted.size()) return true;
+
+        if (!stop.empty()) {
+            stopped = seen == stop[stopped] ? stopped + 1
+                                            : (seen == stop[0] ? 1 : 0);
+            if (stopped == stop.size()) return false;
+        }
+    }
+}
+
+bool Stream::findUntil(const char* target, char terminator) {
+    const char stop[2] = {terminator, '\0'};
+    return findUntil(target, stop);
+}
+
+bool Stream::find(const char* target) { return findUntil(target, nullptr); }
+
+bool Stream::find(char target) {
+    const char wanted[2] = {target, '\0'};
+    return findUntil(wanted, nullptr);
+}
+
+long Stream::parseInt() {
+    // Skip whatever is not part of a number, then take the number.
+    for (;;) {
+        const int c = timedPeek();
+        if (c < 0) return 0;
+        if ((c >= '0' && c <= '9') || c == '-' || c == '+') break;
+        if (timedRead() < 0) return 0;
+    }
+
+    bool negative = false;
+    long value = 0;
+    bool first = true;
+    for (;;) {
+        const int c = timedPeek();
+        if (c < 0) break;
+        if (first && (c == '-' || c == '+')) {
+            negative = c == '-';
+            first = false;
+            if (timedRead() < 0) break;
+            continue;
+        }
+        if (c < '0' || c > '9') break;
+        value = value * 10 + (c - '0');
+        first = false;
+        if (timedRead() < 0) break;
+    }
+    return negative ? -value : value;
+}
+
+double Stream::parseFloat() {
+    for (;;) {
+        const int c = timedPeek();
+        if (c < 0) return 0.0;
+        if ((c >= '0' && c <= '9') || c == '-' || c == '+' || c == '.') break;
+        if (timedRead() < 0) return 0.0;
+    }
+
+    std::string text;
+    bool seen_point = false;
+    for (;;) {
+        const int c = timedPeek();
+        if (c < 0) break;
+        const char seen = static_cast<char>(c);
+        if (seen == '.') {
+            if (seen_point) break;
+            seen_point = true;
+        } else if (!((seen >= '0' && seen <= '9') ||
+                     ((seen == '-' || seen == '+') && text.empty()))) {
+            break;
+        }
+        text.push_back(seen);
+        if (timedRead() < 0) break;
+    }
+
+    double value = 0.0;
+    const auto res = std::from_chars(text.data(), text.data() + text.size(),
+                                     value);
+    if (res.ec != std::errc{}) return 0.0;
+    return value;
+}
+
+// --- SerialPort --------------------------------------------------------
 
 std::size_t SerialPort::write(byte b) {
     CallScope scope{"Serial.write"};
@@ -2334,15 +2552,28 @@ int SerialPort::peek() {
     return static_cast<int>(static_cast<byte>(ring_buffer_[ring_tail_]));
 }
 
-bool SerialPort::flush() {
+void SerialPort::flush() {
     CallScope scope{"Serial.flush"};
     auto& console = mm::stdio::selected_console();
     const auto status = console.flush();
     if (status != mm::stdio::Status::Ok) {
+        setWriteError();
         record_failure(from(status), "Serial.flush");
-        return false;
     }
-    return true;
+}
+
+int SerialPort::availableForWrite() {
+    // The console takes what it is given and blocks for as long as that
+    // takes, so there is no count to report and zero is the honest answer:
+    // a single write may block.
+    return 0;
+}
+
+unsigned short makeWord(unsigned short value) { return value; }
+
+unsigned short makeWord(byte high, byte low) {
+    return static_cast<unsigned short>(
+        (static_cast<unsigned short>(high) << 8) | low);
 }
 
 bool SerialPort::connected() {
@@ -2357,18 +2588,10 @@ bool SerialPort::connected() {
     return value;
 }
 
-void SerialPort::setTimeout(unsigned long ms) {
-    timeout_ms_ = ms;
-}
-
-unsigned long SerialPort::getTimeout() const {
-    return timeout_ms_;
-}
-
 std::size_t SerialPort::readBytes(char* buffer, std::size_t length) {
     CallScope scope{"Serial.readBytes"};
     if (!buffer || length == 0) return 0;
-    Deadline deadline{timeout_ms_};
+    Deadline deadline{getTimeout()};
     std::size_t count = 0;
     while (count < length && !exitRequested()) {
         const int c = timed_read(deadline);
@@ -2386,7 +2609,7 @@ std::size_t SerialPort::readBytes(byte* buffer, std::size_t length) {
 std::size_t SerialPort::readBytesUntil(char terminator, char* buffer, std::size_t length) {
     CallScope scope{"Serial.readBytesUntil"};
     if (!buffer || length == 0) return 0;
-    Deadline deadline{timeout_ms_};
+    Deadline deadline{getTimeout()};
     std::size_t count = 0;
     while (count < length && !exitRequested()) {
         const int c = timed_read(deadline);
@@ -2405,7 +2628,7 @@ std::size_t SerialPort::readBytesUntil(byte terminator, byte* buffer, std::size_
 std::string SerialPort::readString() {
     CallScope scope{"Serial.readString"};
     std::string result;
-    Deadline deadline{timeout_ms_};
+    Deadline deadline{getTimeout()};
     while (!exitRequested()) {
         const int c = timed_read(deadline);
         if (c < 0) break;
@@ -2417,7 +2640,7 @@ std::string SerialPort::readString() {
 std::string SerialPort::readStringUntil(char terminator) {
     CallScope scope{"Serial.readStringUntil"};
     std::string result;
-    Deadline deadline{timeout_ms_};
+    Deadline deadline{getTimeout()};
     while (!exitRequested()) {
         const int c = timed_read(deadline);
         if (c < 0) break;
@@ -2463,7 +2686,7 @@ bool SerialPort::findUntil(const char* target, const char* terminator) {
     const auto pi_tgt = compute_kmp_table(tgt);
     const auto pi_trm = trm.empty() ? std::vector<std::size_t>{} : compute_kmp_table(trm);
 
-    Deadline deadline{timeout_ms_};
+    Deadline deadline{getTimeout()};
     std::size_t target_idx = 0;
     std::size_t term_idx = 0;
 
@@ -2502,7 +2725,7 @@ bool SerialPort::findUntil(const char* target, char terminator) {
 
 long SerialPort::parseInt() {
     CallScope scope{"Serial.parseInt"};
-    Deadline deadline{timeout_ms_};
+    Deadline deadline{getTimeout()};
     while (!exitRequested()) {
         const int c = timed_peek(deadline);
         if (c < 0) return 0;
@@ -2564,7 +2787,7 @@ long SerialPort::parseInt() {
 
 double SerialPort::parseFloat() {
     CallScope scope{"Serial.parseFloat"};
-    Deadline deadline{timeout_ms_};
+    Deadline deadline{getTimeout()};
     while (!exitRequested()) {
         const int c = timed_peek(deadline);
         if (c < 0) return 0.0;
