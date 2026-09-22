@@ -82,7 +82,7 @@ mm.ino transforms the input sketch files into a single main.cpp translation unit
 
 Ordinary translation units in modules.cpp may include standard library headers at the top of the file before any import declarations.
 
-The last line of that region is the compatibility header, which main.cpp includes as #include "Arduino.h". The Arduino toolchain supplies that header to every sketch without being asked, so a sketch writes uint8_t, A0, F() and PROGMEM without naming where they come from, and mm.sketch does not export those spellings by itself. It is emitted below the hoisted includes rather than above them because it imports mm.sketch, and a standard library header included after an import declaration is the arrangement the hoist exists to avoid. The synthesised compatibility header below describes the file itself.
+The last line of that region is the compatibility header, which main.cpp includes as #include "Sketch.h". A sketch toolchain supplies that header to every sketch without being asked, so a sketch writes uint8_t, A0, F() and PROGMEM without naming where they come from, and mm.sketch does not export those spellings by itself. It is emitted below the hoisted includes rather than above them because it imports mm.sketch, and a standard library header included after an import declaration is the arrangement the hoist exists to avoid. The synthesised compatibility header below describes the file itself.
 
 mm.ino scans the sketch text for include directives of either form, #include <...> and #include "...". Every directive found is hoisted to the very top of main.cpp in the order the sketches introduce it, spelled exactly as the sketch wrote it: an angled include stays angled and a quoted include stays quoted. A directive repeated across sketch files is hoisted once. When an include directive is hoisted, an empty placeholder line is retained in the sketch body so that subsequent line positions within that file are preserved.
 
@@ -230,10 +230,12 @@ than sharing an object.
 
 A vendored sketch library includes a compatibility header unconditionally,
 because that is what its own toolchain provides, and it includes it by the name
-that toolchain uses: Arduino.h. That name is the one place in this project
-where the foreign spelling is kept, because a vendored source writes it and no
-rename reaches inside a checkout. modules.cpp has no such header and no
-intention of acquiring one as a project asset, so the sketch tool synthesises
+that toolchain uses. This project calls its own Sketch.h and generates the
+foreign spelling beside it as a forwarder, described under the headers a
+library includes by other names below: no rename reaches inside a checkout, so
+the spelling survives there and in no other part of this project. modules.cpp
+has no such header and no intention of acquiring one as a project asset, so
+the sketch tool synthesises
 it the same way it synthesises main.cpp: written into the application
 directory, committed beside the sketch, regenerated when stale, and compared
 byte-for-byte under sketch --check. Every sketch application receives it,
@@ -300,15 +302,17 @@ behaviour is not declined here, only the name, so the header forwards one to
 the other rather than defining anything.
 
 The C allocator and the string routines are there because a sketch library
-reaches them through Arduino.h rather than by naming <stdlib.h> or <string.h>
-itself, which is the same reason the integer types are there.
+reaches them through the compatibility header rather than by naming
+<stdlib.h> or <string.h> itself, which is the same reason the integer types
+are there.
 
 The flash readers are the other half of PROGMEM. Nothing was placed in a
 separate address space, so pgm_read_byte reads the object it is given the
 address of, and _near and _far are the same read. memcpy_P and its neighbours
 are the same statement about the string routines.
 
-The bit patterns are AVR's binary.h, which a sketch reaches through Arduino.h.
+The bit patterns are AVR's binary.h, which a sketch reaches through the
+compatibility header.
 Every pattern from one to eight digits is a separate name there, so every one
 of them is a separate name here, and there are five hundred and ten of them.
 They are constants rather than macros for the reason constrain and map are
@@ -324,19 +328,26 @@ this project authors for itself.
 
 ## The headers a library includes by other names
 
-The Arduino toolchain ships Print.h, Printable.h, Wire.h and SPI.h as separate
-files, and a vendored library includes whichever it needs by that name. Every
-one of them names a class mm.sketch already exports, so the sketch tool writes
-each as a one-line header beside Arduino.h that includes it. A library reaching
-for Print.h finds Print; nothing is declared twice, and the compatibility
-surface stays in one file.
+A sketch toolchain ships its compatibility header under its own name, and
+ships Print.h, Printable.h, Wire.h and SPI.h as separate files beside it. A
+vendored library includes whichever it needs by that name. Each of those names
+something mm.sketch already exports, so the sketch tool writes each as a
+one-line header beside Sketch.h that includes it. A library reaching for
+Print.h finds Print; nothing is declared twice, and the compatibility surface
+stays in one file.
+
+The foreign name of the compatibility header itself is generated the same way
+and for the same reason. It is a forwarder like the others, and it is the only
+place in this project that spells it: a vendored source writes that include and
+no rename reaches inside a checkout, so the spelling belongs in a generated
+file rather than in the project's own vocabulary.
 
 A name with nothing behind it is not generated. Stream.h is the case that makes
 the rule worth stating: mm.sketch exports no Stream, so a header that resolved
 and then failed to declare one would turn a missing-file diagnostic naming the
 library's dependency into a wall of missing-class errors inside it.
 
-These are generated, committed, regenerated and checked exactly as Arduino.h
+These are generated, committed, regenerated and checked exactly as Sketch.h
 is, and sketch --check reports each by name.
 
 The build puts the application directory on the include path ahead of the
@@ -349,12 +360,13 @@ a second one.
 # Library mode
 
 The sketch tool provides library mode for discovering, manifest-generating,
-and validating an entire Arduino library tree containing example sketches.
+and validating an entire vendored sketch library tree containing example
+sketches.
 
 ## Invocation and metadata detection
 
 Library mode is requested explicitly via the `--library` CLI option or
-detected automatically. The tool recognises an Arduino library root when the
+detected automatically. The tool recognises a sketch library root when the
 target directory contains an `examples` subdirectory alongside either a
 `library.properties` or `library.json` metadata file (both regular files).
 Passing `--library` enforces library processing even if metadata files are
@@ -431,7 +443,8 @@ exit 65 without modifying the filesystem.
 
 When invoked with `--check` on a library tree, the tool validates every
 manifest (`mm.mdy`) semantically against the discovered tree. Generated
-sources (`main.cpp`) and compatibility headers (`Arduino.h`) are compared
+sources (`main.cpp`) and compatibility headers (`Sketch.h` and its
+forwarders) are compared
 byte-for-byte with their expected contents in memory. All validation and file
 mismatches across the entire tree are collected and reported before the tool
 exits with status 65.

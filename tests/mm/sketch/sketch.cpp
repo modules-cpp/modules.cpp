@@ -579,6 +579,128 @@ void print_sink_and_printable() {
            "the buffered write walks the default implementation");
 }
 
+void sketch_string() {
+    // Construction from what a library has to hand.
+    expect(String("text").length() == 4, "a string knows its length");
+    expect(String('c') == String("c"), "a character is a one-character string");
+    expect(String("truncate", 4) == String("trun"),
+           "a buffer and a length take that many characters");
+    expect(String(static_cast<const char*>(nullptr)).isEmpty(),
+           "a null pointer is the empty string, not a crash");
+
+    // Lower case, which is what the C conversion these libraries were
+    // written against produces. Print's own hexadecimal is upper case,
+    // because the print a sketch was written against is;
+    // docs/modules-sketch.mdy records both.
+    expect(String(255, 16) == String("ff"),
+           "an integer renders in the base it is given");
+    expect(String(-42) == String("-42"), "decimal carries the sign");
+    expect(String(-1, 16) == String("ffffffff"),
+           "a base other than ten renders the bit pattern");
+    expect(String(3.14159, 2) == String("3.14"),
+           "a double renders at the requested precision");
+    expect(String(1, 99).isEmpty(), "a base outside 2 to 36 renders nothing");
+    expect(String(-1L, 16) == String("ffffffffffffffff") ||
+               String(-1L, 16) == String("ffffffff"),
+           "a long renders the pattern a long holds, not a wider one");
+
+    // Concatenation, the operation a library performs most.
+    String built("a");
+    built += "b";
+    built += 'c';
+    built += 12;
+    expect(built == String("abc12"), "concatenation accepts each spelling");
+    expect(String("x") + String("y") + "z" == String("xyz"),
+           "addition chains left to right");
+    expect("x" + String("y") == String("xy"),
+           "a literal on the left reaches the same operator");
+
+    // Comparison.
+    expect(String("abc").equals("abc"), "equals compares content");
+    expect(!String("abc").equals(nullptr), "a null pointer equals nothing");
+    expect(String("ABC").equalsIgnoreCase(String("abc")),
+           "case-insensitive comparison ignores case");
+    expect(String("abc").compareTo(String("abd")) < 0, "compareTo orders");
+    expect(String("abc") < String("abd"), "the ordering operator agrees");
+    expect(String("prefix-body").startsWith(String("prefix")), "startsWith");
+    expect(String("prefix-body").startsWith(String("body"), 7),
+           "startsWith from an offset");
+    expect(String("body-suffix").endsWith(String("suffix")), "endsWith");
+
+    // Searching, which answers -1 rather than a position past the end.
+    const String haystack("one,two,one");
+    expect(haystack.indexOf(',') == 3, "indexOf finds a character");
+    expect(haystack.indexOf(',', 4) == 7, "indexOf resumes from an offset");
+    expect(haystack.indexOf(String("one")) == 0, "indexOf finds a string");
+    expect(haystack.lastIndexOf(String("one")) == 8, "lastIndexOf searches back");
+    expect(haystack.indexOf(String("three")) == -1, "a miss is -1");
+
+    // Substrings, including the bounds a sketch is allowed to give.
+    expect(haystack.substring(4) == String("two,one"), "substring to the end");
+    expect(haystack.substring(4, 7) == String("two"), "substring between bounds");
+    expect(haystack.substring(7, 4) == String("two"),
+           "reversed bounds mean the same range");
+    expect(haystack.substring(99).isEmpty(), "a start past the end is empty");
+    expect(haystack.substring(4, 99) == String("two,one"),
+           "an end past the end is the end");
+
+    // Mutation in place.
+    String editable("  hello world  ");
+    editable.trim();
+    expect(editable == String("hello world"), "trim removes both edges");
+    editable.replace('o', '0');
+    expect(editable == String("hell0 w0rld"), "replace swaps characters");
+    editable.replace(String("0"), String("oo"));
+    expect(editable == String("helloo woorld"), "replace swaps strings");
+    editable.toUpperCase();
+    expect(editable == String("HELLOO WOORLD"), "toUpperCase is in place");
+    editable.toLowerCase();
+    expect(editable == String("helloo woorld"), "toLowerCase is in place");
+    editable.remove(6);
+    expect(editable == String("helloo"), "remove truncates from an index");
+    editable.remove(0, 4);
+    expect(editable == String("oo"), "remove takes a count");
+
+    String blank("   ");
+    blank.trim();
+    expect(blank.isEmpty(), "trimming only whitespace leaves nothing");
+
+    // Indexing, which answers a null character rather than reading past the end.
+    const String indexed("abc");
+    expect(indexed.charAt(1) == 'b' && indexed[2] == 'c', "indexing reads");
+    expect(indexed.charAt(99) == '\0', "an index past the end is not a read");
+    String settable("abc");
+    settable.setCharAt(0, 'A');
+    settable.setCharAt(99, 'Z');
+    expect(settable == String("Abc"), "setCharAt ignores an index past the end");
+
+    // Conversion, which answers 0 for text that will not parse.
+    expect(String("  42rest").toInt() == 42, "toInt stops at the first non-digit");
+    expect(String("-7").toInt() == -7, "toInt carries the sign");
+    expect(String("text").toInt() == 0, "text that will not parse is 0");
+    expect(String("2.5").toDouble() == 2.5, "toDouble parses");
+    expect(String("text").toFloat() == 0.0F, "a float that will not parse is 0");
+
+    // Copying out, which always terminates what it writes.
+    char buffer[4] = {'x', 'x', 'x', 'x'};
+    String("abcdef").toCharArray(buffer, sizeof(buffer));
+    expect(std::string_view(buffer) == "abc", "toCharArray truncates and terminates");
+    String("abcdef").toCharArray(buffer, sizeof(buffer), 3);
+    expect(std::string_view(buffer) == "def", "toCharArray starts at an index");
+    String("abc").toCharArray(buffer, sizeof(buffer), 99);
+    expect(buffer[0] == '\0', "an index past the end writes the terminator");
+
+    // The standard string underneath, which is what this project's own code
+    // reaches for.
+    expect(String("interop").str() == "interop", "the standard string is there");
+    expect(String("interop").view() == "interop", "and a view of it");
+
+    // A sink prints it.
+    Recorder sink;
+    expect(sink.println(String("printed")) == 9 && sink.text == "printed\r\n",
+           "a sink prints a string");
+}
+
 void character_classifiers() {
     expect(isAlpha('a'), "isAlpha('a') should be true");
     expect(isAlpha('Z'), "isAlpha('Z') should be true");
@@ -1873,6 +1995,7 @@ const mm::test::case_ cases[] = {
     {"time and delay", &time_and_delay},
     {"serial communication", &serial_communication},
     {"print sink and printable", &print_sink_and_printable},
+    {"sketch string", &sketch_string},
     {"serial formatting", &serial_formatting},
     {"serial input and waiting", &serial_input_and_waiting},
     {"serial event callback", &serial_event_callback},

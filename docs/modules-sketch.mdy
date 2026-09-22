@@ -558,7 +558,78 @@ Closing fence
 
 byte, word, and boolean provide standard type aliases.
 
-The String class is declined. Standard ISO C++ std::string provides string operations, integrating with Serial.print and future text methods.
+## String
+
+Opening fence
+class String {
+public:
+    String();
+    String(const char* s);
+    String(const char* buffer, unsigned int length);
+    String(char c);
+    explicit String(std::string_view s);
+    explicit String(int value, unsigned char base = 10);           // and unsigned int,
+    explicit String(long value, unsigned char base = 10);          // and unsigned long
+    explicit String(double value, unsigned char decimal_places = 2);  // and float
+
+    const std::string& str() const noexcept;
+    std::string_view view() const noexcept;
+    const char* c_str() const noexcept;
+    unsigned int length() const noexcept;
+    bool isEmpty() const noexcept;
+    bool reserve(unsigned int size);
+
+    char charAt(unsigned int index) const;
+    void setCharAt(unsigned int index, char c);
+    char operator[](unsigned int index) const;
+
+    bool concat(...);          // and operator+= over the same set
+    int compareTo(const String& other) const;
+    bool equals(const String& other) const;
+    bool equals(const char* s) const;
+    bool equalsIgnoreCase(const String& other) const;
+    bool startsWith(const String& prefix) const;
+    bool startsWith(const String& prefix, unsigned int offset) const;
+    bool endsWith(const String& suffix) const;
+
+    int indexOf(...) const;    // char or String, optionally from an offset
+    int lastIndexOf(...) const;
+    String substring(unsigned int from) const;
+    String substring(unsigned int from, unsigned int to) const;
+
+    void replace(char from, char to);
+    void replace(const String& from, const String& to);
+    void remove(unsigned int index);
+    void remove(unsigned int index, unsigned int count);
+    void toLowerCase();
+    void toUpperCase();
+    void trim();
+
+    void getBytes(byte* buffer, unsigned int size, unsigned int index = 0) const;
+    void toCharArray(char* buffer, unsigned int size, unsigned int index = 0) const;
+
+    long toInt() const;
+    float toFloat() const;
+    double toDouble() const;
+};
+
+bool operator==(const String& a, const String& b);
+bool operator==(const String& a, const char* b);
+std::strong_ordering operator<=>(const String& a, const String& b);
+String operator+(...);     // String, const char*, char, the integer types, double
+Closing fence
+
+String exists because a vendored library returns one, takes one, and stores one. A library's toString, its getAddress, its own print helper: each is a String in its signature, and no amount of standard vocabulary reaches a function declared that way.
+
+It is a std::string with the sketch surface on it. The storage, the allocation, the growth and the character handling are the standard library's, and what this class adds is the vocabulary and the edges a sketch expects: an index past the end reads a null character rather than past the buffer, setCharAt past the end does nothing, a search that finds nothing answers -1, substring clamps both bounds and accepts them in either order, and text that will not parse converts to 0. None of those are error conditions, so none of them latch a Status: a sketch that indexes past the end of a string has not asked the machine for anything.
+
+str and view reach the standard string underneath, which is what this project's own code uses when it is handed one. Nothing converts implicitly in either direction. The constructor from std::string_view is explicit for a mechanical reason worth recording: an implicit one lets a comparison between two std::string_views resolve through String and become ambiguous with the standard's own operator.
+
+The case of a rendered number differs between String and Print, and both are deliberate. String(255, 16) is "ff", because the C conversion these libraries were written against produces lower case; Serial.print(255, HEX) is "FF", because the print they were written against produces upper. A base outside 2 to 36 renders nothing. Only decimal carries a sign; every other base renders the bit pattern at the width of the argument's own type, so String(-1, 16) answers for an int what an int holds.
+
+Print prints a String directly, so Serial.print(s) and a library's own sink both reach it.
+
+Standard ISO C++ std::string remains what a sketch of this project's own should use, and what Serial.print takes through std::string_view. String is the boundary type: it belongs in the signature that faces a vendored library, and str converts at that boundary once.
 
 ## Print and Printable
 
@@ -585,13 +656,13 @@ public:
 class SerialPort : public Print { ... };
 Closing fence
 
-A vendored library arrives with two of its own shapes. It prints an object it defines by deriving that object from Printable and supplying printTo, and it prints to a destination of its own -- a shift register, a parallel port, a second UART -- by deriving that destination from Print and supplying write. Both are ordinary Arduino, and a library that does either is unusable without them however complete the rest of the vocabulary is.
+A vendored library arrives with two of its own shapes. It prints an object it defines by deriving that object from Printable and supplying printTo, and it prints to a destination of its own -- a shift register, a parallel port, a second UART -- by deriving that destination from Print and supplying write. Both are ordinary in the toolchain such a library was written for, and a library that does either is unusable without them however complete the rest of the vocabulary is.
 
 Print is the single level of virtual dispatch docs/modules-c++20.mdy permits: a base with a virtual destructor, one pure virtual function, and concrete classes that override it. Everything else Print offers is written once in terms of write, so a destination supplies one function and receives the whole print and println overload set, formatted exactly as the console formats it.
 
 SerialPort derives from Print, which is what lets a library hold a Print& and be given Serial. It keeps its own print and println overloads, because those reach the console directly rather than through a virtual call, and names Print's with using declarations so the overloads only Print declares -- printing a Printable -- remain reachable on Serial.
 
-Declaring write in a derived class hides Print's other write overloads, as it does in Arduino. A destination that also wants the buffered ones says using Print::write.
+Declaring write in a derived class hides Print's other write overloads, as it does in the toolchain these libraries were written for. A destination that also wants the buffered ones says using Print::write.
 
 printTo receives the destination and returns the number of bytes it wrote, and Print::print(const Printable&) is that call. Nothing else is required of a printable object.
 

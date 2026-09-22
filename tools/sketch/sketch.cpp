@@ -362,31 +362,30 @@ int main(int argc, char** argv) {
                         check_failed = true;
                     }
                 }
-                const auto header_path = app_node.dir / "Arduino.h";
+                const std::string canonical(mm::ino::sketch_header_name());
+                const auto header_path = app_node.dir / canonical;
                 if (verbose && std::filesystem::exists(header_path, ec)) {
                     std::ifstream in(header_path);
                     std::ostringstream ss;
                     ss << in.rdbuf();
                     if (ss.str() != mm::ino::sketch_header()) {
-                        std::cerr
-                            << "sketch: committed Arduino.h does not match"
-                               " this release in "
-                            << app_node.dir.string() << "\n";
+                        std::cerr << "sketch: committed " << canonical
+                                  << " does not match this release in "
+                                  << app_node.dir.string() << "\n";
                         check_failed = true;
                     }
                 } else if (!std::filesystem::exists(header_path, ec)) {
-                    std::cerr << "sketch: missing generated Arduino.h in "
-                              << app_node.dir.string() << "\n";
+                    std::cerr << "sketch: missing generated " << canonical
+                              << " in " << app_node.dir.string() << "\n";
                     check_failed = true;
                 } else {
                     std::ifstream in_header(header_path);
                     std::ostringstream ss_header;
                     ss_header << in_header.rdbuf();
                     if (ss_header.str() != mm::ino::sketch_header()) {
-                        std::cerr
-                            << "sketch: committed Arduino.h does not match"
-                               " this release in "
-                            << app_node.dir.string() << "\n";
+                        std::cerr << "sketch: committed " << canonical
+                                  << " does not match this release in "
+                                  << app_node.dir.string() << "\n";
                         check_failed = true;
                     }
                 }
@@ -490,10 +489,11 @@ int main(int argc, char** argv) {
                           << app_node.dir.string() << ": " << err << "\n";
                 return 65;
             }
-            if (!mm::ino::write_guarded(app_node.dir, "Arduino.h",
+            const std::string canonical(mm::ino::sketch_header_name());
+            if (!mm::ino::write_guarded(app_node.dir, canonical,
                                         mm::ino::sketch_header(), err,
-                                        "Arduino.h.tmp")) {
-                std::cerr << "sketch: cannot write Arduino.h in "
+                                        canonical + ".tmp")) {
+                std::cerr << "sketch: cannot write " << canonical << " in "
                           << app_node.dir.string() << ": " << err << "\n";
                 return 65;
             }
@@ -718,17 +718,18 @@ int main(int argc, char** argv) {
     // exercises a library needs the same header that library includes, so
     // every application receives one. It is generated on the same terms as
     // main.cpp: written beside it, committed with it, and checked against it.
+    const std::string canonical_header(mm::ino::sketch_header_name());
     std::string header_err;
-    if (!mm::ino::write_guarded(abs_dir, "Arduino.h",
+    if (!mm::ino::write_guarded(abs_dir, canonical_header,
                                 mm::ino::sketch_header(), header_err,
-                                "Arduino.h.tmp")) {
-        std::cerr << "sketch: cannot write Arduino.h: " << header_err
-                  << "\n";
+                                canonical_header + ".tmp")) {
+        std::cerr << "sketch: cannot write " << canonical_header << ": "
+                  << header_err << "\n";
         return 65;
     }
     if (verbose) {
-        std::cerr << "sketch: wrote Arduino.h to " << abs_dir.string()
-                  << "/Arduino.h\n";
+        std::cerr << "sketch: wrote " << canonical_header << " to "
+                  << abs_dir.string() << "/" << canonical_header << "\n";
     }
     for (const auto& alias : mm::ino::sketch_alias_headers()) {
         const std::string name(alias);

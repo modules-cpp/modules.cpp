@@ -579,7 +579,9 @@ void installed_external_library_sketch() {
         props << "name=FixtureLib\nversion=1.0.0\n";
     }
 
-    // 2. Write FixtureLib.h exercising all 10 aliases via Arduino.h
+    // 2. Write FixtureLib.h exercising all 10 aliases. It includes by the
+    // spelling a vendored source writes, which reaches the compatibility
+    // header through the forwarder generated beside it.
     {
         std::ofstream header(lib_root / "FixtureLib.h");
         header << "#pragma once\n"
@@ -640,8 +642,10 @@ void installed_external_library_sketch() {
            "app mm.mdy generated");
     expect(std::filesystem::exists(app_dir / "main.cpp"),
            "main.cpp generated");
+    expect(std::filesystem::exists(app_dir / "Sketch.h"),
+           "the compatibility header is generated");
     expect(std::filesystem::exists(app_dir / "Arduino.h"),
-           "Arduino.h generated");
+           "the forwarder a vendored source includes by is generated");
 
     // 5b. Idempotence: a second run leaves manifests unchanged
     const auto root_mtime =
@@ -677,15 +681,26 @@ void installed_external_library_sketch() {
            "sketch restores main.cpp");
     expect(std::filesystem::exists(main_path), "main.cpp restored");
 
-    // 6c. Verify --check fails when Arduino.h is missing
-    const auto header_path = app_dir / "Arduino.h";
+    // 6c. Verify --check fails when the compatibility header is missing
+    const auto header_path = app_dir / "Sketch.h";
     std::filesystem::remove(header_path, ec);
     expect(invoke(bin / "sketch", "--check " + lib_arg, log) == 65,
-           "sketch --check fails when Arduino.h is missing");
+           "sketch --check fails when the compatibility header is missing");
     expect(invoke(bin / "sketch", "--project " + repo_arg + " " + lib_arg,
                   log) == 0,
-           "sketch restores Arduino.h");
-    expect(std::filesystem::exists(header_path), "Arduino.h restored");
+           "sketch restores the compatibility header");
+    expect(std::filesystem::exists(header_path),
+           "the compatibility header is restored");
+
+    // 6d. A forwarder is checked and restored on the same terms.
+    const auto forwarder_path = app_dir / "Arduino.h";
+    std::filesystem::remove(forwarder_path, ec);
+    expect(invoke(bin / "sketch", "--check " + lib_arg, log) == 65,
+           "sketch --check fails when a forwarder is missing");
+    expect(invoke(bin / "sketch", "--project " + repo_arg + " " + lib_arg,
+                  log) == 0,
+           "sketch restores the forwarder");
+    expect(std::filesystem::exists(forwarder_path), "the forwarder is restored");
 
     // 7. Compile and link via build (exercises all 10 integer aliases)
     expect(invoke(bin / "build", app_arg, log) == 0,
@@ -695,14 +710,15 @@ void installed_external_library_sketch() {
     expect(invoke(bin / "run", "--host " + app_arg, log) == 0,
            "run --host verifies sketch execution succeeds");
 
-    // 9. Build-time repair: delete Arduino.h and verify build restores it
+    // 9. Build-time repair: delete the compatibility header and verify
+    // build restores it
     std::filesystem::remove(header_path, ec);
     expect(!std::filesystem::exists(header_path),
-           "Arduino.h removed for repair test");
+           "compatibility header removed for repair test");
     expect(invoke(bin / "build", app_arg, log) == 0,
-           "build restores missing Arduino.h via check-generate-check");
+           "build restores the missing header via check-generate-check");
     expect(std::filesystem::exists(header_path),
-           "Arduino.h restored by build");
+           "the compatibility header is restored by build");
 }
 
 const mm::test::case_ cases[] = {

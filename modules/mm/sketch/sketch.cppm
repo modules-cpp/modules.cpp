@@ -4,6 +4,7 @@ module;
 
 #include <algorithm>
 #include <cmath>
+#include <compare>
 #include <cstddef>
 #include <string>
 #include <string_view>
@@ -260,8 +261,117 @@ inline constexpr Base BIN = Base::Bin;
 
 class Print;
 
+// The sketch string, which a vendored library returns, takes, and stores.
+// It is a std::string with that surface on it: the storage, the
+// allocation and the character handling are the standard library's, and
+// what this class adds is the vocabulary a sketch writes. A sketch of this
+// project's own has no reason to reach for it; docs/modules-sketch.mdy says
+// which to use when.
+class String {
+public:
+    String() = default;
+    String(const char* s);
+    String(const char* buffer, unsigned int length);
+    String(char c);
+    // Explicit: an implicit one would let a std::string_view comparison
+    // resolve through String and become ambiguous with the standard's own.
+    explicit String(std::string_view s);
+    explicit String(int value, unsigned char base = 10);
+    explicit String(unsigned int value, unsigned char base = 10);
+    explicit String(long value, unsigned char base = 10);
+    explicit String(unsigned long value, unsigned char base = 10);
+    explicit String(double value, unsigned char decimal_places = 2);
+    explicit String(float value, unsigned char decimal_places = 2);
+
+    String& operator=(const char* s);
+    String& operator=(std::string_view s);
+
+    // The standard string underneath, for a caller on this project's side of
+    // the boundary. Nothing converts implicitly: a String is asked.
+    [[nodiscard]] const std::string& str() const noexcept { return text_; }
+    [[nodiscard]] std::string_view view() const noexcept { return text_; }
+
+    [[nodiscard]] const char* c_str() const noexcept { return text_.c_str(); }
+    [[nodiscard]] unsigned int length() const noexcept;
+    [[nodiscard]] bool isEmpty() const noexcept { return text_.empty(); }
+    bool reserve(unsigned int size);
+
+    [[nodiscard]] char charAt(unsigned int index) const;
+    void setCharAt(unsigned int index, char c);
+    [[nodiscard]] char operator[](unsigned int index) const;
+
+    bool concat(const String& other);
+    bool concat(const char* s);
+    bool concat(char c);
+    bool concat(int value);
+    bool concat(unsigned int value);
+    bool concat(long value);
+    bool concat(unsigned long value);
+    bool concat(double value);
+
+    String& operator+=(const String& other);
+    String& operator+=(const char* s);
+    String& operator+=(char c);
+    String& operator+=(int value);
+    String& operator+=(unsigned int value);
+    String& operator+=(long value);
+    String& operator+=(unsigned long value);
+    String& operator+=(double value);
+
+    [[nodiscard]] int compareTo(const String& other) const;
+    [[nodiscard]] bool equals(const String& other) const;
+    [[nodiscard]] bool equals(const char* s) const;
+    [[nodiscard]] bool equalsIgnoreCase(const String& other) const;
+    [[nodiscard]] bool startsWith(const String& prefix) const;
+    [[nodiscard]] bool startsWith(const String& prefix, unsigned int offset) const;
+    [[nodiscard]] bool endsWith(const String& suffix) const;
+
+    [[nodiscard]] int indexOf(char c) const;
+    [[nodiscard]] int indexOf(char c, unsigned int from) const;
+    [[nodiscard]] int indexOf(const String& needle) const;
+    [[nodiscard]] int indexOf(const String& needle, unsigned int from) const;
+    [[nodiscard]] int lastIndexOf(char c) const;
+    [[nodiscard]] int lastIndexOf(char c, unsigned int from) const;
+    [[nodiscard]] int lastIndexOf(const String& needle) const;
+    [[nodiscard]] int lastIndexOf(const String& needle, unsigned int from) const;
+
+    [[nodiscard]] String substring(unsigned int from) const;
+    [[nodiscard]] String substring(unsigned int from, unsigned int to) const;
+
+    void replace(char from, char to);
+    void replace(const String& from, const String& to);
+    void remove(unsigned int index);
+    void remove(unsigned int index, unsigned int count);
+    void toLowerCase();
+    void toUpperCase();
+    void trim();
+
+    void getBytes(byte* buffer, unsigned int size, unsigned int index = 0) const;
+    void toCharArray(char* buffer, unsigned int size, unsigned int index = 0) const;
+
+    [[nodiscard]] long toInt() const;
+    [[nodiscard]] float toFloat() const;
+    [[nodiscard]] double toDouble() const;
+
+private:
+    std::string text_;
+};
+
+[[nodiscard]] bool operator==(const String& a, const String& b);
+[[nodiscard]] bool operator==(const String& a, const char* b);
+[[nodiscard]] std::strong_ordering operator<=>(const String& a, const String& b);
+[[nodiscard]] String operator+(const String& a, const String& b);
+[[nodiscard]] String operator+(const String& a, const char* b);
+[[nodiscard]] String operator+(const char* a, const String& b);
+[[nodiscard]] String operator+(const String& a, char b);
+[[nodiscard]] String operator+(const String& a, int b);
+[[nodiscard]] String operator+(const String& a, unsigned int b);
+[[nodiscard]] String operator+(const String& a, long b);
+[[nodiscard]] String operator+(const String& a, unsigned long b);
+[[nodiscard]] String operator+(const String& a, double b);
+
 // A vendored library prints an object of its own by deriving from Printable
-// and a sink of its own by deriving from Print. Both are the Arduino shapes,
+// and a sink of its own by deriving from Print. Both are the sketch shapes,
 // and both are the single level of virtual dispatch docs/modules-c++20.mdy
 // permits: Print is the base, a sink is a concrete class, and printTo is the
 // one thing a printable object supplies.
@@ -293,6 +403,7 @@ public:
     std::size_t print(unsigned long n, Base base = DEC);
     std::size_t print(double n, int digits = 2);
     std::size_t print(const Printable& object);
+    std::size_t print(const String& s);
     std::size_t print(unsigned char n, Base base = DEC) { return print(static_cast<unsigned int>(n), base); }
     std::size_t print(short n, Base base = DEC) { return print(static_cast<int>(n), base); }
     std::size_t print(unsigned short n, Base base = DEC) { return print(static_cast<unsigned int>(n), base); }
@@ -307,6 +418,7 @@ public:
     std::size_t println(unsigned long n, Base base = DEC);
     std::size_t println(double n, int digits = 2);
     std::size_t println(const Printable& object);
+    std::size_t println(const String& s);
     std::size_t println(unsigned char n, Base base = DEC) { return println(static_cast<unsigned int>(n), base); }
     std::size_t println(short n, Base base = DEC) { return println(static_cast<int>(n), base); }
     std::size_t println(unsigned short n, Base base = DEC) { return println(static_cast<unsigned int>(n), base); }

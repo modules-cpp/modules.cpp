@@ -1578,6 +1578,358 @@ int timed_read(const Deadline& deadline) {
 
 } // namespace
 
+// --- String ------------------------------------------------------------
+//
+// Every operation here is a std::string operation under the name a sketch
+// writes, and with the sketch answer for the edges: an index past the end is
+// not an error, a
+// search that finds nothing is -1, and a number that will not parse is 0.
+
+namespace {
+
+// String(value, base) takes the base as a number rather than a Base, and
+// renders nothing for one std::to_chars will not accept. The case is the C
+// conversion's, which is lower; Print's is upper, because the print a sketch
+// was written against is. docs/modules-sketch.mdy records the difference.
+std::string unsigned_text(unsigned long long value, unsigned char base) {
+    if (base < 2 || base > 36) return {};
+    char buf[72];
+    const auto res = std::to_chars(buf, buf + sizeof(buf), value,
+                                   static_cast<int>(base));
+    if (res.ec != std::errc{}) return {};
+    return std::string(buf, static_cast<std::size_t>(res.ptr - buf));
+}
+
+// Only decimal carries the sign. Every other base renders the bit pattern,
+// which is the caller's own width rather than the widest this function
+// could hold: String(-1, 16) answers for an int what an int holds.
+std::string signed_text(long long value, unsigned long long pattern,
+                        unsigned char base) {
+    if (base != 10) return unsigned_text(pattern, base);
+    char buf[72];
+    const auto res = std::to_chars(buf, buf + sizeof(buf), value);
+    if (res.ec != std::errc{}) return {};
+    return std::string(buf, static_cast<std::size_t>(res.ptr - buf));
+}
+
+std::string double_text(double value, unsigned char decimal_places) {
+    char buf[64];
+    auto res = std::to_chars(buf, buf + sizeof(buf), value,
+                             std::chars_format::fixed,
+                             static_cast<int>(decimal_places));
+    if (res.ec != std::errc{}) return {};
+    return std::string(buf, static_cast<std::size_t>(res.ptr - buf));
+}
+
+// A position std::string reports, as the int a sketch expects.
+int as_index(std::string::size_type position) {
+    return position == std::string::npos ? -1 : static_cast<int>(position);
+}
+
+char lower(char c) {
+    return static_cast<char>(
+        std::tolower(static_cast<unsigned char>(c)));
+}
+
+} // namespace
+
+String::String(const char* s) : text_(s != nullptr ? s : "") {}
+
+String::String(const char* buffer, unsigned int length)
+    : text_(buffer != nullptr ? std::string(buffer, length) : std::string()) {}
+
+String::String(char c) : text_(1, c) {}
+
+String::String(std::string_view s) : text_(s) {}
+
+String::String(int value, unsigned char base)
+    : text_(signed_text(value, static_cast<unsigned int>(value), base)) {}
+
+String::String(unsigned int value, unsigned char base)
+    : text_(unsigned_text(value, base)) {}
+
+String::String(long value, unsigned char base)
+    : text_(signed_text(value, static_cast<unsigned long>(value), base)) {}
+
+String::String(unsigned long value, unsigned char base)
+    : text_(unsigned_text(value, base)) {}
+
+String::String(double value, unsigned char decimal_places)
+    : text_(double_text(value, decimal_places)) {}
+
+String::String(float value, unsigned char decimal_places)
+    : text_(double_text(static_cast<double>(value), decimal_places)) {}
+
+String& String::operator=(const char* s) {
+    text_ = s != nullptr ? s : "";
+    return *this;
+}
+
+String& String::operator=(std::string_view s) {
+    text_ = s;
+    return *this;
+}
+
+unsigned int String::length() const noexcept {
+    return static_cast<unsigned int>(text_.size());
+}
+
+bool String::reserve(unsigned int size) {
+    text_.reserve(size);
+    return true;
+}
+
+char String::charAt(unsigned int index) const {
+    return index < text_.size() ? text_[index] : '\0';
+}
+
+void String::setCharAt(unsigned int index, char c) {
+    if (index < text_.size()) text_[index] = c;
+}
+
+char String::operator[](unsigned int index) const { return charAt(index); }
+
+bool String::concat(const String& other) {
+    text_ += other.text_;
+    return true;
+}
+
+bool String::concat(const char* s) {
+    if (s != nullptr) text_ += s;
+    return true;
+}
+
+bool String::concat(char c) {
+    text_ += c;
+    return true;
+}
+
+bool String::concat(int value) { return concat(String(value).c_str()); }
+bool String::concat(unsigned int value) { return concat(String(value).c_str()); }
+bool String::concat(long value) { return concat(String(value).c_str()); }
+bool String::concat(unsigned long value) { return concat(String(value).c_str()); }
+bool String::concat(double value) { return concat(String(value).c_str()); }
+
+String& String::operator+=(const String& other) { concat(other); return *this; }
+String& String::operator+=(const char* s) { concat(s); return *this; }
+String& String::operator+=(char c) { concat(c); return *this; }
+String& String::operator+=(int value) { concat(value); return *this; }
+String& String::operator+=(unsigned int value) { concat(value); return *this; }
+String& String::operator+=(long value) { concat(value); return *this; }
+String& String::operator+=(unsigned long value) { concat(value); return *this; }
+String& String::operator+=(double value) { concat(value); return *this; }
+
+int String::compareTo(const String& other) const {
+    const int result = text_.compare(other.text_);
+    return result < 0 ? -1 : (result > 0 ? 1 : 0);
+}
+
+bool String::equals(const String& other) const { return text_ == other.text_; }
+
+bool String::equals(const char* s) const {
+    return s != nullptr && text_ == s;
+}
+
+bool String::equalsIgnoreCase(const String& other) const {
+    if (text_.size() != other.text_.size()) return false;
+    for (std::size_t i = 0; i < text_.size(); ++i)
+        if (lower(text_[i]) != lower(other.text_[i])) return false;
+    return true;
+}
+
+bool String::startsWith(const String& prefix) const {
+    return text_.starts_with(prefix.text_);
+}
+
+bool String::startsWith(const String& prefix, unsigned int offset) const {
+    if (offset > text_.size()) return false;
+    return std::string_view(text_).substr(offset).starts_with(prefix.text_);
+}
+
+bool String::endsWith(const String& suffix) const {
+    return text_.ends_with(suffix.text_);
+}
+
+int String::indexOf(char c) const { return as_index(text_.find(c)); }
+
+int String::indexOf(char c, unsigned int from) const {
+    return as_index(text_.find(c, from));
+}
+
+int String::indexOf(const String& needle) const {
+    return as_index(text_.find(needle.text_));
+}
+
+int String::indexOf(const String& needle, unsigned int from) const {
+    return as_index(text_.find(needle.text_, from));
+}
+
+int String::lastIndexOf(char c) const { return as_index(text_.rfind(c)); }
+
+int String::lastIndexOf(char c, unsigned int from) const {
+    return as_index(text_.rfind(c, from));
+}
+
+int String::lastIndexOf(const String& needle) const {
+    return as_index(text_.rfind(needle.text_));
+}
+
+int String::lastIndexOf(const String& needle, unsigned int from) const {
+    return as_index(text_.rfind(needle.text_, from));
+}
+
+String String::substring(unsigned int from) const {
+    if (from >= text_.size()) return String();
+    return String(std::string_view(text_).substr(from));
+}
+
+String String::substring(unsigned int from, unsigned int to) const {
+    // The two bounds are accepted in either order, and both are clamped.
+    unsigned int first = from;
+    unsigned int last = to;
+    if (first > last) std::swap(first, last);
+    if (first >= text_.size()) return String();
+    if (last > text_.size()) last = static_cast<unsigned int>(text_.size());
+    return String(std::string_view(text_).substr(first, last - first));
+}
+
+void String::replace(char from, char to) {
+    for (char& c : text_)
+        if (c == from) c = to;
+}
+
+void String::replace(const String& from, const String& to) {
+    if (from.text_.empty()) return;
+    std::string out;
+    std::string::size_type position = 0;
+    for (;;) {
+        const auto hit = text_.find(from.text_, position);
+        if (hit == std::string::npos) break;
+        out.append(text_, position, hit - position);
+        out += to.text_;
+        position = hit + from.text_.size();
+    }
+    if (position == 0) return;
+    out.append(text_, position, std::string::npos);
+    text_ = std::move(out);
+}
+
+void String::remove(unsigned int index) {
+    if (index < text_.size()) text_.erase(index);
+}
+
+void String::remove(unsigned int index, unsigned int count) {
+    if (index >= text_.size()) return;
+    text_.erase(index, count);
+}
+
+void String::toLowerCase() {
+    for (char& c : text_)
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+}
+
+void String::toUpperCase() {
+    for (char& c : text_)
+        c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+}
+
+void String::trim() {
+    const auto first = text_.find_first_not_of(" \t\n\r\f\v");
+    if (first == std::string::npos) {
+        text_.clear();
+        return;
+    }
+    const auto last = text_.find_last_not_of(" \t\n\r\f\v");
+    text_ = text_.substr(first, last - first + 1);
+}
+
+void String::toCharArray(char* buffer, unsigned int size,
+                         unsigned int index) const {
+    if (buffer == nullptr || size == 0) return;
+    if (index >= text_.size()) {
+        buffer[0] = '\0';
+        return;
+    }
+    const std::size_t available = text_.size() - index;
+    const std::size_t copied = std::min<std::size_t>(available, size - 1);
+    std::memcpy(buffer, text_.data() + index, copied);
+    buffer[copied] = '\0';
+}
+
+void String::getBytes(byte* buffer, unsigned int size,
+                      unsigned int index) const {
+    toCharArray(reinterpret_cast<char*>(buffer), size, index);
+}
+
+long String::toInt() const {
+    // Text that does not begin with a number answers 0, and parsing stops
+    // at the first character that is not part of one.
+    std::string_view text(text_);
+    std::size_t start = 0;
+    while (start < text.size() &&
+           std::isspace(static_cast<unsigned char>(text[start]))) {
+        ++start;
+    }
+    long value = 0;
+    const auto* first = text.data() + start;
+    const auto* last = text.data() + text.size();
+    const auto res = std::from_chars(first, last, value);
+    if (res.ec != std::errc{}) return 0;
+    return value;
+}
+
+double String::toDouble() const {
+    std::string_view text(text_);
+    std::size_t start = 0;
+    while (start < text.size() &&
+           std::isspace(static_cast<unsigned char>(text[start]))) {
+        ++start;
+    }
+    double value = 0.0;
+    const auto* first = text.data() + start;
+    const auto* last = text.data() + text.size();
+    const auto res = std::from_chars(first, last, value);
+    if (res.ec != std::errc{}) return 0.0;
+    return value;
+}
+
+float String::toFloat() const { return static_cast<float>(toDouble()); }
+
+bool operator==(const String& a, const String& b) { return a.str() == b.str(); }
+
+bool operator==(const String& a, const char* b) {
+    return b != nullptr && a.str() == b;
+}
+
+std::strong_ordering operator<=>(const String& a, const String& b) {
+    return a.str() <=> b.str();
+}
+
+String operator+(const String& a, const String& b) {
+    String out(a);
+    out += b;
+    return out;
+}
+
+String operator+(const String& a, const char* b) {
+    String out(a);
+    out += b;
+    return out;
+}
+
+String operator+(const char* a, const String& b) {
+    String out(a);
+    out += b;
+    return out;
+}
+
+String operator+(const String& a, char b) { String out(a); out += b; return out; }
+String operator+(const String& a, int b) { String out(a); out += b; return out; }
+String operator+(const String& a, unsigned int b) { String out(a); out += b; return out; }
+String operator+(const String& a, long b) { String out(a); out += b; return out; }
+String operator+(const String& a, unsigned long b) { String out(a); out += b; return out; }
+String operator+(const String& a, double b) { String out(a); out += b; return out; }
+
 // --- Print -------------------------------------------------------------
 //
 // A sink supplies write; everything else is written here once, in terms of
@@ -1716,6 +2068,8 @@ std::size_t Print::print(const Printable& object) {
     return object.printTo(*this);
 }
 
+std::size_t Print::print(const String& s) { return print(s.view()); }
+
 std::size_t Print::println(const char* s) { return print(s) + print("\r\n"); }
 std::size_t Print::println(char c) { return print(c) + print("\r\n"); }
 std::size_t Print::println(std::string_view s) { return print(s) + print("\r\n"); }
@@ -1726,6 +2080,7 @@ std::size_t Print::println(long n, Base base) { return print(n, base) + print("\
 std::size_t Print::println(unsigned long n, Base base) { return print(n, base) + print("\r\n"); }
 std::size_t Print::println(double n, int digits) { return print(n, digits) + print("\r\n"); }
 std::size_t Print::println(const Printable& object) { return print(object) + print("\r\n"); }
+std::size_t Print::println(const String& s) { return print(s) + print("\r\n"); }
 std::size_t Print::println() { return print("\r\n"); }
 
 std::size_t SerialPort::write(byte b) {

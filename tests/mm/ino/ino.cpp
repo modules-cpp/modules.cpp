@@ -45,7 +45,7 @@ void standard_include_in_middle() {
     };
     const auto result = mm::ino::transform(sources);
     expect(result.ok, "transformation should succeed");
-    expect(result.output.find("#include <vector>\n#include \"Arduino.h\"\nimport mm.sketch;") != std::string::npos,
+    expect(result.output.find("#include <vector>\n#include \"Sketch.h\"\nimport mm.sketch;") != std::string::npos,
            "expected #include <vector> hoisted above the compatibility header and import mm.sketch;");
     // Check that #include <vector> is not duplicated in the sketch body
     std::size_t count = 0;
@@ -93,7 +93,7 @@ void quoted_include_is_hoisted() {
     expect(result.ok, "quoted include must be accepted");
     expect(result.diagnostics.empty(), "expected no diagnostics");
     expect(result.output.find("#include \"custom.h\"\n#include <vector>\n"
-                              "#include \"Arduino.h\"\nimport mm.sketch;") !=
+                              "#include \"Sketch.h\"\nimport mm.sketch;") !=
                std::string::npos,
            "quoted and angled includes hoist in source order above the"
            " compatibility header and the import");
@@ -228,7 +228,8 @@ void write_guarded_lifecycle() {
 // A complete application carries the generated headers as well as the
 // generated main.cpp, which is what check_application asks for.
 void write_generated_headers(const std::filesystem::path& dir) {
-    std::ofstream(dir / "Arduino.h") << mm::ino::sketch_header();
+    std::ofstream(dir / std::string(mm::ino::sketch_header_name()))
+        << mm::ino::sketch_header();
     for (const auto& alias : mm::ino::sketch_alias_headers())
         std::ofstream(dir / std::string(alias))
             << mm::ino::sketch_alias_header(alias);
@@ -335,13 +336,19 @@ void sketch_header_synthesis() {
     expect(header.find("B01 = 1") != std::string::npos &&
                header.find("B00000001 = 1") != std::string::npos,
            "a leading zero is part of the name, not of the value");
+    bool forwards_the_foreign_name = false;
     for (const auto& alias : mm::ino::sketch_alias_headers()) {
+        if (alias == "Arduino.h") forwards_the_foreign_name = true;
         const auto forwarder = mm::ino::sketch_alias_header(alias);
-        expect(forwarder.find("#include \"Arduino.h\"") != std::string::npos,
-               "a forwarding header forwards to Arduino.h");
+        expect(forwarder.find("#include \"Sketch.h\"") != std::string::npos,
+               "a forwarding header forwards to the compatibility header");
         expect(forwarder.find(std::string(alias)) != std::string::npos,
                "a forwarding header names the spelling it answers to");
     }
+    // The one spelling no rename reaches: a vendored source writes it, so it
+    // survives as a forwarder and nowhere else.
+    expect(forwards_the_foreign_name,
+           "the name a vendored source includes by is generated too");
     expect(header.find("do not edit by hand") !=
                std::string::npos,
            "the header says it is generated");
@@ -367,14 +374,15 @@ void sketch_header_is_checked() {
     doc.metadata["sketch"] = {"app.ino"};
     expect(!mm::ino::check_application(dir, doc, error),
            "an application without sketch-library still requires the header");
-    expect(error.find("Arduino.h") != std::string::npos,
+    expect(error.find("Sketch.h") != std::string::npos,
            "the error names the missing header");
 
     doc.metadata["sketch-library"] = {".."};
     expect(!mm::ino::check_application(dir, doc, error),
            "a declared sketch-library requires the generated header");
 
-    std::ofstream(dir / "Arduino.h") << "#pragma once\n";
+    std::ofstream(dir / std::string(mm::ino::sketch_header_name()))
+        << "#pragma once\n";
     expect(!mm::ino::check_application(dir, doc, error),
            "a hand-edited header is refused");
 

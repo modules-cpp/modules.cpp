@@ -40,12 +40,17 @@ struct TransformResult {
 // name its own toolchain provides; this is that header, written beside
 // main.cpp and built on mm.sketch. Generated, committed, and verified the
 // same way main.cpp is.
+// The name of the generated compatibility header, which is what main.cpp
+// includes and what sketch_alias_headers forwards to.
+[[nodiscard]] std::string_view sketch_header_name();
+
 [[nodiscard]] std::string sketch_header();
 
-// The other names a vendored library includes by, each one a header its own
+// The names a vendored library includes by, each one a header its own
 // toolchain ships separately and this project keeps in one place. Each is
-// generated beside Arduino.h and forwards to it, so a library reaching for
-// Print.h or Wire.h finds the same declarations under the name it wrote.
+// generated beside the compatibility header and forwards to it, so a library
+// reaching for Print.h, Wire.h, or the name its whole ecosystem writes finds
+// the same declarations under the name it wrote.
 [[nodiscard]] std::span<const std::string_view> sketch_alias_headers();
 [[nodiscard]] std::string sketch_alias_header(std::string_view name);
 
