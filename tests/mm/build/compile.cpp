@@ -1,12 +1,10 @@
-// Tests for mm.build's compile lane: shell quoting, the per-output-lane
-// module cache, artifact contexts, and direct compile() failures.
+// Tests for mm.build's compile lane: artifact contexts, direct compile()
+// failures, and the compile, link, install and run steps.
 
 #include <filesystem>
 #include <fstream>
 #include <iterator>
-#include <optional>
 #include <string>
-#include <string_view>
 
 import mm.build;
 import mm.test;
@@ -14,89 +12,6 @@ import mm.test;
 namespace {
 
 using mm::test::expect;
-using mm::build::shell_quote;
-
-using mm::build::shell_quote;
-
-bool contains(std::string_view text, std::string_view needle) {
-    return text.find(needle) != std::string_view::npos;
-}
-
-void wraps_a_plain_path_in_single_quotes() {
-    mm::test::expect(shell_quote(std::filesystem::path("m/x.cppm")) == "'m/x.cppm'",
-                     "expected a plain path to be wrapped in single quotes");
-}
-
-void quotes_an_empty_path() {
-    mm::test::expect(shell_quote(std::filesystem::path("")) == "''",
-                     "expected an empty path to become an empty quoted argument");
-}
-
-// The payload from the finding. Inside single quotes the shell sees the text,
-// not a command.
-void neutralises_command_substitution() {
-    const auto quoted = shell_quote(std::filesystem::path("$(touch EXECUTED)x.cppm"));
-
-    mm::test::expect(quoted == "'$(touch EXECUTED)x.cppm'",
-                     "expected a command substitution to be quoted verbatim");
-    mm::test::expect(!contains(quoted, "\""), "expected no double quotes in the result");
-}
-
-void neutralises_backticks() {
-    mm::test::expect(shell_quote(std::filesystem::path("a`id`b.cppm")) == "'a`id`b.cppm'",
-                     "expected backticks to be quoted verbatim");
-}
-
-void neutralises_variable_expansion() {
-    mm::test::expect(shell_quote(std::filesystem::path("v$HOME.cppm")) == "'v$HOME.cppm'",
-                     "expected a variable reference to be quoted verbatim");
-    mm::test::expect(shell_quote(std::filesystem::path("v$1.cppm")) == "'v$1.cppm'",
-                     "expected a positional parameter to be quoted verbatim");
-}
-
-// A double quote inside the path used to terminate the old quoting and let the
-// rest of the name become further arguments.
-void neutralises_a_double_quote() {
-    mm::test::expect(shell_quote(std::filesystem::path("quote\".cppm")) == "'quote\".cppm'",
-                     "expected a double quote to be harmless inside single quotes");
-}
-
-void neutralises_semicolons_and_pipes() {
-    mm::test::expect(shell_quote(std::filesystem::path("a;rm -rf x|b.cppm")) ==
-                         "'a;rm -rf x|b.cppm'",
-                     "expected command separators to be quoted verbatim");
-}
-
-void keeps_backslashes_literal() {
-    mm::test::expect(shell_quote(std::filesystem::path("back\\slash.cppm")) ==
-                         "'back\\slash.cppm'",
-                     "expected a backslash to stay literal inside single quotes");
-}
-
-void keeps_spaces_in_one_argument() {
-    mm::test::expect(shell_quote(std::filesystem::path("plain space.cppm")) ==
-                         "'plain space.cppm'",
-                     "expected a path with a space to remain one argument");
-}
-
-// The one case single quoting cannot express directly: close the run, emit an
-// escaped quote, reopen. 'it'\''s.cppm' is what the shell reassembles into
-// it's.cppm.
-void escapes_an_embedded_single_quote() {
-    mm::test::expect(shell_quote(std::filesystem::path("it's.cppm")) == "'it'\\''s.cppm'",
-                     "expected an embedded single quote to be closed, escaped and reopened");
-}
-
-void escapes_a_leading_single_quote() {
-    mm::test::expect(shell_quote(std::filesystem::path("'x.cppm")) == "''\\''x.cppm'",
-                     "expected a leading single quote to be escaped");
-}
-
-void escapes_repeated_single_quotes() {
-    mm::test::expect(shell_quote(std::filesystem::path("a''b")) == "'a'\\'''\\''b'",
-                     "expected each embedded single quote to be escaped");
-}
-
 
 class current_directory_guard {
 public:
@@ -112,54 +27,6 @@ public:
 private:
     std::filesystem::path original_;
 };
-
-void gcc_cache_is_private_and_maps_every_named_unit() {
-    const mm::test::scoped_tree scratch{"build_module_cache"};
-    current_directory_guard restore;
-    std::filesystem::current_path(scratch.root());
-
-    mm::build::Tree tree;
-    mm::build::BuildableNode alpha;
-    alpha.kind = "module";
-    alpha.module_name = "mm.alpha";
-    alpha.sources.push_back({"alpha.cppm", {}});
-    tree.targets.push_back(alpha);
-
-    mm::build::BuildableNode beta;
-    beta.kind = "module";
-    beta.module_name = "mm.beta";
-    beta.sources.push_back({"part.cppm", "mm.beta:part"});
-    beta.sources.push_back({"beta.cppm", {}});
-    tree.targets.push_back(beta);
-
-    mm::build::Toolchain toolchain;
-    toolchain.family = mm::build::CompilerFamily::Gcc;
-
-    mm::test::expect(mm::build::prepare_module_cache(toolchain, tree, "lane"),
-                     "GCC cache preparation succeeds");
-
-    const auto cache = scratch.root() / "lane/bmi";
-    mm::test::expect(std::filesystem::is_directory(cache),
-                     "cache is created beneath the output lane");
-    mm::test::expect(!std::filesystem::exists(scratch.root() / "gcm.cache"),
-                     "preparation does not create a shared root cache");
-
-    std::ifstream input(cache / "gcc.mapper");
-    const std::string mapper((std::istreambuf_iterator<char>(input)),
-                             std::istreambuf_iterator<char>());
-    mm::test::expect(
-        mapper == "$root lane/bmi\n"
-                  "mm.alpha mm.alpha.gcm\n"
-                  "mm.beta mm.beta.gcm\n"
-                  "mm.beta:part mm.beta-part.gcm\n",
-        "mapper names primary modules and partitions deterministically");
-
-    std::ofstream(cache / "stale.gcm") << "stale";
-    mm::test::expect(mm::build::prepare_module_cache(toolchain, tree, "lane"),
-                     "a second preparation succeeds");
-    mm::test::expect(!std::filesystem::exists(cache / "stale.gcm"),
-                     "a second preparation removes stale lane state");
-}
 
 void context_paths_and_prefixes() {
     const std::filesystem::path proj_root = "/project";
@@ -389,21 +256,6 @@ void run_returns_the_exit_code_of_the_command() {
     expect(mm::build::run(toolchain, "false") == 1, "a failing command reports one");
 }
 const mm::test::case_ cases[] = {
-    { "wraps a plain path in single quotes",  &wraps_a_plain_path_in_single_quotes },
-    { "quotes an empty path",                 &quotes_an_empty_path },
-    { "neutralises command substitution",     &neutralises_command_substitution },
-    { "neutralises backticks",                &neutralises_backticks },
-    { "neutralises variable expansion",       &neutralises_variable_expansion },
-    { "neutralises a double quote",           &neutralises_a_double_quote },
-    { "neutralises semicolons and pipes",     &neutralises_semicolons_and_pipes },
-    { "keeps backslashes literal",            &keeps_backslashes_literal },
-    { "keeps spaces in one argument",         &keeps_spaces_in_one_argument },
-    { "escapes an embedded single quote",     &escapes_an_embedded_single_quote },
-    { "escapes a leading single quote",       &escapes_a_leading_single_quote },
-    { "escapes repeated single quotes",       &escapes_repeated_single_quotes },
-
-    {"GCC cache is private and maps named units",
-     &gcc_cache_is_private_and_maps_every_named_unit},
     {"context paths and prefixes", &context_paths_and_prefixes},
     {"context write guards", &context_write_guards},
     {"rejects compilation when declared sketch missing", &rejects_compilation_when_declared_sketch_missing},

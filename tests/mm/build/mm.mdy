@@ -8,7 +8,10 @@ use: mm.configure
 unit: tests/mm/build/config.cpp
 unit: tests/mm/build/manifest.cpp
 unit: tests/mm/build/platform.cpp
+unit: tests/mm/build/board.cpp
 unit: tests/mm/build/compile.cpp
+unit: tests/mm/build/quote.cpp
+unit: tests/mm/build/cache.cpp
 unit: tests/mm/build/graph.cpp
 unit: tests/mm/build/external.cpp
 unit: tests/mm/build/graft.cpp
@@ -21,7 +24,11 @@ unit: tests/main.cpp
 
 Units mirror the module's exported partitions — one suite per partition
 (`:config`, `:manifest`, `:platform`, `:compile`, `:graph`, `:external`) —
-listed in the same order as the partition interfaces declare them.
+listed in the same order as the partition interfaces declare them. A
+partition with a self-contained concern gets a companion unit directly
+after its suite: `board.cpp` follows `:platform` with board derivation,
+grammar and resolution, and `quote.cpp` and `cache.cpp` follow `:compile`
+with shell quoting and the output-lane module cache.
 `graft.cpp` is the cross-partition integration suite: grafting a foreign
 root through `LoadPolicy.external` touches the walk, the artifact context
 and library wiring by definition. The internal `:detail` partition is

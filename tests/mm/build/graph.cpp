@@ -9,6 +9,7 @@
 
 #include <cstddef>
 #include <filesystem>
+#include <fstream>
 #include <string>
 #include <string_view>
 #include <utility>
