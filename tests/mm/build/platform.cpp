@@ -75,6 +75,17 @@ void library_definition() {
     expect(mm::build::library_include_directories(
                tree.root(), project.libraries, unrelated, includes) && includes.empty(),
            "a module without a library receives no include directories");
+
+    // Every sketch application holds the generated compatibility header,
+    // because its main.cpp includes it, so its own directory is on the
+    // include path whether or not it reaches a sketch library.
+    auto sketch_app = unrelated;
+    sketch_app.sketches = {"app.ino"};
+    sketch_app.source_dir = tree.root() / "apps/app";
+    expect(mm::build::library_include_directories(
+               tree.root(), project.libraries, sketch_app, includes) &&
+               includes.size() == 1 && includes.front() == sketch_app.source_dir,
+           "a sketch application without a library still names its own directory");
     std::error_code ec;
     std::filesystem::remove(tree.root() / "libraries/third_party/second", ec);
     expect(!mm::build::library_include_directories(

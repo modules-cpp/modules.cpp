@@ -684,24 +684,21 @@ int main(int argc, char** argv) {
                   << "/main.cpp\n";
     }
 
-    // A sketch that exercises a library needs the header that library
-    // includes. It is generated on the same terms as main.cpp: written
-    // beside it, committed with it, and checked against it.
-    const auto* libraries =
-        manifest_exists ? lookup(self_doc, "sketch-library") : nullptr;
-    if (libraries != nullptr && !libraries->empty()) {
-        std::string header_err;
-        if (!mm::ino::write_guarded(abs_dir, "Arduino.h",
-                                    mm::ino::sketch_header(), header_err,
-                                    "Arduino.h.tmp")) {
-            std::cerr << "sketch: cannot write Arduino.h: " << header_err
-                      << "\n";
-            return 65;
-        }
-        if (verbose) {
-            std::cerr << "sketch: wrote Arduino.h to " << abs_dir.string()
-                      << "/Arduino.h\n";
-        }
+    // main.cpp includes the compatibility header, and a sketch that
+    // exercises a library needs the same header that library includes, so
+    // every application receives one. It is generated on the same terms as
+    // main.cpp: written beside it, committed with it, and checked against it.
+    std::string header_err;
+    if (!mm::ino::write_guarded(abs_dir, "Arduino.h",
+                                mm::ino::sketch_header(), header_err,
+                                "Arduino.h.tmp")) {
+        std::cerr << "sketch: cannot write Arduino.h: " << header_err
+                  << "\n";
+        return 65;
+    }
+    if (verbose) {
+        std::cerr << "sketch: wrote Arduino.h to " << abs_dir.string()
+                  << "/Arduino.h\n";
     }
 
     if (tree_above && !parent_msg.empty()) {

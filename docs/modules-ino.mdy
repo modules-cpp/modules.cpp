@@ -82,6 +82,8 @@ mm.ino transforms the input sketch files into a single main.cpp translation unit
 
 Ordinary translation units in modules.cpp may include standard library headers at the top of the file before any import declarations.
 
+The last line of that region is the compatibility header, which main.cpp includes as #include "Arduino.h". The Arduino toolchain supplies that header to every sketch without being asked, so a sketch writes uint8_t, A0, F() and PROGMEM without naming where they come from, and mm.sketch does not export those spellings by itself. It is emitted below the hoisted includes rather than above them because it imports mm.sketch, and a standard library header included after an import declaration is the arrangement the hoist exists to avoid. The synthesised compatibility header below describes the file itself.
+
 mm.ino scans the sketch text for include directives of either form, #include <...> and #include "...". Every directive found is hoisted to the very top of main.cpp in the order the sketches introduce it, spelled exactly as the sketch wrote it: an angled include stays angled and a quoted include stays quoted. A directive repeated across sketch files is hoisted once. When an include directive is hoisted, an empty placeholder line is retained in the sketch body so that subsequent line positions within that file are preserved.
 
 Quoted includes are how a sketch reaches the header of the library it exercises, which is the ordinary shape of a library's own example sketches. The preprocessor resolves nothing: it copies the directive, and the header is found, or not found, by the include path the build gives the translation unit. A sketch application that includes a header outside its own directory therefore declares the library providing it, as Library sketches below describes.
@@ -123,7 +125,7 @@ The sketch files are appended in the order specified by the manifest.
 Prior to each file's content, the tool writes a comment documenting the source filename and the line displacement introduced by the generated prelude and prototypes:
 
 Opening fence
-// blink.ino (displaced by 6 lines)
+// blink.ino (displaced by 7 lines)
 Closing fence
 
 This enables line numbers reported in compiler diagnostics to be converted back to the original .ino file locations by subtraction.
@@ -234,9 +236,10 @@ rename reaches inside a checkout. modules.cpp has no such header and no
 intention of acquiring one as a project asset, so the sketch tool synthesises
 it the same way it synthesises main.cpp: written into the application
 directory, committed beside the sketch, regenerated when stale, and compared
-byte-for-byte under sketch --check. An application that declares
-sketch-library receives it; an application that declares none does not, and
-nothing changes for the sketches under apps/ino.
+byte-for-byte under sketch --check. Every sketch application receives it,
+whether or not it declares sketch-library, because main.cpp includes it: the
+sketch text itself relies on the same spellings the library does, and a
+standalone sketch has no library header to reach them through.
 
 The header is generated rather than shipped for the same reason main.cpp is.
 Both are the project's answer to a foreign convention, both belong to the
@@ -285,7 +288,9 @@ this project authors for itself.
 The build puts the application directory on the include path ahead of the
 library directories, which is what lets a library header two directories away
 resolve the compatibility header against the application that is compiling
-it.
+it. Every sketch application receives that entry, a standalone one included,
+so a sketch that spells the include itself reaches the same file rather than
+a second one.
 
 # Library mode
 

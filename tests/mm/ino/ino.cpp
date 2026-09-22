@@ -45,8 +45,8 @@ void standard_include_in_middle() {
     };
     const auto result = mm::ino::transform(sources);
     expect(result.ok, "transformation should succeed");
-    expect(result.output.find("#include <vector>\nimport mm.sketch;") != std::string::npos,
-           "expected #include <vector> hoisted above import mm.sketch;");
+    expect(result.output.find("#include <vector>\n#include \"Arduino.h\"\nimport mm.sketch;") != std::string::npos,
+           "expected #include <vector> hoisted above the compatibility header and import mm.sketch;");
     // Check that #include <vector> is not duplicated in the sketch body
     std::size_t count = 0;
     std::size_t pos = 0;
@@ -93,8 +93,10 @@ void quoted_include_is_hoisted() {
     expect(result.ok, "quoted include must be accepted");
     expect(result.diagnostics.empty(), "expected no diagnostics");
     expect(result.output.find("#include \"custom.h\"\n#include <vector>\n"
-                              "import mm.sketch;") != std::string::npos,
-           "quoted and angled includes hoist in source order above the import");
+                              "#include \"Arduino.h\"\nimport mm.sketch;") !=
+               std::string::npos,
+           "quoted and angled includes hoist in source order above the"
+           " compatibility header and the import");
 
     std::size_t count = 0;
     std::size_t pos = 0;
@@ -247,6 +249,11 @@ void check_application_rules() {
         std::ofstream f(dir / "main.cpp");
         f << tr.output;
     }
+    // main.cpp includes it, so a complete application has one.
+    {
+        std::ofstream f(dir / "Arduino.h");
+        f << mm::ino::sketch_header();
+    }
 
     mm::mdy::MDYDocument doc_valid;
     doc_valid.metadata["kind"] = {"app"};
@@ -331,14 +338,14 @@ void sketch_header_is_checked() {
     mm::mdy::MDYDocument doc;
     doc.metadata["kind"] = {"app"};
     doc.metadata["sketch"] = {"app.ino"};
-    expect(mm::ino::check_application(dir, doc, error),
-           "an application without sketch-library needs no header");
+    expect(!mm::ino::check_application(dir, doc, error),
+           "an application without sketch-library still requires the header");
+    expect(error.find("Arduino.h") != std::string::npos,
+           "the error names the missing header");
 
     doc.metadata["sketch-library"] = {".."};
     expect(!mm::ino::check_application(dir, doc, error),
            "a declared sketch-library requires the generated header");
-    expect(error.find("Arduino.h") != std::string::npos,
-           "the error names the missing header");
 
     std::ofstream(dir / "Arduino.h") << "#pragma once\n";
     expect(!mm::ino::check_application(dir, doc, error),
@@ -347,6 +354,10 @@ void sketch_header_is_checked() {
     std::ofstream(dir / "Arduino.h") << mm::ino::sketch_header();
     expect(mm::ino::check_application(dir, doc, error),
            "the generated header passes");
+
+    doc.metadata.erase("sketch-library");
+    expect(mm::ino::check_application(dir, doc, error),
+           "the generated header passes without a library too");
 }
 
 void library_discovery_flat() {

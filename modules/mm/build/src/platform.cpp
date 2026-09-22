@@ -263,10 +263,10 @@ bool library_include_directories(
     // library: reference, so the two sources of include directories are
     // independent: an application has sketch libraries and no library:, a
     // wrapper module the reverse.
-    if (!target.sketch_libraries.empty()) {
+    if (!target.sketches.empty() || !target.sketch_libraries.empty()) {
         // The application's own directory comes first: it holds the generated
-        // header, which a library header includes before anything of the
-        // library's own is found.
+        // header, which main.cpp includes and which a library header includes
+        // before anything of the library's own is found.
         directories.push_back(target.source_dir);
     }
     for (const auto& lib_root : target.sketch_libraries) {

@@ -35,8 +35,8 @@ struct TransformResult {
 
 [[nodiscard]] TransformResult transform(std::span<const SourceFile> sources);
 
-// The compatibility header a sketch application receives when it declares
-// sketch-library. A vendored library includes it unconditionally under the
+// The compatibility header every sketch application receives. main.cpp
+// includes it, and a vendored library includes it unconditionally under the
 // name its own toolchain provides; this is that header, written beside
 // main.cpp and built on mm.sketch. Generated, committed, and verified the
 // same way main.cpp is.
