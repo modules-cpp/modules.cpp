@@ -219,6 +219,7 @@ run_test_target tests/mm/imu/ || exit $?
 run_test_target tests/mm/json/ || exit $?
 run_test_target tests/mm/lcd/ || exit $?
 run_test_target tests/mm/rtc/ || exit $?
+run_test_target tests/mm/tool/ || exit $?
 case "$(uname -s)" in
     Darwin)
         echo "Skipping tests/mm/linux/: Linux DRM headers are unavailable on macOS"

@@ -24,5 +24,6 @@ folder: json
 folder: lcd
 folder: rtc
 folder: sketch
+folder: tool
 folder: linux
 ---
