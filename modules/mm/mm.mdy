@@ -20,6 +20,7 @@ folder: mcu
 folder: mdy
 folder: model
 folder: rtc
+folder: tool
 folder: rtc/pcf85063
 folder: run
 folder: shell
