@@ -78,6 +78,10 @@ debug-*.sh
 # local release scripts
 release-*.sh
 
+# the compatibility header the sketch tool synthesises beside every
+# generated main.cpp; no directory prefix, so it is ignored at any depth
+Arduino.h
+
 # vendored library checkouts, provisioned by each library's vendor.sh
 platforms/pico/sdk/pico-sdk/upstream/
 
