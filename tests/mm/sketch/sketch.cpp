@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <string>
 #include <string_view>
+#include <type_traits>
 
 import mm.sketch;
 import mm.test;
@@ -478,6 +479,32 @@ void math_operations() {
     expect(sq(5L) == 25L, "sq(5L) should be 25L");
     expect(sq(2.5) == 6.25, "sq(2.5) should be 6.25");
 
+    // The mixed and plain-int calls a sketch actually writes. Each was
+    // ambiguous while these were overloaded on long and double alone.
+    int counter_i = 5;
+    expect(sq(counter_i) == 25, "sq of an int is an int");
+    static_assert(std::is_same_v<decltype(sq(5)), int>,
+                  "sq keeps the type it was given");
+    expect(constrain(counter_i, 0, 10) == 5, "constrain of three ints");
+    expect(constrain(static_cast<unsigned char>(200), 0, 100) == 100,
+           "constrain of a byte against int bounds");
+    expect(constrain(15.5, 0, 10) == 10.0,
+           "one floating argument makes the answer floating");
+    static_assert(std::is_same_v<decltype(constrain(1, 0L, 2)), long>,
+                  "constrain answers in the type the arguments agree on");
+    expect(map(50, 0, 100, 0, 1000) == 500, "map of five ints");
+    expect(map(static_cast<unsigned char>(128), 0, 255, 0, 100) == 50,
+           "map of a byte against int bounds");
+    expect(map(0.5, 0.0, 1.0, 0, 100) == 50.0,
+           "a floating input maps in floating point");
+    static_assert(std::is_same_v<decltype(map(1, 0, 2, 0, 2)), int>,
+                  "map keeps the type the arguments agree on");
+
+    int once = 5;
+    const int constrained_once = constrain(once++, 0, 10);
+    expect(constrained_once == 5 && once == 6,
+           "the template evaluates each argument exactly once");
+
     expect(sqrt(16.0) == 4.0, "sqrt(16.0) should be 4.0");
     expect(pow(2.0, 3.0) == 8.0, "pow(2.0, 3.0) should be 8.0");
     expect(sin(0.0) == 0.0, "sin(0.0) should be 0.0");
@@ -538,6 +565,42 @@ private:
     int x_ = 0;
     int y_ = 0;
 };
+
+// The direction the enumerations convert, which is what a vendored library
+// depends on: a value reaches the integer it is stored in, and an integer
+// does not reach the enumeration.
+void pin_values_convert_outward_only() {
+    const byte stored_level = LOW;
+    const byte stored_high = HIGH;
+    expect(stored_level == 0 && stored_high == 1,
+           "a level reaches the byte a library keeps it in");
+
+    const unsigned int stored_order = LSBFIRST;
+    expect(stored_order == 0 && static_cast<unsigned int>(MSBFIRST) == 1,
+           "a bit order reaches the integer a library keeps it in");
+
+    const int stored_mode = OUTPUT;
+    expect(stored_mode == 1, "a mode reaches the integer a library keeps it in");
+
+    expect((HIGH << 1) == 2, "a level takes part in arithmetic");
+    expect(digitalRead(0) == LOW || digitalRead(0) == HIGH,
+           "a read answers one of the two");
+
+    // The names are still the names, qualified or not.
+    static_assert(Level::LOW == LOW, "the enumerator is reachable either way");
+    static_assert(std::is_same_v<std::underlying_type_t<Level>, unsigned char>,
+                  "the underlying type is fixed");
+
+    // Nothing converts in: these would compile if it did.
+    static_assert(!std::is_convertible_v<int, Level>,
+                  "an integer is not a level");
+    static_assert(!std::is_convertible_v<int, Mode>,
+                  "an integer is not a mode");
+    static_assert(!std::is_convertible_v<int, BitOrder>,
+                  "an integer is not a bit order");
+    static_assert(!std::is_convertible_v<Level, Mode>,
+                  "a level is not a mode");
+}
 
 void print_sink_and_printable() {
     Recorder sink;
@@ -1994,6 +2057,7 @@ const mm::test::case_ cases[] = {
     {"digital io and led", &digital_io_and_led},
     {"time and delay", &time_and_delay},
     {"serial communication", &serial_communication},
+    {"pin values convert outward only", &pin_values_convert_outward_only},
     {"print sink and printable", &print_sink_and_printable},
     {"sketch string", &sketch_string},
     {"serial formatting", &serial_formatting},

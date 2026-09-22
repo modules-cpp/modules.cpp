@@ -179,8 +179,8 @@ mm::mcu::SpiMode to_mcu_spi_mode(SpiMode mode) {
 
 mm::mcu::BitOrder to_mcu_bit_order(BitOrder order) {
     switch (order) {
-        case BitOrder::MsbFirst: return mm::mcu::BitOrder::MostSignificantFirst;
-        case BitOrder::LsbFirst: return mm::mcu::BitOrder::LeastSignificantFirst;
+        case MSBFIRST: return mm::mcu::BitOrder::MostSignificantFirst;
+        case LSBFIRST: return mm::mcu::BitOrder::LeastSignificantFirst;
     }
     return mm::mcu::BitOrder::MostSignificantFirst;
 }
@@ -490,13 +490,13 @@ bool pinMode(unsigned int pin, Mode mode) {
     mm::mcu::Direction dir = mm::mcu::Direction::In;
     mm::mcu::Pull pull = mm::mcu::Pull::None;
     switch (mode) {
-        case Mode::Input:
+        case INPUT:
             dir = mm::mcu::Direction::In; pull = mm::mcu::Pull::None; break;
-        case Mode::Output:
+        case OUTPUT:
             dir = mm::mcu::Direction::Out; pull = mm::mcu::Pull::None; break;
-        case Mode::InputPullup:
+        case INPUT_PULLUP:
             dir = mm::mcu::Direction::In; pull = mm::mcu::Pull::Up; break;
-        case Mode::InputPulldown:
+        case INPUT_PULLDOWN:
             dir = mm::mcu::Direction::In; pull = mm::mcu::Pull::Down; break;
     }
     const auto status = mm::mcu::gpio_configure(pin, dir, pull);
@@ -512,7 +512,7 @@ bool pinMode(unsigned int pin, Mode mode) {
 
 bool digitalWrite(unsigned int pin, Level level) {
     CallScope scope{"digitalWrite"};
-    const auto status = mm::mcu::gpio_write(pin, level == Level::High);
+    const auto status = mm::mcu::gpio_write(pin, level == HIGH);
     if (status != mm::mcu::Status::Ok) {
         record_failure(from(status), "digitalWrite");
         return false;
@@ -526,9 +526,9 @@ Level digitalRead(unsigned int pin) {
     const auto status = mm::mcu::gpio_read(pin, high);
     if (status != mm::mcu::Status::Ok) {
         record_failure(from(status), "digitalRead");
-        return Level::Low;
+        return LOW;
     }
-    return high ? Level::High : Level::Low;
+    return high ? HIGH : LOW;
 }
 
 bool hasBuiltinLed() {
@@ -560,7 +560,7 @@ Level digitalRead(Led) {
     const auto desc = mm::mcu::board();
     if (!desc.led) {
         record_failure(Status::Unsupported, "digitalRead");
-        return Level::Low;
+        return LOW;
     }
     return digitalRead(desc.led->gpio);
 }
@@ -572,7 +572,7 @@ bool ledOn() {
         record_failure(Status::Unsupported, "ledOn");
         return false;
     }
-    const Level level = desc.led->active_high ? Level::High : Level::Low;
+    const Level level = desc.led->active_high ? HIGH : LOW;
     return digitalWrite(desc.led->gpio, level);
 }
 
@@ -583,7 +583,7 @@ bool ledOff() {
         record_failure(Status::Unsupported, "ledOff");
         return false;
     }
-    const Level level = desc.led->active_high ? Level::Low : Level::High;
+    const Level level = desc.led->active_high ? LOW : HIGH;
     return digitalWrite(desc.led->gpio, level);
 }
 
@@ -970,7 +970,7 @@ unsigned long pulse_in_impl(const char* func_name, unsigned int pin, Level value
             record_failure(from(r_status), func_name);
             return 0;
         }
-        const Level cur = pin_state ? Level::High : Level::Low;
+        const Level cur = pin_state ? HIGH : LOW;
         if (cur != value) break;
 
         unsigned long now = 0;
@@ -991,7 +991,7 @@ unsigned long pulse_in_impl(const char* func_name, unsigned int pin, Level value
             record_failure(from(r_status), func_name);
             return 0;
         }
-        const Level cur = pin_state ? Level::High : Level::Low;
+        const Level cur = pin_state ? HIGH : LOW;
         if (cur == value) {
             if (mm::mcu::ticks_us(pulse_start) != mm::mcu::Status::Ok) {
                 record_failure(from(t_status), func_name);
@@ -1017,7 +1017,7 @@ unsigned long pulse_in_impl(const char* func_name, unsigned int pin, Level value
             record_failure(from(r_status), func_name);
             return 0;
         }
-        const Level cur = pin_state ? Level::High : Level::Low;
+        const Level cur = pin_state ? HIGH : LOW;
         if (cur != value) {
             unsigned long pulse_end = 0;
             if (mm::mcu::ticks_us(pulse_end) != mm::mcu::Status::Ok) {
@@ -1053,7 +1053,7 @@ byte shiftIn(unsigned int data_pin, unsigned int clock_pin, BitOrder bit_order) 
         digitalWrite(clock_pin, HIGH);
         const Level bit_val = digitalRead(data_pin);
         if (bit_val == HIGH) {
-            if (bit_order == BitOrder::LsbFirst) {
+            if (bit_order == LSBFIRST) {
                 value = static_cast<byte>(value | (1u << i));
             } else {
                 value = static_cast<byte>(value | (1u << (7 - i)));
@@ -1067,8 +1067,8 @@ byte shiftIn(unsigned int data_pin, unsigned int clock_pin, BitOrder bit_order) 
 void shiftOut(unsigned int data_pin, unsigned int clock_pin, BitOrder bit_order, byte val) {
     CallScope scope{"shiftOut"};
     for (unsigned int i = 0; i < 8; ++i) {
-        Level bit_val = Level::Low;
-        if (bit_order == BitOrder::LsbFirst) {
+        Level bit_val = LOW;
+        if (bit_order == LSBFIRST) {
             bit_val = ((val & (1u << i)) != 0) ? HIGH : LOW;
         } else {
             bit_val = ((val & (1u << (7 - i))) != 0) ? HIGH : LOW;
@@ -1307,15 +1307,15 @@ void bitWrite(unsigned long& x, unsigned int n, byte b) {
 }
 
 void bitWrite(unsigned char& x, unsigned int n, Level b) {
-    bitWrite(x, n, b == Level::High ? static_cast<byte>(1) : static_cast<byte>(0));
+    bitWrite(x, n, b == HIGH ? static_cast<byte>(1) : static_cast<byte>(0));
 }
 
 void bitWrite(unsigned int& x, unsigned int n, Level b) {
-    bitWrite(x, n, b == Level::High ? static_cast<byte>(1) : static_cast<byte>(0));
+    bitWrite(x, n, b == HIGH ? static_cast<byte>(1) : static_cast<byte>(0));
 }
 
 void bitWrite(unsigned long& x, unsigned int n, Level b) {
-    bitWrite(x, n, b == Level::High ? static_cast<byte>(1) : static_cast<byte>(0));
+    bitWrite(x, n, b == HIGH ? static_cast<byte>(1) : static_cast<byte>(0));
 }
 
 byte lowByte(unsigned char x) {
@@ -2717,7 +2717,7 @@ word SPIClass::transfer16(word val) {
     }
     std::byte tx[2];
     std::byte rx[2]{};
-    if (spi_current_settings_.bit_order == BitOrder::MsbFirst) {
+    if (spi_current_settings_.bit_order == MSBFIRST) {
         tx[0] = static_cast<std::byte>((val >> 8) & 0xFF);
         tx[1] = static_cast<std::byte>(val & 0xFF);
     } else {
@@ -2729,7 +2729,7 @@ word SPIClass::transfer16(word val) {
         record_failure(from(st), "SPI.transfer16");
         return 0;
     }
-    if (spi_current_settings_.bit_order == BitOrder::MsbFirst) {
+    if (spi_current_settings_.bit_order == MSBFIRST) {
         return static_cast<word>((static_cast<word>(static_cast<byte>(rx[0])) << 8) |
                                  static_cast<word>(static_cast<byte>(rx[1])));
     } else {

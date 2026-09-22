@@ -5,7 +5,9 @@ module;
 #include <algorithm>
 #include <cmath>
 #include <compare>
+#include <concepts>
 #include <cstddef>
+#include <type_traits>
 #include <string>
 #include <string_view>
 
@@ -40,15 +42,17 @@ void requestExit(int code = 0);
 
 void dispatch();
 
-enum class Mode { Input, Output, InputPullup, InputPulldown };
-inline constexpr Mode INPUT = Mode::Input;
-inline constexpr Mode OUTPUT = Mode::Output;
-inline constexpr Mode INPUT_PULLUP = Mode::InputPullup;
-inline constexpr Mode INPUT_PULLDOWN = Mode::InputPulldown;
+// The three enumerations a vendored library handles rather than merely
+// passes. Each is an unscoped enumeration with a fixed underlying type, so a
+// value converts out to the integer a library stores it in and the name is
+// still the name: Level::LOW and LOW are the same enumerator, and the
+// enumerators are the only names these add. Nothing converts in, so
+// digitalWrite(pin, 1) is still refused and the argument a sketch passes is
+// still the one this module named. docs/modules-sketch.mdy says why the
+// direction is asymmetric.
+enum Mode : unsigned char { INPUT, OUTPUT, INPUT_PULLUP, INPUT_PULLDOWN };
 
-enum class Level { Low = 0, High = 1 };
-inline constexpr Level LOW = Level::Low;
-inline constexpr Level HIGH = Level::High;
+enum Level : unsigned char { LOW = 0, HIGH = 1 };
 
 bool pinMode(unsigned int pin, Mode mode);
 bool digitalWrite(unsigned int pin, Level level);
@@ -87,9 +91,7 @@ using byte = unsigned char;
 using word = unsigned short;
 using boolean = bool;
 
-enum class BitOrder : byte { LsbFirst = 0, MsbFirst = 1 };
-inline constexpr BitOrder LSBFIRST = BitOrder::LsbFirst;
-inline constexpr BitOrder MSBFIRST = BitOrder::MsbFirst;
+enum BitOrder : byte { LSBFIRST = 0, MSBFIRST = 1 };
 
 byte shiftIn(unsigned int data_pin, unsigned int clock_pin, BitOrder bit_order);
 void shiftOut(unsigned int data_pin, unsigned int clock_pin, BitOrder bit_order, byte val);
@@ -161,6 +163,56 @@ double constrain(double x, double a, double b);
 
 long map(long x, long in_min, long in_max, long out_min, long out_max);
 double map(double x, double in_min, double in_max, double out_min, double out_max);
+
+// The same three over any mix of arithmetic types. A sketch writes
+// constrain(i, 0, 9) with an int and means it; without these the int converts
+// equally well to long and to double and the call is ambiguous. The answer's
+// type is the one the arguments agree on, the arithmetic is done in the
+// widest of the two implementations above, and each argument is still
+// evaluated exactly once, which is the whole of the argument for these being
+// functions rather than macros.
+template <typename T>
+concept SketchNumber = std::is_arithmetic_v<T>;
+
+template <SketchNumber A>
+[[nodiscard]] constexpr A sq(A x) {
+    if constexpr (std::is_floating_point_v<A>)
+        return static_cast<A>(sq(static_cast<double>(x)));
+    else
+        return static_cast<A>(sq(static_cast<long>(x)));
+}
+
+template <SketchNumber A, SketchNumber B, SketchNumber C>
+[[nodiscard]] constexpr std::common_type_t<A, B, C> constrain(A x, B a, C b) {
+    using T = std::common_type_t<A, B, C>;
+    if constexpr (std::is_floating_point_v<T>)
+        return static_cast<T>(constrain(static_cast<double>(x),
+                                        static_cast<double>(a),
+                                        static_cast<double>(b)));
+    else
+        return static_cast<T>(constrain(static_cast<long>(x),
+                                        static_cast<long>(a),
+                                        static_cast<long>(b)));
+}
+
+template <SketchNumber A, SketchNumber B, SketchNumber C, SketchNumber D,
+          SketchNumber E>
+[[nodiscard]] constexpr std::common_type_t<A, B, C, D, E> map(
+    A x, B in_min, C in_max, D out_min, E out_max) {
+    using T = std::common_type_t<A, B, C, D, E>;
+    if constexpr (std::is_floating_point_v<T>)
+        return static_cast<T>(map(static_cast<double>(x),
+                                  static_cast<double>(in_min),
+                                  static_cast<double>(in_max),
+                                  static_cast<double>(out_min),
+                                  static_cast<double>(out_max)));
+    else
+        return static_cast<T>(map(static_cast<long>(x),
+                                  static_cast<long>(in_min),
+                                  static_cast<long>(in_max),
+                                  static_cast<long>(out_min),
+                                  static_cast<long>(out_max)));
+}
 
 bool isAlpha(int c);
 bool isAlphaNumeric(int c);
@@ -508,7 +560,7 @@ inline constexpr SpiMode SPI_MODE3 = SpiMode::Mode3;
 class SPISettings {
 public:
     unsigned long clock = 4'000'000;
-    BitOrder bit_order = BitOrder::MsbFirst;
+    BitOrder bit_order = MSBFIRST;
     SpiMode data_mode = SpiMode::Mode0;
 
     constexpr SPISettings() = default;

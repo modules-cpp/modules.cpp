@@ -134,25 +134,17 @@ Handlers never execute inside non-waiting calls such as pinMode, digitalWrite, d
 ## Digital I/O
 
 Opening fence
-enum class Mode {
-    Input,
-    Output,
-    InputPullup,
-    InputPulldown
+enum Mode : unsigned char {
+    INPUT,
+    OUTPUT,
+    INPUT_PULLUP,
+    INPUT_PULLDOWN
 };
 
-inline constexpr Mode INPUT = Mode::Input;
-inline constexpr Mode OUTPUT = Mode::Output;
-inline constexpr Mode INPUT_PULLUP = Mode::InputPullup;
-inline constexpr Mode INPUT_PULLDOWN = Mode::InputPulldown;
-
-enum class Level {
-    Low = 0,
-    High = 1
+enum Level : unsigned char {
+    LOW = 0,
+    HIGH = 1
 };
-
-inline constexpr Level LOW = Level::Low;
-inline constexpr Level HIGH = Level::High;
 
 bool pinMode(unsigned int pin, Mode mode);
 bool digitalWrite(unsigned int pin, Level level);
@@ -160,6 +152,12 @@ bool digitalWrite(unsigned int pin, Level level);
 Closing fence
 
 pinMode configures GPIO direction and internal pull resistors. digitalWrite sets pin voltage. digitalRead queries pin voltage; on failure it returns LOW and records the error status.
+
+Mode, Level, and BitOrder are unscoped enumerations with a fixed underlying type, and they are the only enumerations in this module that are. The direction that matters is outward: a vendored library stores what digitalRead returned in a uint8_t, passes LSBFIRST to a parameter it declared uint8_t, and shifts a level, and each of those is a conversion from the enumeration to an integer that an unscoped enumeration performs and a scoped one refuses. Nothing converts inward, because an integer does not convert to an enumeration of either kind: digitalWrite(pin, 1) is still refused, and the argument a sketch passes is still one this module named.
+
+The enumerators are the spellings a sketch writes, so Level::LOW and LOW are the same enumerator and these enumerations introduce no names beyond them. That is the reason the enumerators are not separate constants: an unscoped enumeration already publishes its enumerators into the surrounding namespace, and a second spelling would have published a second set of names into the namespace every sketch and every vendored header sees unqualified.
+
+The other enumerations of this module -- Status, Base, Trigger, SpiMode -- remain scoped. Nothing outside this project handles their values, so nothing asks them to convert.
 
 ## Analog I/O
 
@@ -185,13 +183,10 @@ analogReference is declined; reference voltage configuration is a board property
 ## Advanced I/O
 
 Opening fence
-enum class BitOrder : byte {
-    LsbFirst = 0,
-    MsbFirst = 1
+enum BitOrder : byte {
+    LSBFIRST = 0,
+    MSBFIRST = 1
 };
-
-inline constexpr BitOrder LSBFIRST = BitOrder::LsbFirst;
-inline constexpr BitOrder MSBFIRST = BitOrder::MsbFirst;
 
 byte shiftIn(unsigned int data_pin, unsigned int clock_pin, BitOrder bit_order);
 void shiftOut(unsigned int data_pin, unsigned int clock_pin, BitOrder bit_order, byte val);
@@ -258,13 +253,29 @@ double constrain(double x, double a, double b);
 
 long map(long x, long in_min, long in_max, long out_min, long out_max);
 double map(double x, double in_min, double in_max, double out_min, double out_max);
+
+template <typename T>
+concept SketchNumber = std::is_arithmetic_v<T>;
+
+template <SketchNumber A>
+constexpr A sq(A x);
+
+template <SketchNumber A, SketchNumber B, SketchNumber C>
+constexpr std::common_type_t<A, B, C> constrain(A x, B a, C b);
+
+template <SketchNumber A, SketchNumber B, SketchNumber C, SketchNumber D,
+          SketchNumber E>
+constexpr std::common_type_t<A, B, C, D, E> map(
+    A x, B in_min, C in_max, D out_min, E out_max);
 Closing fence
 
 min, max, abs, pow, sqrt, sin, cos, and tan are exported in mm::sketch via using declarations of the standard library routines from <algorithm> and <cmath>, making them available unqualified in sketches.
 
 The remaining names are exported the same way and for the same reason: a sketch reaches for round, hypot, fmod or atan2 without qualifying them, and a using declaration is what makes the standard routine answer to that spelling. Nothing is reimplemented, so each has the standard's behaviour, including its overloads for float, double, and long double. The float-suffixed C spellings are exported beside them because a sketch written for a machine without double-precision hardware writes sqrtf rather than sqrt, and the two are not interchangeable to a reader deciding what a line costs.
 
-constrain, map, and sq are ordinary overloaded functions on long and double. Because they are functions rather than preprocessor macros, each argument is evaluated exactly once: an expression such as constrain(i++, 0, 9) increments i once, avoiding the multiple-evaluation defects of traditional macro definitions. If in_max equals in_min in map, the function returns out_min to prevent division by zero.
+constrain, map, and sq are ordinary overloaded functions on long and double, and templates over any mix of arithmetic types beside them. Because they are functions rather than preprocessor macros, each argument is evaluated exactly once: an expression such as constrain(i++, 0, 9) increments i once, avoiding the multiple-evaluation defects of traditional macro definitions. The templates are functions too, so that property is theirs as well. If in_max equals in_min in map, the function returns out_min to prevent division by zero.
+
+The templates exist because the two overloads alone cannot answer the call a sketch actually writes. constrain(i, 0, 9) with an int i converts equally well to the long overload and to the double one, and the call is ambiguous; so is sq(5), and so is every map whose arguments are not already all long or all double. The answer's type is the one the arguments agree on through std::common_type_t, the arithmetic is performed by the overload above it -- long for an integral result, double for a floating one, so map keeps the overflow behaviour described below -- and the result is converted back. An exact call to either overload still selects that overload rather than a template, because a non-template is preferred where both match.
 
 ## Characters
 
@@ -474,7 +485,7 @@ inline constexpr SpiMode SPI_MODE3 = SpiMode::Mode3;
 class SPISettings {
 public:
     unsigned long clock = 4'000'000;
-    BitOrder bit_order = BitOrder::MsbFirst;
+    BitOrder bit_order = MSBFIRST;
     SpiMode data_mode = SpiMode::Mode0;
 
     constexpr SPISettings() = default;
