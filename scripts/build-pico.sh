@@ -97,7 +97,7 @@ fi
 # forwarded one would be a duplicate, and a forwarded path would be a second
 # directory -- which is usually an application inside the tree that was named.
 forwarded_lane=false
-for arg in ${1+"$@"}; do
+for arg in "$@"; do
     case "$arg" in
         --target)
             forwarded_lane=true
@@ -194,9 +194,9 @@ echo
 scripts/configure-pico.sh -b "$board"
 
 if [ "$forwarded_lane" = true ]; then
-    picotool_DIR="$mm_picotool_dir" out/bin/build "$external" ${1+"$@"}
+    picotool_DIR="$mm_picotool_dir" out/bin/build "$external" "$@"
 else
-    picotool_DIR="$mm_picotool_dir" out/bin/build --target "$external" ${1+"$@"}
+    picotool_DIR="$mm_picotool_dir" out/bin/build --target "$external" "$@"
 fi
 
 # Artifacts land under the external tree's root, not under the application

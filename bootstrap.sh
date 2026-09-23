@@ -18,7 +18,7 @@ case "$(uname -s)" in
     Darwin) MCCP="clang++"; MM_COMPILER_FAMILY="clang" ;;
     *) MCCP="c++"; MM_COMPILER_FAMILY="gcc" ;;
 esac
-MCCP_VERSION=`$MCCP --version`
+MCCP_VERSION=$($MCCP --version)
 echo
 echo "Compiler version"
 echo
