@@ -142,6 +142,27 @@ the braces stripped, not the brace group itself. The copy is the same script
 either way, and a call then costs one frame instead of a redundant group
 layer.
 
+## Installed scripts in progress
+
+ScriptDescriptor is the script equivalent of CommandDescriptor: a name, a
+summary, a required CapabilitySet, and a SourceView. Unlike a function
+definition, installed source is borrowed rather than copied, so the name,
+summary, and source bytes must outlive the library.
+
+ScriptLibrary owns caller-supplied slots and a monotonic parse arena. install
+validates the name, rejects a duplicate, rejects a name a native command
+already owns when the registry is passed to it, measures the body, preflights
+every arena, parses, and commits one descriptor and script together. Any
+failure restores every cursor, so nothing partially installed is ever visible.
+install_pack validates and measures against the cursors each previous entry
+would leave, and rolls the whole pack back on any failure. There is no
+replacement or removal; reset reclaims the arena.
+
+An absent runtime capability does not prevent installation. The invocation
+reports Unavailable, status 125, before the script's first command runs. An
+empty body installs as a no-op script, exactly as an empty script file is for a
+real shell.
+
 ## Evaluator in progress
 
 Evaluator begins from an EmbeddedScript and caller-owned Registry,
@@ -208,12 +229,22 @@ deep-copies the body into the library. Replacing a definition leaves the old
 one visible until the new copy is complete.
 
 Name resolution at a simple command is: a special builtin first, then a
-function, then any other installed command, then status 127. A call is a frame,
-not a handler, so it consumes no handler budget. Prefix assignments to a
-function persist after it returns, exactly as they do for a special builtin.
+function, then an installed script, then any other installed command, then
+status 127. A call is a frame, not a handler, so it consumes no handler budget.
+Prefix assignments to a function or installed script persist after it returns,
+exactly as they do for a special builtin.
 
-A call frame is the body's list plus ownership of the caller's positional
-parameters. ShellState::push_positionals copies the caller's slots into the
+`run NAME ARG...` selects only an installed script, bypassing functions and
+native names, and gives the script NAME as its `$0`. The evaluator resolves that
+descriptor itself, because pushing a call frame is not something a handler can
+do; invokes_script identifies it, so the behavior is tied to the core
+descriptor rather than to the spelling of the name. With no operand run is a
+usage error, and an uninstalled name is status 127. Reaching the run handler
+itself means no script library was supplied, which it reports as Unavailable.
+
+A call frame is the same machinery for a function body and for an installed
+script; only the frame kind differs. It is the body's list plus ownership of the
+caller's positional parameters. ShellState::push_positionals copies the caller's slots into the
 evaluator's call arena and installs the call's arguments above them in the
 monotonic text pool; popping the frame restores the slots, the text cursor, and
 the caller's shift count, so a callee's `$1` and its own `shift` never leak out.
@@ -235,9 +266,9 @@ Complete. Yield returns Yielded with the frame stack intact, so the next step
 resumes after the yielding command.
 
 A flow value with no owning frame leaves the stack untouched and reports status
-2: Break or Continue outside a loop, and Return outside a call. Replace is
-still unowned, because installed-script frames arrive with the script
-library.
+2: Break or Continue outside a loop, and Return outside a function or installed
+script. Replace stays unowned at this level, because it requires the level-3
+process service.
 
 tested_context reports whether the command that last ran occupied a tested
 context: a condition list, an inverted command, or a non-final operand of
@@ -289,7 +320,7 @@ the retried drain repeats neither. The same fake proves the scratch contract,
 returning Overflow with StorageClass::TransactionScratch, no output, and no
 effect when its span is too small.
 
-Installed scripts and command substitution are not yet implemented.
+Command substitution is not yet implemented.
 
 ## Session in progress
 
@@ -327,22 +358,24 @@ alternates feed and step.
 
 ## Core builtins in progress
 
-core_builtins materializes the seventeen level-1 core descriptors into
+core_builtins materializes the eighteen level-1 core descriptors into
 caller-owned slots: `:`, true, false, echo, printf, test, `[`, set, shift,
-break, continue, return, exit, yield, capability, help, and command. It is not
-an installation. install_level1 installs the complete pack atomically once
-functions, installed scripts, and command substitution exist, so no
-application can depend on a partial pack. A short slot span publishes nothing
-and returns Overflow with StorageClass::CustomCommands.
+break, continue, return, exit, yield, capability, help, command, and run. It is
+not an installation. install_level1 installs the complete pack atomically once
+command substitution exists, so no application can depend on a partial pack. A
+short slot span publishes nothing and returns Overflow with
+StorageClass::CustomCommands.
 
 `:`, break, continue, exit, return, set, and shift carry
 CommandClass::SpecialBuiltin, which is what prefix-assignment persistence and
 name resolution read. Registry::install refuses that class, so focused tests
 dispatch the descriptors directly.
 
-help and command need the table they describe, so core_builtins binds them to
-the registry passed to it through the descriptor context. That registry must
-outlive the descriptors. Every other core descriptor is stateless.
+help and command need the tables they describe, so core_builtins binds them to
+an Introspection the caller owns, holding the registry and an optional script
+library. It must outlive the descriptors. A null script library simply leaves
+installed scripts out of the listing. Every other core descriptor is
+stateless.
 
 Behavior notes at this level:
 
@@ -363,9 +396,12 @@ Behavior notes at this level:
 - return and exit default to the current status and accept 0 through 255;
 - capability lists the served capability names or queries one, with status 1
   for an unserved name and status 2 for an unknown one;
-- help describes the installed table or one named command;
+- help lists the native table and then the installed scripts, or describes one
+  named command or script;
 - command resolves a name with -v or dispatches it, reporting 127 when the
-  name is not installed.
+  name is not installed. It looks only at native commands, so a function or
+  script never shadows what it selects;
+- run is resolved by the evaluator, as described under the evaluator.
 
 A sink that refuses bytes stops the handler at that point. WouldBlock is
 reported as Status::Unavailable and a broken sink as its own failure status,

@@ -19,6 +19,7 @@ file: expand.cppm mm.shell:expand
 file: function.cppm mm.shell:function
 file: command.cppm mm.shell:command
 file: command_internal.cppm mm.shell:command_internal
+file: script.cppm mm.shell:script
 file: execute.cppm mm.shell:execute
 file: builtin.cppm mm.shell:builtin
 file: session.cppm mm.shell:session
@@ -34,6 +35,7 @@ file: src/parameter.cpp
 file: src/expand.cpp
 file: src/function.cpp
 file: src/execute.cpp
+file: src/script.cpp
 file: src/builtin.cpp
 file: src/session.cpp
 ---
@@ -49,8 +51,9 @@ state pools, checked arithmetic, in-memory case patterns, field splitting,
 parameter spelling and read-only resolution, bounded word expansion for
 implemented forms, monotonic function storage, and a cooperative frame-based
 evaluator covering lists, assignments, conditionals, loops, case patterns,
-brace groups, control-flow ownership, set -e and set -u, and function
-definition, lookup, and bounded call frames, the level-1 core builtin pack,
+brace groups, control-flow ownership, set -e and set -u, function definition
+and lookup, an installable script library, and bounded positional call frames
+for both, the level-1 core builtin pack,
 evaluator-owned output staging with retry, and an incremental Session. Free of
 filesystem, environment, process, heap allocation, or platform provider
 dependencies.

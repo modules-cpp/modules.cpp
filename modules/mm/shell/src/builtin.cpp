@@ -14,6 +14,7 @@ import :builtin;
 import :capability;
 import :command;
 import :io;
+import :script;
 import :state;
 import :status;
 
@@ -332,17 +333,34 @@ void capability_handler(void*, std::span<const std::string_view> args,
            emit(sink, '\n', result);
 }
 
+[[nodiscard]] bool describe_script(const ByteSink& sink,
+                                   const ScriptDescriptor& descriptor,
+                                   CommandResult& result) {
+    if (!emit(sink, descriptor.name, result)) return false;
+    if (descriptor.summary.empty()) return emit(sink, '\n', result);
+    return emit(sink, ' ', result) &&
+           emit(sink, descriptor.summary, result) &&
+           emit(sink, '\n', result);
+}
+
 void help_handler(void* data, std::span<const std::string_view> args,
                   CommandContext& context, CommandResult& result) {
-    auto* registry = static_cast<Registry*>(data);
-    if (registry == nullptr) {
+    auto* binding = static_cast<Introspection*>(data);
+    if (binding == nullptr || binding->registry == nullptr) {
         result.status = static_cast<int>(CommandStatus::Unavailable);
         result.error = Status::Unavailable;
         return;
     }
+    auto* registry = binding->registry;
     if (args.size() == 1) {
         for (const auto& descriptor : registry->descriptors()) {
             if (!describe(context.io.out, descriptor, result)) return;
+        }
+        if (binding->scripts == nullptr) return;
+        for (const auto& slot : binding->scripts->scripts()) {
+            if (!describe_script(context.io.out, slot.descriptor, result)) {
+                return;
+            }
         }
         return;
     }
@@ -351,17 +369,33 @@ void help_handler(void* data, std::span<const std::string_view> args,
         return;
     }
     const auto* found = registry->find(args[1]);
-    if (found == nullptr) {
-        result.status = static_cast<int>(CommandStatus::Failure);
-        result.error = Status::NotFound;
+    if (found != nullptr) {
+        (void)describe(context.io.out, *found, result);
         return;
     }
-    (void)describe(context.io.out, *found, result);
+    if (binding->scripts != nullptr) {
+        const auto* slot = binding->scripts->find(args[1]);
+        if (slot != nullptr) {
+            (void)describe_script(context.io.out, slot->descriptor, result);
+            return;
+        }
+    }
+    result.status = static_cast<int>(CommandStatus::Failure);
+    result.error = Status::NotFound;
+}
+
+// run is resolved by the evaluator; reaching this handler means no script
+// library was supplied to it.
+void run_handler(void*, std::span<const std::string_view>, CommandContext&,
+                 CommandResult& result) {
+    result.status = static_cast<int>(CommandStatus::Unavailable);
+    result.error = Status::Unavailable;
 }
 
 void command_handler(void* data, std::span<const std::string_view> args,
                      CommandContext& context, CommandResult& result) {
-    auto* registry = static_cast<Registry*>(data);
+    auto* binding = static_cast<Introspection*>(data);
+    auto* registry = binding == nullptr ? nullptr : binding->registry;
     if (registry == nullptr) {
         result.status = static_cast<int>(CommandStatus::Unavailable);
         result.error = Status::Unavailable;
@@ -434,6 +468,8 @@ constexpr BuiltinEntry entries[]{
      &help_handler, true},
     {"command", "resolve or run a registry command", CommandClass::Builtin,
      &command_handler, true},
+    {"run", "invoke an installed script", CommandClass::Builtin,
+     &run_handler},
 };
 
 static_assert(sizeof(entries) / sizeof(entries[0]) == core_builtin_count,
@@ -441,7 +477,11 @@ static_assert(sizeof(entries) / sizeof(entries[0]) == core_builtin_count,
 
 }  // namespace
 
-InstallResult core_builtins(Registry& registry,
+bool invokes_script(const CommandDescriptor& descriptor) {
+    return descriptor.handler == &run_handler;
+}
+
+InstallResult core_builtins(Introspection& binding,
                            std::span<CommandDescriptor> slots,
                            std::size_t& count) {
     count = 0;
@@ -461,7 +501,7 @@ InstallResult core_builtins(Registry& registry,
             .command_class = entry.command_class,
             .required_capabilities = {},
             .handler = entry.handler,
-            .context = entry.needs_registry ? &registry : nullptr,
+            .context = entry.needs_registry ? &binding : nullptr,
         };
     }
     return InstallResult{};

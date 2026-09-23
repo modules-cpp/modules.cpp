@@ -17,6 +17,7 @@ unit: tests/mm/shell/fields.cpp
 unit: tests/mm/shell/parameter.cpp
 unit: tests/mm/shell/expand.cpp
 unit: tests/mm/shell/function.cpp
+unit: tests/mm/shell/script.cpp
 unit: tests/mm/shell/execute.cpp
 unit: tests/mm/shell/builtin.cpp
 unit: tests/mm/shell/session.cpp
@@ -35,8 +36,9 @@ monotonic function storage, and the cooperative evaluator's simple-command
 dispatch, assignment semantics, conditionals, loops, case selection, brace
 groups, control-flow ownership, output staging, instrumented operation units,
 argv capacity bounds, bounded transaction scratch, set -e tested contexts
-against set -u, and function definition, resolution order, call frames, return
-ownership and recursion bounds, the core
+against set -u, function definition, resolution order, call frames, return
+ownership and recursion bounds, script library installation, atomic packs and
+arena preflight, direct and run invocation with capability gating, the core
 builtin pack's descriptor classes, output, test operators, option
 transactions, flow values, and introspection, and Session line accumulation,
 multiline continuation, editing bytes, malformed and overlong recovery, and

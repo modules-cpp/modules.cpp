@@ -12,6 +12,7 @@ import :command;
 import :expand;
 import :function;
 import :io;
+import :script;
 import :pattern;
 import :source;
 import :state;
@@ -33,6 +34,7 @@ enum class FrameKind {
     Case,
     Brace,
     Function,
+    Script,
 };
 
 struct EvaluatorFrame {
@@ -85,6 +87,9 @@ struct EvaluatorStorage {
     // Function definition and lookup are available only when a library is
     // supplied. Without one a definition reports Status::Unsupported.
     FunctionLibrary* functions = nullptr;
+    // Installed scripts resolve by name and through run only when a library
+    // is supplied.
+    ScriptLibrary* scripts = nullptr;
     // Saved caller positional slots, one contiguous run per open call frame.
     std::span<PositionalSlot> call_positionals;
     // Open call frames allowed at once, so a runaway recursion is refused
@@ -152,9 +157,12 @@ private:
                                      std::size_t node, bool negate);
     [[nodiscard]] Outcome define_function(const EmbeddedScript& script,
                                           std::size_t node);
-    [[nodiscard]] Outcome call_function(const FunctionSlot& function,
-                                        std::span<const std::string_view> args,
-                                        bool negate);
+    // Shared by a function body and an installed script: both are a
+    // positional call frame over a separate EmbeddedScript.
+    [[nodiscard]] Outcome enter_call(FrameKind kind,
+                                     const EmbeddedScript& body,
+                                     std::span<const std::string_view> args,
+                                     bool negate);
     [[nodiscard]] CommandResult assign_prefixes(const EmbeddedScript& script,
                                                 std::size_t node,
                                                 std::size_t count);

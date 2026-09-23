@@ -11,10 +11,12 @@ module mm.shell;
 import :command;
 import :execute;
 import :expand;
+import :builtin;
 import :fields;
 import :function;
 import :io;
 import :pattern;
+import :script;
 import :source;
 import :state;
 import :status;
@@ -70,6 +72,11 @@ constexpr std::size_t bytes_per_unit = 16;
     return child;
 }
 
+// A call frame owns the caller's positional parameters and consumes Return.
+[[nodiscard]] bool is_call(FrameKind kind) {
+    return kind == FrameKind::Function || kind == FrameKind::Script;
+}
+
 [[nodiscard]] CommandResult failure(int status, Status error) {
     return {.flow = Flow::Normal, .status = status, .error = error};
 }
@@ -123,7 +130,7 @@ Status Evaluator::push(FrameKind kind, const EmbeddedScript& script,
 void Evaluator::pop() {
     if (frame_count_ == 0) return;
     const auto& frame = storage_.frames[frame_count_ - 1];
-    if (frame.kind == FrameKind::Function) {
+    if (is_call(frame.kind)) {
         // Restoring the caller's arguments cannot fail for a frame this
         // evaluator pushed, and a failure here must not strand the stack.
         (void)context_->state.pop_positionals(
@@ -220,7 +227,7 @@ bool Evaluator::unwind_to_loop(bool pop_loop) {
         if (kind == FrameKind::While || kind == FrameKind::For) break;
         // A call frame is a barrier: break and continue apply only to loops
         // in the body that used them, never to the caller's loop.
-        if (kind == FrameKind::Function) return false;
+        if (is_call(kind)) return false;
         --index;
     }
     if (index == 0) return false;
@@ -239,8 +246,7 @@ bool Evaluator::unwind_to_loop(bool pop_loop) {
 // caller's positional parameters, so a return never leaks a callee's $1.
 bool Evaluator::unwind_to_call(int status) {
     auto index = frame_count_;
-    while (index != 0 &&
-           storage_.frames[index - 1].kind != FrameKind::Function) {
+    while (index != 0 && !is_call(storage_.frames[index - 1].kind)) {
         --index;
     }
     if (index == 0) return false;
@@ -294,8 +300,8 @@ Evaluator::Outcome Evaluator::define_function(const EmbeddedScript& script,
     return deliver({.step = Step::Running, .command = {}});
 }
 
-Evaluator::Outcome Evaluator::call_function(
-    const FunctionSlot& function,
+Evaluator::Outcome Evaluator::enter_call(
+    FrameKind kind, const EmbeddedScript& body,
     std::span<const std::string_view> args, bool negate) {
     const auto reject = [this](int status, Status error,
                                OverflowInfo overflow) {
@@ -310,7 +316,6 @@ Evaluator::Outcome Evaluator::call_function(
                       {StorageClass::EvaluatorFrames,
                        storage_.call_limit + 1});
     }
-    const auto& body = function.body;
     if (body.root >= body.nodes.size() ||
         body.nodes[body.root].kind != SyntaxKind::Program) {
         return reject(2, Status::BadArgument, {});
@@ -329,8 +334,7 @@ Evaluator::Outcome Evaluator::call_function(
         return reject(2, pushed_arguments.status,
                       pushed_arguments.overflow);
     }
-    const auto pushed = push(FrameKind::Function, body, program,
-                             tested_, negate);
+    const auto pushed = push(kind, body, program, tested_, negate);
     if (pushed != Status::Ok) {
         (void)context_->state.pop_positionals(saved, positionals);
         return reject(2, pushed,
@@ -540,18 +544,54 @@ Evaluator::Outcome Evaluator::run_simple(const EmbeddedScript& script,
         const auto* descriptor = registry_->find(storage_.arguments[0]);
         const std::span<const std::string_view> args{
             storage_.arguments.data(), argument_count};
-        // Resolution order: a special builtin outranks a function, and a
-        // function outranks any other installed command.
+        // Resolution order: a special builtin, then a function, then an
+        // installed script, then any other installed command.
         const auto reserved = descriptor != nullptr &&
                               descriptor->command_class ==
                                   CommandClass::SpecialBuiltin;
         const FunctionSlot* function = nullptr;
-        if (!reserved && storage_.functions != nullptr) {
-            function = storage_.functions->find(args[0]);
+        const ScriptSlot* installed = nullptr;
+        auto call_args = args;
+        auto usage_error = false;
+        if (descriptor != nullptr && storage_.scripts != nullptr &&
+            invokes_script(*descriptor)) {
+            // run NAME ARG... selects only an installed script, bypassing
+            // functions and native names.
+            if (args.size() < 2) {
+                usage_error = true;
+                result = failure(static_cast<int>(CommandStatus::Usage),
+                                 Status::BadArgument);
+            } else {
+                installed = storage_.scripts->find(args[1]);
+                call_args = args.subspan(1);
+                if (installed == nullptr) {
+                    usage_error = true;
+                    result = failure(
+                        static_cast<int>(CommandStatus::NotFound),
+                        Status::NotFound);
+                }
+            }
+        } else if (!reserved) {
+            if (storage_.functions != nullptr) {
+                function = storage_.functions->find(args[0]);
+            }
+            if (function == nullptr && storage_.scripts != nullptr) {
+                installed = storage_.scripts->find(args[0]);
+            }
         }
-        if (function != nullptr) {
+        if (!usage_error && installed != nullptr &&
+            !context_->capabilities.contains(
+                installed->descriptor.required_capabilities)) {
+            // An absent capability is reported before the first command of
+            // the script is evaluated.
+            usage_error = true;
+            result = failure(static_cast<int>(CommandStatus::Unavailable),
+                             Status::Unavailable);
+        }
+        if (!usage_error && (function != nullptr || installed != nullptr)) {
             // A call is a frame, not a handler. Prefix assignments to a
-            // function persist, exactly as they do for a special builtin.
+            // function or installed script persist, exactly as they do for a
+            // special builtin.
             if (assignments != 0) {
                 result = assign_prefixes(script, node_id, assignments);
                 if (result.error != Status::Ok) {
@@ -561,7 +601,18 @@ Evaluator::Outcome Evaluator::run_simple(const EmbeddedScript& script,
                                     .command = result});
                 }
             }
-            return call_function(*function, args, negate);
+            if (function != nullptr) {
+                return enter_call(FrameKind::Function, function->body,
+                                  call_args, negate);
+            }
+            return enter_call(FrameKind::Script, installed->script,
+                              call_args, negate);
+        }
+        if (usage_error) {
+            if (negate) result.status = result.status == 0 ? 1 : 0;
+            last_status_ = result.status;
+            context_->state.last_status = last_status_;
+            return deliver({.step = Step::Running, .command = result});
         }
         // Handlers see the staging sinks, never the application's transport.
         auto staged = handler_io();
@@ -823,6 +874,7 @@ StepResult Evaluator::step(std::size_t operation_budget) {
             // A call frame is a list that also owns the caller's positional
             // parameters and consumes Return.
             case FrameKind::Function:
+            case FrameKind::Script:
             case FrameKind::List: {
                 if (frame.link >= node.link_count) {
                     complete_frame(last_status_);

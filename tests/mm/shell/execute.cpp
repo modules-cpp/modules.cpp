@@ -58,7 +58,8 @@ struct RuntimeScratch {
                  shadow_variables, shadow_text},
                 arguments, argument_text, frames, loop_items, loop_text,
                 pattern, prefix_variables, prefix_variable_text,
-                staged_output, staged_error, nullptr, call_positionals};
+                staged_output, staged_error, nullptr, nullptr,
+                call_positionals};
     }
 };
 
@@ -73,6 +74,19 @@ struct FunctionScratch {
 
     [[nodiscard]] mm::shell::FunctionStorage storage() {
         return {functions, text, tokens, fragments, nodes, links, context};
+    }
+};
+
+struct ScriptScratchArena {
+    mm::shell::ScriptSlot slots[3]{};
+    mm::shell::ScriptToken tokens[64]{};
+    mm::shell::WordFragment fragments[64]{};
+    mm::shell::SyntaxNode nodes[64]{};
+    mm::shell::SyntaxLink links[64]{};
+    mm::shell::ParserFrame context[16]{};
+
+    [[nodiscard]] mm::shell::ScriptLibraryStorage storage() {
+        return {slots, tokens, fragments, nodes, links, context};
     }
 };
 
@@ -236,18 +250,24 @@ struct Fixture {
         mm::shell::CapabilitySet::level1();
     std::byte handler_scratch[8]{};
     CommandContext context{io, state, capabilities, handler_scratch};
-    CommandDescriptor commands[6]{};
+    CommandDescriptor commands[8]{};
     Registry registry{commands};
     HandlerState handler_state;
     CounterState counter_state;
     DeviceState device_state;
     FunctionScratch function_storage;
     mm::shell::FunctionLibrary functions{function_storage.storage()};
+    ScriptScratchArena script_arena;
+    mm::shell::ScriptLibrary scripts{script_arena.storage()};
+    mm::shell::Introspection binding{&registry, &scripts};
+    CommandDescriptor core[mm::shell::core_builtin_count]{};
+    std::size_t core_count = 0;
     Evaluator evaluator;
 
     [[nodiscard]] EvaluatorStorage storage() {
         auto supplied = runtime_storage.storage();
         supplied.functions = &functions;
+        supplied.scripts = &scripts;
         return supplied;
     }
 
@@ -297,6 +317,15 @@ struct Fixture {
                    .context = &device_state,
                }).ok(),
                "fixture device installs");
+        // run is a core Builtin, so the registry admits it. The evaluator
+        // resolves it itself, which is what these fixtures exercise.
+        expect(mm::shell::core_builtins(binding, core, core_count).ok(),
+               "core pack materializes");
+        for (std::size_t i = 0; i < core_count; ++i) {
+            if (core[i].name != "run") continue;
+            expect(registry.install(core[i]).ok(),
+                   "fixture run installs");
+        }
     }
 
     void parse(std::string_view source) {
@@ -944,6 +973,104 @@ void recursion_is_bounded() {
            "the refused recursion unwinds every call frame");
 }
 
+void invokes_installed_scripts() {
+    Fixture fixture{"greeting a b"};
+    expect(fixture.scripts.install({
+               .name = "greeting",
+               .summary = "installed greeting",
+               .required_capabilities = {},
+               .source = SourceView{"write $1 $2"},
+           }, &fixture.registry).ok(),
+           "the script installs");
+    fixture.start();
+    auto result = run(fixture);
+    expect(result.step == Step::Complete && fixture.output.view() == "ab" &&
+               fixture.evaluator.frame_depth() == 0,
+           "a script is invoked directly with its own arguments");
+
+    Fixture explicitly{"run greeting x y; write -$1-"};
+    expect(explicitly.scripts.install({
+               .name = "greeting",
+               .summary = "installed greeting",
+               .required_capabilities = {},
+               .source = SourceView{"write $0 $1 $2"},
+           }, &explicitly.registry).ok(),
+           "the run fixture script installs");
+    const std::string_view arguments[]{"outer"};
+    expect(explicitly.state.set_positionals("shell", arguments).ok(),
+           "caller positionals install");
+    explicitly.start();
+    result = run(explicitly);
+    expect(result.step == Step::Complete &&
+               explicitly.output.view() == "greetingxy-outer-",
+           "run names the script as $0 and restores the caller after");
+}
+
+void script_invocation_reports_its_refusals() {
+    Fixture missing{"run absent"};
+    auto result = run(missing);
+    expect(result.step == Step::Complete &&
+               missing.state.last_status ==
+                   static_cast<int>(mm::shell::CommandStatus::NotFound),
+           "run reports an uninstalled name with status 127");
+
+    Fixture bare{"run"};
+    result = run(bare);
+    expect(result.step == Step::Complete && bare.state.last_status == 2,
+           "run with no operand is a usage error");
+
+    Fixture gated{"blink"};
+    mm::shell::CapabilitySet needs_gpio;
+    needs_gpio.set(mm::shell::Capability::Gpio);
+    expect(gated.scripts.install({
+               .name = "blink",
+               .summary = "needs gpio",
+               .required_capabilities = needs_gpio,
+               .source = SourceView{"write on"},
+           }, &gated.registry).ok(),
+           "the gated script installs without the capability");
+    gated.start();
+    result = run(gated);
+    expect(result.step == Step::Complete &&
+               gated.state.last_status ==
+                   static_cast<int>(mm::shell::CommandStatus::Unavailable) &&
+               gated.output.view().empty(),
+           "an unserved capability is reported before the first command");
+}
+
+void functions_shadow_installed_scripts() {
+    Fixture fixture{"greeting() { write function; }; greeting; "
+                    "run greeting"};
+    expect(fixture.scripts.install({
+               .name = "greeting",
+               .summary = "installed greeting",
+               .required_capabilities = {},
+               .source = SourceView{"write script"},
+           }, &fixture.registry).ok(),
+           "the shadowed script installs");
+    fixture.start();
+    const auto result = run(fixture);
+    expect(result.step == Step::Complete &&
+               fixture.output.view() == "functionscript",
+           "a function shadows a script, and run still selects the script");
+}
+
+void return_leaves_an_installed_script() {
+    Fixture fixture{"early; write after"};
+    expect(fixture.scripts.install({
+               .name = "early",
+               .summary = "returns early",
+               .required_capabilities = {},
+               .source = SourceView{"write one; flow return 3; write two"},
+           }, &fixture.registry).ok(),
+           "the early-return script installs");
+    fixture.start();
+    const auto result = run(fixture);
+    expect(result.step == Step::Complete &&
+               fixture.output.view() == "oneafter",
+           "return leaves the script, not the calling program");
+}
+
 void records_tested_contexts() {
     Fixture fixture{"ok left && ok right"};
     auto result = fixture.evaluator.step();
@@ -990,6 +1117,10 @@ const mm::test::case_ cases[]{
     {"functions outrank commands", &functions_outrank_installed_commands},
     {"return leaves the call frame", &return_leaves_the_call_frame},
     {"recursion is bounded", &recursion_is_bounded},
+    {"invokes installed scripts", &invokes_installed_scripts},
+    {"script refusals", &script_invocation_reports_its_refusals},
+    {"functions shadow scripts", &functions_shadow_installed_scripts},
+    {"return leaves a script", &return_leaves_an_installed_script},
     {"tested contexts", &records_tested_contexts},
 };
 

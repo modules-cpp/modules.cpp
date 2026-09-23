@@ -16,6 +16,7 @@ export import :fields;
 export import :parameter;
 export import :expand;
 export import :function;
+export import :script;
 export import :execute;
 export import :command;
 export import :builtin;

@@ -25,6 +25,16 @@ struct Fixture {
     std::size_t count = 0;
     CommandDescriptor visible[4]{};
     Registry registry{visible};
+    mm::shell::ScriptSlot script_slots[2]{};
+    mm::shell::ScriptToken script_tokens[32]{};
+    mm::shell::WordFragment script_fragments[32]{};
+    mm::shell::SyntaxNode script_nodes[32]{};
+    mm::shell::SyntaxLink script_links[32]{};
+    mm::shell::ParserFrame script_context[16]{};
+    mm::shell::ScriptLibrary scripts{
+        {script_slots, script_tokens, script_fragments, script_nodes,
+         script_links, script_context}};
+    mm::shell::Introspection binding{&registry, &scripts};
     mm::shell::VariableSlot variables[8]{};
     char variable_text[128]{};
     mm::shell::PositionalSlot positionals[8]{};
@@ -42,7 +52,7 @@ struct Fixture {
     CommandContext context{io, state, capabilities, scratch};
 
     Fixture() {
-        expect(mm::shell::core_builtins(registry, slots, count).ok(),
+        expect(mm::shell::core_builtins(binding, slots, count).ok(),
                "core builtins materialize");
         expect(count == mm::shell::core_builtin_count,
                "every core builtin is published");
@@ -94,7 +104,7 @@ void publishes_the_core_pack() {
     }
     CommandDescriptor narrow[mm::shell::core_builtin_count - 1]{};
     std::size_t partial = 0;
-    const auto refused = mm::shell::core_builtins(fixture.registry, narrow,
+    const auto refused = mm::shell::core_builtins(fixture.binding, narrow,
                                                   partial);
     expect(refused.status == Status::Overflow && partial == 0 &&
                refused.overflow.storage_class ==
@@ -321,6 +331,32 @@ void introspection_builtins() {
     const auto missing = helped.run(unlisted);
     expect(missing.status == 1 && missing.error == Status::NotFound,
            "help reports an unknown name");
+
+    Fixture scripted;
+    expect(scripted.scripts.install({
+               .name = "blink",
+               .summary = "installed blink",
+               .required_capabilities = {},
+               .source = mm::shell::SourceView{"true"},
+           }, &scripted.registry).ok(),
+           "help fixture installs a script");
+    const std::string_view scripted_name[]{"help", "blink"};
+    expect(scripted.run(scripted_name).status == 0 &&
+               scripted.written() == "blink installed blink\n",
+           "help describes an installed script");
+
+    Fixture whole;
+    expect(whole.scripts.install({
+               .name = "blink",
+               .summary = "installed blink",
+               .required_capabilities = {},
+               .source = mm::shell::SourceView{"true"},
+           }, &whole.registry).ok(),
+           "listing fixture installs a script");
+    const std::string_view everything[]{"help"};
+    expect(whole.run(everything).status == 0 &&
+               whole.written() == "blink installed blink\n",
+           "help lists installed scripts after native commands");
 
     Fixture resolved;
     expect(resolved.registry.install({
