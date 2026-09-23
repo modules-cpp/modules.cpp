@@ -4,6 +4,7 @@ module;
 
 #include <cstddef>
 #include <span>
+#include <string_view>
 
 export module mm.shell:expand;
 
@@ -25,6 +26,11 @@ struct WordExpansionStorage {
     // storage, generated_text, or fields.
     std::span<VariableSlot> shadow_variables;
     std::span<char> shadow_variable_text;
+    // Command-substitution results the evaluator captured before this word was
+    // expanded, in fragment order. An empty span makes a substitution
+    // fragment Status::Unsupported, which is what a caller that cannot run a
+    // nested list wants.
+    std::span<const std::string_view> substitutions;
 };
 
 struct WordExpansionResult {
@@ -32,6 +38,9 @@ struct WordExpansionResult {
     OverflowInfo overflow;
     std::size_t piece_count = 0;
     std::size_t generated_bytes = 0;
+    // How many entries of storage.substitutions this word consumed, so the
+    // caller can advance to the next word's results.
+    std::size_t substitutions_used = 0;
     ArithmeticStatus arithmetic_error = ArithmeticStatus::Ok;
 };
 

@@ -15,6 +15,7 @@ import :builtin;
 import :fields;
 import :function;
 import :io;
+import :parse;
 import :pattern;
 import :script;
 import :source;
@@ -133,12 +134,20 @@ void Evaluator::pop() {
     if (is_call(frame.kind)) {
         // Restoring the caller's arguments cannot fail for a frame this
         // evaluator pushed, and a failure here must not strand the stack.
-        (void)context_->state.pop_positionals(
+        (void)state().pop_positionals(
             storage_.call_positionals.subspan(frame.slot_mark,
                                               frame.slot_count),
             frame.positionals);
         slots_used_ = frame.slot_mark;
         if (calls_open_ != 0) --calls_open_;
+    }
+    if (frame.kind == FrameKind::Substitute) {
+        capture_text_used_ = frame.capture_text_mark;
+        capture_values_used_ = frame.capture_value_first;
+    }
+    if (frame.kind == FrameKind::Capture && capture_depth_ != 0) {
+        // The child's mutations are discarded: nothing is committed back.
+        --capture_depth_;
     }
     items_used_ = frame.item_mark;
     item_text_used_ = frame.text_mark;
@@ -149,11 +158,29 @@ void Evaluator::complete_frame(int status) {
     if (frame_count_ == 0) return;
     const auto negate = storage_.frames[frame_count_ - 1].negate;
     last_status_ = negate ? (status == 0 ? 1 : 0) : status;
-    context_->state.last_status = last_status_;
+    state().last_status = last_status_;
     pop();
 }
 
+ShellState& Evaluator::state() {
+    return capture_depth_ != 0 ? capture_state_ : context_->state;
+}
+
+FunctionLibrary* Evaluator::functions() {
+    if (capture_depth_ != 0) return storage_.capture_functions;
+    return storage_.functions;
+}
+
 IoServices Evaluator::handler_io() {
+    if (capture_depth_ != 0) {
+        // A substitution replaces only the ordinary-output sink; diagnostics
+        // keep going to the application.
+        return IoServices{
+            capture_sink_.sink(),
+            storage_.staged_error.empty() ? context_->io.err
+                                         : staging_error_.sink(),
+        };
+    }
     return IoServices{
         storage_.staged_output.empty() ? context_->io.out
                                        : staging_out_.sink(),
@@ -161,6 +188,111 @@ IoServices Evaluator::handler_io() {
                                      : staging_error_.sink(),
     };
 }
+
+// Words are visited in the order run_simple expands them: the command words
+// first, then the assignment prefixes.
+std::size_t Evaluator::count_substitutions(const EmbeddedScript& script,
+                                           std::size_t node_id,
+                                           std::size_t assignments) const {
+    const auto& node = script.nodes[node_id];
+    std::size_t total = 0;
+    for (std::size_t i = assignments; i < node.link_count; ++i) {
+        for (const auto& fragment :
+             word_fragments(script, child_at(script, node, i))) {
+            if (fragment.kind == FragmentKind::CommandSubstitution) ++total;
+        }
+    }
+    for (std::size_t i = 0; i < assignments; ++i) {
+        for (const auto& fragment :
+             word_fragments(script, child_at(script, node, i))) {
+            if (fragment.kind == FragmentKind::CommandSubstitution) ++total;
+        }
+    }
+    return total;
+}
+
+const WordFragment* Evaluator::substitution_at(
+    const EmbeddedScript& script, std::size_t node_id,
+    std::size_t assignments, std::size_t index) const {
+    const auto& node = script.nodes[node_id];
+    std::size_t seen = 0;
+    for (std::size_t i = assignments; i < node.link_count; ++i) {
+        for (const auto& fragment :
+             word_fragments(script, child_at(script, node, i))) {
+            if (fragment.kind != FragmentKind::CommandSubstitution) continue;
+            if (seen++ == index) return &fragment;
+        }
+    }
+    for (std::size_t i = 0; i < assignments; ++i) {
+        for (const auto& fragment :
+             word_fragments(script, child_at(script, node, i))) {
+            if (fragment.kind != FragmentKind::CommandSubstitution) continue;
+            if (seen++ == index) return &fragment;
+        }
+    }
+    return nullptr;
+}
+
+// Parses the nested list, forks the child state, and installs the capture
+// sink. Everything the child needs is preflighted before its first command.
+Status Evaluator::begin_capture(const EmbeddedScript& script,
+                                const WordFragment& fragment) {
+    if (fragment.source.length < 3) return Status::BadArgument;
+    const auto inner = SourceView{script.source.slice(
+        fragment.source.offset + 2, fragment.source.length - 3)};
+    const auto measured = measure_embedded(inner);
+    if (measured.status != ParseStatus::Complete) return Status::BadArgument;
+    const auto& needed = measured.required;
+    if (storage_.capture_tokens.size() < needed.tokens ||
+        storage_.capture_fragments.size() < needed.fragments ||
+        storage_.capture_nodes.size() < needed.nodes ||
+        storage_.capture_links.size() < needed.links ||
+        storage_.capture_parser_context.size() < needed.context) {
+        return Status::Overflow;
+    }
+    const ScriptStorage arena{
+        storage_.capture_tokens.first(needed.tokens),
+        storage_.capture_fragments.first(needed.fragments),
+        storage_.capture_nodes.first(needed.nodes),
+        storage_.capture_links.first(needed.links),
+        storage_.capture_parser_context};
+    const auto parsed = parse_embedded(inner, arena, capture_script_);
+    if (parsed.status != ParseStatus::Complete) return Status::BadArgument;
+    const auto forked = state().fork_variables(
+        storage_.capture_variables, storage_.capture_variable_text,
+        capture_state_);
+    if (!forked.ok()) return forked.status;
+    if (storage_.capture_functions != nullptr &&
+        storage_.functions != nullptr) {
+        const auto adopted =
+            storage_.capture_functions->adopt(*storage_.functions);
+        if (!adopted.ok()) return adopted.status;
+    }
+    capture_sink_ = MemorySink{
+        storage_.capture_text.subspan(capture_text_used_),
+        StorageClass::CaptureBytes};
+    return Status::Ok;
+}
+
+// Publishes one captured value with its trailing newlines removed. Overflow
+// never publishes truncated text.
+Status Evaluator::finish_capture(EvaluatorFrame& frame) {
+    if (capture_sink_.last_failure.error != Status::Ok) {
+        return capture_sink_.last_failure.error;
+    }
+    if (capture_values_used_ == storage_.capture_values.size()) {
+        return Status::Overflow;
+    }
+    auto text = capture_sink_.view();
+    while (!text.empty() && text.back() == '\n') {
+        text.remove_suffix(1);
+    }
+    storage_.capture_values[capture_values_used_++] = text;
+    capture_text_used_ += text.size();
+    ++frame.capture_value_count;
+    return Status::Ok;
+}
+
 
 bool Evaluator::pending_output() const {
     return staging_out_.written > drained_out_ ||
@@ -217,7 +349,7 @@ void Evaluator::abandon(int status) {
     while (frame_count_ != 0) pop();
     active_ = false;
     last_status_ = status;
-    context_->state.last_status = status;
+    state().last_status = status;
 }
 
 bool Evaluator::unwind_to_loop(bool pop_loop) {
@@ -261,10 +393,10 @@ Evaluator::Outcome Evaluator::define_function(const EmbeddedScript& script,
     const auto fail = [this](int status, Status error) {
         auto result = failure(status, error);
         last_status_ = result.status;
-        context_->state.last_status = last_status_;
+        state().last_status = last_status_;
         return deliver({.step = Step::Running, .command = result});
     };
-    if (storage_.functions == nullptr) {
+    if (functions() == nullptr) {
         return fail(2, Status::Unsupported);
     }
     const auto name_node = child_at(script, node, 0);
@@ -287,16 +419,16 @@ Evaluator::Outcome Evaluator::define_function(const EmbeddedScript& script,
     if (group.length < 3) return fail(2, Status::BadArgument);
     const auto body = SourceView{
         script.source.slice(group.offset + 1, group.length - 2)};
-    const auto defined = storage_.functions->define(name, body);
+    const auto defined = functions()->define(name, body);
     if (!defined.ok()) {
         auto result = failure(1, defined.status);
         result.overflow = defined.overflow;
         last_status_ = result.status;
-        context_->state.last_status = last_status_;
+        state().last_status = last_status_;
         return deliver({.step = Step::Running, .command = result});
     }
     last_status_ = 0;
-    context_->state.last_status = 0;
+    state().last_status = 0;
     return deliver({.step = Step::Running, .command = {}});
 }
 
@@ -308,7 +440,7 @@ Evaluator::Outcome Evaluator::enter_call(
         auto result = failure(status, error);
         result.overflow = overflow;
         last_status_ = result.status;
-        context_->state.last_status = last_status_;
+        state().last_status = last_status_;
         return deliver({.step = Step::Running, .command = result});
     };
     if (calls_open_ >= storage_.call_limit) {
@@ -328,7 +460,7 @@ Evaluator::Outcome Evaluator::enter_call(
     }
     const auto saved = storage_.call_positionals.subspan(slots_used_);
     PositionalFrame positionals;
-    const auto pushed_arguments = context_->state.push_positionals(
+    const auto pushed_arguments = state().push_positionals(
         args[0], args.subspan(1), saved, positionals);
     if (!pushed_arguments.ok()) {
         return reject(2, pushed_arguments.status,
@@ -336,7 +468,7 @@ Evaluator::Outcome Evaluator::enter_call(
     }
     const auto pushed = push(kind, body, program, tested_, negate);
     if (pushed != Status::Ok) {
-        (void)context_->state.pop_positionals(saved, positionals);
+        (void)state().pop_positionals(saved, positionals);
         return reject(2, pushed,
                       {StorageClass::EvaluatorFrames, frame_count_ + 1});
     }
@@ -404,7 +536,7 @@ Status Evaluator::build_pattern(const EmbeddedScript& script,
                 FieldView expanded;
                 const auto outcome = expand_value(
                     script.source, fragments.subspan(i, 1), 0,
-                    context_->state, storage_.expansion, expanded);
+                    state(), storage_.expansion, expanded);
                 if (outcome.status != Status::Ok) return outcome.status;
                 if (expanded.fields.size() > 1) return Status::Unsupported;
                 // Expansion results are compared literally at level 1; a
@@ -420,9 +552,17 @@ Status Evaluator::build_pattern(const EmbeddedScript& script,
     return Status::Ok;
 }
 
+std::span<const std::string_view> Evaluator::captures(
+    std::size_t consumed) const {
+    if (consumed >= capture_count_) return {};
+    return storage_.capture_values.subspan(capture_first_ + consumed,
+                                           capture_count_ - consumed);
+}
+
 CommandResult Evaluator::assign_prefixes(const EmbeddedScript& script,
                                          std::size_t node_id,
-                                         std::size_t count) {
+                                         std::size_t count,
+                                         std::size_t& consumed) {
     const auto& node = script.nodes[node_id];
     for (std::size_t index = 0; index < count; ++index) {
         const auto child = child_at(script, node, index);
@@ -435,10 +575,13 @@ CommandResult Evaluator::assign_prefixes(const EmbeddedScript& script,
         }
         const auto& token = script.tokens[script.nodes[child].token_index];
         FieldView expanded;
+        auto expansion = storage_.expansion;
+        expansion.substitutions = captures(consumed);
         const auto outcome = expand_value(
             script.source, fragments,
-            token.source.offset + equal + 1, context_->state,
-            storage_.expansion, expanded);
+            token.source.offset + equal + 1, state(),
+            expansion, expanded);
+        consumed += outcome.substitutions_used;
         if (outcome.status != Status::Ok) {
             auto result = failure(1, outcome.status);
             result.overflow = outcome.overflow;
@@ -447,7 +590,7 @@ CommandResult Evaluator::assign_prefixes(const EmbeddedScript& script,
         if (expanded.fields.size() > 1) {
             return failure(2, Status::Unsupported);
         }
-        const auto assigned = context_->state.assign(
+        const auto assigned = state().assign(
             spelling.substr(0, equal), single_field(expanded));
         if (!assigned.ok()) {
             auto result = failure(2, assigned.status);
@@ -463,6 +606,7 @@ Evaluator::Outcome Evaluator::run_simple(const EmbeddedScript& script,
     const auto& node = script.nodes[node_id];
     last_slots_ = 0;
     last_bytes_ = 0;
+    auto consumed = std::size_t{0};
     const auto fail = [this](int status, Status error) {
         active_ = false;
         return Outcome{.returns = true,
@@ -496,9 +640,11 @@ Evaluator::Outcome Evaluator::run_simple(const EmbeddedScript& script,
         }
         const auto fragments = word_fragments(script, child);
         FieldView expanded;
+        auto expansion = storage_.expansion;
+        expansion.substitutions = captures(consumed);
         const auto outcome = expand_word(
-            script.source, fragments, context_->state,
-            storage_.expansion, expanded);
+            script.source, fragments, state(), expansion, expanded);
+        consumed += outcome.substitutions_used;
         if (outcome.status != Status::Ok) {
             failed = true;
             result = failure(1, outcome.status);
@@ -539,7 +685,8 @@ Evaluator::Outcome Evaluator::run_simple(const EmbeddedScript& script,
     last_bytes_ = text_used;
 
     if (!failed && argument_count == 0) {
-        result = assign_prefixes(script, node_id, assignments);
+        result = assign_prefixes(script, node_id, assignments,
+                                 consumed);
     } else if (!failed) {
         const auto* descriptor = registry_->find(storage_.arguments[0]);
         const std::span<const std::string_view> args{
@@ -572,8 +719,8 @@ Evaluator::Outcome Evaluator::run_simple(const EmbeddedScript& script,
                 }
             }
         } else if (!reserved) {
-            if (storage_.functions != nullptr) {
-                function = storage_.functions->find(args[0]);
+            if (functions() != nullptr) {
+                function = functions()->find(args[0]);
             }
             if (function == nullptr && storage_.scripts != nullptr) {
                 installed = storage_.scripts->find(args[0]);
@@ -593,10 +740,11 @@ Evaluator::Outcome Evaluator::run_simple(const EmbeddedScript& script,
             // function or installed script persist, exactly as they do for a
             // special builtin.
             if (assignments != 0) {
-                result = assign_prefixes(script, node_id, assignments);
+                result = assign_prefixes(script, node_id, assignments,
+                                 consumed);
                 if (result.error != Status::Ok) {
                     last_status_ = result.status;
-                    context_->state.last_status = last_status_;
+                    state().last_status = last_status_;
                     return deliver({.step = Step::Running,
                                     .command = result});
                 }
@@ -611,12 +759,12 @@ Evaluator::Outcome Evaluator::run_simple(const EmbeddedScript& script,
         if (usage_error) {
             if (negate) result.status = result.status == 0 ? 1 : 0;
             last_status_ = result.status;
-            context_->state.last_status = last_status_;
+            state().last_status = last_status_;
             return deliver({.step = Step::Running, .command = result});
         }
         // Handlers see the staging sinks, never the application's transport.
         auto staged = handler_io();
-        CommandContext handler{staged, context_->state,
+        CommandContext handler{staged, state(),
                                context_->capabilities, context_->scratch};
         if (descriptor == nullptr) {
             result = failure(static_cast<int>(CommandStatus::NotFound),
@@ -632,7 +780,7 @@ Evaluator::Outcome Evaluator::run_simple(const EmbeddedScript& script,
             ShellState restore;
             auto saved = true;
             if (!persist) {
-                const auto fork = context_->state.fork_variables(
+                const auto fork = state().fork_variables(
                     storage_.prefix_variables,
                     storage_.prefix_variable_text, restore);
                 if (!fork.ok()) {
@@ -642,14 +790,15 @@ Evaluator::Outcome Evaluator::run_simple(const EmbeddedScript& script,
                 }
             }
             if (saved) {
-                result = assign_prefixes(script, node_id, assignments);
+                result = assign_prefixes(script, node_id, assignments,
+                                 consumed);
                 if (result.error == Status::Ok) {
                     ++last_handlers_;
                     result = dispatch(*descriptor, args, handler);
                 }
                 if (!persist) {
                     const auto reverted =
-                        context_->state.commit_variables_from(restore);
+                        state().commit_variables_from(restore);
                     if (!reverted.ok() && result.error == Status::Ok) {
                         result = failure(2, reverted.status);
                         result.overflow = reverted.overflow;
@@ -661,7 +810,7 @@ Evaluator::Outcome Evaluator::run_simple(const EmbeddedScript& script,
 
     if (negate) result.status = result.status == 0 ? 1 : 0;
     last_status_ = result.status;
-    context_->state.last_status = last_status_;
+    state().last_status = last_status_;
 
     switch (result.flow) {
         case Flow::Normal:
@@ -670,8 +819,8 @@ Evaluator::Outcome Evaluator::run_simple(const EmbeddedScript& script,
             // consumes: a condition, an inverted command, or a non-final
             // operand of && or ||.
             if ((result.error == Status::NotFound &&
-                 context_->state.nounset && result.status == 1) ||
-                (context_->state.errexit && result.status != 0 &&
+                 state().nounset && result.status == 1) ||
+                (state().errexit && result.status != 0 &&
                  !tested_)) {
                 abandon(result.status);
                 return deliver({.step = Step::Complete, .command = result});
@@ -687,21 +836,21 @@ Evaluator::Outcome Evaluator::run_simple(const EmbeddedScript& script,
             if (!unwind_to_loop(result.flow == Flow::Break)) {
                 result = failure(2, Status::BadArgument);
                 last_status_ = result.status;
-                context_->state.last_status = last_status_;
+                state().last_status = last_status_;
             }
             return deliver({.step = Step::Running, .command = result});
         case Flow::Return:
             if (!unwind_to_call(result.status)) {
                 result = failure(2, Status::BadArgument);
                 last_status_ = result.status;
-                context_->state.last_status = last_status_;
+                state().last_status = last_status_;
             }
             return deliver({.step = Step::Running, .command = result});
         case Flow::Replace:
             // Installed-script replacement arrives with the script library.
             result = failure(2, Status::BadArgument);
             last_status_ = result.status;
-            context_->state.last_status = last_status_;
+            state().last_status = last_status_;
             return deliver({.step = Step::Running, .command = result});
     }
     return deliver({.step = Step::Running, .command = result});
@@ -729,9 +878,49 @@ Evaluator::Outcome Evaluator::enter_command(const EmbeddedScript& script,
     }
     auto kind = FrameKind::Brace;
     switch (script.nodes[node_id].kind) {
-        case SyntaxKind::Simple:
-            tested_ = tested || negate;
-            return run_simple(script, node_id, negate);
+        case SyntaxKind::Simple: {
+            const auto& simple = script.nodes[node_id];
+            std::size_t assignments = 0;
+            while (assignments < simple.link_count) {
+                const auto child = child_at(script, simple, assignments);
+                if (child == no_node ||
+                    script.nodes[child].kind != SyntaxKind::Assignment) {
+                    break;
+                }
+                ++assignments;
+            }
+            const auto substitutions =
+                count_substitutions(script, node_id, assignments);
+            if (substitutions == 0) {
+                capture_first_ = 0;
+                capture_count_ = 0;
+                tested_ = tested || negate;
+                return run_simple(script, node_id, negate);
+            }
+            // A nested list must run before the word that contains it can be
+            // expanded, so the command waits behind a substitution frame.
+            if (capture_depth_ != 0 || storage_.capture_text.empty() ||
+                storage_.capture_values.empty()) {
+                return fail(2, Status::Unsupported);
+            }
+            const auto pushed = push(FrameKind::Substitute, script, node_id,
+                                     tested, negate);
+            if (pushed != Status::Ok) {
+                active_ = false;
+                auto result = failure(2, pushed);
+                result.overflow = {StorageClass::EvaluatorFrames,
+                                   frame_count_ + 1};
+                return {.returns = true,
+                        .result = {.step = Step::Failed,
+                                   .command = result}};
+            }
+            auto& frame = storage_.frames[frame_count_ - 1];
+            frame.capture_text_mark = capture_text_used_;
+            frame.capture_value_first = capture_values_used_;
+            frame.item_count = assignments;
+            frame.status = static_cast<int>(substitutions);
+            return {};
+        }
         case SyntaxKind::If: kind = FrameKind::If; break;
         case SyntaxKind::While: kind = FrameKind::While; break;
         case SyntaxKind::For: kind = FrameKind::For; break;
@@ -763,6 +952,11 @@ Status Evaluator::begin(const EmbeddedScript& script, Registry& registry,
     item_text_used_ = 0;
     slots_used_ = 0;
     calls_open_ = 0;
+    capture_text_used_ = 0;
+    capture_values_used_ = 0;
+    capture_depth_ = 0;
+    capture_first_ = 0;
+    capture_count_ = 0;
     last_status_ = 0;
     tested_ = false;
     held_ = {};
@@ -834,12 +1028,23 @@ StepResult Evaluator::step(std::size_t operation_budget) {
     // An unset parameter under set -u is a shell exit, not an evaluator fault,
     // so a word list or selector reports it the same way a command does.
     const auto refused = [this, &fail](Status status) {
-        if (status != Status::NotFound || !context_->state.nounset) {
+        if (status != Status::NotFound || !state().nounset) {
             return fail(1, status);
         }
         abandon(1);
         return StepResult{.step = Step::Complete,
                           .command = failure(1, Status::NotFound)};
+    };
+    // A capture that cannot start or publish fails the containing expansion.
+    // No truncated text is ever published.
+    const auto refused_capture = [this](Status status) {
+        active_ = false;
+        auto result = failure(1, status);
+        if (status == Status::Overflow) {
+            result.overflow = {StorageClass::CaptureBytes,
+                               capture_sink_.last_failure.overflow.required};
+        }
+        return StepResult{.step = Step::Failed, .command = result};
     };
     const auto exhausted = [this](StorageClass storage_class,
                                   std::size_t required) {
@@ -871,10 +1076,68 @@ StepResult Evaluator::step(std::size_t operation_budget) {
         const auto& script = *frame.script;
         const auto& node = script.nodes[frame.node];
         switch (frame.kind) {
+            case FrameKind::Substitute: {
+                if (frame.phase == 0) {
+                    if (frame.cursor >=
+                        static_cast<std::size_t>(frame.status)) {
+                        frame.phase = 2;
+                        break;
+                    }
+                    const auto* fragment = substitution_at(
+                        script, frame.node, frame.item_count, frame.cursor);
+                    if (fragment == nullptr) {
+                        return fail(2, Status::BadArgument);
+                    }
+                    const auto started = begin_capture(script, *fragment);
+                    if (started != Status::Ok) {
+                        return refused_capture(started);
+                    }
+                    const auto program = list_child(
+                        capture_script_,
+                        capture_script_.nodes[capture_script_.root], 0);
+                    if (program == no_node) {
+                        return fail(2, Status::BadArgument);
+                    }
+                    frame.phase = 1;
+                    ++capture_depth_;
+                    if (push(FrameKind::Capture, capture_script_, program,
+                             true, false) != Status::Ok) {
+                        --capture_depth_;
+                        return exhausted(StorageClass::EvaluatorFrames,
+                                         frame_count_ + 1);
+                    }
+                    break;
+                }
+                if (frame.phase == 1) {
+                    const auto published = finish_capture(frame);
+                    if (published != Status::Ok) {
+                        return refused_capture(published);
+                    }
+                    ++frame.cursor;
+                    frame.phase = 0;
+                    break;
+                }
+                if (frame.phase == 2) {
+                    // Every substitution is resolved, so the command can now
+                    // expand its words. The frame stays until it finishes, so
+                    // the captured values outlive the expansion.
+                    capture_first_ = frame.capture_value_first;
+                    capture_count_ = frame.capture_value_count;
+                    tested_ = frame.tested || frame.negate;
+                    frame.phase = 3;
+                    const auto outcome = run_simple(script, frame.node,
+                                                    false);
+                    if (outcome.returns) return outcome.result;
+                    break;
+                }
+                complete_frame(last_status_);
+                break;
+            }
             // A call frame is a list that also owns the caller's positional
             // parameters and consumes Return.
             case FrameKind::Function:
             case FrameKind::Script:
+            case FrameKind::Capture:
             case FrameKind::List: {
                 if (frame.link >= node.link_count) {
                     complete_frame(last_status_);
@@ -1077,7 +1340,7 @@ StepResult Evaluator::step(std::size_t operation_budget) {
                             const auto outcome = expand_word(
                                 script.source,
                                 word_fragments(script, value),
-                                context_->state, storage_.expansion,
+                                state(), storage_.expansion,
                                 expanded);
                             if (outcome.status != Status::Ok) {
                                 return refused(outcome.status);
@@ -1096,9 +1359,9 @@ StepResult Evaluator::step(std::size_t operation_budget) {
                         }
                     } else {
                         if (frame.cursor <=
-                            context_->state.argument_count()) {
+                            state().argument_count()) {
                             const auto value =
-                                context_->state.positional(frame.cursor);
+                                state().positional(frame.cursor);
                             ++frame.cursor;
                             if (!value.found) {
                                 return fail(2, Status::BadArgument);
@@ -1130,7 +1393,7 @@ StepResult Evaluator::step(std::size_t operation_budget) {
                                             frame.cursor];
                     ++frame.cursor;
                     const auto assigned =
-                        context_->state.assign(name, value);
+                        state().assign(name, value);
                     if (!assigned.ok()) {
                         return exhausted(assigned.overflow.storage_class,
                                          assigned.overflow.required);
@@ -1164,7 +1427,7 @@ StepResult Evaluator::step(std::size_t operation_budget) {
                     FieldView expanded;
                     const auto outcome = expand_value(
                         script.source, word_fragments(script, selector), 0,
-                        context_->state, storage_.expansion, expanded);
+                        state(), storage_.expansion, expanded);
                     if (outcome.status != Status::Ok) {
                         return refused(outcome.status);
                     }
@@ -1233,7 +1496,7 @@ StepResult Evaluator::step(std::size_t operation_budget) {
                     // An empty case body succeeds rather than inheriting
                     // the status of the command before the case.
                     last_status_ = 0;
-                    context_->state.last_status = 0;
+                    state().last_status = 0;
                     frame.phase = 3;
                     if (push(FrameKind::List, script, body, frame.tested, false) !=
                         Status::Ok) {

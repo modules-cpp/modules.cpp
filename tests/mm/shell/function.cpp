@@ -164,12 +164,60 @@ void every_arena_is_preflighted() {
     }
 }
 
+void adopts_handles_without_the_arena() {
+    Scratch parent_arena;
+    FunctionLibrary parent{parent_arena.storage()};
+    expect(parent.define("one", SourceView{"echo one"}).ok(),
+           "parent defines the first function");
+    expect(parent.define("two", SourceView{"echo two"}).ok(),
+           "parent defines the second function");
+
+    Scratch child_arena;
+    FunctionLibrary child{child_arena.storage()};
+    expect(child.define("stale", SourceView{"echo stale"}).ok(),
+           "child has an unrelated definition first");
+    expect(child.adopt(parent).ok() && child.size() == 2 &&
+               child.find("one") != nullptr &&
+               child.find("stale") == nullptr,
+           "adopting replaces the child's table with the parent's handles");
+    const auto* adopted = child.find("two");
+    const auto* original = parent.find("two");
+    expect(adopted != nullptr && original != nullptr &&
+               adopted->body.nodes.data() == original->body.nodes.data(),
+           "an adopted handle views the parent arena rather than copying it");
+
+    expect(child.define("two", SourceView{"echo child"}).ok(),
+           "the child may redefine an adopted name");
+    expect(child.find("two")->body.nodes.data() !=
+               original->body.nodes.data() &&
+               parent.find("two")->body.nodes.data() ==
+                   original->body.nodes.data(),
+           "a child redefinition lands in child storage and spares the parent");
+
+    mm::shell::FunctionSlot one_slot[1]{};
+    char text[64]{};
+    mm::shell::ScriptToken tokens[16]{};
+    mm::shell::WordFragment fragments[16]{};
+    mm::shell::SyntaxNode nodes[16]{};
+    mm::shell::SyntaxLink links[16]{};
+    mm::shell::ParserFrame context[8]{};
+    FunctionLibrary narrow{
+        {one_slot, text, tokens, fragments, nodes, links, context}};
+    const auto refused = narrow.adopt(parent);
+    expect(refused.status == Status::Overflow &&
+               refused.overflow.storage_class ==
+                   mm::shell::StorageClass::Functions &&
+               refused.overflow.required == 2 && narrow.size() == 0,
+           "too few slots to adopt reports Functions and changes nothing");
+}
+
 const mm::test::case_ cases[]{
     {"deep copy and replacement", &deep_copy_and_replacement},
     {"replacement preflight and names",
      &replacement_preflight_and_names},
     {"parser arena preflight", &parser_arena_preflight},
     {"every arena is preflighted", &every_arena_is_preflighted},
+    {"adopts handles", &adopts_handles_without_the_arena},
 };
 
 const mm::test::registrar reg{"mm.shell functions", cases};

@@ -35,6 +35,10 @@ enum class FrameKind {
     Brace,
     Function,
     Script,
+    // Resolves a simple command's command substitutions before expanding it.
+    Substitute,
+    // Runs one nested list against the child state and capture sink.
+    Capture,
 };
 
 struct EvaluatorFrame {
@@ -58,6 +62,10 @@ struct EvaluatorFrame {
     std::size_t slot_mark = 0;
     std::size_t slot_count = 0;
     PositionalFrame positionals;
+    // Substitution frames only: the capture arena marks this frame releases.
+    std::size_t capture_text_mark = 0;
+    std::size_t capture_value_first = 0;
+    std::size_t capture_value_count = 0;
     int status = 0;
     bool negate = false;
     bool tested = false;
@@ -95,6 +103,26 @@ struct EvaluatorStorage {
     // Open call frames allowed at once, so a runaway recursion is refused
     // rather than exhausting the frame span.
     std::size_t call_limit = 16;
+    // Command substitution. Every span below is required for $(list) to run;
+    // leaving any of them empty keeps a substitution fragment
+    // Status::Unsupported. capture_text and capture_values are bump arenas
+    // released with the substitution frame that filled them.
+    std::span<char> capture_text;
+    std::span<std::string_view> capture_values;
+    // The child's forked variables. Must not alias state or expansion
+    // storage.
+    std::span<VariableSlot> capture_variables;
+    std::span<char> capture_variable_text;
+    // The nested list is parsed at invocation, because the outer parse only
+    // measured it.
+    std::span<ScriptToken> capture_tokens;
+    std::span<WordFragment> capture_fragments;
+    std::span<SyntaxNode> capture_nodes;
+    std::span<SyntaxLink> capture_links;
+    std::span<ParserFrame> capture_parser_context;
+    // Definitions made inside a substitution go here and disappear with the
+    // child. Without one, defining a function inside $() is unsupported.
+    FunctionLibrary* capture_functions = nullptr;
 };
 
 struct StepResult {
@@ -165,7 +193,12 @@ private:
                                      bool negate);
     [[nodiscard]] CommandResult assign_prefixes(const EmbeddedScript& script,
                                                 std::size_t node,
-                                                std::size_t count);
+                                                std::size_t count,
+                                                std::size_t& consumed);
+    // The capture results this command has not consumed yet, in fragment
+    // order. Empty when the command has no substitutions.
+    [[nodiscard]] std::span<const std::string_view> captures(
+        std::size_t consumed) const;
     [[nodiscard]] Status append_item(std::string_view value);
     [[nodiscard]] Status build_pattern(const EmbeddedScript& script,
                                        std::size_t node,
@@ -176,6 +209,19 @@ private:
     // Drops every open frame and publishes a final status: exit, set -e, and
     // an unset parameter under set -u all end the evaluator this way.
     void abandon(int status);
+    // The child state and sinks replace the application's while a capture
+    // frame is open; everything else the evaluator reads is shared.
+    [[nodiscard]] ShellState& state();
+    [[nodiscard]] FunctionLibrary* functions();
+    [[nodiscard]] std::size_t count_substitutions(
+        const EmbeddedScript& script, std::size_t node,
+        std::size_t assignments) const;
+    [[nodiscard]] const WordFragment* substitution_at(
+        const EmbeddedScript& script, std::size_t node,
+        std::size_t assignments, std::size_t index) const;
+    [[nodiscard]] Status begin_capture(const EmbeddedScript& script,
+                                       const WordFragment& fragment);
+    [[nodiscard]] Status finish_capture(EvaluatorFrame& frame);
     [[nodiscard]] IoServices handler_io();
     [[nodiscard]] Drain drain_once();
     void recycle_staging();
@@ -190,6 +236,15 @@ private:
     std::size_t item_text_used_ = 0;
     std::size_t slots_used_ = 0;
     std::size_t calls_open_ = 0;
+    ShellState capture_state_{};
+    EmbeddedScript capture_script_{};
+    MemorySink capture_sink_{};
+    std::size_t capture_text_used_ = 0;
+    std::size_t capture_values_used_ = 0;
+    std::size_t capture_depth_ = 0;
+    // The capture results belonging to the command being expanded.
+    std::size_t capture_first_ = 0;
+    std::size_t capture_count_ = 0;
     MemorySink staging_out_{};
     MemorySink staging_error_{};
     std::size_t drained_out_ = 0;

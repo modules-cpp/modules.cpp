@@ -121,6 +121,13 @@ state and published fields unchanged. Argument-vector forms inside operands
 and command substitution currently return Status::Unsupported. They are not
 yet Level 1 conformance claims.
 
+A command-substitution fragment consumes one entry of
+WordExpansionStorage::substitutions, the text the evaluator captured before the
+word was expanded, in fragment order. The result reports how many entries the
+word used, so the caller can advance to the next word. An empty span makes such
+a fragment Status::Unsupported, which is what a caller that cannot run a nested
+list wants.
+
 expand_value is the same expansion without field splitting, for assignment
 values and case selectors. Its value_offset argument drops an unquoted
 literal prefix such as NAME=, so no separate fragment copy is needed. Only a
@@ -136,6 +143,11 @@ preflights every arena, copies the name and body source, parses into owned
 storage, then publishes or replaces one visible handle. A failed definition
 leaves the old handle visible. Old allocations are reclaimed on reset, not on
 replacement.
+
+adopt copies another library's visible handles without copying its arena, which
+is how a command-substitution child starts from the parent's definitions and
+still defines its own in separate storage. The source arena must outlive every
+adopted handle.
 
 A definition executed by the evaluator hands define the body's list source with
 the braces stripped, not the brace group itself. The copy is the same script
@@ -254,6 +266,43 @@ Open calls are capped by EvaluatorStorage::call_limit. Exceeding it refuses the
 call with status 2 and Overflow rather than exhausting the frame span, and the
 refused call unwinds like any other failure.
 
+### Command substitution
+
+`$(list)` runs without a process. A simple command that contains one is entered
+through a Substitute frame, which resolves each substitution before the command
+expands its words. Each one parses its nested list into the capture parse arena,
+forks a child ShellState into the capture variable storage, adopts the parent's
+function handles into the capture function library, installs the capture sink,
+and pushes a Capture frame. Everything the child needs is preflighted before its
+first command runs. The Capture frame is an ordinary list frame, so the
+application keeps control between the nested command and the command that
+consumes its output, and a step still enters at most one handler.
+
+The child receives copied variables, positional parameters, options, and status,
+and adopted function handles. Its mutations never return to the parent: nothing
+is committed back when the frame pops. Native side effects outside ShellState are
+real, exactly as they are inside POSIX command substitution — a device write
+inside `$()` still writes.
+
+A substitution replaces only the ordinary-output sink. Diagnostics keep going to
+the application, staged as usual. Capture capacity is enforced on each write;
+the evaluator strips trailing LF bytes and publishes the remainder. Capture
+overflow fails the containing expansion with StorageClass::CaptureBytes and
+never publishes truncated text.
+
+The capture text and value arenas are bump-allocated and released with the
+Substitute frame that filled them, so several substitutions in one command
+coexist. Words are visited in the order the evaluator expands them: the command
+words first, then the assignment prefixes.
+
+Two forms are refused rather than approximated at this level, each with
+Status::Unsupported: a substitution inside another substitution, and a
+substitution inside a parameter operand such as `${x:-$(y)}`. A `for` word list
+or `case` selector containing one is refused the same way, because only a simple
+command is entered through a Substitute frame. Leaving any capture span empty
+also makes a substitution unsupported, which is how an application that does not
+want nested execution declares that.
+
 ### Flow ownership
 
 A flow value is consumed only by the frame that owns it. Break and Continue
@@ -320,7 +369,9 @@ the retried drain repeats neither. The same fake proves the scratch contract,
 returning Overflow with StorageClass::TransactionScratch, no output, and no
 effect when its span is too small.
 
-Command substitution is not yet implemented.
+Every level-1 language construct is now implemented. The atomic
+install_level1 entry point and the qualified acceptance storage profile are what
+remain before the pack can be published to an application.
 
 ## Session in progress
 

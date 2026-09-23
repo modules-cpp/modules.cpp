@@ -48,6 +48,11 @@ public:
                                         SourceView body);
     [[nodiscard]] const FunctionSlot* find(
         std::string_view name) const;
+    // Copies another library's visible handles without copying its arena, so a
+    // command-substitution child starts from the parent's definitions and
+    // defines new ones in its own storage. The source arena must outlive every
+    // adopted handle. Existing definitions here are discarded.
+    [[nodiscard]] FunctionResult adopt(const FunctionLibrary& source);
     [[nodiscard]] std::size_t size() const { return count_; }
     void reset();
 

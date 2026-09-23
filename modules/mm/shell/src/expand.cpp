@@ -234,6 +234,7 @@ struct OperandResult {
     ShellState& working = transactional ? shadow : state;
     std::size_t piece_count = 0;
     std::size_t generated = 0;
+    std::size_t captured = 0;
     for (const auto& fragment : fragments) {
         if (!valid_span(source, fragment.source)) {
             return {Status::BadArgument};
@@ -267,7 +268,20 @@ struct OperandResult {
             continue;
         }
         if (fragment.kind == FragmentKind::CommandSubstitution) {
-            return {Status::Unsupported};
+            // The nested list was already run; only its captured text is
+            // consumed here, in the order the fragments appear.
+            if (captured >= storage.substitutions.size()) {
+                return {Status::Unsupported};
+            }
+            if (piece_count == storage.pieces.size()) {
+                return {Status::Overflow,
+                        {StorageClass::ExpansionPieces, piece_count + 1}};
+            }
+            storage.pieces[piece_count++] = {
+                fragment.quoted ? FieldPieceKind::Quoted
+                                : FieldPieceKind::Split,
+                storage.substitutions[captured++]};
+            continue;
         }
         if (fragment.kind == FragmentKind::Arithmetic) {
             if (spelling.size() < 5 ||
@@ -385,7 +399,8 @@ struct OperandResult {
                     generated};
         }
     }
-    return {split.status, split.overflow, piece_count, generated};
+    return {split.status, split.overflow, piece_count, generated,
+            captured};
 }
 
 }  // namespace

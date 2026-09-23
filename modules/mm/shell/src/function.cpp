@@ -160,6 +160,20 @@ FunctionResult FunctionLibrary::define(std::string_view name,
     return {};
 }
 
+FunctionResult FunctionLibrary::adopt(const FunctionLibrary& source) {
+    if (&source == this) return {};
+    if (storage_.functions.size() < source.count_) {
+        return {Status::Overflow,
+                {StorageClass::Functions, source.count_}};
+    }
+    reset();
+    for (std::size_t i = 0; i < source.count_; ++i) {
+        storage_.functions[i] = source.storage_.functions[i];
+    }
+    count_ = source.count_;
+    return {};
+}
+
 void FunctionLibrary::reset() {
     count_ = 0;
     text_used_ = 0;

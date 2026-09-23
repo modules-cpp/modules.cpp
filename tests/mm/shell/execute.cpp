@@ -52,6 +52,15 @@ struct RuntimeScratch {
     char staged_output[64]{};
     char staged_error[64]{};
     mm::shell::PositionalSlot call_positionals[32]{};
+    char capture_text[128]{};
+    std::string_view capture_values[8]{};
+    mm::shell::VariableSlot capture_variables[16]{};
+    char capture_variable_text[256]{};
+    mm::shell::ScriptToken capture_tokens[48]{};
+    mm::shell::WordFragment capture_fragments[48]{};
+    mm::shell::SyntaxNode capture_nodes[48]{};
+    mm::shell::SyntaxLink capture_links[48]{};
+    mm::shell::ParserFrame capture_parser_context[16]{};
 
     [[nodiscard]] EvaluatorStorage storage() {
         return {{pieces, generated, {field_text, fields},
@@ -259,6 +268,9 @@ struct Fixture {
     mm::shell::FunctionLibrary functions{function_storage.storage()};
     ScriptScratchArena script_arena;
     mm::shell::ScriptLibrary scripts{script_arena.storage()};
+    FunctionScratch capture_function_storage;
+    mm::shell::FunctionLibrary capture_functions{
+        capture_function_storage.storage()};
     mm::shell::Introspection binding{&registry, &scripts};
     CommandDescriptor core[mm::shell::core_builtin_count]{};
     std::size_t core_count = 0;
@@ -268,6 +280,18 @@ struct Fixture {
         auto supplied = runtime_storage.storage();
         supplied.functions = &functions;
         supplied.scripts = &scripts;
+        supplied.capture_text = runtime_storage.capture_text;
+        supplied.capture_values = runtime_storage.capture_values;
+        supplied.capture_variables = runtime_storage.capture_variables;
+        supplied.capture_variable_text =
+            runtime_storage.capture_variable_text;
+        supplied.capture_tokens = runtime_storage.capture_tokens;
+        supplied.capture_fragments = runtime_storage.capture_fragments;
+        supplied.capture_nodes = runtime_storage.capture_nodes;
+        supplied.capture_links = runtime_storage.capture_links;
+        supplied.capture_parser_context =
+            runtime_storage.capture_parser_context;
+        supplied.capture_functions = &capture_functions;
         return supplied;
     }
 
@@ -322,9 +346,9 @@ struct Fixture {
         expect(mm::shell::core_builtins(binding, core, core_count).ok(),
                "core pack materializes");
         for (std::size_t i = 0; i < core_count; ++i) {
-            if (core[i].name != "run") continue;
+            if (core[i].name != "run" && core[i].name != "echo") continue;
             expect(registry.install(core[i]).ok(),
-                   "fixture run installs");
+                   "fixture core descriptor installs");
         }
     }
 
@@ -1071,6 +1095,108 @@ void return_leaves_an_installed_script() {
            "return leaves the script, not the calling program");
 }
 
+void substitutes_command_output() {
+    Fixture fixture{"write -$(echo inner)-"};
+    auto result = run(fixture);
+    expect(result.step == Step::Complete &&
+               fixture.output.view() == "-inner-" &&
+               fixture.evaluator.frame_depth() == 0,
+           "a substitution runs first and its trailing newline is trimmed");
+
+    Fixture several{"write $(echo a) $(echo b)"};
+    result = run(several);
+    expect(result.step == Step::Complete &&
+               several.output.view() == "ab",
+           "several substitutions in one command resolve in order");
+
+    Fixture assigned{"v=$(echo hi); write $v"};
+    result = run(assigned);
+    expect(result.step == Step::Complete &&
+               assigned.output.view() == "hi" &&
+               assigned.state.lookup("v").value == "hi",
+           "an assignment value may come from a substitution");
+
+    Fixture quoted{"write \"$(echo one two)\""};
+    result = run(quoted);
+    expect(result.step == Step::Complete &&
+               quoted.output.view() == "one two",
+           "a quoted substitution stays one field");
+
+    // The application keeps control between the nested command and the
+    // command that consumes its output.
+    Fixture stepped{"write -$(echo inner)-"};
+    auto steps = std::size_t{0};
+    auto handler_steps = std::size_t{0};
+    do {
+        result = stepped.evaluator.step();
+        expect(stepped.evaluator.last_step_handlers() <= 1,
+               "a step through a substitution enters at most one handler");
+        if (stepped.evaluator.last_step_handlers() != 0) ++handler_steps;
+        ++steps;
+    } while (result.step == Step::Running && steps < 4096);
+    expect(result.step == Step::Complete && handler_steps == 2 &&
+               stepped.output.view() == "-inner-",
+           "the nested command and its consumer occupy separate steps");
+}
+
+void substitution_child_state_is_isolated() {
+    Fixture fixture{"x=outer; write $(x=inner; write $x)$x"};
+    auto result = run(fixture);
+    expect(result.step == Step::Complete &&
+               fixture.output.view() == "innerouter" &&
+               fixture.state.lookup("x").value == "outer",
+           "the child's assignments do not return to the parent");
+
+    Fixture defined{"f() { write parent; }; write $(f() { write child; }; f); "
+                    "f"};
+    result = run(defined);
+    expect(result.step == Step::Complete &&
+               defined.output.view() == "childparent" &&
+               defined.functions.size() == 1,
+           "a definition inside a substitution disappears with the child");
+
+    Fixture effects{"write $(device one)"};
+    result = run(effects);
+    expect(result.step == Step::Complete &&
+               effects.device_state.effects == 1 &&
+               effects.output.view() == "one",
+           "a side effect inside a substitution is real and stays performed");
+}
+
+void substitution_refusals_publish_nothing() {
+    Fixture narrow{"write -$(echo aaaaaaaaaa)-"};
+    auto storage = narrow.storage();
+    storage.capture_text = std::span<char>{
+        narrow.runtime_storage.capture_text, 4};
+    expect(narrow.evaluator.begin(narrow.script, narrow.registry,
+                                  narrow.context, storage) == Status::Ok,
+           "the narrow-capture evaluator begins");
+    auto result = run(narrow);
+    expect(result.step == Step::Failed &&
+               result.command.error == Status::Overflow &&
+               narrow.output.view().empty(),
+           "capture overflow fails the expansion without publishing text");
+
+    Fixture nested{"write $(write $(echo x))"};
+    result = run(nested);
+    expect(result.step == Step::Failed &&
+               result.command.error == Status::Unsupported,
+           "a substitution inside a substitution is refused at this level");
+
+    Fixture unavailable{"write $(echo hi)"};
+    auto without = unavailable.storage();
+    without.capture_text = {};
+    expect(unavailable.evaluator.begin(unavailable.script,
+                                       unavailable.registry,
+                                       unavailable.context,
+                                       without) == Status::Ok,
+           "the capture-less evaluator begins");
+    result = run(unavailable);
+    expect(result.step == Step::Failed &&
+               result.command.error == Status::Unsupported,
+           "without capture storage a substitution is unsupported");
+}
+
 void records_tested_contexts() {
     Fixture fixture{"ok left && ok right"};
     auto result = fixture.evaluator.step();
@@ -1121,6 +1247,9 @@ const mm::test::case_ cases[]{
     {"script refusals", &script_invocation_reports_its_refusals},
     {"functions shadow scripts", &functions_shadow_installed_scripts},
     {"return leaves a script", &return_leaves_an_installed_script},
+    {"substitutes command output", &substitutes_command_output},
+    {"substitution child state", &substitution_child_state_is_isolated},
+    {"substitution refusals", &substitution_refusals_publish_nothing},
     {"tested contexts", &records_tested_contexts},
 };
 

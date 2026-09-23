@@ -52,8 +52,9 @@ parameter spelling and read-only resolution, bounded word expansion for
 implemented forms, monotonic function storage, and a cooperative frame-based
 evaluator covering lists, assignments, conditionals, loops, case patterns,
 brace groups, control-flow ownership, set -e and set -u, function definition
-and lookup, an installable script library, and bounded positional call frames
-for both, the level-1 core builtin pack,
+and lookup, an installable script library, bounded positional call frames for
+both, and in-memory command substitution with an isolated child state, the
+level-1 core builtin pack,
 evaluator-owned output staging with retry, and an incremental Session. Free of
 filesystem, environment, process, heap allocation, or platform provider
 dependencies.
