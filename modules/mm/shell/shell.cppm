@@ -12,4 +12,6 @@ export import :parse;
 export import :state;
 export import :arithmetic;
 export import :pattern;
+export import :fields;
+export import :parameter;
 export import :command;

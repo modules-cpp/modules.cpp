@@ -3,6 +3,7 @@
 module;
 
 #include <cstddef>
+#include <cstring>
 #include <span>
 #include <string_view>
 
@@ -68,27 +69,47 @@ StateResult ShellState::assign(std::string_view name,
         return {Status::Overflow,
                 {StorageClass::Variables, variable_count_ + 1}};
     }
-    const auto name_bytes = fresh ? name.size() : 0;
-    if (name_bytes > variable_text_.size() - variable_text_used_) {
-        return {Status::Overflow,
-                {StorageClass::VariableText,
-                 variable_text_used_ + name_bytes}};
+    if (fresh) {
+        const auto available = variable_text_.size() - variable_text_used_;
+        if (name.size() > available ||
+            value.size() > available - name.size()) {
+            return {Status::Overflow,
+                    {StorageClass::VariableText,
+                     variable_text_used_ + name.size() + value.size()}};
+        }
+        const auto value_at = variable_text_used_ + name.size();
+        copy_text(variable_text_, variable_text_used_, name);
+        copy_text(variable_text_, value_at, value);
+        variables_[index] = {{variable_text_used_, name.size()},
+                             {value_at, value.size()}};
+        variable_text_used_ = value_at + value.size();
+        ++variable_count_;
+        return {};
     }
-    const auto available = variable_text_.size() - variable_text_used_;
-    if (value.size() > available - name_bytes) {
+    const auto old = variables_[index].value;
+    const auto base = variable_text_used_ - old.length;
+    if (value.size() > variable_text_.size() - base) {
         return {Status::Overflow,
-                {StorageClass::VariableText,
-                 variable_text_used_ + name_bytes + value.size()}};
+                {StorageClass::VariableText, base + value.size()}};
     }
-    const auto bytes = name_bytes + value.size();
-    SourceSpan name_span = fresh ? SourceSpan{variable_text_used_, name.size()}
-                                 : variables_[index].name;
-    if (fresh) copy_text(variable_text_, variable_text_used_, name);
-    const auto value_at = variable_text_used_ + (fresh ? name.size() : 0);
-    copy_text(variable_text_, value_at, value);
-    variables_[index] = {name_span, {value_at, value.size()}};
-    variable_text_used_ += bytes;
-    if (fresh) ++variable_count_;
+    const auto old_end = old.offset + old.length;
+    const auto new_end = old.offset + value.size();
+    const auto tail = variable_text_used_ - old_end;
+    std::memmove(variable_text_.data() + new_end,
+                 variable_text_.data() + old_end, tail);
+    for (std::size_t i = 0; i < variable_count_; ++i) {
+        if (variables_[i].name.offset >= old_end) {
+            variables_[i].name.offset =
+                variables_[i].name.offset - old.length + value.size();
+        }
+        if (i != index && variables_[i].value.offset >= old_end) {
+            variables_[i].value.offset =
+                variables_[i].value.offset - old.length + value.size();
+        }
+    }
+    copy_text(variable_text_, old.offset, value);
+    variables_[index].value.length = value.size();
+    variable_text_used_ = base + value.size();
     return {};
 }
 

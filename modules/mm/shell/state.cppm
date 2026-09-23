@@ -47,7 +47,8 @@ struct ShellState {
 
     [[nodiscard]] StateResult assign(std::string_view name,
                                      std::string_view value);
-    // Returned views become invalid when this state is reset.
+    // Returned views become invalid on assignment or reset. Assignment
+    // input must not alias the variable text pool.
     [[nodiscard]] ValueLookup lookup(std::string_view name) const;
     [[nodiscard]] std::string_view ifs() const;
 

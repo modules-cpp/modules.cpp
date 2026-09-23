@@ -33,6 +33,12 @@ void variable_transactions() {
     expect(state.lookup("A").value == "two",
            "replacement points at new pool bytes");
     expect(state.assign("B", "x").ok(), "second slot installs");
+    for (int i = 0; i < 20; ++i) {
+        expect(state.assign("A", i % 2 == 0 ? "long" : "").ok(),
+               "replacement reuses live variable capacity");
+        expect(state.lookup("B").value == "x",
+               "compaction preserves following variable");
+    }
     const auto no_slot = state.assign("C", "x");
     expect(no_slot.status == Status::Overflow &&
                no_slot.overflow.storage_class == StorageClass::Variables &&

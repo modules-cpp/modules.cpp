@@ -13,6 +13,8 @@ unit: tests/mm/shell/parse.cpp
 unit: tests/mm/shell/state.cpp
 unit: tests/mm/shell/arithmetic.cpp
 unit: tests/mm/shell/pattern.cpp
+unit: tests/mm/shell/fields.cpp
+unit: tests/mm/shell/parameter.cpp
 unit: tests/main.cpp
 ---
 
@@ -23,4 +25,4 @@ standard capability profiles, name lookup, static CommandDescriptor Registry
 lifecycle and duplicate rejection, IoServices memory sink buffering, and
 preflight scratch overflow protection in CommandContext, the embedded scanner
 and measured parser, transactional state pools, signed arithmetic, and case
-pattern matching.
+pattern matching, field splitting, and parameter spelling.
