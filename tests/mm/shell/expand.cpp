@@ -162,11 +162,11 @@ void assignment_failure_preserves_state() {
     ShellState state{variables, variable_text, {}, {}};
     Scratch scratch;
     FieldView out{{"old"}, {}};
-    const auto unsupported = expand("${A:=${B:-x}}", state,
+    const auto unsupported = expand("${A:='x'}", state,
                                     scratch, out);
     expect(unsupported.status == Status::Unsupported &&
                !state.lookup("A").found && out.text == "old",
-           "nested operand is explicitly deferred without mutation");
+           "quoted operand is explicitly deferred without mutation");
     const auto scan = mm::shell::scan_embedded(
         SourceView{"${A:=long}"}, 0, scratch.fragments);
     expect(scan.status == mm::shell::ScanStatus::Complete,
@@ -186,6 +186,96 @@ void assignment_failure_preserves_state() {
                state.lookup("A").value == "ok" &&
                out.field(0) == "ok",
            "assignment publishes state after field preflight");
+}
+
+void nested_operands_and_rollback() {
+    mm::shell::VariableSlot variables[3]{};
+    char variable_text[32]{};
+    ShellState state{variables, variable_text, {}, {}};
+    Scratch scratch;
+    FieldView out;
+    const auto nested = expand("${A:-${B:=x}}${B}",
+                               state, scratch, out);
+    expect(nested.status == Status::Ok &&
+               out.fields.size() == 1 && out.field(0) == "xx" &&
+               !state.lookup("A").found &&
+               state.lookup("B").value == "x",
+           "nested assignment publishes through the shared fork");
+    const auto assigned = expand("${A:=${B:-y} z}",
+                                 state, scratch, out);
+    expect(assigned.status == Status::Ok &&
+               out.fields.size() == 2 && out.field(0) == "x" &&
+               out.field(1) == "z" &&
+               state.lookup("A").value == "x z",
+           "outer assignment receives nested expanded operand");
+
+    mm::shell::VariableSlot rollback_variables[3]{};
+    char rollback_text[32]{};
+    ShellState rollback{rollback_variables, rollback_text, {}, {}};
+    auto storage = scratch.storage();
+    storage.fields.text = std::span{scratch.field_text}.first(1);
+    constexpr std::string_view word = "${A:-${B:=long}}";
+    const auto scan = mm::shell::scan_embedded(
+        SourceView{word}, 0, scratch.fragments);
+    expect(scan.status == mm::shell::ScanStatus::Complete,
+           "nested rollback fixture scans");
+    FieldView old{{"old"}, {}};
+    const auto failure = mm::shell::expand_word(
+        SourceView{word},
+        std::span{scratch.fragments}.first(
+            scan.token.fragments_required),
+        rollback, storage, old);
+    expect(failure.status == Status::Overflow &&
+               !rollback.lookup("B").found && old.text == "old",
+           "nested assignment rolls back on final field overflow");
+}
+
+void nested_depth_is_bounded() {
+    char word[128]{};
+    std::size_t used = 0;
+    for (int depth = 0; depth < 18; ++depth) {
+        for (const char c : std::string_view{"${A:-"}) {
+            word[used++] = c;
+        }
+    }
+    word[used++] = 'x';
+    for (int depth = 0; depth < 18; ++depth) {
+        word[used++] = '}';
+    }
+    ShellState state;
+    Scratch scratch;
+    FieldView out{{"old"}, {}};
+    const auto result = expand(
+        std::string_view{word, used}, state, scratch, out);
+    expect(result.status == Status::Overflow &&
+               result.overflow.storage_class ==
+                   mm::shell::StorageClass::ExpansionPieces &&
+               out.text == "old",
+           "recursive operand depth is bounded without publishing");
+}
+
+void empty_assignment_needs_no_text_scratch() {
+    mm::shell::VariableSlot variables[1]{};
+    char variable_text[4]{};
+    ShellState state{variables, variable_text, {}, {}};
+    Scratch scratch;
+    auto storage = scratch.storage();
+    storage.generated_text = {};
+    constexpr std::string_view word = "${A:=}";
+    const auto scan = mm::shell::scan_embedded(
+        SourceView{word}, 0, scratch.fragments);
+    expect(scan.status == mm::shell::ScanStatus::Complete,
+           "empty assignment fixture scans");
+    FieldView out;
+    const auto result = mm::shell::expand_word(
+        SourceView{word},
+        std::span{scratch.fragments}.first(
+            scan.token.fragments_required),
+        state, storage, out);
+    expect(result.status == Status::Ok &&
+               state.lookup("A").found &&
+               state.lookup("A").value.empty() && out.fields.empty(),
+           "empty assignment uses no generated-text bytes");
 }
 
 void staged_values_survive_pool_compaction() {
@@ -215,6 +305,10 @@ const mm::test::case_ cases[]{
      &literal_operands_and_transaction},
     {"assignment failure preserves state",
      &assignment_failure_preserves_state},
+    {"nested operands and rollback", &nested_operands_and_rollback},
+    {"nested depth is bounded", &nested_depth_is_bounded},
+    {"empty assignment needs no text scratch",
+     &empty_assignment_needs_no_text_scratch},
     {"staged values survive pool compaction",
      &staged_values_survive_pool_compaction},
 };

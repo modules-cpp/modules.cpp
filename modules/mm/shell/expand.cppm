@@ -20,6 +20,9 @@ struct WordExpansionStorage {
     std::span<FieldPiece> pieces;
     std::span<char> generated_text;
     FieldStorage fields;
+    // Required when a parameter operand syntactically contains :=, even
+    // when that branch is not selected at runtime. Must not alias state
+    // storage, generated_text, or fields.
     std::span<VariableSlot> shadow_variables;
     std::span<char> shadow_variable_text;
 };

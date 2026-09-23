@@ -110,11 +110,12 @@ handler.
 
 expand_word consumes scanner fragments and caller-owned piece, generated-text,
 field, and optional shadow-variable spans. It resolves scalar parameters,
-positionals, checked arithmetic, and literal operands of `:-`, `:+`, and
-`:=`. Assignment uses a variable fork capped at the parent's capacities;
+positionals, checked arithmetic, and operands of `:-`, `:+`, and `:=`.
+Nested scalar parameters are evaluated recursively with a fixed depth
+bound. Assignment uses a variable fork capped at the parent's capacities;
 state is committed only after field output succeeds. Failure leaves both
-state and published fields unchanged. Operand words containing nested
-expansion, quoting, or escapes, and command substitution, currently return
+state and published fields unchanged. Quoting, escapes, argument-vector
+forms inside operands, and command substitution currently return
 Status::Unsupported. They are not yet Level 1 conformance claims.
 
 # Platform lane qualification
