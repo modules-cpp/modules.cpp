@@ -20,6 +20,8 @@ struct WordExpansionStorage {
     std::span<FieldPiece> pieces;
     std::span<char> generated_text;
     FieldStorage fields;
+    std::span<VariableSlot> shadow_variables;
+    std::span<char> shadow_variable_text;
 };
 
 struct WordExpansionResult {
@@ -30,11 +32,11 @@ struct WordExpansionResult {
     ArithmeticStatus arithmetic_error = ArithmeticStatus::Ok;
 };
 
-// Scratch pieces and generated_text may be unspecified after failure, but
-// the published FieldView and its field storage remain unchanged.
+// Assignment operands use non-aliasing shadow variable storage. Scratch
+// may be unspecified after failure; state and published fields are not.
 [[nodiscard]] WordExpansionResult expand_word(
     SourceView source, std::span<const WordFragment> fragments,
-    const ShellState& state, WordExpansionStorage storage,
+    ShellState& state, WordExpansionStorage storage,
     FieldView& out);
 
 }  // namespace mm::shell

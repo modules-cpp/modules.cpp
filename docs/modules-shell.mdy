@@ -106,6 +106,17 @@ inside other descriptor names remain invalid. dispatch verifies nonempty argv
 matching the descriptor name and required capabilities before invoking the
 handler.
 
+## Bounded word expansion in progress
+
+expand_word consumes scanner fragments and caller-owned piece, generated-text,
+field, and optional shadow-variable spans. It resolves scalar parameters,
+positionals, checked arithmetic, and literal operands of `:-`, `:+`, and
+`:=`. Assignment uses a variable fork capped at the parent's capacities;
+state is committed only after field output succeeds. Failure leaves both
+state and published fields unchanged. Operand words containing nested
+expansion, quoting, or escapes, and command substitution, currently return
+Status::Unsupported. They are not yet Level 1 conformance claims.
+
 # Platform lane qualification
 
 The level-1 mm.shell foundation and apps/shell-smoke fixture qualification

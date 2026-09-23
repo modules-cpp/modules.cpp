@@ -208,8 +208,15 @@ StateResult ShellState::fork_variables(
     for (std::size_t i = 0; i < variable_text_used_; ++i) {
         variable_text[i] = variable_text_[i];
     }
-    ShellState next{variables, variable_text, positionals_,
-                    positional_text_};
+    // A fork cannot grow beyond its parent even when scratch is larger.
+    // This makes a successful shadow assignment safe to commit.
+    const auto slots = variables.first(
+        variables.size() < variables_.size() ? variables.size()
+                                             : variables_.size());
+    const auto bytes = variable_text.first(
+        variable_text.size() < variable_text_.size()
+            ? variable_text.size() : variable_text_.size());
+    ShellState next{slots, bytes, positionals_, positional_text_};
     next.last_status = last_status;
     next.errexit = errexit;
     next.nounset = nounset;

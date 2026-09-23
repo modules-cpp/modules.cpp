@@ -50,12 +50,43 @@ void write_decimal(std::int64_t value, std::span<char> output) {
            span.length <= source.size() - span.offset;
 }
 
+[[nodiscard]] bool plain_operand(std::string_view text) {
+    for (const char c : text) {
+        if (c == '$' || c == '\'' || c == '"' || c == '\\' ||
+            c == '`') return false;
+    }
+    return true;
+}
+
+[[nodiscard]] bool needs_shadow(
+    SourceView source, std::span<const WordFragment> fragments) {
+    for (const auto& fragment : fragments) {
+        if (fragment.kind != FragmentKind::Parameter ||
+            !valid_span(source, fragment.source)) continue;
+        const auto parsed = parse_parameter(source.slice(fragment.source));
+        if (parsed.status == ParameterStatus::Ok &&
+            parsed.parameter.operation == ParameterOperator::Assign) {
+            return true;
+        }
+    }
+    return false;
+}
+
 }  // namespace
 
 WordExpansionResult expand_word(
     SourceView source, std::span<const WordFragment> fragments,
-    const ShellState& state, WordExpansionStorage storage,
+    ShellState& state, WordExpansionStorage storage,
     FieldView& out) {
+    ShellState shadow;
+    const bool transactional = needs_shadow(source, fragments);
+    if (transactional) {
+        const auto fork = state.fork_variables(
+            storage.shadow_variables, storage.shadow_variable_text,
+            shadow);
+        if (!fork.ok()) return {fork.status, fork.overflow};
+    }
+    const ShellState& working = transactional ? shadow : state;
     std::size_t piece_count = 0;
     std::size_t generated = 0;
     for (const auto& fragment : fragments) {
@@ -88,7 +119,7 @@ WordExpansionResult expand_word(
             }
             const auto expression = spelling.substr(
                 3, spelling.size() - 5);
-            const auto result = evaluate_arithmetic(expression, state);
+            const auto result = evaluate_arithmetic(expression, working);
             if (!result.ok()) {
                 WordExpansionResult failure{Status::BadArgument};
                 failure.arithmetic_error = result.status;
@@ -117,21 +148,77 @@ WordExpansionResult expand_word(
         if (parsed.status != ParameterStatus::Ok) {
             return {Status::BadArgument};
         }
-        const auto selected = resolve_parameter(parsed.parameter, state);
+        const auto selected = resolve_parameter(parsed.parameter, working);
         if (selected.status != Status::Ok) return {selected.status};
+        if (selected.kind == ParameterValueKind::Operand ||
+            selected.kind == ParameterValueKind::AssignOperand) {
+            if (!plain_operand(selected.text)) {
+                return {Status::Unsupported};
+            }
+            if (piece_count == storage.pieces.size()) {
+                return {Status::Overflow,
+                        {StorageClass::ExpansionPieces, piece_count + 1}};
+            }
+            if (selected.kind == ParameterValueKind::AssignOperand) {
+                const auto assigned = shadow.assign(
+                    parsed.parameter.name, selected.text);
+                if (!assigned.ok()) {
+                    return {assigned.status, assigned.overflow};
+                }
+            }
+            storage.pieces[piece_count++] = {
+                fragment.quoted ? FieldPieceKind::Quoted
+                                : FieldPieceKind::Split,
+                selected.text};
+            continue;
+        }
         const auto result = materialize_parameter(
-            selected, state, fragment.quoted,
+            selected, working, fragment.quoted,
             storage.pieces.subspan(piece_count),
             storage.generated_text.subspan(generated));
         if (result.status != Status::Ok) {
             return {result.status, result.overflow,
                     piece_count, generated};
         }
-        piece_count += result.piece_count;
         generated += result.text_bytes;
+        if (transactional) {
+            for (std::size_t i = 0; i < result.piece_count; ++i) {
+                auto& piece = storage.pieces[piece_count + i];
+                if (piece.kind == FieldPieceKind::Boundary ||
+                    piece.text.empty() ||
+                    (selected.kind == ParameterValueKind::Number)) {
+                    continue;
+                }
+                const auto bytes = piece.text.size();
+                if (bytes > storage.generated_text.size() - generated) {
+                    return {Status::Overflow,
+                            {StorageClass::ExpansionScratch,
+                             generated + bytes}};
+                }
+                auto output = storage.generated_text.subspan(
+                    generated, bytes);
+                for (std::size_t j = 0; j < bytes; ++j) {
+                    output[j] = piece.text[j];
+                }
+                piece.text = {output.data(), bytes};
+                generated += bytes;
+            }
+        }
+        piece_count += result.piece_count;
     }
     const auto split = split_fields(
-        storage.pieces.first(piece_count), state.ifs(), storage.fields, out);
+        storage.pieces.first(piece_count), working.ifs(),
+        storage.fields, out);
+    if (split.status != Status::Ok) {
+        return {split.status, split.overflow, piece_count, generated};
+    }
+    if (transactional) {
+        const auto commit = state.commit_variables_from(shadow);
+        if (!commit.ok()) {
+            return {commit.status, commit.overflow, piece_count,
+                    generated};
+        }
+    }
     return {split.status, split.overflow, piece_count, generated};
 }
 
