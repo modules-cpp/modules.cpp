@@ -9,6 +9,7 @@ file: io.cppm mm.shell:io
 file: source.cppm mm.shell:source
 file: state.cppm mm.shell:state
 file: command.cppm mm.shell:command
+file: command_internal.cppm mm.shell:command_internal
 file: shell.cppm mm.shell
 file: src/command.cpp
 ---

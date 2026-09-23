@@ -27,11 +27,22 @@ void smoke_handler(
     (void)context;
     (void)args;
     const auto res = context_view.io.out.write("shell-smoke ok\n");
-    result.flow = mm::shell::Flow::Normal;
-    result.status = (res == mm::shell::SinkResult::Accepted) ? 0 : 1;
-    result.error = (res == mm::shell::SinkResult::Accepted)
-        ? mm::shell::Status::Ok
-        : mm::shell::Status::WriteError;
+    if (res == mm::shell::SinkResult::Accepted) {
+        result.flow = mm::shell::Flow::Normal;
+        result.status = 0;
+        result.error = mm::shell::Status::Ok;
+    } else if (res == mm::shell::SinkResult::WouldBlock) {
+        result.flow = mm::shell::Flow::Yield;
+        result.status = 0;
+        result.error = mm::shell::Status::Ok;
+    } else {
+        const auto failure = context_view.io.out.failure();
+        result.flow = mm::shell::Flow::Normal;
+        result.status =
+            static_cast<int>(mm::shell::CommandStatus::Failure);
+        result.error = failure.error;
+        result.overflow = failure.overflow;
+    }
 }
 
 }  // namespace

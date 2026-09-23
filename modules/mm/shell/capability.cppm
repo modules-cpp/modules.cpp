@@ -2,6 +2,7 @@
 // 32bitmicro LLC (C) 2026
 module;
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -10,6 +11,12 @@ module;
 export module mm.shell:capability;
 
 export namespace mm::shell {
+
+enum class Level {
+    BareMetal = 1,
+    Mcu = 2,
+    Posix = 3,
+};
 
 enum class ScriptProfile {
     Embedded,
@@ -42,56 +49,55 @@ enum class Capability : unsigned int {
 
 constexpr std::size_t capability_count = 21;
 
+}  // namespace mm::shell
+
+namespace mm::shell::detail {
+
+struct CapabilityName {
+    Capability capability;
+    std::string_view name;
+};
+
+inline constexpr std::array<CapabilityName, capability_count> capability_names{{
+    {Capability::Scripts, "scripts"},
+    {Capability::CustomCommands, "custom_commands"},
+    {Capability::Console, "console"},
+    {Capability::Variables, "variables"},
+    {Capability::Functions, "functions"},
+    {Capability::CommandSubstitution, "command_substitution"},
+    {Capability::Board, "board"},
+    {Capability::Gpio, "gpio"},
+    {Capability::Spi, "spi"},
+    {Capability::I2c, "i2c"},
+    {Capability::Uart, "uart"},
+    {Capability::Timer, "timer"},
+    {Capability::Adc, "adc"},
+    {Capability::Pwm, "pwm"},
+    {Capability::Pathname, "pathname"},
+    {Capability::Files, "files"},
+    {Capability::Processes, "processes"},
+    {Capability::Pipelines, "pipelines"},
+    {Capability::Redirections, "redirections"},
+    {Capability::Signals, "signals"},
+    {Capability::Environment, "environment"},
+}};
+
+}  // namespace mm::shell::detail
+
+export namespace mm::shell {
+
 [[nodiscard]] constexpr std::string_view name_of(Capability cap) {
-    switch (cap) {
-        case Capability::Scripts: return "scripts";
-        case Capability::CustomCommands: return "custom_commands";
-        case Capability::Console: return "console";
-        case Capability::Variables: return "variables";
-        case Capability::Functions: return "functions";
-        case Capability::CommandSubstitution: return "command_substitution";
-        case Capability::Board: return "board";
-        case Capability::Gpio: return "gpio";
-        case Capability::Spi: return "spi";
-        case Capability::I2c: return "i2c";
-        case Capability::Uart: return "uart";
-        case Capability::Timer: return "timer";
-        case Capability::Adc: return "adc";
-        case Capability::Pwm: return "pwm";
-        case Capability::Pathname: return "pathname";
-        case Capability::Files: return "files";
-        case Capability::Processes: return "processes";
-        case Capability::Pipelines: return "pipelines";
-        case Capability::Redirections: return "redirections";
-        case Capability::Signals: return "signals";
-        case Capability::Environment: return "environment";
+    for (const auto& entry : detail::capability_names) {
+        if (entry.capability == cap) return entry.name;
     }
     return "unknown";
 }
 
 [[nodiscard]] constexpr std::optional<Capability> lookup_capability(
     std::string_view name) {
-    if (name == "scripts") return Capability::Scripts;
-    if (name == "custom_commands") return Capability::CustomCommands;
-    if (name == "console") return Capability::Console;
-    if (name == "variables") return Capability::Variables;
-    if (name == "functions") return Capability::Functions;
-    if (name == "command_substitution") return Capability::CommandSubstitution;
-    if (name == "board") return Capability::Board;
-    if (name == "gpio") return Capability::Gpio;
-    if (name == "spi") return Capability::Spi;
-    if (name == "i2c") return Capability::I2c;
-    if (name == "uart") return Capability::Uart;
-    if (name == "timer") return Capability::Timer;
-    if (name == "adc") return Capability::Adc;
-    if (name == "pwm") return Capability::Pwm;
-    if (name == "pathname") return Capability::Pathname;
-    if (name == "files") return Capability::Files;
-    if (name == "processes") return Capability::Processes;
-    if (name == "pipelines") return Capability::Pipelines;
-    if (name == "redirections") return Capability::Redirections;
-    if (name == "signals") return Capability::Signals;
-    if (name == "environment") return Capability::Environment;
+    for (const auto& entry : detail::capability_names) {
+        if (entry.name == name) return entry.capability;
+    }
     return std::nullopt;
 }
 

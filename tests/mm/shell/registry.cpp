@@ -88,8 +88,8 @@ void registry_capacity_limit() {
     mm::test::expect(reg.install(d2).ok(), "d2 ok");
 
     const auto res = reg.install(d3);
-    mm::test::expect(res.status == mm::shell::Status::CapacityExceeded,
-                     "d3 rejected as CapacityExceeded");
+    mm::test::expect(res.status == mm::shell::Status::Overflow,
+                     "d3 rejected as Overflow");
     mm::test::expect(
         res.overflow.storage_class == mm::shell::StorageClass::CustomCommands,
         "overflow storage class is CustomCommands");
@@ -139,8 +139,8 @@ void registry_install_pack_all_or_none() {
         { .name = "p4", .handler = &dummy_handler },
     };
     const auto huge_status = reg.install_pack(huge_pack);
-    mm::test::expect(huge_status.status == mm::shell::Status::CapacityExceeded,
-                     "huge pack rejected as CapacityExceeded");
+    mm::test::expect(huge_status.status == mm::shell::Status::Overflow,
+                     "huge pack rejected as Overflow");
     mm::test::expect(
         huge_status.overflow.storage_class ==
             mm::shell::StorageClass::CustomCommands,
@@ -182,9 +182,18 @@ void registry_rejects_invalid_names() {
                          "invalid command name rejected");
     }
     mm::test::expect(reg.count() == 0, "no invalid names installed");
+
+    const mm::shell::CommandDescriptor bracket{
+        .name = "[",
+        .summary = "Embedded test builtin",
+        .command_class = mm::shell::CommandClass::Builtin,
+        .handler = &dummy_handler,
+    };
+    mm::test::expect(reg.install(bracket).ok(), "exact [ name is admitted");
+    mm::test::expect(reg.find("[") != nullptr, "[ command is registered");
 }
 
-void registry_special_builtin_handling() {
+void registry_rejects_public_special_builtin() {
     mm::shell::CommandDescriptor storage[4];
     mm::shell::Registry reg(storage);
 
@@ -207,11 +216,6 @@ void registry_special_builtin_handling() {
                      "public install_pack rejects SpecialBuiltin");
     mm::test::expect(reg.count() == 0, "count remains 0");
 
-    // install_special allows SpecialBuiltin
-    const auto spec_res = reg.install_special(special_desc);
-    mm::test::expect(spec_res.ok(), "install_special accepts SpecialBuiltin");
-    mm::test::expect(reg.count() == 1, "count is 1");
-    mm::test::expect(reg.find("special_cmd") != nullptr, "found special");
 }
 
 void two_independent_registries() {
@@ -238,7 +242,8 @@ const mm::test::case_ cases[] = {
     { "registry capacity limit", &registry_capacity_limit },
     { "registry install pack all or none", &registry_install_pack_all_or_none },
     { "registry rejects invalid names", &registry_rejects_invalid_names },
-    { "registry special builtin handling", &registry_special_builtin_handling },
+    { "registry rejects public special builtin",
+      &registry_rejects_public_special_builtin },
     { "two independent registries", &two_independent_registries },
 };
 

@@ -14,6 +14,15 @@ import :io;
 import :state;
 
 export namespace mm::shell {
+struct CommandDescriptor;
+class Registry;
+}  // namespace mm::shell
+
+export namespace mm::shell::detail {
+struct StandardCommandInstaller;
+}  // namespace mm::shell::detail
+
+export namespace mm::shell {
 
 struct CommandContext {
     IoServices& io;
@@ -45,8 +54,6 @@ public:
     explicit Registry(std::span<CommandDescriptor> storage);
 
     [[nodiscard]] InstallResult install(const CommandDescriptor& descriptor);
-    [[nodiscard]] InstallResult install_special(
-        const CommandDescriptor& descriptor);
     [[nodiscard]] InstallResult install_pack(
         std::span<const CommandDescriptor> pack);
 
@@ -60,6 +67,12 @@ public:
     void reset() { count_ = 0; }
 
 private:
+    friend struct detail::StandardCommandInstaller;
+
+    [[nodiscard]] InstallResult install_pack_impl(
+        std::span<const CommandDescriptor> pack,
+        bool permit_special_builtins);
+
     std::span<CommandDescriptor> storage_;
     std::size_t count_ = 0;
 };

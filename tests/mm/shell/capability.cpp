@@ -1,5 +1,6 @@
 // Pawel Wodnicki (C) 2026
 // 32bitmicro LLC (C) 2026
+#include <cstddef>
 #include <string_view>
 
 import mm.shell;
@@ -46,6 +47,14 @@ void capability_contains_and_merge() {
 }
 
 void capability_standard_levels() {
+    mm::test::expect(
+        static_cast<int>(mm::shell::Level::BareMetal) == 1,
+        "bare-metal level value");
+    mm::test::expect(static_cast<int>(mm::shell::Level::Mcu) == 2,
+                     "mcu level value");
+    mm::test::expect(static_cast<int>(mm::shell::Level::Posix) == 3,
+                     "posix level value");
+
     const auto l1 = mm::shell::CapabilitySet::level1();
     const auto l2 = mm::shell::CapabilitySet::level2();
     const auto l3 = mm::shell::CapabilitySet::level3();
@@ -86,18 +95,23 @@ void capability_standard_levels() {
 }
 
 void capability_names_and_lookup() {
-    mm::test::expect(mm::shell::name_of(mm::shell::Capability::Gpio) == "gpio",
-                     "gpio name");
-    mm::test::expect(mm::shell::name_of(mm::shell::Capability::Spi) == "spi",
-                     "spi name");
-
-    const auto looked = mm::shell::lookup_capability("gpio");
-    mm::test::expect(looked.has_value(), "lookup gpio found");
-    mm::test::expect(*looked == mm::shell::Capability::Gpio,
-                     "lookup gpio matches");
+    for (std::size_t i = 0; i < mm::shell::capability_count; ++i) {
+        const auto capability = static_cast<mm::shell::Capability>(i);
+        const auto name = mm::shell::name_of(capability);
+        const auto looked = mm::shell::lookup_capability(name);
+        mm::test::expect(name != "unknown", "capability has canonical name");
+        mm::test::expect(looked.has_value(), "canonical name looks up");
+        if (looked.has_value()) {
+            mm::test::expect(*looked == capability,
+                             "capability name round trips");
+        }
+    }
 
     mm::test::expect(!mm::shell::lookup_capability("nonexistent").has_value(),
                      "lookup invalid absent");
+    mm::test::expect(
+        mm::shell::name_of(static_cast<mm::shell::Capability>(99)) == "unknown",
+        "invalid capability has unknown name");
 }
 
 const mm::test::case_ cases[] = {

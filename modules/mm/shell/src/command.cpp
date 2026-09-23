@@ -3,6 +3,7 @@
 module;
 
 #include <cstddef>
+#include <limits>
 #include <span>
 #include <string_view>
 
@@ -13,6 +14,7 @@ import :capability;
 import :io;
 import :state;
 import :command;
+import :command_internal;
 
 namespace mm::shell {
 
@@ -22,6 +24,8 @@ namespace {
     if (name.empty()) {
         return false;
     }
+    if (name == "[") return true;
+
     for (char c : name) {
         const auto uc = static_cast<unsigned char>(c);
         if (uc <= 0x20 || uc >= 0x7f) {
@@ -70,7 +74,7 @@ Registry::Registry(std::span<CommandDescriptor> storage)
 InstallResult Registry::install(const CommandDescriptor& descriptor) {
     if (count_ >= storage_.size()) {
         return InstallResult{
-            .status = Status::CapacityExceeded,
+            .status = Status::Overflow,
             .overflow = OverflowInfo{
                 .storage_class = StorageClass::CustomCommands,
                 .required = count_ + 1,
@@ -94,37 +98,24 @@ InstallResult Registry::install(const CommandDescriptor& descriptor) {
     return InstallResult{.status = Status::Ok};
 }
 
-InstallResult Registry::install_special(const CommandDescriptor& descriptor) {
-    if (count_ >= storage_.size()) {
-        return InstallResult{
-            .status = Status::CapacityExceeded,
-            .overflow = OverflowInfo{
-                .storage_class = StorageClass::CustomCommands,
-                .required = count_ + 1,
-            },
-        };
-    }
-    if (!is_valid_name(descriptor.name)) {
-        return InstallResult{.status = Status::BadArgument};
-    }
-    if (descriptor.handler == nullptr) {
-        return InstallResult{.status = Status::BadArgument};
-    }
-    if (find(descriptor.name) != nullptr) {
-        return InstallResult{.status = Status::Duplicate};
-    }
-
-    storage_[count_++] = descriptor;
-    return InstallResult{.status = Status::Ok};
+InstallResult Registry::install_pack(std::span<const CommandDescriptor> pack) {
+    return install_pack_impl(pack, false);
 }
 
-InstallResult Registry::install_pack(std::span<const CommandDescriptor> pack) {
-    if (count_ + pack.size() > storage_.size()) {
+InstallResult Registry::install_pack_impl(
+    std::span<const CommandDescriptor> pack,
+    bool permit_special_builtins) {
+    if (pack.size() > storage_.size() - count_) {
+        std::size_t required = 0;
+        if (pack.size() <=
+            std::numeric_limits<std::size_t>::max() - count_) {
+            required = count_ + pack.size();
+        }
         return InstallResult{
-            .status = Status::CapacityExceeded,
+            .status = Status::Overflow,
             .overflow = OverflowInfo{
                 .storage_class = StorageClass::CustomCommands,
-                .required = count_ + pack.size(),
+                .required = required,
             },
         };
     }
@@ -137,7 +128,8 @@ InstallResult Registry::install_pack(std::span<const CommandDescriptor> pack) {
         if (desc.handler == nullptr) {
             return InstallResult{.status = Status::BadArgument};
         }
-        if (desc.command_class == CommandClass::SpecialBuiltin) {
+        if (!permit_special_builtins &&
+            desc.command_class == CommandClass::SpecialBuiltin) {
             return InstallResult{.status = Status::BadArgument};
         }
         if (find(desc.name) != nullptr) {
@@ -155,6 +147,12 @@ InstallResult Registry::install_pack(std::span<const CommandDescriptor> pack) {
         storage_[count_++] = desc;
     }
     return InstallResult{.status = Status::Ok};
+}
+
+InstallResult detail::StandardCommandInstaller::install(
+    Registry& registry,
+    std::span<const CommandDescriptor> pack) {
+    return registry.install_pack_impl(pack, true);
 }
 
 const CommandDescriptor* Registry::find(std::string_view name) const {

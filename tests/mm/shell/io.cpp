@@ -18,6 +18,8 @@ void memory_sink_write_and_overflow() {
     mm::test::expect(res1 == mm::shell::SinkResult::Accepted,
                      "write hello accepted");
     mm::test::expect(sink.view() == "hello", "view matches hello");
+    mm::test::expect(bs.failure().error == mm::shell::Status::Ok,
+                     "accepted write has no failure");
 
     const auto res2 = bs.write("!");
     mm::test::expect(res2 == mm::shell::SinkResult::Accepted,
@@ -30,9 +32,20 @@ void memory_sink_write_and_overflow() {
                      "overflow write fails without partial write");
     mm::test::expect(sink.view() == "hello!",
                      "unsuccessful write leaves sink unmodified");
+    const auto failure = bs.failure();
+    mm::test::expect(failure.error == mm::shell::Status::Overflow,
+                     "memory exhaustion is typed Overflow");
+    mm::test::expect(
+        failure.overflow.storage_class ==
+            mm::shell::StorageClass::StagedOutput,
+        "memory exhaustion identifies staged output");
+    mm::test::expect(failure.overflow.required == 11,
+                     "memory exhaustion reports required bytes");
 
     sink.reset();
     mm::test::expect(sink.view().empty(), "reset clears view");
+    mm::test::expect(bs.failure().error == mm::shell::Status::Ok,
+                     "reset clears failure details");
 }
 
 void io_services_independent_channels() {
@@ -78,6 +91,10 @@ void byte_sink_results_and_null_rejection() {
                      "null callback write fails");
     mm::test::expect(null_sink.flush() == mm::shell::SinkResult::Failed,
                      "null callback flush fails");
+    mm::test::expect(null_sink.failure().error == mm::shell::Status::WriteError,
+                     "untyped sink failure defaults to write error");
+    mm::test::expect(null_sink.write(nullptr) == mm::shell::SinkResult::Failed,
+                     "null string is rejected");
 
     // DiscardSink explicitly accepts and discards
     const auto discard = mm::shell::DiscardSink::sink();

@@ -16,7 +16,6 @@ enum class Status {
     NotFound,
     Unavailable,
     Unsupported,
-    CapacityExceeded,
     Overflow,
     WriteError,
     ReadError,
@@ -108,7 +107,6 @@ struct InstallResult {
         case Status::NotFound: return "not found";
         case Status::Unavailable: return "service or capability unavailable";
         case Status::Unsupported: return "unsupported operation";
-        case Status::CapacityExceeded: return "capacity exceeded";
         case Status::Overflow: return "storage overflow";
         case Status::WriteError: return "i/o write error";
         case Status::ReadError: return "i/o read error";

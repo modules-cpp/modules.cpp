@@ -36,53 +36,43 @@ passed into mm.shell as explicit spans:
 - Registry descriptors are stored in caller-provided spans. install_pack
   preflights all entries, performing atomic all-or-none registration.
 
-## Acceptance application storage profile
+## Foundation acceptance storage profile
 
-Applications instantiate the following standard storage profile:
+The Change Set 3 shell-smoke application instantiates the storage classes that
+exist in the foundation API:
 
 - source bytes: 512
 - expansion scratch bytes: 512
-- token slots: 128
-- word-fragment slots: 128
-- syntax-node slots: 96
-- syntax-link slots: 128
-- parser-context slots: 32
-- evaluator-frame slots: 16
-- variable slots: 32
-- variable text bytes: 512
-- positional-parameter slots: 32
-- positional-parameter text bytes: 256
-- expanded-field slots: 32
-- expanded-field text bytes: 512
-- installed-function slots: 8
-- installed-function arena bytes: 2048
-- installed-script slots: 8
-- installed-script arena bytes: 4096
 - custom-command slots: 8
 - command-substitution capture bytes: 256
-- staged-output bytes: 256
-- console pending-output bytes: 512
+- staged ordinary-output bytes: 256
+- staged diagnostic-output bytes: 256
 - MCU transaction scratch bytes: 256
-- interactive input-line bytes: 256
+
+Parser, evaluator, variable, function, installed-script, console, and session
+storage joins this profile only when the corresponding API is implemented.
 
 # Foundation API
 
 ## Status and flow
 
 - Status: classifies internal operation outcomes (Ok, BadArgument, Duplicate,
-  NotFound, Unavailable, Unsupported, CapacityExceeded, Overflow, WriteError,
-  ReadError).
+  NotFound, Unavailable, Unsupported, Overflow, WriteError, ReadError).
 - CommandStatus: standard exit codes (Ok = 0, Failure = 1, Usage = 2,
   Unavailable = 125, CannotExecute = 126, NotFound = 127).
 - Flow: execution control flow (Normal, Exit, Break, Continue, Return, Replace,
   Yield).
-- CommandResult: combines Flow and an integer exit status.
+- CommandResult: combines Flow, an integer exit status, a typed Status error,
+  and OverflowInfo identifying the exhausted storage class and required count.
 
 ## Capabilities
 
 Capability flags govern command availability and runtime permissions.
 CapabilitySet represents active or required capabilities as a bitset with no
 heap allocation:
+
+- Level selects the BareMetal, Mcu, or Posix software composition.
+- ScriptProfile independently selects Embedded or Full language semantics.
 
 - level1: core scripts, custom commands, variables, functions, substitution.
 - level2: mandatory Level 1 software capabilities. Peripheral drivers (board,
@@ -97,17 +87,22 @@ heap allocation:
 IoServices provides out and err ByteSink channels. ByteSink encapsulates a void*
 context pointer and write and flush function pointers returning SinkResult.
 MemorySink provides an in-memory buffer adapter that safely rejects writes
-exceeding capacity without partial stream corruption. DiscardSink provides an
-explicit sink that accepts all writes without retaining them.
+exceeding capacity without partial stream corruption. Its failure query returns
+Status::Overflow, the configured StorageClass, and the required byte count.
+DiscardSink provides an explicit sink that accepts all writes without retaining
+them.
 
 ## Registry and dispatch
 
 Registry maintains a linear table of CommandDescriptor records in caller-owned
 storage. install enforces uniqueness, non-SpecialBuiltin classification, and
 valid names. install_pack ensures atomic preflight validation before mutation.
-install_special permits registering SpecialBuiltin commands. dispatch verifies
-nonempty argv matching the descriptor name and required capabilities before
-invoking the handler.
+Only an internal mm.shell partition can atomically install the standard pack
+that owns SpecialBuiltin descriptors. Application code has no such entry point.
+The exact name `[` is admitted for the required embedded test builtin; brackets
+inside other descriptor names remain invalid. dispatch verifies nonempty argv
+matching the descriptor name and required capabilities before invoking the
+handler.
 
 # Platform lane qualification
 
@@ -133,4 +128,3 @@ evidence across the registered platform directories under platforms/:
   host environment.
 - m68k-linux-external: recorded as an external CMake fixture rather than a
   project-module lane.
-
