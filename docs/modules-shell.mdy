@@ -10,8 +10,8 @@ release: v1.2.3
 
 # Status and authority
 
-This document specifies the target-safe mm.shell foundation, its core API, and
-its caller-owned storage rules.
+This document specifies the target-safe mm.shell foundation, the mm.shell.mcu
+level-2 composition, their APIs, and caller-owned storage rules.
 
 # Architectural boundaries
 
@@ -22,6 +22,9 @@ targets.
 
 Legacy POSIX shell services reside in mm.shell.posix and are consumed by
 tools/shell. There is no dependency path from mm.shell to mm.shell.posix.
+
+mm.shell.mcu adds only mm.mcu and mm.stdio to the embedded closure. Its
+commands allocate nothing and do not import POSIX services.
 
 # Storage ownership rules
 
@@ -89,9 +92,91 @@ a property of the fixture:
 A capacity failure exits with 64 plus the StorageClass ordinal, so a run names
 the array to grow rather than only reporting that something was short.
 
-Console and session storage join this profile when apps/mcu-shell adopts them at
-level 2. The level-1 flash and static-RAM budgets are measured in the platform
-lanes, not on the host.
+apps/mcu-shell adds console and Session storage at level 2. Flash and
+static-RAM budgets are measured in platform lanes, not on the host.
+
+## Level-2 MCU composition
+
+mm.shell.mcu installs ten descriptors with the level-1 pack as one atomic
+registry transaction: board, gpio, spi, i2c, uart, ticks, delay, adc, pwm,
+and console. A short registry installs neither pack. Descriptors remain
+installed when a capability is absent, so help can still describe them.
+Dispatch checks the exact required capability before reaching a provider.
+There is no time descriptor; ticks is the monotonic clock query.
+
+The capability set starts with mandatory level-1 software features and merges
+Board, Gpio, Spi, I2c, Uart, Timer, Adc, and Pwm from the selected mm.mcu
+provider. Console is present when McuConsole successfully initializes and
+attaches to an mm.stdio driver. Physical carrier connection is separate:
+console connected prints 0 or 1 after attachment, even when the terminal is
+disconnected. With no attached driver, console dispatch returns status 125.
+
+McuConsole keeps a caller-owned pending-byte span. Its ByteSink accepts a
+complete write or returns WouldBlock, never a partial logical write. The
+application pumps the queue through mm.stdio and retains a short physical
+write for the next iteration. apps/mcu-shell owns 512 pending bytes, 64 input
+bytes, 512 ordinary-output bytes, 256 diagnostic-output bytes, and 512
+transaction-scratch bytes.
+It feeds Session and steps the evaluator once per event-loop iteration.
+The larger scratch span fits the 48 named GPIO/PWM entries on RP2350B; a
+256-byte span cannot hold that inventory as one atomic output line set.
+
+The installed blink and sample scripts require Gpio plus Timer, and Adc,
+respectively. Their measured parser high-water counts are:
+
+Opening fence
+script   tokens  fragments  nodes  links  context
+blink        23         18     29     28        4
+sample       16         12     22     21        8
+combined     39         30     51     49       12
+Closing fence
+
+The application reserves 96 entries in each script token, fragment, node,
+and link arena, plus 16 context frames. Host tests measure both scripts and
+install them in an exact-size combined arena to guard against silent growth.
+The same host suite runs both scripts through Session against recording MCU
+providers, including ADC command substitution, with no physical board.
+
+All MCU numbers are unsigned decimal except I2C addresses and transfer bytes,
+which also accept 0x hexadecimal. Read queries print one line: 0 or 1 for
+GPIO and console state, a raw count for ADC, nanoseconds for PWM period, a
+tick count for ticks, and lowercase two-digit hex bytes separated by spaces
+for SPI and I2C reads. Board prints its name; GPIO, ADC, and PWM inventories
+print NUMBER NAME lines. Mutations print nothing on success. The query output
+is assembled in caller scratch before it is offered to the output sink.
+
+Bad syntax and provider BadArgument return status 2. A provider returning
+Unsupported after claiming its capability is a contract failure (70).
+TransportError is 74, Busy is 75, Timeout is 124, and an absent capability
+is 125. Transaction scratch overflow records Status::Overflow and the exact
+required byte count, before any provider call. Diagnostics use the error sink
+and do not contaminate captured stdout.
+
+### Pico SDK release-size qualification
+
+The shell-free apps/mcu-shell-size-control links the same platform and stdio
+providers. Flash is the release load image reported by the default
+arm-none-eabi-size or riscv32-pico-elf-size summary. Static RAM is the sum of
+ELF .data and .bss section sizes from size -A, excluding the reserved heap.
+The Pico bridge labels .data executable, so the default size summary groups
+it under text and reports data as zero. Using that zero as the RAM figure
+would miss the application's static storage. Sizes below are bytes:
+
+Opening fence
+lane          shell flash  control flash  delta flash  shell RAM
+RP2040             162548          49808       112740      58704
+RP2350 Arm         157328          47592       109736      58592
+RP2350 RISC-V      206680          42688       163992      73780
+Closing fence
+
+The normative RP2040 ceilings are 256 KiB total flash, 160 KiB incremental
+flash, and 64 KiB static RAM. Its measured values meet all three. Each lane
+linked both ELFs and produced the Pico SDK UF2 flashable artifact. These are
+compile/link qualifications, not hardware execution results. The interactive
+Pico console script was not run, at the user's request. The M68k QEMU
+and MPS2 Arm QEMU shell-smoke regressions both passed. The MPS2 board
+explicitly reports entropy unavailable through its newlib syscall boundary;
+it never invents random bytes for the sake of linking.
 
 # Foundation API
 
@@ -407,9 +492,9 @@ effect when its span is too small.
 
 Every level-1 language construct is implemented, the standard pack installs
 atomically, and apps/shell-smoke runs the fixed boundary script against the
-named acceptance storage profile. What remains for the level-1 milestone is lane
-qualification: the m68k big-endian and mps2-an385 little-endian boundary digests
-and the flash budget, none of which can be measured on the host.
+named acceptance storage profile. Its big-endian M68k and little-endian MPS2
+QEMU executions both pass. The level-1 RP2040 flash budget is a separate
+release-size gate, not a host test.
 
 ## Session in progress
 

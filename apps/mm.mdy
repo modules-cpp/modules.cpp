@@ -11,6 +11,8 @@ folder: gpio-edge-smoke
 folder: gfx-demo
 folder: main
 folder: mcu-blink
+folder: mcu-shell
+folder: mcu-shell-size-control
 folder: epaper-smoke
 folder: mdy
 folder: stdio-smoke

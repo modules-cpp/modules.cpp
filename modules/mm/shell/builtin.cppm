@@ -44,6 +44,15 @@ struct Introspection {
 [[nodiscard]] InstallResult install_level1(Registry& registry,
                                           Introspection& binding);
 
+// Atomically installs the level-1 pack and a later level's descriptors.
+// extras cannot claim the SpecialBuiltin class. scratch is caller-owned and
+// needs core_builtin_count + extras.size() slots. No registry entry changes
+// when preflight fails.
+[[nodiscard]] InstallResult install_level1_with(
+    Registry& registry, Introspection& binding,
+    std::span<const CommandDescriptor> extras,
+    std::span<CommandDescriptor> scratch);
+
 // True for the core run descriptor. The evaluator resolves that one itself,
 // because invoking an installed script pushes a positional call frame and no
 // handler can do that.

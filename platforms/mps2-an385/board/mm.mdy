@@ -9,6 +9,7 @@ float-abi: soft
 machine: mps2-an385
 linker-script: link.ld
 file: vectors.cpp
+file: getentropy.cpp
 provides: reset-vector
 provides: initial-stack
 provides: memory-layout

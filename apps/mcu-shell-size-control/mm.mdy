@@ -1,0 +1,14 @@
+---
+mm: 1.2
+kind: app
+name: mcu-shell-size-control
+option: buildable-host no
+use: mm.mcu
+use: mm.stdio
+file: main.cpp
+---
+
+# mcu-shell-size-control
+
+The console and event-loop baseline for the MCU shell size report. This app
+imports the same MCU and stdio services without the shell module.

@@ -1,0 +1,17 @@
+---
+mm: 1.2
+kind: app
+name: mcu-shell
+option: buildable-host no
+use: mm.shell.mcu
+use: mm.shell
+use: mm.mcu
+use: mm.stdio
+file: main.cpp
+---
+
+# mcu-shell
+
+Interactive embedded shell over the selected mm.stdio console. The firmware
+installs blink and ADC scripts and owns every parser, evaluator, capture,
+function, and transport buffer explicitly.
