@@ -4,3 +4,4 @@ export module mm.shell.posix;
 
 export import :environment;
 export import :compatibility;
+export import :service;

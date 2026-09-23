@@ -289,7 +289,59 @@ FullScript before the visible handle changes, so a failed or unsupported
 redefinition leaves the previous body visible. The handle is shared, so a body
 that is executing when it is redefined keeps running the text it started with.
 
-POSIX services and native workflow execution are later change sets.
+## Host POSIX services
+
+mm.shell.posix supplies the concrete providers for the abstract services
+mm.shell.full declares. HostServices owns every host resource it hands out:
+open descriptors, live children, and installed signal dispositions. Its
+destructor closes and restores whatever it still owns, so an abandoned command
+leaks nothing.
+
+No POSIX type crosses an exported declaration. A handle is an index into
+HostServices' own tables rather than a descriptor or a process id, and every
+POSIX header lives in a private source unit: io.cpp, process.cpp, signal.cpp,
+and file.cpp. open_descriptors, live_children, and installed_signals report what
+is still owned, which is how a leak assertion is written after a deliberate
+failure. borrow_descriptor adopts a descriptor the shell did not open, such as
+the process's own standard streams, and closing that handle releases only the
+slot.
+
+### Child setup and failure classes
+
+Child setup reports a pre-exec failure through a dedicated close-on-exec pipe.
+A successful exec closes that pipe with nothing written, which is how the parent
+sees success; otherwise the child writes the stage that failed and its errno and
+exits. The parent reaps that child itself and publishes no handle, so three
+outcomes stay distinct rather than collapsing into one error:
+
+- NotFound for a program that does not exist, which the shell maps to 127;
+- PermissionDenied for one that cannot be executed, which maps to 126;
+- Failed for an infrastructure fault such as a descriptor or directory setup
+  error, which is neither.
+
+A waited child reports its exit status, or 128 plus the signal number when a
+signal ended it. Waiting on an already-reaped handle is Invalid.
+
+### Descriptors, names, and signals
+
+A write reports the count it moved rather than looping, because the shell
+boundary distinguishes Accepted from WouldBlock and the pump owns retrying. End
+of file is a zero count, not a failure. An unknown handle is Invalid rather than
+a host error.
+
+The file service reports names only: pathname expansion opens nothing and reads
+no byte. A missing name is an answer rather than a service failure, which is
+what keeps an unmatched pattern from looking like a broken provider.
+
+Signal dispositions are process-wide, so at most one HostServices may install
+them at a time and the instance that installed one restores it. The handler
+touches only a volatile sig_atomic_t pending set. Dispositions install without
+SA_RESTART, so a pending condition interrupts a blocking read and the shell can
+act on it between commands. poll reports the lowest pending condition and
+consumes it, which keeps a run deterministic.
+
+The native shell CLI and the dash differential harness are the remainder of this
+change set.
 
 # Foundation API
 
