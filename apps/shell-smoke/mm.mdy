@@ -8,6 +8,15 @@ file: main.cpp
 
 # shell-smoke
 
-A portable, allocation-free level-1 shell foundation smoke application.
-Uses mm.shell directly with memory sinks and no dependencies on mm.mcu,
-mm.stdio, filesystem, or platform providers.
+The named level-1 acceptance application: portable, allocation-free, and
+driven entirely by declared static arrays. It installs the standard level-1
+pack plus one custom handler and one installed script, then runs a fixed
+boundary script covering assignment, a conditional, a loop, checked
+arithmetic, a function with a positional argument, command substitution, a
+custom native handler, an installed script, and yield, and compares the
+output byte for byte.
+
+It uses mm.shell directly with memory sinks and has no dependency on mm.mcu,
+mm.stdio, filesystem, or platform providers. A capacity failure exits with 64
+plus the StorageClass ordinal, so a run names the array to grow.
+docs/modules-shell.mdy records the profile and the measured requirement.
