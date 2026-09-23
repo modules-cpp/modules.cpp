@@ -49,12 +49,15 @@ struct RuntimeScratch {
     mm::shell::PatternByte pattern[64]{};
     mm::shell::VariableSlot prefix_variables[16]{};
     char prefix_variable_text[256]{};
+    char staged_output[64]{};
+    char staged_error[64]{};
 
     [[nodiscard]] EvaluatorStorage storage() {
         return {{pieces, generated, {field_text, fields},
                  shadow_variables, shadow_text},
                 arguments, argument_text, frames, loop_items, loop_text,
-                pattern, prefix_variables, prefix_variable_text};
+                pattern, prefix_variables, prefix_variable_text,
+                staged_output, staged_error};
     }
 };
 
@@ -104,6 +107,20 @@ void flow_handler(void*, std::span<const std::string_view> args,
     }
 }
 
+void writer_handler(void*, std::span<const std::string_view> args,
+                    CommandContext& context, CommandResult& result) {
+    for (std::size_t i = 1; i < args.size(); ++i) {
+        if (context.io.out.write(args[i]) !=
+            mm::shell::SinkResult::Accepted) {
+            const auto refused = context.io.out.failure();
+            result.status = 1;
+            result.error = refused.error;
+            result.overflow = refused.overflow;
+            return;
+        }
+    }
+}
+
 struct Fixture {
     ScriptScratch script_storage;
     RuntimeScratch runtime_storage;
@@ -114,14 +131,16 @@ struct Fixture {
     char positional_text[128]{};
     mm::shell::ShellState state{variables, variable_text, positionals,
                                 positional_text};
-    mm::shell::MemorySink output{{}};
-    mm::shell::MemorySink error{{}};
+    char out_bytes[256]{};
+    char err_bytes[64]{};
+    mm::shell::MemorySink output{out_bytes};
+    mm::shell::MemorySink error{err_bytes};
     mm::shell::IoServices io{output.sink(), error.sink()};
     mm::shell::CapabilitySet capabilities =
         mm::shell::CapabilitySet::level1();
     std::byte handler_scratch[8]{};
     CommandContext context{io, state, capabilities, handler_scratch};
-    CommandDescriptor commands[4]{};
+    CommandDescriptor commands[5]{};
     Registry registry{commands};
     HandlerState handler_state;
     CounterState counter_state;
@@ -155,6 +174,15 @@ struct Fixture {
                    .context = nullptr,
                }).ok(),
                "fixture flow command installs");
+        expect(registry.install({
+                   .name = "write",
+                   .summary = "stage bytes through the evaluator",
+                   .command_class = mm::shell::CommandClass::Custom,
+                   .required_capabilities = {},
+                   .handler = &writer_handler,
+                   .context = nullptr,
+               }).ok(),
+               "fixture writer installs");
     }
 
     void parse(std::string_view source) {
@@ -438,6 +466,71 @@ void bounded_frames_and_budget() {
            "one work unit performs structural work without a handler");
 }
 
+void stages_handler_output() {
+    Fixture fixture{"write one; write two"};
+    const auto result = run(fixture);
+    expect(result.step == Step::Complete &&
+               fixture.output.view() == "onetwo",
+           "staged bytes reach the application's sink in command order");
+
+    // A staging span smaller than the handler's output keeps the accepted
+    // prefix, which still drains, and reports the overflow to the caller.
+    Fixture narrow{"write aaaaaaaaaa"};
+    auto storage = narrow.runtime_storage.storage();
+    storage.staged_output = std::span<char>{
+        narrow.runtime_storage.staged_output, 4};
+    expect(narrow.evaluator.begin(narrow.script, narrow.registry,
+                                  narrow.context, storage) == Status::Ok,
+           "the narrow-staging evaluator begins");
+    const auto refused = run(narrow);
+    expect(refused.step == Step::Complete &&
+               narrow.state.last_status == 1 &&
+               narrow.output.view().empty(),
+           "a staging overflow fails the command without partial output");
+}
+
+void one_handler_per_step() {
+    Fixture fixture{
+        "for item in a b c d e f g h; do ok $item && ok $item; done; "
+        "if ok x; then ok y; else ok z; fi"};
+    auto steps = std::size_t{0};
+    StepResult result{};
+    do {
+        const auto before = fixture.handler_state.calls;
+        result = fixture.evaluator.step();
+        expect(fixture.handler_state.calls - before <= 1,
+               "one step invokes at most one native handler");
+        ++steps;
+    } while (result.step == Step::Running && steps < 4096);
+    expect(result.step == Step::Complete &&
+               fixture.handler_state.calls == 18 &&
+               fixture.evaluator.frame_depth() == 0,
+           "a maximum-capacity script completes one handler at a time");
+}
+
+void long_scans_resume_from_a_cursor() {
+    Fixture fixture{"for item in aaaa bbbb cccc dddd; do ok $item; done"};
+    // A one-unit budget still materializes the whole word list before the
+    // first body command, which only a retained cursor can do.
+    auto steps = std::size_t{0};
+    while (fixture.handler_state.calls == 0 && steps < 512) {
+        const auto result = fixture.evaluator.step(1);
+        expect(result.step == Step::Running,
+               "a one-unit step keeps the evaluator running");
+        ++steps;
+    }
+    expect(steps > 4 && fixture.handler_state.last_arg == "aaaa",
+           "the word list is built across several bounded steps");
+    StepResult result{};
+    do {
+        result = fixture.evaluator.step(1);
+        ++steps;
+    } while (result.step == Step::Running && steps < 4096);
+    expect(result.step == Step::Complete &&
+               fixture.handler_state.calls == 4,
+           "the loop finishes on one-unit steps");
+}
+
 void records_tested_contexts() {
     Fixture fixture{"ok left && ok right"};
     auto result = fixture.evaluator.step();
@@ -470,6 +563,9 @@ const mm::test::case_ cases[]{
     {"control flow ownership", &control_flow_finds_its_owner},
     {"yield and exit", &yield_and_exit_leave_the_evaluator},
     {"bounded frames and budget", &bounded_frames_and_budget},
+    {"stages handler output", &stages_handler_output},
+    {"one handler per step", &one_handler_per_step},
+    {"long scans resume", &long_scans_resume_from_a_cursor},
     {"tested contexts", &records_tested_contexts},
 };
 

@@ -19,6 +19,7 @@ unit: tests/mm/shell/expand.cpp
 unit: tests/mm/shell/function.cpp
 unit: tests/mm/shell/execute.cpp
 unit: tests/mm/shell/builtin.cpp
+unit: tests/mm/shell/session.cpp
 unit: tests/main.cpp
 ---
 
@@ -32,6 +33,8 @@ and measured parser, transactional state pools, signed arithmetic, and case
 pattern matching, field splitting, parameter resolution, word expansion,
 monotonic function storage, and the cooperative evaluator's simple-command
 dispatch, assignment semantics, conditionals, loops, case selection, brace
-groups, frame budget, and control-flow ownership, and the core builtin pack's
-descriptor classes, output, test operators, option transactions, flow values,
-and introspection.
+groups, frame budget, control-flow ownership, and output staging, the core
+builtin pack's descriptor classes, output, test operators, option
+transactions, flow values, and introspection, and Session line accumulation,
+multiline continuation, editing bytes, malformed and overlong recovery, and
+drain ordering against a blocking transport.

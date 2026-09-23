@@ -12,6 +12,7 @@ import :command;
 import :execute;
 import :expand;
 import :fields;
+import :io;
 import :pattern;
 import :source;
 import :state;
@@ -131,6 +132,66 @@ void Evaluator::complete_frame(int status) {
     last_status_ = negate ? (status == 0 ? 1 : 0) : status;
     context_->state.last_status = last_status_;
     pop();
+}
+
+IoServices Evaluator::handler_io() {
+    return IoServices{
+        storage_.staged_output.empty() ? context_->io.out
+                                       : staging_out_.sink(),
+        storage_.staged_error.empty() ? context_->io.err
+                                     : staging_error_.sink(),
+    };
+}
+
+bool Evaluator::pending_output() const {
+    return staging_out_.written > drained_out_ ||
+           staging_error_.written > drained_error_;
+}
+
+// One bounded advance per call: the whole undrained remainder of one stream.
+// WouldBlock consumes no byte and is retried on a later step.
+Evaluator::Drain Evaluator::drain_once() {
+    struct Stream {
+        MemorySink& sink;
+        std::size_t& drained;
+        const ByteSink& target;
+    };
+    const Stream streams[]{
+        {staging_out_, drained_out_, context_->io.out},
+        {staging_error_, drained_error_, context_->io.err},
+    };
+    for (const auto& stream : streams) {
+        if (stream.sink.written <= stream.drained) continue;
+        const auto remainder =
+            stream.sink.view().substr(stream.drained);
+        const auto written = stream.target.write(remainder);
+        if (written == SinkResult::WouldBlock) return Drain::Blocked;
+        if (written == SinkResult::Failed) {
+            drain_failure_ = stream.target.failure();
+            return Drain::Failed;
+        }
+        stream.drained = stream.sink.written;
+        return Drain::Advanced;
+    }
+    return Drain::Done;
+}
+
+void Evaluator::recycle_staging() {
+    staging_out_.reset();
+    staging_error_.reset();
+    drained_out_ = 0;
+    drained_error_ = 0;
+}
+
+Evaluator::Outcome Evaluator::deliver(StepResult result) {
+    if (!pending_output()) {
+        return Outcome{.returns = true, .result = result};
+    }
+    // The completed result is retained until its bytes reach the application,
+    // so a partial transport write never re-enters the handler.
+    held_ = result;
+    holding_ = true;
+    return Outcome{.returns = true, .result = {.step = Step::Running}};
 }
 
 bool Evaluator::unwind_to_loop(bool pop_loop) {
@@ -342,11 +403,15 @@ Evaluator::Outcome Evaluator::run_simple(std::size_t node_id, bool negate) {
         const auto* descriptor = registry_->find(storage_.arguments[0]);
         const std::span<const std::string_view> args{
             storage_.arguments.data(), argument_count};
+        // Handlers see the staging sinks, never the application's transport.
+        auto staged = handler_io();
+        CommandContext handler{staged, context_->state,
+                               context_->capabilities, context_->scratch};
         if (descriptor == nullptr) {
             result = failure(static_cast<int>(CommandStatus::NotFound),
                              Status::NotFound);
         } else if (assignments == 0) {
-            result = dispatch(*descriptor, args, *context_);
+            result = dispatch(*descriptor, args, handler);
         } else {
             // Prefix assignments are visible to the handler. Only a special
             // builtin keeps them after the invocation returns.
@@ -367,7 +432,7 @@ Evaluator::Outcome Evaluator::run_simple(std::size_t node_id, bool negate) {
             if (saved) {
                 result = assign_prefixes(node_id, assignments);
                 if (result.error == Status::Ok) {
-                    result = dispatch(*descriptor, args, *context_);
+                    result = dispatch(*descriptor, args, handler);
                 }
                 if (!persist) {
                     const auto reverted =
@@ -387,15 +452,12 @@ Evaluator::Outcome Evaluator::run_simple(std::size_t node_id, bool negate) {
 
     switch (result.flow) {
         case Flow::Normal:
-            return {.returns = true,
-                    .result = {.step = Step::Running, .command = result}};
+            return deliver({.step = Step::Running, .command = result});
         case Flow::Yield:
-            return {.returns = true,
-                    .result = {.step = Step::Yielded, .command = result}};
+            return deliver({.step = Step::Yielded, .command = result});
         case Flow::Exit:
             active_ = false;
-            return {.returns = true,
-                    .result = {.step = Step::Complete, .command = result}};
+            return deliver({.step = Step::Complete, .command = result});
         case Flow::Break:
         case Flow::Continue:
             if (!unwind_to_loop(result.flow == Flow::Break)) {
@@ -403,19 +465,16 @@ Evaluator::Outcome Evaluator::run_simple(std::size_t node_id, bool negate) {
                 last_status_ = result.status;
                 context_->state.last_status = last_status_;
             }
-            return {.returns = true,
-                    .result = {.step = Step::Running, .command = result}};
+            return deliver({.step = Step::Running, .command = result});
         case Flow::Return:
         case Flow::Replace:
             // Function and installed-script frames arrive with change set 8.
             result = failure(2, Status::BadArgument);
             last_status_ = result.status;
             context_->state.last_status = last_status_;
-            return {.returns = true,
-                    .result = {.step = Step::Running, .command = result}};
+            return deliver({.step = Step::Running, .command = result});
     }
-    return {.returns = true,
-            .result = {.step = Step::Running, .command = result}};
+    return deliver({.step = Step::Running, .command = result});
 }
 
 Evaluator::Outcome Evaluator::enter_command(std::size_t node_id,
@@ -472,6 +531,8 @@ Status Evaluator::begin(const EmbeddedScript& script, Registry& registry,
     item_text_used_ = 0;
     last_status_ = 0;
     tested_ = false;
+    held_ = {};
+    holding_ = false;
     if (script.root >= script.nodes.size() ||
         script.nodes[script.root].kind != SyntaxKind::Program ||
         script.nodes[script.root].link_count != 1) {
@@ -483,6 +544,13 @@ Status Evaluator::begin(const EmbeddedScript& script, Registry& registry,
     registry_ = &registry;
     context_ = &context;
     storage_ = storage;
+    staging_out_ = MemorySink{storage.staged_output,
+                              StorageClass::StagedOutput};
+    staging_error_ = MemorySink{storage.staged_error,
+                                StorageClass::StagedOutput};
+    drained_out_ = 0;
+    drained_error_ = 0;
+    drain_failure_ = {};
     const auto pushed = push(FrameKind::List, program, false, false);
     if (pushed != Status::Ok) return pushed;
     active_ = true;
@@ -490,6 +558,33 @@ Status Evaluator::begin(const EmbeddedScript& script, Registry& registry,
 }
 
 StepResult Evaluator::step(std::size_t operation_budget) {
+    if (script_ == nullptr) {
+        return {.step = Step::Complete, .command = {.status = last_status_}};
+    }
+    // Staged bytes reach the application before any further work, so no
+    // command is selected while output from the previous one is pending.
+    if (pending_output()) {
+        if (operation_budget == 0) return {.step = Step::Running};
+        const auto outcome = drain_once();
+        if (outcome == Drain::Failed) {
+            active_ = false;
+            holding_ = false;
+            auto result = failure(static_cast<int>(CommandStatus::Failure),
+                                  drain_failure_.error == Status::Ok
+                                      ? Status::WriteError
+                                      : drain_failure_.error);
+            result.overflow = drain_failure_.overflow;
+            return {.step = Step::Failed, .command = result};
+        }
+        if (pending_output()) return {.step = Step::Running};
+        recycle_staging();
+    }
+    if (holding_) {
+        holding_ = false;
+        const auto result = held_;
+        held_ = {};
+        return result;
+    }
     if (!active_) {
         return {.step = Step::Complete, .command = {.status = last_status_}};
     }

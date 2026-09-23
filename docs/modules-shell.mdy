@@ -51,8 +51,9 @@ exist in the foundation API:
 
 The parser now has caller-owned token, fragment, node, link, and context spans,
 but shell-smoke has not yet adopted a reviewed parser allocation profile.
-Evaluator, installed-script, console, and session storage join this profile
-only when the corresponding API is implemented. Variable and function storage
+Evaluator, session, and staged-output storage now have explicit caller-owned
+APIs; installed-script and console storage join this profile when the
+corresponding API is implemented. Variable and function storage
 now have explicit caller-owned APIs; shell-smoke has not adopted their final
 acceptance capacities.
 
@@ -141,9 +142,10 @@ replacement. Function call frames and function lookup are not yet present.
 Evaluator begins from an EmbeddedScript and caller-owned Registry,
 CommandContext, and EvaluatorStorage. EvaluatorStorage supplies expansion
 scratch, argv slots and argv text, structural frames, a loop-item arena with
-its text pool, case pattern bytes, and the variable fork used to revert
-non-persistent prefix assignments. Every span is caller-owned and
-non-aliasing, and the evaluator allocates nothing.
+its text pool, case pattern bytes, the variable fork used to revert
+non-persistent prefix assignments, and the staged ordinary and diagnostic
+output spans. Every span is caller-owned and non-aliasing, and the evaluator
+allocates nothing.
 
 ### Frames and stepping
 
@@ -196,8 +198,64 @@ tested_context reports whether the command that last ran occupied a tested
 context: a condition list, an inverted command, or a non-final operand of
 `&&` or `||`. set -e will read that flag rather than a bare nonzero status.
 
-Function definition nodes, output staging, command substitution, and Session
-are not yet implemented.
+### Output staging and I/O retry
+
+A handler never writes to a partial physical transport. The evaluator presents
+an all-or-fail staging sink through the CommandContext it builds for the
+dispatch, over the caller's staged_output and staged_error spans. An empty span
+makes that stream write straight through, which suits a memory sink that never
+blocks.
+
+After a handler finishes, the evaluator retains its completed CommandResult and
+drains the staged bytes over later step calls. Each step performs at most one
+bounded drain advance, the undrained remainder of one stream. WouldBlock
+consumes no byte and is retried; Failed ends the pending command with the
+transport's own failure. The retained result is delivered only once its bytes
+have reached the application, so step returns Running while output is pending
+and no further command is selected. A partial transport write therefore never
+re-enters a handler and never repeats a physical side effect. pending_output
+reports that state.
+
+Staging capacity smaller than a handler's output is an application sizing
+error, not a retry case: the staging sink refuses with Overflow and
+StorageClass::StagedOutput, the handler stops there, and only the bytes it had
+already handed over are drained.
+
+Function definition nodes and command substitution are not yet implemented.
+
+## Session in progress
+
+Session accumulates source a byte at a time into caller storage and runs each
+complete command through one Evaluator. SessionStorage carries the source span,
+the parser's ScriptStorage, and the EvaluatorStorage. An EmbeddedScript views
+the source span, so it must outlive execution and must not alias parser or
+evaluator storage.
+
+feed distinguishes a complete command from an open one with the parser's
+Incomplete result, so an `if`, loop, `case`, function, or brace group spanning
+several physical lines accumulates until it closes. The states are Ready,
+Continuing, Executing, and Discarding.
+
+- a physical line ending measures the buffer. Complete parses it and starts the
+  evaluator, returning the byte offset just past that terminator so the caller
+  resumes the rest of its buffer after the script finishes; Incomplete keeps
+  accumulating; Malformed is reported once with its location and the buffer is
+  discarded unexecuted;
+- an empty physical line is a no-op rather than a parse error;
+- backspace and delete remove one buffered byte;
+- printable bytes and horizontal tab are buffered. Tab is accepted beyond the
+  recognized set of the language specification because dropping it would join
+  adjacent tokens. Every other control byte is ignored;
+- an overlong command reports Overflow with StorageClass::SourceBytes exactly
+  once, then discards through the next physical line ending. It is never
+  executed as a truncated script;
+- feed is refused with Unavailable while a script is executing.
+
+step forwards to the evaluator and reclaims the source buffer only when the
+script reaches Complete or Failed, which is the point at which nothing views
+those bytes any more. Session owns no history, completion, cursor movement,
+ANSI handling, or transport loop: the application polls its transport and
+alternates feed and step.
 
 ## Core builtins in progress
 
