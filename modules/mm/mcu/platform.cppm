@@ -17,6 +17,19 @@ import :pwm_types;
 
 export namespace mm::mcu {
 
+// Facility classes supplied by the selected provider. These are not a
+// resource inventory and do not probe for live devices or open transports.
+struct Capabilities {
+    bool board = false;
+    bool gpio = false;
+    bool spi = false;
+    bool i2c = false;
+    bool uart = false;
+    bool timer = false;
+    bool adc = false;
+    bool pwm = false;
+};
+
 // The seam. A name declared in a module's purview is attached to that module and
 // cannot be defined by a translation unit outside it, so a platform cannot supply
 // this module's functions directly. It supplies an object instead: one level of
@@ -28,6 +41,7 @@ class Platform {
 public:
     virtual ~Platform() = default;
 
+    [[nodiscard]] virtual Capabilities capabilities() const { return {}; }
     [[nodiscard]] virtual Board board() const { return {}; }
 
     [[nodiscard]] virtual Status gpio_configure(unsigned int, Direction, Pull) {
@@ -111,5 +125,7 @@ public:
 void set_platform(Platform& platform);
 
 [[nodiscard]] Platform& platform();
+
+[[nodiscard]] Capabilities capabilities();
 
 }

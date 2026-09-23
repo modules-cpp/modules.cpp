@@ -155,6 +155,22 @@ public:
         }
     }
 
+    [[nodiscard]] mm::mcu::Capabilities capabilities() const override {
+        Status status;
+        const auto* configured = map(status);
+        if (configured == nullptr) return {.timer = true};
+        return {
+            .board = true,
+            .gpio = !configured->gpios.empty(),
+            .spi = !configured->spis.empty(),
+            .i2c = !configured->i2cs.empty(),
+            .uart = !configured->uarts.empty(),
+            .timer = true,
+            .adc = !configured->adcs.empty(),
+            .pwm = !configured->pwms.empty(),
+        };
+    }
+
     [[nodiscard]] mm::mcu::Board board() const override {
         Status status;
         const auto* configured = map(status);

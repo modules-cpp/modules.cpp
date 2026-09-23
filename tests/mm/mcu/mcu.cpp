@@ -34,6 +34,23 @@ using mm::mcu::Pull;
 using mm::mcu::Status;
 using mm::test::expect;
 
+void capability_facade_reports_served_and_unserved_families() {
+    const auto stand = mm::mcu::capabilities();
+    expect(stand.board && stand.gpio && stand.spi && stand.i2c &&
+               stand.uart && stand.timer && stand.adc && stand.pwm,
+           "the stand reports each facility it implements");
+
+    mm::mcu::Platform unserved;
+    auto& previous = mm::mcu::platform();
+    mm::mcu::set_platform(unserved);
+    const auto absent = mm::mcu::capabilities();
+    mm::mcu::set_platform(previous);
+    expect(!absent.board && !absent.gpio && !absent.spi &&
+               !absent.i2c && !absent.uart && !absent.timer &&
+               !absent.adc && !absent.pwm,
+           "an unserved platform reports every facility absent");
+}
+
 void board_describes_gpio_inventory_and_led_attachment() {
     mm_test_reset();
     const auto description = mm::mcu::board();
@@ -371,6 +388,8 @@ void i2c_rejects_invalid_use() {
 }
 
 const mm::test::case_ cases[] = {
+    {"facility capabilities are provider facts",
+     &capability_facade_reports_served_and_unserved_families},
     {"GPIO edge forwarding", &gpio_edge_forwards_and_preserves_output},
     {"board describes GPIOs and LED", &board_describes_gpio_inventory_and_led_attachment},
     {"gpio round trip", &gpio_round_trip},

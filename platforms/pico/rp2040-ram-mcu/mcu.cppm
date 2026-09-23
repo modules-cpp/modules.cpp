@@ -53,6 +53,10 @@ void release_banks() {
 
 class Rp2040RamPlatform : public mm::mcu::Platform {
 public:
+    [[nodiscard]] mm::mcu::Capabilities capabilities() const override {
+        return {.board = true, .gpio = true};
+    }
+
     [[nodiscard]] mm::mcu::Board board() const override {
         return {"rp2040-ram", gpios, mm::mcu::Led{"LED", 25, true}};
     }

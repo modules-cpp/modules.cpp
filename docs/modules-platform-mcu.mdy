@@ -280,6 +280,9 @@ Unsupported answers for SPI, I2C, UART, time, ADC, and PWM.
 The platform partition owns:
 
 - Platform with virtual facility operations and Unsupported defaults;
+- Capabilities with Board, GPIO, SPI, I2C, UART, Timer, ADC, and PWM flags;
+- a virtual capabilities() query returning all flags false by default, plus a
+  free facade returning the selected provider's answer;
 - a virtual board description supplied on demand by the registered provider,
   and the two analog inventories, answered the same way;
 - set_platform taking a Platform reference;
@@ -290,6 +293,17 @@ set_platform, and platform; a second implementation unit, src/analog.cpp, owns
 the analog facilities' arithmetic and lookups. Public facility functions call
 platform and return typed Status values. An application sees no C
 declarations, integer status codes, adapter headers, or vendor types.
+
+The capability query describes facility classes supplied by the selected
+provider. It does not check whether a device is connected, accessible, or
+currently configured, and it does not replace the Board, ADC, or PWM resource
+inventories. The Pico SDK provider reports its implemented families, using
+the selected part's GPIO and ADC counts where those vary. The RP2040 RAM
+provider reports Board and GPIO only. The Linux provider reports configured
+resource families from its resolved map and always reports its monotonic timer.
+The Linux e-paper emulation reports Board, GPIO, SPI writes, and millisecond
+timing. A caller still checks each operation's Status and validates individual
+resources against the corresponding inventory.
 
 The provider owns its subclass and registration object. The provider object is
 linked directly, not extracted from an archive, so its namespace-scope

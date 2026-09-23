@@ -21,6 +21,15 @@ namespace {
 using mm::mcu::Status;
 using mm::test::expect;
 
+void default_map_capabilities() {
+    const auto available = mm::mcu::capabilities();
+    expect(available.board && available.timer,
+           "Linux provider names a board and monotonic timer");
+    expect(!available.gpio && !available.spi && !available.i2c &&
+               !available.uart && !available.adc && !available.pwm,
+           "empty default map does not advertise resource families");
+}
+
 void errno_mapping() {
     using platform::linux::mcu_detail::error_status;
     expect(error_status(ENOENT, false) == Status::Unsupported,
@@ -156,6 +165,7 @@ void interrupted_delay() {
 }
 
 const mm::test::case_ cases[]{
+    {"default map capabilities", &default_map_capabilities},
     {"GPIO event read bound", &gpio_event_read_bound},
     {"errno mapping", &errno_mapping},
     {"SPI validation and read-back", &spi_validation},

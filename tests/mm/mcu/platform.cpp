@@ -60,6 +60,19 @@ enum class Owner { None, Gpio, Watched, Adc, Pwm };
 
 class Stand : public mm::mcu::Platform {
 public:
+    [[nodiscard]] mm::mcu::Capabilities capabilities() const override {
+        return {
+            .board = true,
+            .gpio = true,
+            .spi = true,
+            .i2c = true,
+            .uart = true,
+            .timer = true,
+            .adc = true,
+            .pwm = true,
+        };
+    }
+
     [[nodiscard]] mm::mcu::Board board() const override {
         return {"stand", gpios, mm::mcu::Led{"status", 25, false}};
     }

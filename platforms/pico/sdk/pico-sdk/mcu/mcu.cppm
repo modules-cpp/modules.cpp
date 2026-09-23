@@ -137,6 +137,20 @@ Claim claims[most_pwm_outputs];
 
 class PicoPlatform : public mm::mcu::Platform {
 public:
+    [[nodiscard]] mm::mcu::Capabilities capabilities() const override {
+        const auto gpio_count = mm_pico_mcu_gpio_count();
+        return {
+            .board = gpio_count != 0 && gpio_count <= most_pwm_outputs,
+            .gpio = gpio_count != 0,
+            .spi = true,
+            .i2c = true,
+            .uart = true,
+            .timer = true,
+            .adc = mm_pico_mcu_adc_channel_count() != 0,
+            .pwm = gpio_count != 0,
+        };
+    }
+
     [[nodiscard]] mm::mcu::Board board() const override {
         const auto count = mm_pico_mcu_gpio_count();
         if (count > sizeof(gpios) / sizeof(gpios[0])) return {};

@@ -19,6 +19,8 @@ void set_platform(Platform& platform) { current = &platform; }
 
 Platform& platform() { return *current; }
 
+Capabilities capabilities() { return platform().capabilities(); }
+
 Board board() { return platform().board(); }
 
 }  // namespace mm::mcu

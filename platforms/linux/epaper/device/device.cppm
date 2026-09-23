@@ -149,6 +149,10 @@ public:
     EmulatedPlatform() : chip_(options_) {}
     ~EmulatedPlatform() override { window_.release(); video_.release(); }
 
+    [[nodiscard]] mm::mcu::Capabilities capabilities() const override {
+        return {.board = true, .gpio = true, .spi = true, .timer = true};
+    }
+
     [[nodiscard]] mm::mcu::Board board() const override {
         // The board's fixed wiring, the same pins EmulationOptions names by
         // default and the display provider wires.
