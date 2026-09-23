@@ -191,6 +191,58 @@ StateResult ShellState::shift(std::size_t count) {
     return {};
 }
 
+StateResult ShellState::fork_variables(
+    std::span<VariableSlot> variables, std::span<char> variable_text,
+    ShellState& out) const {
+    if (variables.size() < variable_count_) {
+        return {Status::Overflow,
+                {StorageClass::Variables, variable_count_}};
+    }
+    if (variable_text.size() < variable_text_used_) {
+        return {Status::Overflow,
+                {StorageClass::VariableText, variable_text_used_}};
+    }
+    for (std::size_t i = 0; i < variable_count_; ++i) {
+        variables[i] = variables_[i];
+    }
+    for (std::size_t i = 0; i < variable_text_used_; ++i) {
+        variable_text[i] = variable_text_[i];
+    }
+    ShellState next{variables, variable_text, positionals_,
+                    positional_text_};
+    next.last_status = last_status;
+    next.errexit = errexit;
+    next.nounset = nounset;
+    next.shell_id = shell_id;
+    next.variable_count_ = variable_count_;
+    next.variable_text_used_ = variable_text_used_;
+    next.positional_count_ = positional_count_;
+    next.positional_text_used_ = positional_text_used_;
+    next.shifted_ = shifted_;
+    out = next;
+    return {};
+}
+
+StateResult ShellState::commit_variables_from(const ShellState& fork) {
+    if (variables_.size() < fork.variable_count_) {
+        return {Status::Overflow,
+                {StorageClass::Variables, fork.variable_count_}};
+    }
+    if (variable_text_.size() < fork.variable_text_used_) {
+        return {Status::Overflow,
+                {StorageClass::VariableText, fork.variable_text_used_}};
+    }
+    for (std::size_t i = 0; i < fork.variable_count_; ++i) {
+        variables_[i] = fork.variables_[i];
+    }
+    for (std::size_t i = 0; i < fork.variable_text_used_; ++i) {
+        variable_text_[i] = fork.variable_text_[i];
+    }
+    variable_count_ = fork.variable_count_;
+    variable_text_used_ = fork.variable_text_used_;
+    return {};
+}
+
 void ShellState::reset() {
     last_status = 0;
     errexit = false;

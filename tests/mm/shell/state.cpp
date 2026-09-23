@@ -104,10 +104,58 @@ void positional_transactions_and_shift() {
            "monotonic replacement preserves aliased input during copy");
 }
 
+void fork_and_commit_variables() {
+    mm::shell::VariableSlot original_slots[2]{};
+    char original_text[16]{};
+    ShellState original{original_slots, original_text, {}, {}};
+    expect(original.assign("A", "old").ok(),
+           "original variable installs");
+    mm::shell::VariableSlot shadow_slots[2]{};
+    char shadow_text[16]{};
+    ShellState shadow;
+    expect(original.fork_variables(shadow_slots, shadow_text,
+                                   shadow).ok(),
+           "variable state forks into caller storage");
+    expect(shadow.assign("A", "new").ok() &&
+               shadow.assign("B", "x").ok(),
+           "fork can stage multiple assignments");
+    expect(original.lookup("A").value == "old" &&
+               !original.lookup("B").found,
+           "staging does not mutate original state");
+    expect(original.commit_variables_from(shadow).ok(),
+           "staged assignments commit together");
+    expect(original.lookup("A").value == "new" &&
+               original.lookup("B").value == "x",
+           "commit publishes the forked values");
+
+    mm::shell::VariableSlot short_slots[1]{};
+    char short_text[1]{};
+    ShellState untouched;
+    untouched.last_status = 91;
+    const auto failed = original.fork_variables(
+        short_slots, short_text, untouched);
+    expect(failed.status == Status::Overflow &&
+               failed.overflow.storage_class == StorageClass::Variables &&
+               untouched.last_status == 91,
+           "short fork storage leaves destination unchanged");
+    mm::shell::VariableSlot small_slots[1]{};
+    char small_text[16]{};
+    ShellState small{small_slots, small_text, {}, {}};
+    expect(small.assign("A", "prior").ok(),
+           "small destination starts with a value");
+    const auto rejected = small.commit_variables_from(shadow);
+    expect(rejected.status == Status::Overflow &&
+               rejected.overflow.storage_class == StorageClass::Variables &&
+               small.lookup("A").value == "prior" &&
+               !small.lookup("B").found,
+           "failed commit preserves destination state");
+}
+
 const mm::test::case_ cases[]{
     {"variable transactions", &variable_transactions},
     {"positional transactions and shift",
      &positional_transactions_and_shift},
+    {"fork and commit variables", &fork_and_commit_variables},
 };
 
 const mm::test::registrar reg{"mm.shell state", cases};

@@ -61,6 +61,7 @@ enum class StorageClass {
     PositionalParameters,
     PositionalParameterText,
     ExpandedFields,
+    ExpansionPieces,
     ExpandedFieldText,
     Functions,
     FunctionArena,
@@ -129,6 +130,7 @@ struct InstallResult {
         case StorageClass::PositionalParameters: return "positional parameters";
         case StorageClass::PositionalParameterText: return "positional text";
         case StorageClass::ExpandedFields: return "expanded fields";
+        case StorageClass::ExpansionPieces: return "expansion pieces";
         case StorageClass::ExpandedFieldText: return "expanded text";
         case StorageClass::Functions: return "functions";
         case StorageClass::FunctionArena: return "function arena";

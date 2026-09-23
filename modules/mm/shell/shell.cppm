@@ -14,4 +14,5 @@ export import :arithmetic;
 export import :pattern;
 export import :fields;
 export import :parameter;
+export import :expand;
 export import :command;
