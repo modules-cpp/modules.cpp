@@ -23,6 +23,7 @@ folder: rtc
 folder: rtc/pcf85063
 folder: run
 folder: shell
+folder: shell/posix
 folder: sketch
 folder: stdio
 folder: test

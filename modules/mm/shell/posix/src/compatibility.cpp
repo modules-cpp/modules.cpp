@@ -3,15 +3,15 @@
 module;
 
 #include <cctype>
-#include <cstdlib>
 #include <filesystem>
 #include <fstream>
-#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
 
-module mm.shell;
+module mm.shell.posix;
+
+import :compatibility;
 
 namespace mm::shell {
 
@@ -37,30 +37,6 @@ std::string strip_quotes(std::string_view value) {
 
 }  // namespace
 
-std::filesystem::path current_shell() {
-    const char* value = std::getenv("SHELL");
-    if (value == nullptr) return {};
-    return std::filesystem::path(value);
-}
-
-std::optional<std::string> get(std::string_view name) {
-    const std::string key(name);
-    const char* value = std::getenv(key.c_str());
-    if (value == nullptr) return std::nullopt;
-    return std::string(value);
-}
-
-bool set(std::string_view name, std::string_view value, bool overwrite) {
-    const std::string key(name);
-    const std::string val(value);
-    return ::setenv(key.c_str(), val.c_str(), overwrite ? 1 : 0) == 0;
-}
-
-bool unset(std::string_view name) {
-    const std::string key(name);
-    return ::unsetenv(key.c_str()) == 0;
-}
-
 std::vector<ScriptLine> parse_script(const std::filesystem::path& path) {
     std::vector<ScriptLine> lines;
     std::ifstream file(path);
@@ -84,7 +60,9 @@ std::vector<ScriptLine> parse_script(const std::filesystem::path& path) {
 
         if (is_identifier_start(raw[first])) {
             std::size_t name_end = first;
-            while (name_end < raw.size() && is_identifier_char(raw[name_end])) ++name_end;
+            while (name_end < raw.size() && is_identifier_char(raw[name_end])) {
+                ++name_end;
+            }
             if (name_end < raw.size() && raw[name_end] == '=') {
                 line.kind = LineKind::Assignment;
                 line.name = raw.substr(first, name_end - first);

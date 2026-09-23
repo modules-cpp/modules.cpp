@@ -141,7 +141,7 @@ The source tree is organized by responsibility.
 |   +-- mdy/                  mm.mdy and white-box tests
 |   +-- model/                mm.model, the models/ adapter
 |   +-- run/                  mm.run execution orchestration
-|   +-- shell/                mm.shell
+|   +-- shell/                mm.shell facade; shell/posix mm.shell.posix
 |   +-- test/                 mm.test
 |   +-- display/              mm.display portable display interface
 |   +-- epaper/               ePaper controller modules
@@ -368,11 +368,18 @@ thing it declares (such as Module) are modeled as separate types, is in
 docs/modules-model.mdy.
 
 ## mm.shell
-mm.shell wraps shell and environment concerns other modules or tools might
-otherwise each reach past their own interface for: current_shell reads
-$SHELL, get/set/unset wrap the POSIX getenv/setenv/unsetenv functions
-against this process's real environment, and parse_script classifies a
-script's lines as a comment, an assignment, or a command.
+mm.shell is temporarily a host-only compatibility facade that re-exports
+mm.shell.posix, preserving existing callers while the target-safe shell core
+is established. Both mm.shell and mm.shell.posix declare buildable-target no
+because the underlying environment and host functions rely on POSIX APIs
+(getenv, setenv, unsetenv) not provided by freestanding newlib targets.
+
+## mm.shell.posix
+mm.shell.posix provides host-only shell and environment services: current_shell
+reads $SHELL, get/set/unset wrap POSIX getenv/setenv/unsetenv against this
+process's real environment, and parse_script classifies a script's physical
+lines as a comment, an assignment, or a command. It declares option:
+buildable-target no because setenv and unsetenv are POSIX-specific.
 
 current_shell is not what mm::build::run invokes: POSIX system(), which run
 wraps, always uses /bin/sh regardless of $SHELL. parse_script recognizes

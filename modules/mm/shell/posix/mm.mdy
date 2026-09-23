@@ -1,0 +1,21 @@
+---
+mm: 1.2
+kind: module
+name: posix
+module: mm.shell.posix
+file: environment.cppm mm.shell.posix:environment
+file: compatibility.cppm mm.shell.posix:compatibility
+file: posix.cppm mm.shell.posix
+file: src/environment.cpp
+file: src/compatibility.cpp
+option: buildable-target no
+---
+
+# mm.shell.posix
+
+Host-only POSIX shell and process environment services: current_shell reads
+$SHELL, get/set/unset wrap POSIX getenv/setenv/unsetenv against this process's
+real environment, and parse_script classifies a script's physical lines.
+
+buildable-target no because setenv, unsetenv, and host process inspection are
+POSIX-specific and newlib does not provide them for freestanding targets.
