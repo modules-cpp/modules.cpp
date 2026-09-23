@@ -49,7 +49,8 @@ state pools, checked arithmetic, in-memory case patterns, field splitting,
 parameter spelling and read-only resolution, bounded word expansion for
 implemented forms, monotonic function storage, and a cooperative frame-based
 evaluator covering lists, assignments, conditionals, loops, case patterns,
-brace groups, and control-flow ownership, the level-1 core builtin pack,
+brace groups, control-flow ownership, set -e and set -u, and function
+definition, lookup, and bounded call frames, the level-1 core builtin pack,
 evaluator-owned output staging with retry, and an incremental Session. Free of
 filesystem, environment, process, heap allocation, or platform provider
 dependencies.

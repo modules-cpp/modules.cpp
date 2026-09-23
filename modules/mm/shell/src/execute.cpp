@@ -12,6 +12,7 @@ import :command;
 import :execute;
 import :expand;
 import :fields;
+import :function;
 import :io;
 import :pattern;
 import :source;
@@ -102,12 +103,13 @@ constexpr std::size_t bytes_per_unit = 16;
 
 }  // namespace
 
-Status Evaluator::push(FrameKind kind, std::size_t node, bool tested,
-                       bool negate) {
-    if (node >= script_->nodes.size()) return Status::BadArgument;
+Status Evaluator::push(FrameKind kind, const EmbeddedScript& script,
+                       std::size_t node, bool tested, bool negate) {
+    if (node >= script.nodes.size()) return Status::BadArgument;
     if (frame_count_ == storage_.frames.size()) return Status::Overflow;
     storage_.frames[frame_count_] = EvaluatorFrame{
         .kind = kind,
+        .script = &script,
         .node = node,
         .item_mark = items_used_,
         .text_mark = item_text_used_,
@@ -121,6 +123,16 @@ Status Evaluator::push(FrameKind kind, std::size_t node, bool tested,
 void Evaluator::pop() {
     if (frame_count_ == 0) return;
     const auto& frame = storage_.frames[frame_count_ - 1];
+    if (frame.kind == FrameKind::Function) {
+        // Restoring the caller's arguments cannot fail for a frame this
+        // evaluator pushed, and a failure here must not strand the stack.
+        (void)context_->state.pop_positionals(
+            storage_.call_positionals.subspan(frame.slot_mark,
+                                              frame.slot_count),
+            frame.positionals);
+        slots_used_ = frame.slot_mark;
+        if (calls_open_ != 0) --calls_open_;
+    }
     items_used_ = frame.item_mark;
     item_text_used_ = frame.text_mark;
     --frame_count_;
@@ -194,11 +206,21 @@ Evaluator::Outcome Evaluator::deliver(StepResult result) {
     return Outcome{.returns = true, .result = {.step = Step::Running}};
 }
 
+void Evaluator::abandon(int status) {
+    while (frame_count_ != 0) pop();
+    active_ = false;
+    last_status_ = status;
+    context_->state.last_status = status;
+}
+
 bool Evaluator::unwind_to_loop(bool pop_loop) {
     auto index = frame_count_;
     while (index != 0) {
         const auto kind = storage_.frames[index - 1].kind;
         if (kind == FrameKind::While || kind == FrameKind::For) break;
+        // A call frame is a barrier: break and continue apply only to loops
+        // in the body that used them, never to the caller's loop.
+        if (kind == FrameKind::Function) return false;
         --index;
     }
     if (index == 0) return false;
@@ -211,6 +233,116 @@ bool Evaluator::unwind_to_loop(bool pop_loop) {
     frame.status = last_status_;
     frame.phase = frame.kind == FrameKind::While ? 0 : 1;
     return true;
+}
+
+// Return is consumed by the innermost call frame. Popping it restores the
+// caller's positional parameters, so a return never leaks a callee's $1.
+bool Evaluator::unwind_to_call(int status) {
+    auto index = frame_count_;
+    while (index != 0 &&
+           storage_.frames[index - 1].kind != FrameKind::Function) {
+        --index;
+    }
+    if (index == 0) return false;
+    while (frame_count_ > index) pop();
+    complete_frame(status);
+    return true;
+}
+
+Evaluator::Outcome Evaluator::define_function(const EmbeddedScript& script,
+                                             std::size_t node_id) {
+    const auto& node = script.nodes[node_id];
+    const auto fail = [this](int status, Status error) {
+        auto result = failure(status, error);
+        last_status_ = result.status;
+        context_->state.last_status = last_status_;
+        return deliver({.step = Step::Running, .command = result});
+    };
+    if (storage_.functions == nullptr) {
+        return fail(2, Status::Unsupported);
+    }
+    const auto name_node = child_at(script, node, 0);
+    const auto body_node = last_child(script, node);
+    if (node.link_count != 2 || name_node == no_node ||
+        body_node == no_node ||
+        script.nodes[body_node].kind != SyntaxKind::BraceGroup) {
+        return fail(2, Status::BadArgument);
+    }
+    const auto name = word_text(script, name_node);
+    // A special builtin's name is reserved, so a function cannot take it.
+    const auto* existing = registry_->find(name);
+    if (existing != nullptr &&
+        existing->command_class == CommandClass::SpecialBuiltin) {
+        return fail(2, Status::BadArgument);
+    }
+    // The braces themselves are stripped: a call frame is the body's list, so
+    // the copy costs one frame per call instead of a redundant group layer.
+    const auto group = script.nodes[body_node].source;
+    if (group.length < 3) return fail(2, Status::BadArgument);
+    const auto body = SourceView{
+        script.source.slice(group.offset + 1, group.length - 2)};
+    const auto defined = storage_.functions->define(name, body);
+    if (!defined.ok()) {
+        auto result = failure(1, defined.status);
+        result.overflow = defined.overflow;
+        last_status_ = result.status;
+        context_->state.last_status = last_status_;
+        return deliver({.step = Step::Running, .command = result});
+    }
+    last_status_ = 0;
+    context_->state.last_status = 0;
+    return deliver({.step = Step::Running, .command = {}});
+}
+
+Evaluator::Outcome Evaluator::call_function(
+    const FunctionSlot& function,
+    std::span<const std::string_view> args, bool negate) {
+    const auto reject = [this](int status, Status error,
+                               OverflowInfo overflow) {
+        auto result = failure(status, error);
+        result.overflow = overflow;
+        last_status_ = result.status;
+        context_->state.last_status = last_status_;
+        return deliver({.step = Step::Running, .command = result});
+    };
+    if (calls_open_ >= storage_.call_limit) {
+        return reject(2, Status::Overflow,
+                      {StorageClass::EvaluatorFrames,
+                       storage_.call_limit + 1});
+    }
+    const auto& body = function.body;
+    if (body.root >= body.nodes.size() ||
+        body.nodes[body.root].kind != SyntaxKind::Program) {
+        return reject(2, Status::BadArgument, {});
+    }
+    const auto program = list_child(body, body.nodes[body.root], 0);
+    if (program == no_node) return reject(2, Status::BadArgument, {});
+    if (slots_used_ > storage_.call_positionals.size()) {
+        return reject(2, Status::Overflow,
+                      {StorageClass::PositionalParameters, slots_used_});
+    }
+    const auto saved = storage_.call_positionals.subspan(slots_used_);
+    PositionalFrame positionals;
+    const auto pushed_arguments = context_->state.push_positionals(
+        args[0], args.subspan(1), saved, positionals);
+    if (!pushed_arguments.ok()) {
+        return reject(2, pushed_arguments.status,
+                      pushed_arguments.overflow);
+    }
+    const auto pushed = push(FrameKind::Function, body, program,
+                             tested_, negate);
+    if (pushed != Status::Ok) {
+        (void)context_->state.pop_positionals(saved, positionals);
+        return reject(2, pushed,
+                      {StorageClass::EvaluatorFrames, frame_count_ + 1});
+    }
+    auto& frame = storage_.frames[frame_count_ - 1];
+    frame.slot_mark = slots_used_;
+    frame.slot_count = positionals.count;
+    frame.positionals = positionals;
+    slots_used_ += positionals.count;
+    ++calls_open_;
+    return Outcome{};
 }
 
 Status Evaluator::append_item(std::string_view value) {
@@ -231,8 +363,8 @@ Status Evaluator::append_item(std::string_view value) {
     return Status::Ok;
 }
 
-Status Evaluator::build_pattern(std::size_t node, std::size_t& length) {
-    const auto& script = *script_;
+Status Evaluator::build_pattern(const EmbeddedScript& script,
+                                std::size_t node, std::size_t& length) {
     length = 0;
     const auto fragments = word_fragments(script, node);
     if (fragments.empty() &&
@@ -284,9 +416,9 @@ Status Evaluator::build_pattern(std::size_t node, std::size_t& length) {
     return Status::Ok;
 }
 
-CommandResult Evaluator::assign_prefixes(std::size_t node_id,
+CommandResult Evaluator::assign_prefixes(const EmbeddedScript& script,
+                                         std::size_t node_id,
                                          std::size_t count) {
-    const auto& script = *script_;
     const auto& node = script.nodes[node_id];
     for (std::size_t index = 0; index < count; ++index) {
         const auto child = child_at(script, node, index);
@@ -322,9 +454,11 @@ CommandResult Evaluator::assign_prefixes(std::size_t node_id,
     return {};
 }
 
-Evaluator::Outcome Evaluator::run_simple(std::size_t node_id, bool negate) {
-    const auto& script = *script_;
+Evaluator::Outcome Evaluator::run_simple(const EmbeddedScript& script,
+                                         std::size_t node_id, bool negate) {
     const auto& node = script.nodes[node_id];
+    last_slots_ = 0;
+    last_bytes_ = 0;
     const auto fail = [this](int status, Status error) {
         active_ = false;
         return Outcome{.returns = true,
@@ -397,12 +531,38 @@ Evaluator::Outcome Evaluator::run_simple(std::size_t node_id, bool negate) {
         }
     }
 
+    last_slots_ = argument_count;
+    last_bytes_ = text_used;
+
     if (!failed && argument_count == 0) {
-        result = assign_prefixes(node_id, assignments);
+        result = assign_prefixes(script, node_id, assignments);
     } else if (!failed) {
         const auto* descriptor = registry_->find(storage_.arguments[0]);
         const std::span<const std::string_view> args{
             storage_.arguments.data(), argument_count};
+        // Resolution order: a special builtin outranks a function, and a
+        // function outranks any other installed command.
+        const auto reserved = descriptor != nullptr &&
+                              descriptor->command_class ==
+                                  CommandClass::SpecialBuiltin;
+        const FunctionSlot* function = nullptr;
+        if (!reserved && storage_.functions != nullptr) {
+            function = storage_.functions->find(args[0]);
+        }
+        if (function != nullptr) {
+            // A call is a frame, not a handler. Prefix assignments to a
+            // function persist, exactly as they do for a special builtin.
+            if (assignments != 0) {
+                result = assign_prefixes(script, node_id, assignments);
+                if (result.error != Status::Ok) {
+                    last_status_ = result.status;
+                    context_->state.last_status = last_status_;
+                    return deliver({.step = Step::Running,
+                                    .command = result});
+                }
+            }
+            return call_function(*function, args, negate);
+        }
         // Handlers see the staging sinks, never the application's transport.
         auto staged = handler_io();
         CommandContext handler{staged, context_->state,
@@ -411,6 +571,7 @@ Evaluator::Outcome Evaluator::run_simple(std::size_t node_id, bool negate) {
             result = failure(static_cast<int>(CommandStatus::NotFound),
                              Status::NotFound);
         } else if (assignments == 0) {
+            ++last_handlers_;
             result = dispatch(*descriptor, args, handler);
         } else {
             // Prefix assignments are visible to the handler. Only a special
@@ -430,8 +591,9 @@ Evaluator::Outcome Evaluator::run_simple(std::size_t node_id, bool negate) {
                 }
             }
             if (saved) {
-                result = assign_prefixes(node_id, assignments);
+                result = assign_prefixes(script, node_id, assignments);
                 if (result.error == Status::Ok) {
+                    ++last_handlers_;
                     result = dispatch(*descriptor, args, handler);
                 }
                 if (!persist) {
@@ -452,11 +614,22 @@ Evaluator::Outcome Evaluator::run_simple(std::size_t node_id, bool negate) {
 
     switch (result.flow) {
         case Flow::Normal:
+            // An unset parameter under set -u ends the shell whatever -e says.
+            // set -e ends it for any other failure that no tested context
+            // consumes: a condition, an inverted command, or a non-final
+            // operand of && or ||.
+            if ((result.error == Status::NotFound &&
+                 context_->state.nounset && result.status == 1) ||
+                (context_->state.errexit && result.status != 0 &&
+                 !tested_)) {
+                abandon(result.status);
+                return deliver({.step = Step::Complete, .command = result});
+            }
             return deliver({.step = Step::Running, .command = result});
         case Flow::Yield:
             return deliver({.step = Step::Yielded, .command = result});
         case Flow::Exit:
-            active_ = false;
+            abandon(result.status);
             return deliver({.step = Step::Complete, .command = result});
         case Flow::Break:
         case Flow::Continue:
@@ -467,8 +640,14 @@ Evaluator::Outcome Evaluator::run_simple(std::size_t node_id, bool negate) {
             }
             return deliver({.step = Step::Running, .command = result});
         case Flow::Return:
+            if (!unwind_to_call(result.status)) {
+                result = failure(2, Status::BadArgument);
+                last_status_ = result.status;
+                context_->state.last_status = last_status_;
+            }
+            return deliver({.step = Step::Running, .command = result});
         case Flow::Replace:
-            // Function and installed-script frames arrive with change set 8.
+            // Installed-script replacement arrives with the script library.
             result = failure(2, Status::BadArgument);
             last_status_ = result.status;
             context_->state.last_status = last_status_;
@@ -477,9 +656,9 @@ Evaluator::Outcome Evaluator::run_simple(std::size_t node_id, bool negate) {
     return deliver({.step = Step::Running, .command = result});
 }
 
-Evaluator::Outcome Evaluator::enter_command(std::size_t node_id,
+Evaluator::Outcome Evaluator::enter_command(const EmbeddedScript& script,
+                                            std::size_t node_id,
                                             bool tested) {
-    const auto& script = *script_;
     const auto fail = [this](int status, Status error) {
         active_ = false;
         return Outcome{.returns = true,
@@ -501,17 +680,19 @@ Evaluator::Outcome Evaluator::enter_command(std::size_t node_id,
     switch (script.nodes[node_id].kind) {
         case SyntaxKind::Simple:
             tested_ = tested || negate;
-            return run_simple(node_id, negate);
+            return run_simple(script, node_id, negate);
         case SyntaxKind::If: kind = FrameKind::If; break;
         case SyntaxKind::While: kind = FrameKind::While; break;
         case SyntaxKind::For: kind = FrameKind::For; break;
         case SyntaxKind::Case: kind = FrameKind::Case; break;
         case SyntaxKind::BraceGroup: kind = FrameKind::Brace; break;
+        case SyntaxKind::Function:
+            if (negate) return fail(2, Status::BadArgument);
+            return define_function(script, node_id);
         default:
-            // Function definitions arrive with change set 8.
             return fail(2, Status::Unsupported);
     }
-    const auto pushed = push(kind, node_id, tested, negate);
+    const auto pushed = push(kind, script, node_id, tested, negate);
     if (pushed != Status::Ok) {
         active_ = false;
         auto result = failure(2, pushed);
@@ -529,6 +710,8 @@ Status Evaluator::begin(const EmbeddedScript& script, Registry& registry,
     frame_count_ = 0;
     items_used_ = 0;
     item_text_used_ = 0;
+    slots_used_ = 0;
+    calls_open_ = 0;
     last_status_ = 0;
     tested_ = false;
     held_ = {};
@@ -551,13 +734,16 @@ Status Evaluator::begin(const EmbeddedScript& script, Registry& registry,
     drained_out_ = 0;
     drained_error_ = 0;
     drain_failure_ = {};
-    const auto pushed = push(FrameKind::List, program, false, false);
+    const auto pushed = push(FrameKind::List, script, program,
+                             false, false);
     if (pushed != Status::Ok) return pushed;
     active_ = true;
     return Status::Ok;
 }
 
 StepResult Evaluator::step(std::size_t operation_budget) {
+    last_units_ = 0;
+    last_handlers_ = 0;
     if (script_ == nullptr) {
         return {.step = Step::Complete, .command = {.status = last_status_}};
     }
@@ -565,6 +751,7 @@ StepResult Evaluator::step(std::size_t operation_budget) {
     // command is selected while output from the previous one is pending.
     if (pending_output()) {
         if (operation_budget == 0) return {.step = Step::Running};
+        ++last_units_;
         const auto outcome = drain_once();
         if (outcome == Drain::Failed) {
             active_ = false;
@@ -588,11 +775,20 @@ StepResult Evaluator::step(std::size_t operation_budget) {
     if (!active_) {
         return {.step = Step::Complete, .command = {.status = last_status_}};
     }
-    const auto& script = *script_;
     const auto fail = [this](int status, Status error) {
         active_ = false;
         return StepResult{.step = Step::Failed,
                           .command = failure(status, error)};
+    };
+    // An unset parameter under set -u is a shell exit, not an evaluator fault,
+    // so a word list or selector reports it the same way a command does.
+    const auto refused = [this, &fail](Status status) {
+        if (status != Status::NotFound || !context_->state.nounset) {
+            return fail(1, status);
+        }
+        abandon(1);
+        return StepResult{.step = Step::Complete,
+                          .command = failure(1, Status::NotFound)};
     };
     const auto exhausted = [this](StorageClass storage_class,
                                   std::size_t required) {
@@ -602,18 +798,31 @@ StepResult Evaluator::step(std::size_t operation_budget) {
         return StepResult{.step = Step::Failed, .command = result};
     };
 
-    for (std::size_t used = 0; used < operation_budget; ++used) {
+    // The loop counter is the instrumentation counter, so every transition
+    // and every charged byte run is observable after the call returns.
+    auto& used = last_units_;
+    while (used < operation_budget) {
+        // The unit is charged as it is spent, so an early return still
+        // reports exactly what the call consumed.
+        ++used;
         if (frame_count_ == 0) {
             active_ = false;
             return {.step = Step::Complete,
                     .command = {.status = last_status_}};
         }
         auto& frame = storage_.frames[frame_count_ - 1];
-        if (frame.node >= script.nodes.size()) {
+        // Indices belong to the frame's own script, which is the main script
+        // for everything except a function body.
+        if (frame.script == nullptr ||
+            frame.node >= frame.script->nodes.size()) {
             return fail(2, Status::BadArgument);
         }
+        const auto& script = *frame.script;
         const auto& node = script.nodes[frame.node];
         switch (frame.kind) {
+            // A call frame is a list that also owns the caller's positional
+            // parameters and consumes Return.
+            case FrameKind::Function:
             case FrameKind::List: {
                 if (frame.link >= node.link_count) {
                     complete_frame(last_status_);
@@ -625,7 +834,7 @@ StepResult Evaluator::step(std::size_t operation_budget) {
                     return fail(2, Status::BadArgument);
                 }
                 ++frame.link;
-                if (push(FrameKind::AndOr, child, frame.tested, false) !=
+                if (push(FrameKind::AndOr, script, child, frame.tested, false) !=
                     Status::Ok) {
                     return exhausted(StorageClass::EvaluatorFrames,
                                      frame_count_ + 1);
@@ -653,7 +862,7 @@ StepResult Evaluator::step(std::size_t operation_budget) {
                 const auto tested =
                     frame.tested || frame.link + 1 < node.link_count;
                 ++frame.link;
-                const auto outcome = enter_command(child, tested);
+                const auto outcome = enter_command(script, child, tested);
                 if (outcome.returns) return outcome.result;
                 break;
             }
@@ -667,7 +876,7 @@ StepResult Evaluator::step(std::size_t operation_budget) {
                         return fail(2, Status::BadArgument);
                     }
                     frame.phase = 1;
-                    if (push(FrameKind::List, condition, true, false) !=
+                    if (push(FrameKind::List, script, condition, true, false) !=
                         Status::Ok) {
                         return exhausted(StorageClass::EvaluatorFrames,
                                          frame_count_ + 1);
@@ -685,7 +894,7 @@ StepResult Evaluator::step(std::size_t operation_budget) {
                         return fail(2, Status::BadArgument);
                     }
                     frame.phase = 3;
-                    if (push(FrameKind::List, body, frame.tested, false) !=
+                    if (push(FrameKind::List, script, body, frame.tested, false) !=
                         Status::Ok) {
                         return exhausted(StorageClass::EvaluatorFrames,
                                          frame_count_ + 1);
@@ -711,7 +920,7 @@ StepResult Evaluator::step(std::size_t operation_budget) {
                         }
                         frame.aux = branch;
                         frame.phase = 4;
-                        if (push(FrameKind::List, test, true, false) !=
+                        if (push(FrameKind::List, script, test, true, false) !=
                             Status::Ok) {
                             return exhausted(StorageClass::EvaluatorFrames,
                                              frame_count_ + 1);
@@ -726,7 +935,7 @@ StepResult Evaluator::step(std::size_t operation_budget) {
                         return fail(2, Status::BadArgument);
                     }
                     frame.phase = 3;
-                    if (push(FrameKind::List, body, frame.tested, false) !=
+                    if (push(FrameKind::List, script, body, frame.tested, false) !=
                         Status::Ok) {
                         return exhausted(StorageClass::EvaluatorFrames,
                                          frame_count_ + 1);
@@ -744,7 +953,7 @@ StepResult Evaluator::step(std::size_t operation_budget) {
                         return fail(2, Status::BadArgument);
                     }
                     frame.phase = 3;
-                    if (push(FrameKind::List, body, frame.tested, false) !=
+                    if (push(FrameKind::List, script, body, frame.tested, false) !=
                         Status::Ok) {
                         return exhausted(StorageClass::EvaluatorFrames,
                                          frame_count_ + 1);
@@ -764,7 +973,7 @@ StepResult Evaluator::step(std::size_t operation_budget) {
                         return fail(2, Status::BadArgument);
                     }
                     frame.phase = 1;
-                    if (push(FrameKind::List, test, true, false) !=
+                    if (push(FrameKind::List, script, test, true, false) !=
                         Status::Ok) {
                         return exhausted(StorageClass::EvaluatorFrames,
                                          frame_count_ + 1);
@@ -781,7 +990,7 @@ StepResult Evaluator::step(std::size_t operation_budget) {
                         return fail(2, Status::BadArgument);
                     }
                     frame.phase = 2;
-                    if (push(FrameKind::List, body, frame.tested, false) !=
+                    if (push(FrameKind::List, script, body, frame.tested, false) !=
                         Status::Ok) {
                         return exhausted(StorageClass::EvaluatorFrames,
                                          frame_count_ + 1);
@@ -819,7 +1028,7 @@ StepResult Evaluator::step(std::size_t operation_budget) {
                                 context_->state, storage_.expansion,
                                 expanded);
                             if (outcome.status != Status::Ok) {
-                                return fail(1, outcome.status);
+                                return refused(outcome.status);
                             }
                             used += expanded.text.size() / bytes_per_unit;
                             for (std::size_t i = 0;
@@ -880,7 +1089,7 @@ StepResult Evaluator::step(std::size_t operation_budget) {
                         return fail(2, Status::BadArgument);
                     }
                     frame.phase = 2;
-                    if (push(FrameKind::List, body, frame.tested, false) !=
+                    if (push(FrameKind::List, script, body, frame.tested, false) !=
                         Status::Ok) {
                         return exhausted(StorageClass::EvaluatorFrames,
                                          frame_count_ + 1);
@@ -905,7 +1114,7 @@ StepResult Evaluator::step(std::size_t operation_budget) {
                         script.source, word_fragments(script, selector), 0,
                         context_->state, storage_.expansion, expanded);
                     if (outcome.status != Status::Ok) {
-                        return fail(1, outcome.status);
+                        return refused(outcome.status);
                     }
                     if (expanded.fields.size() > 1) {
                         return fail(2, Status::Unsupported);
@@ -954,7 +1163,7 @@ StepResult Evaluator::step(std::size_t operation_budget) {
                         return fail(2, Status::BadArgument);
                     }
                     std::size_t length = 0;
-                    const auto built = build_pattern(pattern, length);
+                    const auto built = build_pattern(script, pattern, length);
                     if (built != Status::Ok) return fail(2, built);
                     used += length / bytes_per_unit;
                     const auto matched = match_case_pattern(
@@ -974,7 +1183,7 @@ StepResult Evaluator::step(std::size_t operation_budget) {
                     last_status_ = 0;
                     context_->state.last_status = 0;
                     frame.phase = 3;
-                    if (push(FrameKind::List, body, frame.tested, false) !=
+                    if (push(FrameKind::List, script, body, frame.tested, false) !=
                         Status::Ok) {
                         return exhausted(StorageClass::EvaluatorFrames,
                                          frame_count_ + 1);
@@ -994,7 +1203,7 @@ StepResult Evaluator::step(std::size_t operation_budget) {
                         return fail(2, Status::BadArgument);
                     }
                     frame.phase = 1;
-                    if (push(FrameKind::List, body, frame.tested, false) !=
+                    if (push(FrameKind::List, script, body, frame.tested, false) !=
                         Status::Ok) {
                         return exhausted(StorageClass::EvaluatorFrames,
                                          frame_count_ + 1);

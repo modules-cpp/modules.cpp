@@ -29,11 +29,14 @@ Covers the target-safe mm.shell foundation: CapabilitySet bitset operations,
 standard capability profiles, name lookup, static CommandDescriptor Registry
 lifecycle and duplicate rejection, IoServices memory sink buffering, and
 preflight scratch overflow protection in CommandContext, the embedded scanner
-and measured parser, transactional state pools, signed arithmetic, and case
+and measured parser, transactional state pools with positional call frames, signed arithmetic, and case
 pattern matching, field splitting, parameter resolution, word expansion,
 monotonic function storage, and the cooperative evaluator's simple-command
 dispatch, assignment semantics, conditionals, loops, case selection, brace
-groups, frame budget, control-flow ownership, and output staging, the core
+groups, control-flow ownership, output staging, instrumented operation units,
+argv capacity bounds, bounded transaction scratch, set -e tested contexts
+against set -u, and function definition, resolution order, call frames, return
+ownership and recursion bounds, the core
 builtin pack's descriptor classes, output, test operators, option
 transactions, flow values, and introspection, and Session line accumulation,
 multiline continuation, editing bytes, malformed and overlong recovery, and

@@ -135,7 +135,12 @@ token, fragment, node, and link arenas. define measures and validates a body,
 preflights every arena, copies the name and body source, parses into owned
 storage, then publishes or replaces one visible handle. A failed definition
 leaves the old handle visible. Old allocations are reclaimed on reset, not on
-replacement. Function call frames and function lookup are not yet present.
+replacement.
+
+A definition executed by the evaluator hands define the body's list source with
+the braces stripped, not the brace group itself. The copy is the same script
+either way, and a call then costs one frame instead of a redundant group
+layer.
 
 ## Evaluator in progress
 
@@ -150,7 +155,9 @@ allocates nothing.
 ### Frames and stepping
 
 A frame identifies a syntax index and a resumption phase, never a C++ call
-frame. The frame kinds are List, AndOr, If, While, For, Case, and Brace. Each
+frame. The frame kinds are List, AndOr, If, While, For, Case, Brace, and
+Function. Each frame also names the EmbeddedScript its indices belong to,
+because a function body is a separate script owned by the FunctionLibrary. Each
 frame records the loop-arena marks it was pushed with, so popping it reclaims
 exactly the items it added. Exhausting the frame span fails with
 Status::Overflow and StorageClass::EvaluatorFrames.
@@ -163,10 +170,18 @@ assembly. Long scans retain their cursor in the owning frame and resume on
 the next call. Exhausting the budget returns Running rather than failure, and
 a budget of zero makes no progress.
 
-Argument-vector expansion for one simple command is not yet charged against
-that budget. It is bounded by the caller's argv slot and argv text capacities
-rather than by work units, so the instrumented adversarial bound still has to
-cover it.
+Argument-vector expansion for one simple command is not charged in units. Like
+the work inside a native handler, it is bounded by declared capacity instead:
+the caller's argv slot and argv text spans. Exceeding either is Overflow with
+StorageClass::ExpandedFields or ExpandedFieldText before any dispatch, so a
+maximum-capacity command cannot outrun its storage.
+
+Four accessors make the contract testable, each describing the call that just
+returned. last_step_units and last_step_handlers cover structural work: a step
+never reports more units than the budget it was given and never reports two
+handler entries. last_command_slots and last_command_bytes report what the last
+simple command consumed of its argv capacities. Adversarial maximum-capacity
+fixtures assert all four.
 
 ### Implemented productions
 
@@ -182,21 +197,67 @@ cover it.
   produced by expansion is compared literally at this level;
 - brace groups.
 
+### Functions and call frames
+
+Function definition and lookup are available only when EvaluatorStorage carries
+a FunctionLibrary. Without one a definition reports Status::Unsupported and the
+name never resolves.
+
+Executing a definition rejects the name of a special builtin, then measures and
+deep-copies the body into the library. Replacing a definition leaves the old
+one visible until the new copy is complete.
+
+Name resolution at a simple command is: a special builtin first, then a
+function, then any other installed command, then status 127. A call is a frame,
+not a handler, so it consumes no handler budget. Prefix assignments to a
+function persist after it returns, exactly as they do for a special builtin.
+
+A call frame is the body's list plus ownership of the caller's positional
+parameters. ShellState::push_positionals copies the caller's slots into the
+evaluator's call arena and installs the call's arguments above them in the
+monotonic text pool; popping the frame restores the slots, the text cursor, and
+the caller's shift count, so a callee's `$1` and its own `shift` never leak out.
+The arena is bump-allocated and released in frame order.
+
+Open calls are capped by EvaluatorStorage::call_limit. Exceeding it refuses the
+call with status 2 and Overflow rather than exhausting the frame span, and the
+refused call unwinds like any other failure.
+
 ### Flow ownership
 
 A flow value is consumed only by the frame that owns it. Break and Continue
 locate the innermost While or For frame, popping the frames above it; Break
-pops the loop and Continue re-enters it at its next test or item. Exit
-abandons every open frame and returns Complete. Yield returns Yielded with
-the frame stack intact, so the next step resumes after the yielding command.
-A flow value with no owning frame leaves the stack untouched and reports
-status 2: at this level that covers Break and Continue outside a loop and
-every Return, because function and installed-script frames arrive with the
-next change set.
+pops the loop and Continue re-enters it at its next test or item. A call frame
+is a barrier to both, so a body that breaks with no loop of its own does not
+reach the caller's loop. Return locates the innermost call frame, which is what
+restores the caller's arguments. Exit abandons every open frame and returns
+Complete. Yield returns Yielded with the frame stack intact, so the next step
+resumes after the yielding command.
+
+A flow value with no owning frame leaves the stack untouched and reports status
+2: Break or Continue outside a loop, and Return outside a call. Replace is
+still unowned, because installed-script frames arrive with the script
+library.
 
 tested_context reports whether the command that last ran occupied a tested
 context: a condition list, an inverted command, or a non-final operand of
-`&&` or `||`. set -e will read that flag rather than a bare nonzero status.
+`&&` or `||`. The flag propagates into compound commands, so the body of a
+brace group used as an `if` condition is tested too.
+
+### set -e and set -u
+
+set -e reads that flag rather than a bare nonzero status. A command that fails
+outside a tested context drops every open frame and ends the evaluator with
+that status, which step reports as Complete exactly as `exit` would. A failing
+condition, an inverted command, a non-final `&&` or `||` operand, and anything
+inside them are exempt; a loop body is not.
+
+set -u makes an unset parameter an error inside expansion, and that error ends
+the evaluator with status 1 and Status::NotFound whether or not -e is set. A
+`:-`, `:+`, or `:=` operand is exempt because the parameter is never unset by
+the time it is used. A `for` word list and a `case` selector report it the same
+way a simple command does, rather than as an evaluator fault. Without -u an
+unset parameter still expands to nothing.
 
 ### Output staging and I/O retry
 
@@ -221,7 +282,14 @@ error, not a retry case: the staging sink refuses with Overflow and
 StorageClass::StagedOutput, the handler stops there, and only the bytes it had
 already handed over are drained.
 
-Function definition nodes and command substitution are not yet implemented.
+A handler is entered exactly once per command whatever the transport does. A
+fake bounded transaction proves it: with a transport that refuses three writes
+before accepting, the handler records one entry and one physical effect, and
+the retried drain repeats neither. The same fake proves the scratch contract,
+returning Overflow with StorageClass::TransactionScratch, no output, and no
+effect when its span is too small.
+
+Installed scripts and command substitution are not yet implemented.
 
 ## Session in progress
 

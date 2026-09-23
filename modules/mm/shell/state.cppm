@@ -35,6 +35,13 @@ struct ValueLookup {
     std::string_view value;
 };
 
+// What a call frame must remember to give the caller its arguments back.
+struct PositionalFrame {
+    std::size_t count = 0;
+    std::size_t text_used = 0;
+    std::size_t shifted = 0;
+};
+
 struct ShellState {
     int last_status = 0;
     bool errexit = false;
@@ -62,6 +69,17 @@ struct ShellState {
     [[nodiscard]] ValueLookup positional(std::size_t index) const;
     [[nodiscard]] std::size_t argument_count() const;
     [[nodiscard]] StateResult shift(std::size_t count = 1);
+    // A function or installed-script call copies the caller's slots into
+    // non-aliasing caller storage, then installs its own arguments above them
+    // in the text pool. A failed push changes nothing. pop restores the slots
+    // and reclaims exactly the bytes the call appended.
+    [[nodiscard]] StateResult push_positionals(
+        std::string_view command_name,
+        std::span<const std::string_view> arguments,
+        std::span<PositionalSlot> saved, PositionalFrame& out);
+    [[nodiscard]] StateResult pop_positionals(
+        std::span<const PositionalSlot> saved,
+        const PositionalFrame& frame);
     // A fork shares read-only positional storage but copies variable state.
     // The caller supplies non-aliasing variable slots and bytes. Failed forks
     // and failed commits leave the destination unchanged.

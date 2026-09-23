@@ -10,6 +10,7 @@ export module mm.shell:execute;
 
 import :command;
 import :expand;
+import :function;
 import :io;
 import :pattern;
 import :source;
@@ -31,10 +32,14 @@ enum class FrameKind {
     For,
     Case,
     Brace,
+    Function,
 };
 
 struct EvaluatorFrame {
     FrameKind kind = FrameKind::List;
+    // A function body is a separate EmbeddedScript owned by the
+    // FunctionLibrary, so every frame names the script its indices belong to.
+    const EmbeddedScript* script = nullptr;
     std::size_t node = 0;
     // Secondary syntax index: the elif branch or case item under inspection.
     std::size_t aux = 0;
@@ -46,6 +51,11 @@ struct EvaluatorFrame {
     std::size_t text_mark = 0;
     std::size_t item_first = 0;
     std::size_t item_count = 0;
+    // Call frames only: where this call's saved positional slots start, and
+    // what the caller's positional parameters were.
+    std::size_t slot_mark = 0;
+    std::size_t slot_count = 0;
+    PositionalFrame positionals;
     int status = 0;
     bool negate = false;
     bool tested = false;
@@ -72,6 +82,14 @@ struct EvaluatorStorage {
     // through, which suits a memory sink that never blocks.
     std::span<char> staged_output;
     std::span<char> staged_error;
+    // Function definition and lookup are available only when a library is
+    // supplied. Without one a definition reports Status::Unsupported.
+    FunctionLibrary* functions = nullptr;
+    // Saved caller positional slots, one contiguous run per open call frame.
+    std::span<PositionalSlot> call_positionals;
+    // Open call frames allowed at once, so a runaway recursion is refused
+    // rather than exhausting the frame span.
+    std::size_t call_limit = 16;
 };
 
 struct StepResult {
@@ -95,6 +113,28 @@ public:
     // result of the command that produced them is withheld until they do.
     [[nodiscard]] bool pending_output() const;
 
+    // Instrumentation for the operation-unit contract. Each counter describes
+    // the most recent call and is reset at its entry.
+    //
+    // Structural work is bounded by units: one syntax or frame transition,
+    // one drain advance, or sixteen bytes of resumable evaluator copying.
+    // A step never exceeds the budget it was given and never enters two
+    // native handlers.
+    [[nodiscard]] std::size_t last_step_units() const { return last_units_; }
+    [[nodiscard]] std::size_t last_step_handlers() const {
+        return last_handlers_;
+    }
+    // Argument-vector expansion for one simple command is bounded by the
+    // caller's argv capacities rather than by units, the way the language
+    // specification bounds handler work. These report what the last simple
+    // command actually consumed of those capacities.
+    [[nodiscard]] std::size_t last_command_slots() const {
+        return last_slots_;
+    }
+    [[nodiscard]] std::size_t last_command_bytes() const {
+        return last_bytes_;
+    }
+
 private:
     struct Outcome {
         bool returns = false;
@@ -103,18 +143,31 @@ private:
 
     enum class Drain { Done, Advanced, Blocked, Failed };
 
-    [[nodiscard]] Status push(FrameKind kind, std::size_t node, bool tested,
-                              bool negate);
+    [[nodiscard]] Status push(FrameKind kind, const EmbeddedScript& script,
+                              std::size_t node, bool tested, bool negate);
     void pop();
-    [[nodiscard]] Outcome enter_command(std::size_t node, bool tested);
-    [[nodiscard]] Outcome run_simple(std::size_t node, bool negate);
-    [[nodiscard]] CommandResult assign_prefixes(std::size_t node,
+    [[nodiscard]] Outcome enter_command(const EmbeddedScript& script,
+                                       std::size_t node, bool tested);
+    [[nodiscard]] Outcome run_simple(const EmbeddedScript& script,
+                                     std::size_t node, bool negate);
+    [[nodiscard]] Outcome define_function(const EmbeddedScript& script,
+                                          std::size_t node);
+    [[nodiscard]] Outcome call_function(const FunctionSlot& function,
+                                        std::span<const std::string_view> args,
+                                        bool negate);
+    [[nodiscard]] CommandResult assign_prefixes(const EmbeddedScript& script,
+                                                std::size_t node,
                                                 std::size_t count);
     [[nodiscard]] Status append_item(std::string_view value);
-    [[nodiscard]] Status build_pattern(std::size_t node,
+    [[nodiscard]] Status build_pattern(const EmbeddedScript& script,
+                                       std::size_t node,
                                        std::size_t& length);
     [[nodiscard]] bool unwind_to_loop(bool pop_loop);
+    [[nodiscard]] bool unwind_to_call(int status);
     void complete_frame(int status);
+    // Drops every open frame and publishes a final status: exit, set -e, and
+    // an unset parameter under set -u all end the evaluator this way.
+    void abandon(int status);
     [[nodiscard]] IoServices handler_io();
     [[nodiscard]] Drain drain_once();
     void recycle_staging();
@@ -127,11 +180,17 @@ private:
     std::size_t frame_count_ = 0;
     std::size_t items_used_ = 0;
     std::size_t item_text_used_ = 0;
+    std::size_t slots_used_ = 0;
+    std::size_t calls_open_ = 0;
     MemorySink staging_out_{};
     MemorySink staging_error_{};
     std::size_t drained_out_ = 0;
     std::size_t drained_error_ = 0;
     SinkFailure drain_failure_{};
+    std::size_t last_units_ = 0;
+    std::size_t last_handlers_ = 0;
+    std::size_t last_slots_ = 0;
+    std::size_t last_bytes_ = 0;
     StepResult held_{};
     bool holding_ = false;
     int last_status_ = 0;

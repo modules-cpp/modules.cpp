@@ -191,6 +191,42 @@ StateResult ShellState::shift(std::size_t count) {
     return {};
 }
 
+StateResult ShellState::push_positionals(
+    std::string_view command_name,
+    std::span<const std::string_view> arguments,
+    std::span<PositionalSlot> saved, PositionalFrame& out) {
+    if (saved.size() < positional_count_) {
+        return {Status::Overflow,
+                {StorageClass::PositionalParameters, positional_count_}};
+    }
+    // The slots are copied before the replacement overwrites them; the text
+    // pool is monotonic, so the saved spans stay valid underneath the call.
+    for (std::size_t i = 0; i < positional_count_; ++i) {
+        saved[i] = positionals_[i];
+    }
+    const PositionalFrame frame{positional_count_, positional_text_used_,
+                                shifted_};
+    const auto installed = set_positionals(command_name, arguments);
+    if (!installed.ok()) return installed;
+    out = frame;
+    return {};
+}
+
+StateResult ShellState::pop_positionals(
+    std::span<const PositionalSlot> saved, const PositionalFrame& frame) {
+    if (frame.count > positionals_.size() || frame.count > saved.size() ||
+        frame.text_used > positional_text_.size()) {
+        return {Status::BadArgument, {}};
+    }
+    for (std::size_t i = 0; i < frame.count; ++i) {
+        positionals_[i] = saved[i];
+    }
+    positional_count_ = frame.count;
+    positional_text_used_ = frame.text_used;
+    shifted_ = frame.shifted;
+    return {};
+}
+
 StateResult ShellState::fork_variables(
     std::span<VariableSlot> variables, std::span<char> variable_text,
     ShellState& out) const {

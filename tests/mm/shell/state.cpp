@@ -151,11 +151,76 @@ void fork_and_commit_variables() {
            "failed commit preserves destination state");
 }
 
+void positional_call_frames() {
+    mm::shell::PositionalSlot slots[8]{};
+    char text[64]{};
+    ShellState state{{}, {}, slots, text};
+    const std::string_view outer[]{"one", "two"};
+    expect(state.set_positionals("script", outer).ok(),
+           "caller arguments install");
+
+    mm::shell::PositionalSlot saved[8]{};
+    mm::shell::PositionalFrame frame;
+    const std::string_view inner[]{"alpha"};
+    expect(state.push_positionals("callee", inner, saved, frame).ok(),
+           "a call installs its own arguments");
+    expect(state.argument_count() == 1 &&
+               state.positional(0).value == "callee" &&
+               state.positional(1).value == "alpha" &&
+               frame.count == 3,
+           "the call sees only its own arguments");
+    expect(state.shift().ok() && state.argument_count() == 0,
+           "the call may shift its own arguments");
+
+    mm::shell::PositionalSlot deeper[8]{};
+    mm::shell::PositionalFrame nested;
+    const std::string_view third[]{"x", "y"};
+    expect(state.push_positionals("deeper", third, deeper, nested).ok(),
+           "a nested call installs above the first");
+    expect(state.argument_count() == 2 &&
+               state.positional(2).value == "y",
+           "the nested call sees its own arguments");
+    expect(state.pop_positionals(deeper, nested).ok() &&
+               state.argument_count() == 0 &&
+               state.positional(0).value == "callee",
+           "popping restores the first call, including its shift");
+    expect(state.pop_positionals(saved, frame).ok() &&
+               state.argument_count() == 2 &&
+               state.positional(1).value == "one" &&
+               state.positional(2).value == "two",
+           "popping restores the caller's arguments and text");
+
+    mm::shell::PositionalSlot narrow[1]{};
+    mm::shell::PositionalFrame refused;
+    const auto short_save = state.push_positionals("callee", inner, narrow,
+                                                   refused);
+    expect(short_save.status == Status::Overflow &&
+               short_save.overflow.storage_class ==
+                   StorageClass::PositionalParameters &&
+               state.argument_count() == 2,
+           "a short save span changes nothing");
+
+    char tight[8]{};
+    ShellState small{{}, {}, slots, tight};
+    expect(small.set_positionals("s", outer).ok(),
+           "tight-pool caller installs");
+    mm::shell::PositionalFrame exhausted;
+    const auto no_room = small.push_positionals("callee", inner, saved,
+                                                exhausted);
+    expect(no_room.status == Status::Overflow &&
+               no_room.overflow.storage_class ==
+                   StorageClass::PositionalParameterText &&
+               small.argument_count() == 2 &&
+               small.positional(1).value == "one",
+           "an exhausted text pool leaves the caller intact");
+}
+
 const mm::test::case_ cases[]{
     {"variable transactions", &variable_transactions},
     {"positional transactions and shift",
      &positional_transactions_and_shift},
     {"fork and commit variables", &fork_and_commit_variables},
+    {"positional call frames", &positional_call_frames},
 };
 
 const mm::test::registrar reg{"mm.shell state", cases};

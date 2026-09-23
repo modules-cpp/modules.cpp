@@ -51,13 +51,28 @@ struct RuntimeScratch {
     char prefix_variable_text[256]{};
     char staged_output[64]{};
     char staged_error[64]{};
+    mm::shell::PositionalSlot call_positionals[32]{};
 
     [[nodiscard]] EvaluatorStorage storage() {
         return {{pieces, generated, {field_text, fields},
                  shadow_variables, shadow_text},
                 arguments, argument_text, frames, loop_items, loop_text,
                 pattern, prefix_variables, prefix_variable_text,
-                staged_output, staged_error};
+                staged_output, staged_error, nullptr, call_positionals};
+    }
+};
+
+struct FunctionScratch {
+    mm::shell::FunctionSlot functions[4]{};
+    char text[512]{};
+    mm::shell::ScriptToken tokens[64]{};
+    mm::shell::WordFragment fragments[64]{};
+    mm::shell::SyntaxNode nodes[64]{};
+    mm::shell::SyntaxLink links[64]{};
+    mm::shell::ParserFrame context[16]{};
+
+    [[nodiscard]] mm::shell::FunctionStorage storage() {
+        return {functions, text, tokens, fragments, nodes, links, context};
     }
 };
 
@@ -99,7 +114,10 @@ void flow_handler(void*, std::span<const std::string_view> args,
     const auto which = args.size() > 1 ? args[1] : std::string_view{};
     if (which == "break") result.flow = Flow::Break;
     if (which == "continue") result.flow = Flow::Continue;
-    if (which == "return") result.flow = Flow::Return;
+    if (which == "return") {
+        result.flow = Flow::Return;
+        if (args.size() > 2 && args[2] == "3") result.status = 3;
+    }
     if (which == "yield") result.flow = Flow::Yield;
     if (which == "exit") {
         result.flow = Flow::Exit;
@@ -116,6 +134,84 @@ void writer_handler(void*, std::span<const std::string_view> args,
             result.status = 1;
             result.error = refused.error;
             result.overflow = refused.overflow;
+            return;
+        }
+    }
+}
+
+// A transport that refuses a fixed number of writes before accepting, the
+// shape an application's pump has when it has no room yet.
+struct BlockingSink {
+    char buffer[128]{};
+    std::size_t written = 0;
+    std::size_t blocks = 0;
+    std::size_t refusals = 0;
+
+    [[nodiscard]] mm::shell::ByteSink sink() {
+        return {
+            .context = this,
+            .write_fn = &BlockingSink::write_callback,
+            .flush_fn = nullptr,
+            .failure_fn = &BlockingSink::failure_callback,
+        };
+    }
+
+    [[nodiscard]] std::string_view view() const {
+        return std::string_view{buffer, written};
+    }
+
+    static mm::shell::SinkResult write_callback(
+        void* ctx, std::span<const char> bytes) {
+        auto* self = static_cast<BlockingSink*>(ctx);
+        if (self->blocks != 0) {
+            --self->blocks;
+            ++self->refusals;
+            return mm::shell::SinkResult::WouldBlock;
+        }
+        if (bytes.size() > sizeof(self->buffer) - self->written) {
+            return mm::shell::SinkResult::Failed;
+        }
+        for (std::size_t i = 0; i < bytes.size(); ++i) {
+            self->buffer[self->written + i] = bytes[i];
+        }
+        self->written += bytes.size();
+        return mm::shell::SinkResult::Accepted;
+    }
+
+    static mm::shell::SinkFailure failure_callback(void*) {
+        return {.error = Status::WriteError};
+    }
+};
+
+// A fake transaction: it preflights its whole request, response, and working
+// space before touching the device, so an undersized scratch span produces
+// Overflow with no output and no effect.
+struct DeviceState {
+    std::size_t required = 8;
+    std::size_t effects = 0;
+    std::size_t entries = 0;
+};
+
+void device_handler(void* data, std::span<const std::string_view> args,
+                    CommandContext& context, CommandResult& result) {
+    auto& state = *static_cast<DeviceState*>(data);
+    ++state.entries;
+    if (context.scratch.size() < state.required) {
+        result.status = 2;
+        result.error = Status::Overflow;
+        result.overflow = {mm::shell::StorageClass::TransactionScratch,
+                           state.required};
+        return;
+    }
+    for (std::size_t i = 0; i < state.required; ++i) {
+        context.scratch[i] = static_cast<std::byte>(i);
+    }
+    ++state.effects;
+    for (std::size_t i = 1; i < args.size(); ++i) {
+        if (context.io.out.write(args[i]) !=
+            mm::shell::SinkResult::Accepted) {
+            result.status = 1;
+            result.error = Status::WriteError;
             return;
         }
     }
@@ -140,11 +236,20 @@ struct Fixture {
         mm::shell::CapabilitySet::level1();
     std::byte handler_scratch[8]{};
     CommandContext context{io, state, capabilities, handler_scratch};
-    CommandDescriptor commands[5]{};
+    CommandDescriptor commands[6]{};
     Registry registry{commands};
     HandlerState handler_state;
     CounterState counter_state;
+    DeviceState device_state;
+    FunctionScratch function_storage;
+    mm::shell::FunctionLibrary functions{function_storage.storage()};
     Evaluator evaluator;
+
+    [[nodiscard]] EvaluatorStorage storage() {
+        auto supplied = runtime_storage.storage();
+        supplied.functions = &functions;
+        return supplied;
+    }
 
     void install() {
         expect(registry.install({
@@ -183,6 +288,15 @@ struct Fixture {
                    .context = nullptr,
                }).ok(),
                "fixture writer installs");
+        expect(registry.install({
+                   .name = "device",
+                   .summary = "fake bounded transaction",
+                   .command_class = mm::shell::CommandClass::Custom,
+                   .required_capabilities = {},
+                   .handler = &device_handler,
+                   .context = &device_state,
+               }).ok(),
+               "fixture device installs");
     }
 
     void parse(std::string_view source) {
@@ -193,8 +307,8 @@ struct Fixture {
     }
 
     void start() {
-        expect(evaluator.begin(script, registry, context,
-                               runtime_storage.storage()) == Status::Ok,
+        expect(evaluator.begin(script, registry, context, storage()) ==
+                   Status::Ok,
                "evaluator begins");
     }
 
@@ -257,12 +371,20 @@ void reports_unknown_and_unsupported() {
                missing.handler_state.calls == 0,
            "unknown command uses shell not-found status");
 
-    Fixture definition{"greet() { ok hi; }"};
+    Fixture definition{"greet() { ok hi; }; greet"};
+    auto without_library = definition.storage();
+    without_library.functions = nullptr;
+    expect(definition.evaluator.begin(definition.script,
+                                      definition.registry,
+                                      definition.context,
+                                      without_library) == Status::Ok,
+           "the library-less evaluator begins");
     result = run(definition);
-    expect(result.step == Step::Failed &&
-               result.command.error == Status::Unsupported &&
+    expect(result.step == Step::Complete &&
+               definition.state.last_status ==
+                   static_cast<int>(mm::shell::CommandStatus::NotFound) &&
                definition.handler_state.calls == 0,
-           "function definitions are not yet evaluated");
+           "without a function library a definition is unsupported");
 }
 
 void assignments_update_state() {
@@ -476,7 +598,7 @@ void stages_handler_output() {
     // A staging span smaller than the handler's output keeps the accepted
     // prefix, which still drains, and reports the overflow to the caller.
     Fixture narrow{"write aaaaaaaaaa"};
-    auto storage = narrow.runtime_storage.storage();
+    auto storage = narrow.storage();
     storage.staged_output = std::span<char>{
         narrow.runtime_storage.staged_output, 4};
     expect(narrow.evaluator.begin(narrow.script, narrow.registry,
@@ -531,6 +653,297 @@ void long_scans_resume_from_a_cursor() {
            "the loop finishes on one-unit steps");
 }
 
+void bounded_transaction_scratch() {
+    Fixture sufficient{"device one two"};
+    auto result = run(sufficient);
+    expect(result.step == Step::Complete &&
+               sufficient.device_state.entries == 1 &&
+               sufficient.device_state.effects == 1 &&
+               sufficient.output.view() == "onetwo",
+           "a sufficient scratch span performs the transaction");
+
+    Fixture narrow{"device one"};
+    narrow.device_state.required = 64;
+    StepResult dispatched{};
+    auto guard = std::size_t{0};
+    while (narrow.device_state.entries == 0 && guard < 512) {
+        dispatched = narrow.evaluator.step();
+        ++guard;
+    }
+    expect(dispatched.command.error == Status::Overflow &&
+               dispatched.command.overflow.storage_class ==
+                   mm::shell::StorageClass::TransactionScratch &&
+               dispatched.command.overflow.required == 64 &&
+               narrow.device_state.effects == 0 &&
+               narrow.output.view().empty(),
+           "an undersized scratch span reports Overflow with no effect");
+}
+
+void side_effects_are_not_repeated_on_retry() {
+    Fixture fixture{"device one"};
+    BlockingSink transport;
+    transport.blocks = 3;
+    mm::shell::IoServices io{transport.sink(), fixture.error.sink()};
+    CommandContext context{io, fixture.state, fixture.capabilities,
+                           fixture.handler_scratch};
+    expect(fixture.evaluator.begin(fixture.script, fixture.registry, context,
+                                   fixture.storage()) == Status::Ok,
+           "the blocking-transport evaluator begins");
+    const auto result = run(fixture);
+    expect(result.step == Step::Complete &&
+               fixture.device_state.entries == 1 &&
+               fixture.device_state.effects == 1 &&
+               transport.refusals == 3 && transport.view() == "one",
+           "a retried drain re-enters no handler and repeats no effect");
+}
+
+void operation_units_stay_within_budget() {
+    Fixture fixture{
+        "for item in a b c d e f g h; do ok $item && ok $item; done; "
+        "if ok x; then ok y; else ok z; fi"};
+    auto steps = std::size_t{0};
+    auto peak = std::size_t{0};
+    StepResult result{};
+    do {
+        result = fixture.evaluator.step();
+        expect(fixture.evaluator.last_step_units() <= 32,
+               "a step never exceeds the unit budget it was given");
+        expect(fixture.evaluator.last_step_handlers() <= 1,
+               "a step never enters two native handlers");
+        if (fixture.evaluator.last_step_units() > peak) {
+            peak = fixture.evaluator.last_step_units();
+        }
+        ++steps;
+    } while (result.step == Step::Running && steps < 4096);
+    expect(result.step == Step::Complete && peak != 0 &&
+               fixture.handler_state.calls == 18,
+           "the adversarial script completes with observed unit counts");
+
+    Fixture idle{"ok one"};
+    const auto none = idle.evaluator.step(0);
+    expect(none.step == Step::Running &&
+               idle.evaluator.last_step_units() == 0 &&
+               idle.evaluator.last_step_handlers() == 0,
+           "a zero budget consumes no unit and enters no handler");
+
+    Fixture single{"ok one; ok two"};
+    (void)single.evaluator.step(1);
+    expect(single.evaluator.last_step_units() == 1,
+           "a one-unit budget charges exactly one transition");
+}
+
+void command_expansion_stays_within_argv_capacity() {
+    Fixture fixture{"ok aaaa bbbb cccc"};
+    auto guard = std::size_t{0};
+    while (fixture.handler_state.calls == 0 && guard < 512) {
+        (void)fixture.evaluator.step();
+        ++guard;
+    }
+    constexpr auto slots = sizeof(RuntimeScratch::arguments) /
+                           sizeof(RuntimeScratch::arguments[0]);
+    expect(fixture.evaluator.last_command_slots() == 4 &&
+               fixture.evaluator.last_command_bytes() == 14 &&
+               fixture.evaluator.last_command_slots() <= slots &&
+               fixture.evaluator.last_command_bytes() <=
+                   sizeof(RuntimeScratch::argument_text),
+           "argv expansion is accounted against the caller's capacities");
+
+    Fixture narrow{"ok a b c d"};
+    auto storage = narrow.storage();
+    storage.arguments = std::span<std::string_view>{
+        narrow.runtime_storage.arguments, 3};
+    expect(narrow.evaluator.begin(narrow.script, narrow.registry,
+                                  narrow.context, storage) == Status::Ok,
+           "the narrow-argv evaluator begins");
+    StepResult refused{};
+    guard = 0;
+    while (refused.command.error == Status::Ok && guard < 512) {
+        refused = narrow.evaluator.step();
+        if (refused.step != Step::Running) break;
+        ++guard;
+    }
+    expect(refused.command.error == Status::Overflow &&
+               refused.command.overflow.storage_class ==
+                   mm::shell::StorageClass::ExpandedFields &&
+               narrow.handler_state.calls == 0,
+           "argv capacity, not the unit budget, bounds one command");
+}
+
+void errexit_ends_untested_failures() {
+    Fixture fixture{"ok fail; ok never"};
+    fixture.state.errexit = true;
+    auto result = run(fixture);
+    expect(result.step == Step::Complete && result.command.status == 1 &&
+               fixture.handler_state.calls == 1 &&
+               fixture.evaluator.frame_depth() == 0,
+           "set -e ends the evaluator at an untested failure");
+
+    Fixture condition{
+        "if ok fail; then ok then; else ok else; fi; ok after"};
+    condition.state.errexit = true;
+    result = run(condition);
+    expect(result.step == Step::Complete &&
+               condition.handler_state.calls == 3 &&
+               condition.handler_state.last_arg == "after",
+           "a failing condition is a tested context");
+
+    Fixture chained{"ok fail || ok recovered; ok after"};
+    chained.state.errexit = true;
+    result = run(chained);
+    expect(result.step == Step::Complete &&
+               chained.handler_state.calls == 3,
+           "a non-final operand of || is a tested context");
+
+    Fixture inverted{"! ok done; ok after"};
+    inverted.state.errexit = true;
+    result = run(inverted);
+    expect(result.step == Step::Complete &&
+               inverted.handler_state.calls == 2,
+           "an inverted command is a tested context");
+
+    Fixture loop{"while count; do ok fail; done; ok never"};
+    loop.counter_state.remaining = 3;
+    loop.state.errexit = true;
+    result = run(loop);
+    expect(result.step == Step::Complete && result.command.status == 1 &&
+               loop.counter_state.calls == 1 &&
+               loop.handler_state.calls == 1 &&
+               loop.evaluator.frame_depth() == 0,
+           "a loop body failure is not a tested context");
+}
+
+void nounset_ends_the_evaluator() {
+    Fixture fixture{"ok $MISSING; ok never"};
+    fixture.state.nounset = true;
+    auto result = run(fixture);
+    expect(result.step == Step::Complete && result.command.status == 1 &&
+               result.command.error == Status::NotFound &&
+               fixture.handler_state.calls == 0 &&
+               fixture.evaluator.frame_depth() == 0,
+           "set -u ends the evaluator on an unset parameter");
+
+    Fixture guarded{"ok ${MISSING:-fallback}"};
+    guarded.state.nounset = true;
+    result = run(guarded);
+    expect(result.step == Step::Complete &&
+               guarded.handler_state.calls == 1 &&
+               guarded.handler_state.last_arg == "fallback",
+           "a default operand is exempt from set -u");
+
+    Fixture list{"for item in $MISSING; do ok $item; done"};
+    list.state.nounset = true;
+    result = run(list);
+    expect(result.step == Step::Complete && result.command.status == 1 &&
+               result.command.error == Status::NotFound &&
+               list.handler_state.calls == 0,
+           "an unset word list ends the evaluator the same way");
+
+    Fixture permitted{"ok $MISSING done"};
+    result = run(permitted);
+    expect(result.step == Step::Complete &&
+               permitted.handler_state.calls == 1 &&
+               permitted.handler_state.last_arg == "done",
+           "without set -u an unset parameter expands to nothing");
+}
+
+void defines_and_calls_functions() {
+    Fixture fixture{"greet() { write $1 $2; }; greet a b"};
+    auto result = run(fixture);
+    expect(result.step == Step::Complete && fixture.output.view() == "ab" &&
+               fixture.functions.size() == 1 &&
+               fixture.evaluator.frame_depth() == 0,
+           "a definition is stored and the call sees its own arguments");
+
+    Fixture nested{"outer() { write $1; inner x; write $1; }; "
+                   "inner() { write -$1-; }; outer one"};
+    result = run(nested);
+    expect(result.step == Step::Complete &&
+               nested.output.view() == "one-x-one",
+           "a nested call restores the caller's positional parameters");
+
+    Fixture caller{"show() { write $1; }; show inner; write $1"};
+    const std::string_view arguments[]{"outer"};
+    expect(caller.state.set_positionals("shell", arguments).ok(),
+           "caller positionals install");
+    caller.start();
+    result = run(caller);
+    expect(result.step == Step::Complete &&
+               caller.output.view() == "innerouter" &&
+               caller.state.argument_count() == 1,
+           "the script's own arguments survive a call");
+}
+
+void functions_outrank_installed_commands() {
+    Fixture fixture{"ok() { write shadowed; }; ok ignored"};
+    const auto result = run(fixture);
+    expect(result.step == Step::Complete &&
+               fixture.output.view() == "shadowed" &&
+               fixture.handler_state.calls == 0,
+           "a function resolves ahead of an installed command");
+}
+
+void return_leaves_the_call_frame() {
+    Fixture fixture{"body() { write one; flow return; write two; }; "
+                    "body; write after"};
+    auto result = run(fixture);
+    expect(result.step == Step::Complete &&
+               fixture.output.view() == "oneafter" &&
+               fixture.evaluator.frame_depth() == 0,
+           "return abandons the rest of the body, not the script");
+
+    Fixture coded{"body() { flow return 3; }; body"};
+    result = run(coded);
+    expect(result.step == Step::Complete && coded.state.last_status == 3,
+           "return carries its status out of the call");
+
+    Fixture stray{"flow return; write after"};
+    result = run(stray);
+    expect(result.step == Step::Complete && stray.state.last_status == 0 &&
+               stray.output.view() == "after",
+           "return outside a call is a usage error that does not unwind");
+
+    Fixture looping{"body() { for i in a b; do flow break; done; write done; }; "
+                    "body"};
+    result = run(looping);
+    expect(result.step == Step::Complete &&
+               looping.output.view() == "done",
+           "break inside a body finds the loop, not the call frame");
+
+    Fixture escaping{"body() { flow break; write inner; }; "
+                     "for i in a b; do body; write x; done"};
+    result = run(escaping);
+    expect(result.step == Step::Complete &&
+               escaping.output.view() == "innerxinnerx" &&
+               escaping.state.last_status == 0,
+           "a call frame stops break from reaching the caller's loop");
+}
+
+void recursion_is_bounded() {
+    Fixture fixture{"deep() { deep; }; deep"};
+    auto storage = fixture.storage();
+    storage.call_limit = 4;
+    expect(fixture.evaluator.begin(fixture.script, fixture.registry,
+                                   fixture.context, storage) == Status::Ok,
+           "the bounded-recursion evaluator begins");
+    StepResult refused{};
+    auto guard = std::size_t{0};
+    while (guard < 4096) {
+        refused = fixture.evaluator.step();
+        if (refused.command.error == Status::Overflow) break;
+        if (refused.step != Step::Running) break;
+        ++guard;
+    }
+    expect(refused.command.error == Status::Overflow &&
+               refused.command.overflow.storage_class ==
+                   mm::shell::StorageClass::EvaluatorFrames &&
+               refused.command.overflow.required == 5,
+           "recursion past the call limit is refused, not crashed");
+    const auto result = run(fixture);
+    expect(result.step == Step::Complete &&
+               fixture.evaluator.frame_depth() == 0,
+           "the refused recursion unwinds every call frame");
+}
+
 void records_tested_contexts() {
     Fixture fixture{"ok left && ok right"};
     auto result = fixture.evaluator.step();
@@ -566,6 +979,17 @@ const mm::test::case_ cases[]{
     {"stages handler output", &stages_handler_output},
     {"one handler per step", &one_handler_per_step},
     {"long scans resume", &long_scans_resume_from_a_cursor},
+    {"bounded transaction scratch", &bounded_transaction_scratch},
+    {"side effects not repeated", &side_effects_are_not_repeated_on_retry},
+    {"operation units within budget", &operation_units_stay_within_budget},
+    {"argv capacity bounds a command",
+     &command_expansion_stays_within_argv_capacity},
+    {"errexit ends untested failures", &errexit_ends_untested_failures},
+    {"nounset ends the evaluator", &nounset_ends_the_evaluator},
+    {"defines and calls functions", &defines_and_calls_functions},
+    {"functions outrank commands", &functions_outrank_installed_commands},
+    {"return leaves the call frame", &return_leaves_the_call_frame},
+    {"recursion is bounded", &recursion_is_bounded},
     {"tested contexts", &records_tested_contexts},
 };
 
