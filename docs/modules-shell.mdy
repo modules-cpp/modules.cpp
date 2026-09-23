@@ -116,9 +116,16 @@ positionals, checked arithmetic, and operands of `:-`, `:+`, and `:=`.
 Nested scalar parameters are evaluated recursively with a fixed depth
 bound. Assignment uses a variable fork capped at the parent's capacities;
 state is committed only after field output succeeds. Failure leaves both
-state and published fields unchanged. Quoting, escapes, argument-vector
-forms inside operands, and command substitution currently return
-Status::Unsupported. They are not yet Level 1 conformance claims.
+state and published fields unchanged. Argument-vector forms inside operands
+and command substitution currently return Status::Unsupported. They are not
+yet Level 1 conformance claims.
+
+expand_value is the same expansion without field splitting, for assignment
+values and case selectors. Its value_offset argument drops an unquoted
+literal prefix such as NAME=, so no separate fragment copy is needed. Only a
+Literal fragment may straddle that boundary; anything else is BadArgument.
+The result publishes one field or none, and more than one field is
+Status::Unsupported at this level.
 
 ## Function storage in progress
 
@@ -132,12 +139,112 @@ replacement. Function call frames and function lookup are not yet present.
 ## Evaluator in progress
 
 Evaluator begins from an EmbeddedScript and caller-owned Registry,
-CommandContext, expansion storage, argv slots, and argv text. step expands
-words, dispatches one simple command, applies `&&` and `||` short-circuiting,
-and returns control between commands. Negated simple commands invert their
-status. Unimplemented compound commands fail with Status::Unsupported;
-function lookup, builtin installation, output staging, and control-flow frames
+CommandContext, and EvaluatorStorage. EvaluatorStorage supplies expansion
+scratch, argv slots and argv text, structural frames, a loop-item arena with
+its text pool, case pattern bytes, and the variable fork used to revert
+non-persistent prefix assignments. Every span is caller-owned and
+non-aliasing, and the evaluator allocates nothing.
+
+### Frames and stepping
+
+A frame identifies a syntax index and a resumption phase, never a C++ call
+frame. The frame kinds are List, AndOr, If, While, For, Case, and Brace. Each
+frame records the loop-arena marks it was pushed with, so popping it reclaims
+exactly the items it added. Exhausting the frame span fails with
+Status::Overflow and StorageClass::EvaluatorFrames.
+
+step performs structural transitions or invokes one native handler, never
+both. It consumes at most one work unit per structural transition and one
+further unit per sixteen bytes of resumable evaluator copying: word-list
+materialization for `for`, selector capture for `case`, and pattern byte
+assembly. Long scans retain their cursor in the owning frame and resume on
+the next call. Exhausting the budget returns Running rather than failure, and
+a budget of zero makes no progress.
+
+Argument-vector expansion for one simple command is not yet charged against
+that budget. It is bounded by the caller's argv slot and argv text capacities
+rather than by work units, so the instrumented adversarial bound still has to
+cover it.
+
+### Implemented productions
+
+- lists, `&&`, `||`, and negation, including negation of a compound command;
+- assignment-only commands, which expand without field splitting;
+- prefix assignments, visible to the handler for that invocation only and
+  reverted afterwards unless the descriptor is a SpecialBuiltin;
+- `if`, `elif`, and `else`, which yield status 0 when no branch runs;
+- `while`, whose status is that of the last body command, or 0 if none ran;
+- `for`, over an explicit word list or, with no `in` clause, over the
+  positional parameters;
+- `case`, with alternative patterns and quoted metacharacters. A pattern byte
+  produced by expansion is compared literally at this level;
+- brace groups.
+
+### Flow ownership
+
+A flow value is consumed only by the frame that owns it. Break and Continue
+locate the innermost While or For frame, popping the frames above it; Break
+pops the loop and Continue re-enters it at its next test or item. Exit
+abandons every open frame and returns Complete. Yield returns Yielded with
+the frame stack intact, so the next step resumes after the yielding command.
+A flow value with no owning frame leaves the stack untouched and reports
+status 2: at this level that covers Break and Continue outside a loop and
+every Return, because function and installed-script frames arrive with the
+next change set.
+
+tested_context reports whether the command that last ran occupied a tested
+context: a condition list, an inverted command, or a non-final operand of
+`&&` or `||`. set -e will read that flag rather than a bare nonzero status.
+
+Function definition nodes, output staging, command substitution, and Session
 are not yet implemented.
+
+## Core builtins in progress
+
+core_builtins materializes the seventeen level-1 core descriptors into
+caller-owned slots: `:`, true, false, echo, printf, test, `[`, set, shift,
+break, continue, return, exit, yield, capability, help, and command. It is not
+an installation. install_level1 installs the complete pack atomically once
+functions, installed scripts, and command substitution exist, so no
+application can depend on a partial pack. A short slot span publishes nothing
+and returns Overflow with StorageClass::CustomCommands.
+
+`:`, break, continue, exit, return, set, and shift carry
+CommandClass::SpecialBuiltin, which is what prefix-assignment persistence and
+name resolution read. Registry::install refuses that class, so focused tests
+dispatch the descriptors directly.
+
+help and command need the table they describe, so core_builtins binds them to
+the registry passed to it through the descriptor context. That registry must
+outlive the descriptors. Every other core descriptor is stateless.
+
+Behavior notes at this level:
+
+- echo writes its operands separated by one space and one trailing LF;
+- printf supports literal text, `%s`, `%%`, and the `\\`, `\n`, `\t`, `\r`,
+  `\a`, `\b`, `\f`, and `\v` escapes, reuses the format while conversions
+  keep consuming operands, expands a missing operand to nothing, and refuses
+  any other conversion with Status::Unsupported;
+- test and `[` accept `!`, -n, -z, =, !=, -eq, -ne, -lt, -le, -gt, and -ge,
+  comparing numbers through the checked 64-bit parser. `[` requires its
+  closing `]`. An unknown operator or unparsable number is status 2;
+- set validates every option before changing a flag, so a rejected operand
+  leaves errexit and nounset exactly as they were;
+- shift defaults to one, accepts a std::uint32_t decimal count, succeeds
+  without change on zero, and returns 1 leaving every argument in place when
+  the count exceeds `$#`;
+- break and continue take no loop-count operand at this level;
+- return and exit default to the current status and accept 0 through 255;
+- capability lists the served capability names or queries one, with status 1
+  for an unserved name and status 2 for an unknown one;
+- help describes the installed table or one named command;
+- command resolves a name with -v or dispatches it, reporting 127 when the
+  name is not installed.
+
+A sink that refuses bytes stops the handler at that point. WouldBlock is
+reported as Status::Unavailable and a broken sink as its own failure status,
+so no handler re-writes bytes it already delivered. Staged output with retry
+arrives with Session.
 
 # Platform lane qualification
 

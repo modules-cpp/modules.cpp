@@ -42,4 +42,13 @@ struct WordExpansionResult {
     ShellState& state, WordExpansionStorage storage,
     FieldView& out);
 
+// Assignment values, case selectors, and other single-value operands expand
+// without field splitting, so out publishes one field or none. value_offset
+// is an absolute source offset that drops an unquoted literal prefix such as
+// NAME=; zero expands the whole word.
+[[nodiscard]] WordExpansionResult expand_value(
+    SourceView source, std::span<const WordFragment> fragments,
+    std::size_t value_offset, ShellState& state,
+    WordExpansionStorage storage, FieldView& out);
+
 }  // namespace mm::shell

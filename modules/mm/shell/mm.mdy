@@ -20,6 +20,7 @@ file: function.cppm mm.shell:function
 file: command.cppm mm.shell:command
 file: command_internal.cppm mm.shell:command_internal
 file: execute.cppm mm.shell:execute
+file: builtin.cppm mm.shell:builtin
 file: shell.cppm mm.shell
 file: src/command.cpp
 file: src/word.cpp
@@ -32,6 +33,7 @@ file: src/parameter.cpp
 file: src/expand.cpp
 file: src/function.cpp
 file: src/execute.cpp
+file: src/builtin.cpp
 ---
 
 # mm.shell
@@ -43,6 +45,7 @@ sinks, SourceView immutable text references, CommandContext execution view,
 static CommandDescriptor Registry, a measured embedded syntax parser, bounded
 state pools, checked arithmetic, in-memory case patterns, field splitting,
 parameter spelling and read-only resolution, bounded word expansion for
-implemented forms, monotonic function storage, and a cooperative simple
-command evaluator. Free of filesystem, environment, process, heap allocation,
-or platform provider dependencies.
+implemented forms, monotonic function storage, and a cooperative frame-based
+evaluator covering lists, assignments, conditionals, loops, case patterns,
+brace groups, and control-flow ownership. Free of filesystem, environment,
+process, heap allocation, or platform provider dependencies.

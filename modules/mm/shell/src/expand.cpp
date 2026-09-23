@@ -219,12 +219,10 @@ struct OperandResult {
     return {};
 }
 
-}  // namespace
-
-WordExpansionResult expand_word(
+[[nodiscard]] WordExpansionResult expand_common(
     SourceView source, std::span<const WordFragment> fragments,
-    ShellState& state, WordExpansionStorage storage,
-    FieldView& out) {
+    std::size_t value_offset, bool split_words, ShellState& state,
+    WordExpansionStorage storage, FieldView& out) {
     ShellState shadow;
     const bool transactional = needs_shadow(source, fragments);
     if (transactional) {
@@ -240,7 +238,20 @@ WordExpansionResult expand_word(
         if (!valid_span(source, fragment.source)) {
             return {Status::BadArgument};
         }
-        const auto spelling = source.slice(fragment.source);
+        auto span = fragment.source;
+        if (value_offset != 0) {
+            if (span.offset + span.length <= value_offset) continue;
+            if (span.offset < value_offset) {
+                // Only the unquoted literal NAME= prefix may straddle the
+                // value boundary, so no expansion spelling is ever cut.
+                if (fragment.kind != FragmentKind::Literal) {
+                    return {Status::BadArgument};
+                }
+                span.length -= value_offset - span.offset;
+                span.offset = value_offset;
+            }
+        }
+        const auto spelling = source.slice(span);
         if (fragment.kind == FragmentKind::Literal ||
             fragment.kind == FragmentKind::SingleQuoted ||
             fragment.kind == FragmentKind::DoubleQuoted ||
@@ -361,7 +372,8 @@ WordExpansionResult expand_word(
         piece_count += result.piece_count;
     }
     const auto split = split_fields(
-        storage.pieces.first(piece_count), working.ifs(),
+        storage.pieces.first(piece_count),
+        split_words ? working.ifs() : std::string_view{},
         storage.fields, out);
     if (split.status != Status::Ok) {
         return {split.status, split.overflow, piece_count, generated};
@@ -374,6 +386,23 @@ WordExpansionResult expand_word(
         }
     }
     return {split.status, split.overflow, piece_count, generated};
+}
+
+}  // namespace
+
+WordExpansionResult expand_word(
+    SourceView source, std::span<const WordFragment> fragments,
+    ShellState& state, WordExpansionStorage storage,
+    FieldView& out) {
+    return expand_common(source, fragments, 0, true, state, storage, out);
+}
+
+WordExpansionResult expand_value(
+    SourceView source, std::span<const WordFragment> fragments,
+    std::size_t value_offset, ShellState& state,
+    WordExpansionStorage storage, FieldView& out) {
+    return expand_common(source, fragments, value_offset, false, state,
+                         storage, out);
 }
 
 }  // namespace mm::shell

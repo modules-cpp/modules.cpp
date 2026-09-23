@@ -18,3 +18,4 @@ export import :expand;
 export import :function;
 export import :execute;
 export import :command;
+export import :builtin;
