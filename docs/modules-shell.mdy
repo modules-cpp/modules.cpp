@@ -127,7 +127,17 @@ token, fragment, node, and link arenas. define measures and validates a body,
 preflights every arena, copies the name and body source, parses into owned
 storage, then publishes or replaces one visible handle. A failed definition
 leaves the old handle visible. Old allocations are reclaimed on reset, not on
-replacement. Function call frames and evaluator dispatch are not yet present.
+replacement. Function call frames and function lookup are not yet present.
+
+## Evaluator in progress
+
+Evaluator begins from an EmbeddedScript and caller-owned Registry,
+CommandContext, expansion storage, argv slots, and argv text. step expands
+words, dispatches one simple command, applies `&&` and `||` short-circuiting,
+and returns control between commands. Negated simple commands invert their
+status. Unimplemented compound commands fail with Status::Unsupported;
+function lookup, builtin installation, output staging, and control-flow frames
+are not yet implemented.
 
 # Platform lane qualification
 
