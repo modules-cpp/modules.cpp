@@ -13,6 +13,7 @@ import :arithmetic;
 import :builtin;
 import :capability;
 import :command;
+import :command_internal;
 import :io;
 import :script;
 import :state;
@@ -476,6 +477,19 @@ static_assert(sizeof(entries) / sizeof(entries[0]) == core_builtin_count,
               "the descriptor table and its published count must agree");
 
 }  // namespace
+
+InstallResult install_level1(Registry& registry, Introspection& binding) {
+    binding.registry = &registry;
+    // The pack is materialized on the stack because the registry copies every
+    // descriptor it accepts, and each one views only static text plus the
+    // caller's binding.
+    CommandDescriptor pack[core_builtin_count]{};
+    std::size_t count = 0;
+    const auto materialized = core_builtins(binding, pack, count);
+    if (!materialized.ok()) return materialized;
+    return detail::StandardCommandInstaller::install(
+        registry, std::span<const CommandDescriptor>{pack, count});
+}
 
 bool invokes_script(const CommandDescriptor& descriptor) {
     return descriptor.handler == &run_handler;

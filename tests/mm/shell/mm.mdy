@@ -39,7 +39,8 @@ argv capacity bounds, bounded transaction scratch, set -e tested contexts
 against set -u, function definition, resolution order, call frames, return
 ownership and recursion bounds, script library installation, atomic packs and
 arena preflight, direct and run invocation with capability gating, command
-substitution capture, trimming, child isolation and refusals, the core
+substitution capture, trimming, child isolation and refusals, atomic
+install_level1 admission, the core
 builtin pack's descriptor classes, output, test operators, option
 transactions, flow values, and introspection, and Session line accumulation,
 multiline continuation, editing bytes, malformed and overlong recovery, and

@@ -26,15 +26,23 @@ struct Introspection {
 };
 
 // Materializes the level-1 core command descriptors into caller-owned slots.
-// This is not an installation: install_level1 installs the complete pack
-// atomically once command substitution exists, so nothing here admits a
-// partial pack to an application.
+// This is not an installation: it exists for introspection and for focused
+// tests that dispatch descriptors directly. Registry::install refuses the
+// special-builtin class, so a pack materialized here cannot be installed
+// through the public entry points.
 //
 // Every descriptor except the introspection commands is stateless, so the
 // span is safe to copy.
 [[nodiscard]] InstallResult core_builtins(Introspection& binding,
                                          std::span<CommandDescriptor> slots,
                                          std::size_t& count);
+
+// Installs the complete level-1 pack into registry, all or none. It is the
+// only way an application obtains the special builtins, and it runs before
+// any custom command so that a custom name may not take one of theirs.
+// binding.registry is set to registry, and binding must outlive it.
+[[nodiscard]] InstallResult install_level1(Registry& registry,
+                                          Introspection& binding);
 
 // True for the core run descriptor. The evaluator resolves that one itself,
 // because invoking an installed script pushes a positional call frame and no

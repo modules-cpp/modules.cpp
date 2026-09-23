@@ -54,7 +54,7 @@ evaluator covering lists, assignments, conditionals, loops, case patterns,
 brace groups, control-flow ownership, set -e and set -u, function definition
 and lookup, an installable script library, bounded positional call frames for
 both, and in-memory command substitution with an isolated child state, the
-level-1 core builtin pack,
+atomically installable level-1 core builtin pack,
 evaluator-owned output staging with retry, and an incremental Session. Free of
 filesystem, environment, process, heap allocation, or platform provider
 dependencies.

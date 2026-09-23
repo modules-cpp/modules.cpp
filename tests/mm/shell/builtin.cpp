@@ -381,6 +381,64 @@ void introspection_builtins() {
            "command reports an unresolved name with status 127");
 }
 
+void installs_the_level1_pack_atomically() {
+    Fixture fixture;
+    // Room for two packs, so a second install reaches the duplicate check
+    // rather than stopping at the capacity check that precedes it.
+    mm::shell::CommandDescriptor slots[mm::shell::core_builtin_count * 2 +
+                                       2]{};
+    Registry registry{slots};
+    mm::shell::Introspection binding{nullptr, &fixture.scripts};
+    expect(mm::shell::install_level1(registry, binding).ok() &&
+               registry.count() == mm::shell::core_builtin_count &&
+               binding.registry == &registry,
+           "the level-1 pack installs and binds its own registry");
+    expect(registry.find(":") != nullptr &&
+               registry.find(":")->command_class ==
+                   mm::shell::CommandClass::SpecialBuiltin &&
+               registry.find("[") != nullptr &&
+               registry.find("run") != nullptr,
+           "the pack carries the special builtins the public entry refuses");
+    expect(registry.install(*registry.find(":")).status ==
+               Status::BadArgument,
+           "the public entry still refuses a special builtin");
+
+    const auto again = mm::shell::install_level1(registry, binding);
+    expect(again.status == Status::Duplicate &&
+               registry.count() == mm::shell::core_builtin_count,
+           "a second install is a duplicate and changes nothing");
+
+    expect(registry.install({
+               .name = "echo",
+               .summary = "custom echo",
+               .command_class = mm::shell::CommandClass::Custom,
+               .required_capabilities = {},
+               .handler = fixture.find("true")->handler,
+               .context = nullptr,
+           }).status == Status::Duplicate,
+           "a custom command cannot take a name the pack owns");
+    expect(registry.install({
+               .name = "device",
+               .summary = "custom device",
+               .command_class = mm::shell::CommandClass::Custom,
+               .required_capabilities = {},
+               .handler = fixture.find("true")->handler,
+               .context = nullptr,
+           }).ok() &&
+               registry.count() == mm::shell::core_builtin_count + 1,
+           "a custom command installs beside the pack");
+
+    mm::shell::CommandDescriptor narrow[mm::shell::core_builtin_count - 1]{};
+    Registry small{narrow};
+    mm::shell::Introspection unused{nullptr, nullptr};
+    const auto refused = mm::shell::install_level1(small, unused);
+    expect(refused.status == Status::Overflow &&
+               refused.overflow.storage_class ==
+                   mm::shell::StorageClass::CustomCommands &&
+               small.count() == 0,
+           "a short registry span installs nothing");
+}
+
 const mm::test::case_ cases[]{
     {"core pack", &publishes_the_core_pack},
     {"trivial status commands", &trivial_status_commands},
@@ -390,6 +448,8 @@ const mm::test::case_ cases[]{
     {"set and shift", &set_and_shift_are_transactional},
     {"flow producing builtins", &flow_producing_builtins},
     {"introspection builtins", &introspection_builtins},
+    {"level-1 pack installs atomically",
+     &installs_the_level1_pack_atomically},
 };
 
 const mm::test::registrar reg{"mm.shell core builtins", cases};
