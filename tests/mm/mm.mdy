@@ -13,6 +13,7 @@ folder: epaper
 folder: fonts
 folder: gfx
 folder: flash
+folder: shell
 folder: shell/posix
 folder: stdio
 folder: model

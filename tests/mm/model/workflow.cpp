@@ -179,8 +179,8 @@ void test_invocations_match_the_real_test_sh() {
     // The function definition line is run_test_target( with no following
     // space, so the spaced form counts exactly the suite invocations.
     const std::size_t suites = count_occurrences(content, "run_test_target ");
-    mm::test::expect(suites == 25,
-                     "expected test.sh to invoke the test runner 25 times; "
+    mm::test::expect(suites == 26,
+                     "expected test.sh to invoke the test runner 26 times; "
                      "update the model's branch suite counts if this changed");
     mm::test::expect(content.find("tests/mm/linux/") != std::string::npos,
                      "expected test.sh to skip tests/mm/linux/ on macOS");

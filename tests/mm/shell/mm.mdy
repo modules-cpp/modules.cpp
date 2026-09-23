@@ -1,0 +1,19 @@
+---
+mm: 1.1
+kind: test
+name: shell
+use: mm.test
+use: mm.shell
+unit: tests/mm/shell/capability.cpp
+unit: tests/mm/shell/registry.cpp
+unit: tests/mm/shell/io.cpp
+unit: tests/mm/shell/command_context.cpp
+unit: tests/main.cpp
+---
+
+# mm.shell test target
+
+Covers the target-safe mm.shell foundation: CapabilitySet bitset operations,
+standard capability profiles, name lookup, static CommandDescriptor Registry
+lifecycle and duplicate rejection, IoServices memory sink buffering, and
+preflight scratch overflow protection in CommandContext.

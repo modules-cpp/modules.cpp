@@ -15,4 +15,5 @@ folder: epaper-smoke
 folder: mdy
 folder: stdio-smoke
 folder: target-smoke-any
+folder: shell-smoke
 ---

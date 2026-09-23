@@ -141,7 +141,8 @@ The source tree is organized by responsibility.
 |   +-- mdy/                  mm.mdy and white-box tests
 |   +-- model/                mm.model, the models/ adapter
 |   +-- run/                  mm.run execution orchestration
-|   +-- shell/                mm.shell facade; shell/posix mm.shell.posix
+|   +-- shell/                mm.shell target-safe foundation;
+|                             shell/posix mm.shell.posix
 |   +-- test/                 mm.test
 |   +-- display/              mm.display portable display interface
 |   +-- epaper/               ePaper controller modules
@@ -175,7 +176,8 @@ The source tree is organized by responsibility.
 |   +-- mdy/                  mm.mdy public and regression tests
 |   +-- model/                mm.model tests
 |   +-- run/                  mm.run tests
-|   +-- shell/posix/          mm.shell.posix tests
+|   +-- shell/                mm.shell foundation tests;
+|                             shell/posix mm.shell.posix tests
 +-- tests/target/             target-only compile fixtures
 |   +-- board/                selected-board test fixture
 +-- docs/
@@ -368,11 +370,13 @@ thing it declares (such as Module) are modeled as separate types, is in
 docs/modules-model.mdy.
 
 ## mm.shell
-mm.shell is temporarily a host-only compatibility facade that re-exports
-mm.shell.posix, preserving existing callers while the target-safe shell core
-is established. Both mm.shell and mm.shell.posix declare buildable-target no
-because the underlying environment and host functions rely on POSIX APIs
-(getenv, setenv, unsetenv) not provided by freestanding newlib targets.
+mm.shell is the target-safe, allocation-free level-1 shell language and
+execution foundation. It provides the Status and Capability vocabularies,
+allocation-free IoServices byte sinks, SourceView immutable text references,
+CommandContext execution views, and static CommandDescriptor Registry. It
+has no dependencies on filesystem, environment, process, heap allocation,
+or platform providers, and builds across all supported host and target
+architectures.
 
 ## mm.shell.posix
 mm.shell.posix provides host-only shell and environment services: current_shell
@@ -588,15 +592,16 @@ depends on nothing outside the project; it is optional because it is an
 additional cross-check, not because anything else is missing to run it.
 
 ## Shell tool wrapper scripts
-Each of the twelve scripts above (clean, bootstrap, configure, build, test,
-document, check, model, json, run, flash, debug) has a second, no-extension counterpart
-at the project root: `bootstrap`, `build`, `clean`, `check`, `document`, `model`,
-`json`, `test`, `configure`, `run`, `flash`, `debug`. Where the `.sh` version runs its work directly through the system
-shell, the no-extension version routes the same command through
-out/bin/shell (mm.shell, tools/shell) instead. Before the first full build,
-the configure and build wrappers fall back to configure.sh and build.sh because
-bootstrap intentionally has not built mm.shell. Once out/bin/shell exists,
-the two are otherwise equivalent, argument for argument: `./document
+Each of the thirteen scripts above (clean, bootstrap, configure, build, test,
+document, check, model, json, run, flash, debug, sketch) has a second,
+no-extension counterpart at the project root: `bootstrap`, `build`, `clean`,
+`check`, `document`, `model`, `json`, `test`, `configure`, `run`, `flash`,
+`debug`, `sketch`. Where the `.sh` version runs its work directly
+through the system shell, the no-extension version routes the same command
+through out/bin/shell (mm.shell.posix, tools/shell) instead. Before the first
+full build, the configure and build wrappers fall back to configure.sh and
+build.sh because bootstrap intentionally has not built mm.shell.posix. Once
+out/bin/shell exists, the two are otherwise equivalent, argument for argument: `./document
 modules/mm.mdy` and `./document.sh modules/mm.mdy` render the same subtree.
 `./bootstrap` is the one exception: it needs out/bin/shell to already
 exist, which is itself a product of a prior bootstrap, so a first-ever

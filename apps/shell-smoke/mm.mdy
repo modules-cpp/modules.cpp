@@ -1,0 +1,13 @@
+---
+mm: 1.2
+kind: app
+name: shell-smoke
+use: mm.shell
+file: main.cpp
+---
+
+# shell-smoke
+
+A portable, allocation-free level-1 shell foundation smoke application.
+Uses mm.shell directly with memory sinks and no dependencies on mm.mcu,
+mm.stdio, filesystem, or platform providers.

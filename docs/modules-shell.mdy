@@ -1,0 +1,136 @@
+---
+mm: 1.0
+kind: doc
+name: modules.cpp shell specification
+status: official
+release: v1.2.3
+---
+
+# modules.cpp shell specification
+
+# Status and authority
+
+This document specifies the target-safe mm.shell foundation, its core API, and
+its caller-owned storage rules.
+
+# Architectural boundaries
+
+mm.shell is the target-safe, allocation-free level-1 foundation. It has no
+dependencies on filesystem, environment, process management, dynamic heap
+allocation, or platform-specific drivers. It builds for both host and embedded
+targets.
+
+Legacy POSIX shell services reside in mm.shell.posix and are consumed by
+tools/shell. There is no dependency path from mm.shell to mm.shell.posix.
+
+# Storage ownership rules
+
+All persistent and scratch memory is owned by the application or caller and
+passed into mm.shell as explicit spans:
+
+- mm.shell performs no dynamic allocations (no malloc, new, or STL containers).
+- Storage capacities are caller-bounded and declared in application arrays.
+- Handlers preflight transaction scratch capacity before performing side effects
+  or writing output. An insufficient scratch buffer returns Status::Overflow
+  with no partial output and no hardware side effect.
+- Registry descriptors are stored in caller-provided spans. install_pack
+  preflights all entries, performing atomic all-or-none registration.
+
+## Acceptance application storage profile
+
+Applications instantiate the following standard storage profile:
+
+- source bytes: 512
+- expansion scratch bytes: 512
+- token slots: 128
+- word-fragment slots: 128
+- syntax-node slots: 96
+- syntax-link slots: 128
+- parser-context slots: 32
+- evaluator-frame slots: 16
+- variable slots: 32
+- variable text bytes: 512
+- positional-parameter slots: 32
+- positional-parameter text bytes: 256
+- expanded-field slots: 32
+- expanded-field text bytes: 512
+- installed-function slots: 8
+- installed-function arena bytes: 2048
+- installed-script slots: 8
+- installed-script arena bytes: 4096
+- custom-command slots: 8
+- command-substitution capture bytes: 256
+- staged-output bytes: 256
+- console pending-output bytes: 512
+- MCU transaction scratch bytes: 256
+- interactive input-line bytes: 256
+
+# Foundation API
+
+## Status and flow
+
+- Status: classifies internal operation outcomes (Ok, BadArgument, Duplicate,
+  NotFound, Unavailable, Unsupported, CapacityExceeded, Overflow, WriteError,
+  ReadError).
+- CommandStatus: standard exit codes (Ok = 0, Failure = 1, Usage = 2,
+  Unavailable = 125, CannotExecute = 126, NotFound = 127).
+- Flow: execution control flow (Normal, Exit, Break, Continue, Return, Replace,
+  Yield).
+- CommandResult: combines Flow and an integer exit status.
+
+## Capabilities
+
+Capability flags govern command availability and runtime permissions.
+CapabilitySet represents active or required capabilities as a bitset with no
+heap allocation:
+
+- level1: core scripts, custom commands, variables, functions, substitution.
+- level2: mandatory Level 1 software capabilities. Peripheral drivers (board,
+  gpio, spi, i2c, uart, timer, adc, pwm, console) are optional and
+  provider-derived, merged dynamically from mm.mcu.
+- level3: Level 2 software capabilities plus host services (pathname, files,
+  processes, pipelines, redirections, signals, environment). Level 3 does
+  not falsely claim MCU hardware capabilities.
+
+## I/O services
+
+IoServices provides out and err ByteSink channels. ByteSink encapsulates a void*
+context pointer and write and flush function pointers returning SinkResult.
+MemorySink provides an in-memory buffer adapter that safely rejects writes
+exceeding capacity without partial stream corruption. DiscardSink provides an
+explicit sink that accepts all writes without retaining them.
+
+## Registry and dispatch
+
+Registry maintains a linear table of CommandDescriptor records in caller-owned
+storage. install enforces uniqueness, non-SpecialBuiltin classification, and
+valid names. install_pack ensures atomic preflight validation before mutation.
+install_special permits registering SpecialBuiltin commands. dispatch verifies
+nonempty argv matching the descriptor name and required capabilities before
+invoking the handler.
+
+# Platform lane qualification
+
+The level-1 mm.shell foundation and apps/shell-smoke fixture qualification
+evidence across the registered platform directories under platforms/:
+
+- linux: host execution and native compilation (all 18 unit tests pass;
+  apps/shell-smoke compiled, linked, installed to out/bin, and executed).
+- arm-linux-gnueabihf: target compilation and link (apps/shell-smoke compiled
+  and linked to 32-bit ARM ELF executable).
+- m68k-linux-gnu: target compilation and link (apps/shell-smoke compiled and
+  linked to 32-bit big-endian ELF executable via m68k-linux-gnu-g++-15).
+- mps2-an385: target compilation and link (apps/shell-smoke compiled and linked
+  for Cortex-M3 with semihosted specs and link.ld).
+- pico: target compilation and link via external CMake bridge (apps/shell-smoke
+  compiled, linked to RP2040 ELF, and valid UF2 image generated).
+- pico2-arm: target compilation and link via external CMake bridge
+  (apps/shell-smoke compiled, linked to RP2350 Arm Cortex-M33 ELF, and valid UF2
+  image generated).
+- aarch64-linux-gnu: not run: SDK sysroot /usr/aarch64-linux-gnu is not
+  installed in the host environment.
+- pico2-riscv: not run: riscv32-pico-elf-g++ compiler is not installed in the
+  host environment.
+- m68k-linux-external: recorded as an external CMake fixture rather than a
+  project-module lane.
+
