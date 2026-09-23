@@ -180,6 +180,119 @@ it never invents random bytes for the sake of linking.
 
 # Foundation API
 
+# Full-profile syntax boundary
+
+mm.shell.full is a separate, target-buildable module with no POSIX header or
+system call. FullScript owns source bytes, source-relative tokens, an owning
+syntax tree, and here-document records. Moving a FullScript cannot dangle its
+source ranges. FullState owns the buffers backing a ShellState view plus host
+directory, export-name, and trap metadata; a child fork copies visible
+positionals and variables into its own buffers.
+
+The full grammar adds pipelines, input/output/append and descriptor
+redirections, parenthesized subshells, compound commands, and here-documents.
+It retains embedded constructs and parses all 36 tracked /bin/sh scripts.
+The tracked corpus has one here-document, cat <<PLAN in scripts/release.sh;
+a fixture separately covers a quoted delimiter. <<- is unsupported. An
+unquoted delimiter permits body expansion at evaluation time; a quoted one
+suppresses it. The parser retains that flag and the exact body span.
+
+Full-profile helpers recognize hexadecimal arithmetic literals within the
+same signed 64-bit limit and implement the four positional pattern trims
+through the core pattern matcher. A corpus parse proves syntax admission, not
+that the script has executed.
+
+## Full evaluation against abstract services
+
+Everything below runs against function-pointer services, so mm.shell.full is
+exercised entirely with fakes and still holds no POSIX header or symbol. The
+service surfaces are IoService for descriptors and bytes, ProcessService for
+spawn, wait, and signal, SignalService for install, restore, and poll, and
+FileService for directory names. A test supplies each one directly.
+
+### Pipelines
+
+run_pipeline executes one pipeline from a span of ProcessRequests. The last
+stage supplies the pipeline status and every earlier stage is still reaped. A
+failed launch closes every parent pipe end, signals the children it did start,
+and waits for each of them, so a service failure leaks no descriptor and no
+child handle. Fakes control completion order, partial writes, signals, and
+statuses without forking.
+
+### Redirection planning
+
+plan_redirections turns one command's redirection tokens into an ordered plan
+and performs no I/O. Operands stay in their raw shell spelling, because
+expansion happens before any service call and the evaluator must verify every
+request before it alters the active descriptors. A here-document step carries
+its body and whether the delimiter permitted expansion.
+
+### Here-document bodies
+
+expand_here_document turns a body into a byte stream, never a field vector,
+which is how the no-splitting rule is enforced structurally rather than by
+convention. A quoted delimiter yields the body verbatim as one literal segment.
+An unquoted one expands parameters, including braced forms and their `:-` and
+`:+` operands, and arithmetic including hexadecimal, and honours the backslash
+escapes a here-document recognizes: `\$`, `` \` ``, `\\`, and a line
+continuation. Every other backslash is a literal byte. Neither variant performs
+field splitting or pathname expansion.
+
+A command substitution inside a body is returned as a Substitution segment
+holding the inner source, because running a list is the evaluator's work and
+planning does none. The tracked corpus needs exactly that: scripts/release.sh
+interpolates `$(git log -1 ...)` inside its `cat <<PLAN` body. An assignment
+operand such as `${name:=other}` is Unsupported, because it would mutate state a
+body only reads, and the obsolete backtick form is refused here as it is in the
+parser.
+
+### Pathname expansion
+
+expand_pathname asks only for names. A word with no pattern byte costs no
+service call and reports no expansion. A word with one is split on `/` and each
+component matched through the core pattern matcher, so a literal component
+still needs no listing. Matches are byte-sorted, which is what a shell in the
+POSIX locale produces, and a leading period is matched only by a literal one.
+
+An unmatched pattern reports no expansion rather than an error, which is the
+POSIX rule that leaves the word unchanged. A directory the service reports as
+missing or forbidden contributes no match; any other service failure is
+reported, so an empty result is never mistaken for a broken service.
+
+### Traps
+
+configure_trap takes the argument vector including `trap` and its action. Every
+condition is validated before a provider or the owning state changes, and a
+failed provider call rolls back the conditions it had already changed. The
+implemented grammar is exactly the four pinned forms:
+
+Opening fence
+trap restore_host 0
+trap - 0
+trap mm_cleanup EXIT INT TERM
+trap - EXIT INT TERM
+Closing fence
+
+Numeric 0 and symbolic EXIT name the same condition, 2 and INT the same, 15 and
+TERM the same. A mixed condition list is valid and a repeated condition is
+refused. `-` restores the default action for every named condition. EXIT is a
+shell event, so it installs no operating-system hook; only INT and TERM reach
+SignalService. Handler state belongs to the shell child that installed it, so a
+child's reset leaves its parent's action in place. poll_trap resolves a pending
+signal against the owning state's action.
+
+### Full-profile functions
+
+FullFunctionLibrary keeps mm.shell's lookup, atomic replacement, and lifetime
+contract and differs only in owning its storage. A body is parsed into its own
+FullScript before the visible handle changes, so a failed or unsupported
+redefinition leaves the previous body visible. The handle is shared, so a body
+that is executing when it is redefined keeps running the text it started with.
+
+POSIX services and native workflow execution are later change sets.
+
+# Foundation API
+
 ## Status and flow
 
 - Status: classifies internal operation outcomes (Ok, BadArgument, Duplicate,
@@ -377,9 +490,9 @@ itself means no script library was supplied, which it reports as Unavailable.
 
 A call frame is the same machinery for a function body and for an installed
 script; only the frame kind differs. It is the body's list plus ownership of the
-caller's positional parameters. ShellState::push_positionals copies the caller's slots into the
-evaluator's call arena and installs the call's arguments above them in the
-monotonic text pool; popping the frame restores the slots, the text cursor, and
+caller's positional parameters. ShellState::push_positionals copies the
+caller's slots into the call arena and installs the call's arguments above them
+in the text pool; popping the frame restores the slots, the text cursor, and
 the caller's shift count, so a callee's `$1` and its own `shift` never leak out.
 The arena is bump-allocated and released in frame order.
 
@@ -401,8 +514,8 @@ consumes its output, and a step still enters at most one handler.
 
 The child receives copied variables, positional parameters, options, and status,
 and adopted function handles. Its mutations never return to the parent: nothing
-is committed back when the frame pops. Native side effects outside ShellState are
-real, exactly as they are inside POSIX command substitution — a device write
+is committed back when the frame pops. Native side effects outside ShellState
+are real, exactly as they are inside POSIX command substitution — a device write
 inside `$()` still writes.
 
 A substitution replaces only the ordinary-output sink. Diagnostics keep going to

@@ -1,0 +1,19 @@
+---
+mm: 1.1
+kind: test
+name: shell-full
+use: mm.test
+use: mm.shell
+use: mm.shell.full
+unit: tests/mm/shell/full/scan.cpp
+unit: tests/mm/shell/full/services.cpp
+unit: tests/mm/shell/full/semantics.cpp
+unit: tests/main.cpp
+---
+
+# mm.shell.full tests
+
+Full-profile scanning, source ownership, here-documents, refusals, and the
+tracked /bin/sh script corpus, plus pathname requests against a fake tree,
+here-document body expansion, and the owning function table, without importing
+mm.shell.posix.

@@ -1,0 +1,33 @@
+---
+mm: 1.2
+kind: module
+name: shell-full
+module: mm.shell.full
+use: mm.shell
+file: syntax.cppm mm.shell.full:syntax
+file: scan.cppm mm.shell.full:scan
+file: parse.cppm mm.shell.full:parse
+file: service.cppm mm.shell.full:service
+file: state.cppm mm.shell.full:state
+file: expand.cppm mm.shell.full:expand
+file: pathname.cppm mm.shell.full:pathname
+file: function.cppm mm.shell.full:function
+file: redirect.cppm mm.shell.full:redirect
+file: trap.cppm mm.shell.full:trap
+file: execute.cppm mm.shell.full:execute
+file: full.cppm mm.shell.full
+file: src/scan.cpp
+file: src/parse.cpp
+file: src/state.cpp
+file: src/expand.cpp
+file: src/pathname.cpp
+file: src/function.cpp
+file: src/redirect.cpp
+file: src/trap.cpp
+file: src/execute.cpp
+---
+
+# mm.shell.full
+
+Owning full-profile syntax and portable service contracts. This module has no
+POSIX headers or system calls; mm.shell.posix supplies concrete host services.

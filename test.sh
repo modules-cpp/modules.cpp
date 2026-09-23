@@ -211,6 +211,7 @@ run_test_target tests/mm/flash/ || exit $?
 run_test_target tests/mm/mcu/ || exit $?
 run_test_target tests/mm/mdy/ || exit $?
 run_test_target tests/mm/shell/ || exit $?
+run_test_target tests/mm/shell/full/ || exit $?
 run_test_target tests/mm/shell/posix/ || exit $?
 run_test_target tests/mm/stdio/ || exit $?
 run_test_target tests/mm/model/ || exit $?

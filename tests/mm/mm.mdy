@@ -15,6 +15,7 @@ folder: gfx
 folder: flash
 folder: shell
 folder: shell/mcu
+folder: shell/full
 folder: shell/posix
 folder: stdio
 folder: model
