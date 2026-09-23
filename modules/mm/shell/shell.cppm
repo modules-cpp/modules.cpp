@@ -15,4 +15,5 @@ export import :pattern;
 export import :fields;
 export import :parameter;
 export import :expand;
+export import :function;
 export import :command;

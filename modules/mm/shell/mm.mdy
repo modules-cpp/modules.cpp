@@ -16,6 +16,7 @@ file: pattern.cppm mm.shell:pattern
 file: fields.cppm mm.shell:fields
 file: parameter.cppm mm.shell:parameter
 file: expand.cppm mm.shell:expand
+file: function.cppm mm.shell:function
 file: command.cppm mm.shell:command
 file: command_internal.cppm mm.shell:command_internal
 file: shell.cppm mm.shell
@@ -28,6 +29,7 @@ file: src/pattern.cpp
 file: src/fields.cpp
 file: src/parameter.cpp
 file: src/expand.cpp
+file: src/function.cpp
 ---
 
 # mm.shell
@@ -38,6 +40,7 @@ Provides Status and Capability vocabularies, allocation-free IoServices byte
 sinks, SourceView immutable text references, CommandContext execution view,
 static CommandDescriptor Registry, a measured embedded syntax parser, bounded
 state pools, checked arithmetic, in-memory case patterns, field splitting,
-parameter spelling and read-only resolution, and bounded word expansion for
-implemented forms. Free of filesystem, environment, process, heap
+parameter spelling and read-only resolution, bounded word expansion for
+implemented forms, and monotonic function storage. Free of filesystem,
+environment, process, heap
 allocation, or platform provider dependencies.

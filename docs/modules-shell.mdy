@@ -51,8 +51,10 @@ exist in the foundation API:
 
 The parser now has caller-owned token, fragment, node, link, and context spans,
 but shell-smoke has not yet adopted a reviewed parser allocation profile.
-Evaluator, variable, function, installed-script, console, and session storage
-joins this profile only when the corresponding API is implemented.
+Evaluator, installed-script, console, and session storage join this profile
+only when the corresponding API is implemented. Variable and function storage
+now have explicit caller-owned APIs; shell-smoke has not adopted their final
+acceptance capacities.
 
 # Foundation API
 
@@ -117,6 +119,15 @@ state is committed only after field output succeeds. Failure leaves both
 state and published fields unchanged. Quoting, escapes, argument-vector
 forms inside operands, and command substitution currently return
 Status::Unsupported. They are not yet Level 1 conformance claims.
+
+## Function storage in progress
+
+FunctionLibrary owns caller-supplied slots, copied source bytes, and monotonic
+token, fragment, node, and link arenas. define measures and validates a body,
+preflights every arena, copies the name and body source, parses into owned
+storage, then publishes or replaces one visible handle. A failed definition
+leaves the old handle visible. Old allocations are reclaimed on reset, not on
+replacement. Function call frames and evaluator dispatch are not yet present.
 
 # Platform lane qualification
 
