@@ -49,8 +49,10 @@ exist in the foundation API:
 - staged diagnostic-output bytes: 256
 - MCU transaction scratch bytes: 256
 
-Parser, evaluator, variable, function, installed-script, console, and session
-storage joins this profile only when the corresponding API is implemented.
+The parser now has caller-owned token, fragment, node, link, and context spans,
+but shell-smoke has not yet adopted a reviewed parser allocation profile.
+Evaluator, variable, function, installed-script, console, and session storage
+joins this profile only when the corresponding API is implemented.
 
 # Foundation API
 

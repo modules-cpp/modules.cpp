@@ -73,9 +73,23 @@ bool run_driver_command(const std::string& command, std::string& output) {
     return status == 0 && !output.empty();
 }
 
+// Flags a defective compiler needs, probed from the driver that will actually
+// run. An unprobeable driver adds nothing: configure fails later on its own
+// terms rather than guessing at a workaround here.
+std::string_view workaround_flags(std::string_view invocation) {
+    if (invocation.empty()) return {};
+    const auto probe = mm::configure::probe_compiler(invocation, run_driver_command);
+    if (!probe) return {};
+    return mm::configure::compiler_workaround_flags(probe->family, probe->version);
+}
+
 std::string compile_flags(mm::configure::Build build, mm::configure::CompilerFamily family,
-                          std::string_view target) {
+                          std::string_view target, std::string_view invocation) {
     std::string flags(mm::configure::build_compile_flags(build));
+    if (const auto workaround = workaround_flags(invocation); !workaround.empty()) {
+        flags += ' ';
+        flags += workaround;
+    }
     if (family == mm::configure::CompilerFamily::Clang && target != "host")
         flags += " --target=" + std::string(target);
     return flags;
@@ -96,7 +110,8 @@ mm::configure::CompilerSettings compiler_settings(const mm::build::Toolchain& to
         toolchain.compiler.invocation,
         toolchain.target,
         "POSIX",
-        compile_flags(build, toolchain.family, toolchain.target),
+        compile_flags(build, toolchain.family, toolchain.target,
+                      toolchain.compiler.invocation),
         link_flags(build, toolchain.family, toolchain.target),
         toolchain.c_compiler.invocation,
     };
@@ -533,7 +548,7 @@ int main(int argc, char** argv) {
             "g++",
             "host",
             "POSIX",
-            std::string(mm::configure::build_compile_flags(*build)),
+            compile_flags(*build, mm::configure::CompilerFamily::Gcc, "host", "g++"),
             std::string(mm::configure::build_link_flags(*build)),
         };
     }
@@ -588,7 +603,7 @@ int main(int argc, char** argv) {
             compiler->invocation,
             target,
             "POSIX",
-            compile_flags(*build, compiler->family, target),
+            compile_flags(*build, compiler->family, target, compiler->invocation),
             link_flags(*build, compiler->family, target),
             c_driver,
         };
@@ -656,7 +671,7 @@ int main(int argc, char** argv) {
             compiler->invocation,
             "host",
             "POSIX",
-            std::string(mm::configure::build_compile_flags(*build)),
+            compile_flags(*build, compiler->family, "host", compiler->invocation),
             std::string(mm::configure::build_link_flags(*build)),
             c_driver,
         };

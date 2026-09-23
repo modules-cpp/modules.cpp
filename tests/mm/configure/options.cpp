@@ -399,8 +399,30 @@ void external_options() {
            "overriding read-only option on external root is refused");
 }
 
+// GCC 14 alone carries workaround flags, and only its major version decides.
+void compiler_workarounds() {
+    using mm::configure::CompilerFamily;
+    using mm::configure::compiler_workaround_flags;
+    const std::string_view gcc14 = "-flarge-source-files -fno-ipa-sra";
+    expect(compiler_workaround_flags(CompilerFamily::Gcc, "14.2.0") == gcc14,
+           "gcc 14 carries both workaround flags");
+    expect(compiler_workaround_flags(CompilerFamily::Gcc, "14") == gcc14,
+           "a major-only version is read the same way");
+    expect(compiler_workaround_flags(CompilerFamily::Gcc, "15.2.0").empty(),
+           "gcc 15 needs nothing");
+    expect(compiler_workaround_flags(CompilerFamily::Gcc, "4.14.0").empty(),
+           "the minor version is not mistaken for the major");
+    expect(compiler_workaround_flags(CompilerFamily::Gcc, "").empty(),
+           "an unknown version adds nothing");
+    expect(compiler_workaround_flags(CompilerFamily::Clang, "14.0.0").empty(),
+           "the defects are GCC's, not clang's");
+    expect(mm::configure::build_compile_flags(Build::Debug) == "-std=c++20 -O0 -g",
+           "the baseline stays compiler-agnostic");
+}
+
 const mm::test::case_ cases[] = {
     {"shared build defaults", &shared_defaults},
+    {"compiler workaround flags", &compiler_workarounds},
     {"tree inheritance reset and records", &inheritance_reset_and_records},
     {"locks and leaf intent", &locks_and_leaf_intent},
     {"invalid declarations", &invalid_declarations},

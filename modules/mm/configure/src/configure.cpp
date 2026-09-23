@@ -648,6 +648,14 @@ std::string_view build_link_flags(Build build) {
     return build == Build::Debug ? debug : release;
 }
 
+std::string_view compiler_workaround_flags(CompilerFamily family, std::string_view version) {
+    if (family != CompilerFamily::Gcc) return {};
+    const auto dot = version.find('.');
+    const auto major = dot == std::string_view::npos ? version : version.substr(0, dot);
+    if (major != "14") return {};
+    return "-flarge-source-files -fno-ipa-sra";
+}
+
 bool log_configuration(const ConfigurationLog& log) {
     std::error_code ec;
     const bool has_configuration = std::filesystem::exists(log.configuration_path, ec);

@@ -7,11 +7,16 @@ file: status.cppm mm.shell:status
 file: capability.cppm mm.shell:capability
 file: io.cppm mm.shell:io
 file: source.cppm mm.shell:source
+file: word.cppm mm.shell:word
+file: syntax.cppm mm.shell:syntax
+file: parse.cppm mm.shell:parse
 file: state.cppm mm.shell:state
 file: command.cppm mm.shell:command
 file: command_internal.cppm mm.shell:command_internal
 file: shell.cppm mm.shell
 file: src/command.cpp
+file: src/word.cpp
+file: src/parse.cpp
 ---
 
 # mm.shell
@@ -20,5 +25,6 @@ Target-safe level-1 shell language and execution foundation.
 
 Provides Status and Capability vocabularies, allocation-free IoServices byte
 sinks, SourceView immutable text references, CommandContext execution view,
-and static CommandDescriptor Registry. Free of filesystem, environment,
-process, heap allocation, or platform provider dependencies.
+static CommandDescriptor Registry, and a measured embedded syntax parser.
+Free of filesystem, environment, process, heap allocation, or platform
+provider dependencies.

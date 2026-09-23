@@ -106,6 +106,14 @@ struct CompilerRequest {
 [[nodiscard]] std::string_view build_compile_flags(Build build);
 [[nodiscard]] std::string_view build_link_flags(Build build);
 
+// Compile flags a defective compiler needs on every unit that shares CMIs, and
+// nothing otherwise. GCC 14 is the only case: -flarge-source-files keeps the
+// imported source locations inside its 32-bit location_t, and -fno-ipa-sra
+// avoids an ICE in ipa_comdats at -O2. version is a driver -dumpversion string;
+// only its major component is read. See drafts/gcc-14-workaround.mdy.
+[[nodiscard]] std::string_view compiler_workaround_flags(CompilerFamily family,
+                                                         std::string_view version);
+
 // The one place the configured output layout is decided. Bootstrap output stays
 // in out/, which also holds the authoritative out/config.mdy; a configured lane
 // never writes there. target_output_directory names a distinct tree per target
