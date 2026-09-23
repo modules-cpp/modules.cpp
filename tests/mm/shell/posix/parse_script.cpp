@@ -12,7 +12,7 @@
 #include <string_view>
 #include <vector>
 
-import mm.shell;
+import mm.shell.posix;
 import mm.test;
 
 namespace {

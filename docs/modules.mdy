@@ -160,7 +160,7 @@ The source tree is organized by responsibility.
 |   +-- model/                consistency front end; see docs/modules-model.mdy
 |   +-- json/                 JSON validator and formatter over mm.json
 |   +-- run/                  configured application execution
-|   +-- shell/                system shell front end over mm.build and mm.shell
+|   +-- shell/                shell front end over mm.build and mm.shell.posix
 +-- tests/mm/
 |   +-- build/                mm.build tests
 |   +-- configure/            mm.configure tests
@@ -175,7 +175,7 @@ The source tree is organized by responsibility.
 |   +-- mdy/                  mm.mdy public and regression tests
 |   +-- model/                mm.model tests
 |   +-- run/                  mm.run tests
-|   +-- shell/                mm.shell tests
+|   +-- shell/posix/          mm.shell.posix tests
 +-- tests/target/             target-only compile fixtures
 |   +-- board/                selected-board test fixture
 +-- docs/
@@ -386,7 +386,7 @@ wraps, always uses /bin/sh regardless of $SHELL. parse_script recognizes
 only this project's own script style; it does not parse real shell grammar
 such as quoting across lines, command substitution, or control flow.
 
-tools/shell is mm.shell's first consumer beyond its own module.
+tools/shell consumes mm.shell.posix for host environment controls.
 
 # Tools
 
@@ -490,12 +490,12 @@ Common commands are:
 tools/shell/shell.cpp is installed as out/bin/shell. It resolves a project
 root the same way build, test, and check do, then hands command to
 mm::build::run, which wraps it in /bin/sh: shell is a thin front end over
-mm.build's process execution and mm.shell's environment functions, not its
-own implementation of either.
+mm.build's process execution and mm.shell.posix's environment functions, not
+its own implementation of either.
 
--e NAME=VALUE, repeatable, calls mm.shell's set before running command, so
-the child process command launches inherits it. Verbose mode prints
-mm.shell's current_shell.
+-e NAME=VALUE, repeatable, calls mm.shell.posix's set before running command,
+so the child process command launches inherits it. Verbose mode prints
+mm.shell.posix's current_shell.
 
 Common commands are:
 

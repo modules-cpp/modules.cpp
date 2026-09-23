@@ -10,7 +10,7 @@
 #include <string>
 #include <string_view>
 
-import mm.shell;
+import mm.shell.posix;
 import mm.test;
 
 namespace {

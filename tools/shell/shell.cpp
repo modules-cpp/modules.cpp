@@ -7,8 +7,8 @@
 // Wraps the system shell: mm::build::run passes command to /bin/sh via
 // std::system. Beyond resolving a project root first, the same way build,
 // test, and check do, this tool sets environment variables through
-// mm.shell before running command, so the child process launched by run
-// inherits them: this is mm.shell's first consumer beyond its own module.
+// mm.shell.posix before running command, so the child process launched by run
+// inherits them: this is mm.shell.posix's consumer for environment controls.
 //
 // Pawel Wodnicki (C) 2026
 // 32bitmicro LLC (C) 2026
@@ -20,7 +20,7 @@
 
 import mm.app;
 import mm.build;
-import mm.shell;
+import mm.shell.posix;
 
 namespace {
 

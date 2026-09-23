@@ -1,0 +1,19 @@
+---
+mm: 1.1
+kind: test
+name: shell-posix
+use: mm.test
+use: mm.shell.posix
+unit: tests/mm/shell/posix/environment.cpp
+unit: tests/mm/shell/posix/current_shell.cpp
+unit: tests/mm/shell/posix/parse_script.cpp
+unit: tests/main.cpp
+option: buildable-target no
+---
+
+# mm.shell.posix test target
+
+Covers the relocated legacy mm.shell.posix interfaces: environment accessors,
+the interactive shell name, and the physical script parser.
+
+buildable-target no because this suite uses mm.shell.posix, which is host-only.
