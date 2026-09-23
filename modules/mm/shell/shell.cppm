@@ -10,4 +10,6 @@ export import :word;
 export import :syntax;
 export import :parse;
 export import :state;
+export import :arithmetic;
+export import :pattern;
 export import :command;
