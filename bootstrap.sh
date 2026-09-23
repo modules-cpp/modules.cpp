@@ -28,6 +28,26 @@ MM_BUILD="out"
 echo "Build in ${MM_BUILD}"
 echo
 MM_CPPFLAGS="-std=c++20"
+
+# GCC 14 cannot build this tree unaided. The module import chain exhausts the
+# 32-bit location_t space and aborts in write_location while writing a CMI, and
+# -O2 aborts in ipa_comdats on the model module. Both are compiler defects,
+# fixed or absent in GCC 15, and both have a flag that avoids them. Every unit
+# that shares CMIs must be compiled with the same flags, so they are added here,
+# where MM_CPPFLAGS reaches build0, build1, the shell fallback, and the
+# --compile-flags handed to the bootstrap-scoped builds. See
+# drafts/gcc-14-workaround.mdy.
+if [ "${MM_COMPILER_FAMILY}" = "gcc" ]; then
+    case "${MCCP_VERSION}" in
+        *clang*|*Clang*) ;;
+        *)
+            MM_COMPILER_MAJOR=$(${MCCP} -dumpversion 2>/dev/null | cut -d. -f1)
+            if [ "${MM_COMPILER_MAJOR}" = "14" ]; then
+                MM_CPPFLAGS="${MM_CPPFLAGS} -flarge-source-files -fno-ipa-sra"
+            fi
+            ;;
+    esac
+fi
 echo "Flags ${MM_CPPFLAGS}"
 
 # GCC uses its C++ modules TS mapper. Apple Clang uses Clang's C++ modules
