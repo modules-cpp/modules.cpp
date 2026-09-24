@@ -460,10 +460,8 @@ int main(int argc, char** argv) {
 
     const auto& positional = options.positional();
     const auto command_text = options.value("-c");
-    // mm::app::Options records a flag in seen() but an option only in
-    // values(), so presence of a value-bearing option is asked for that way.
-    const auto has_command = !options.values("-c").empty();
-    const auto has_project = !options.values("--project").empty();
+    const auto has_command = options.seen("-c");
+    const auto has_project = options.seen("--project");
     auto modes = 0;
     for (const auto flag : {"--check", "--tokens", "--dump-ast", "--run",
                             "--capabilities", "--commands"}) {

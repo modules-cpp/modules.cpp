@@ -74,6 +74,10 @@ void unexpected_argument(std::string_view tool, std::string_view arg) {
 //   positional_limit(2)       how many bare arguments are allowed, default 1
 //   help("tool [options]")    enables -h and --help with this usage text
 //
+// seen() and count() answer for all three shapes, so a tool asks whether an
+// option was given the same way it asks about a flag. values() and value()
+// read back what an option() or assigned() carried.
+//
 // An undeclared argument beginning with a dash is an unknown option and stops
 // parsing. Only arguments that do not look like options can be positional.
 class Options {
@@ -108,8 +112,13 @@ public:
 
     [[nodiscard]] bool verbose() const { return verbose_; }
 
+    // True when the name was given, for all three shapes: a flag(), an
+    // option(), or an assigned() prefix. An option that takes a value is
+    // still "seen" when its value is empty, which values() cannot express.
     [[nodiscard]] bool seen(std::string_view name) const { return named(seen_, name); }
 
+    // How many times the name was given, which for a repeatable option()
+    // matches values(name).size().
     [[nodiscard]] std::size_t count(std::string_view name) const {
         std::size_t result = 0;
         for (const auto& entry : seen_)
@@ -182,6 +191,7 @@ Cli Options::parse(int argc, char** argv) {
         bool handled = false;
         for (const auto& prefix : assigned_) {
             if (arg.size() < prefix.size() || arg.substr(0, prefix.size()) != prefix) continue;
+            seen_.emplace_back(prefix);
             values_[prefix].emplace_back(arg.substr(prefix.size()));
             handled = true;
             break;
@@ -194,6 +204,7 @@ Cli Options::parse(int argc, char** argv) {
                 std::cerr << tool_ << ": " << arg << " requires " << hints_[n] << "\n";
                 return Cli::usage;
             }
+            seen_.emplace_back(options_[n]);
             values_[options_[n]].emplace_back(argv[++i]);
             handled = true;
             break;
