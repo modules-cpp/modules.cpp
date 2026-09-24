@@ -44,6 +44,9 @@ public:
         std::span<const std::string_view> entries);
     void export_name(std::string_view name);
     [[nodiscard]] bool is_exported(std::string_view name) const;
+    // Appends NAME=VALUE for every exported name that currently has a value,
+    // which is the environment a child process receives.
+    void environment(std::vector<std::string>& out) const;
     void set_trap(int condition, std::string_view command);
     void clear_trap(int condition);
     [[nodiscard]] std::string_view trap(int condition) const;

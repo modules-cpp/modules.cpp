@@ -85,6 +85,13 @@ std::shared_ptr<const FullScript> FullFunctionLibrary::body(
     return function == nullptr ? nullptr : function->body;
 }
 
+std::size_t FullFunctionLibrary::adopt_from(
+    const FullFunctionLibrary& source) {
+    if (&source == this) return functions_.size();
+    functions_ = source.functions_;
+    return functions_.size();
+}
+
 bool FullFunctionLibrary::remove(std::string_view name) {
     for (std::size_t i = 0; i < functions_.size(); ++i) {
         if (functions_[i].name != name) continue;

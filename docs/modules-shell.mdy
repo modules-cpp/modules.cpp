@@ -384,9 +384,86 @@ expansion off, bounded by a recursion limit. `$#`, `$?`, `$$`, a positional, and
 both argument-vector forms are resolved directly; `$!` and `$-` are absent
 because there is no job control and no option string at this level.
 
+## The full-profile interpreter
+
+Interpreter walks a FullScript and executes it against the abstract services.
+Recursion here is ordinary C++ recursion: the cooperative step budget belongs to
+the embedded profile, where an application pumps between commands, not to a host
+shell with a real stack.
+
+It drives every piece above: expand_word_full for words, plan_redirections for
+descriptors, expand_here_document for bodies, run_pipeline for stages,
+configure_trap and poll_trap for conditions, FullFunctionLibrary for
+definitions, and FullState::fork_into for a child.
+
+### Simple commands
+
+Words live in a Simple node's token range, because the parser records only
+redirections as children; a token inside a redirection's range is not a command
+word. Leading assignment words are expanded without splitting or pathname
+expansion. With no command word the assignments persist and the status is that
+of the last substitution their values ran.
+
+Resolution is function first, then builtin, then the host. A prefix assignment
+persists for a special builtin and for a function, and is restored afterwards
+otherwise, which is what makes `IFS= read -r line` leave IFS as it was.
+
+Redirections are applied by building the command's stream set rather than by
+duplicating descriptors in the shell and restoring them. A builtin writes to
+that set and an external receives it in its ProcessRequest, so nothing has to be
+undone and a failure cannot leave the shell's own streams altered. A
+here-document becomes a pipe the shell fills before the command runs.
+
+### Pipelines
+
+The first stage runs in this shell with its output on a pipe, so a builtin such
+as echo or printf can feed the rest, and every later stage is one external
+process wired by the service. A builtin or function after a pipe is Unsupported
+rather than approximated, because it would need a process no abstract service
+offers. A survey of the tracked corpus confirms that is sufficient: every
+pipeline there is a builtin or external followed by externals.
+
+### set -e and tested contexts
+
+errexit is suppressed by a depth counter rather than a flag threaded through
+every production. The counter rises for a condition, an inverted command, and
+every non-final `&&` or `||` operand, so the whole subtree of a condition is
+exempt, which is what dash does. `if false; then ...; fi`, `false || recovered`,
+and `! false` therefore do not end a script under set -e, while a plain failing
+command does.
+
+### Builtins
+
+`:`, true, false, echo, printf, test, `[`, pwd, cd, exit, return, break,
+continue, shift, set, export, trap, read, command, and exec. These are the ones
+the tracked corpus uses; `local`, `eval`, `until`, `getopts`, and `type` are
+absent because no tracked script uses them.
+
+Two behaviours are deliberate deviations, both documented rather than hidden:
+
+- exec runs its program and exits with its status instead of replacing the
+  process image, because no abstract service replaces a process. For a script
+  whose last action is exec, which is the corpus's only use, the observable
+  result is the same;
+- restoring a prefix-assigned name that had no previous value assigns empty
+  rather than unsetting it, which is the closest this level gets to unset and is
+  what `IFS=` needs.
+
+### Command substitution and subshells
+
+A substitution pipes the child's ordinary output back, forks the value state so
+the child cannot mutate the parent, and adopts the parent's function handles.
+The whole capture is read before the status is reported, so a child that wrote
+more than one pipe buffer is never truncated. Trailing newlines are removed.
+`$?` is not updated by a substitution partway through a word, which matches
+dash: a later word in the same command still sees the previous status.
+
+A subshell forks the same way, so its assignments, working directory, and traps
+stay inside it while its external side effects are real. exit inside a subshell
+ends only the subshell.
+
 The native shell CLI and the dash differential harness are the remainder of this
-change set. The interpreter that walks a FullScript and drives these pieces is
-the piece between them.
+change set.
 
 # Foundation API
 

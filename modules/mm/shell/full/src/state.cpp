@@ -54,6 +54,14 @@ bool FullState::is_exported(std::string_view name) const {
     return false;
 }
 
+void FullState::environment(std::vector<std::string>& out) const {
+    for (const auto& name : exported_) {
+        const auto value = core_.lookup(name);
+        if (!value.found) continue;
+        out.push_back(name + "=" + std::string{value.value});
+    }
+}
+
 void FullState::set_trap(int condition, std::string_view command) {
     for (auto& entry : traps_) {
         if (entry.condition == condition) {

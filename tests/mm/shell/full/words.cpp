@@ -269,6 +269,7 @@ void substitution_and_pathname() {
            "a word mixing quoted and unquoted metacharacters stays literal");
 }
 
+
 const mm::test::case_ cases[]{
     {"quotes and escapes", &quotes_and_escapes},
     {"parameters and operators", &parameters_and_operators},

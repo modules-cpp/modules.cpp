@@ -14,3 +14,4 @@ export import :function;
 export import :redirect;
 export import :trap;
 export import :execute;
+export import :interpret;

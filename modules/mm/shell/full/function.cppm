@@ -45,6 +45,10 @@ public:
     [[nodiscard]] std::shared_ptr<const FullScript> body(
         std::string_view name) const;
     [[nodiscard]] bool remove(std::string_view name);
+    // Copies another table's handles so a subshell or command-substitution
+    // child starts from the parent's definitions. The bodies are shared, not
+    // reparsed, and a definition made here does not reach the source.
+    [[nodiscard]] std::size_t adopt_from(const FullFunctionLibrary& source);
     [[nodiscard]] std::size_t size() const { return functions_.size(); }
     [[nodiscard]] const std::vector<FullFunction>& functions() const {
         return functions_;

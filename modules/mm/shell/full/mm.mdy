@@ -16,6 +16,7 @@ file: function.cppm mm.shell.full:function
 file: redirect.cppm mm.shell.full:redirect
 file: trap.cppm mm.shell.full:trap
 file: execute.cppm mm.shell.full:execute
+file: interpret.cppm mm.shell.full:interpret
 file: full.cppm mm.shell.full
 file: src/scan.cpp
 file: src/parse.cpp
@@ -23,6 +24,9 @@ file: src/state.cpp
 file: src/expand.cpp
 file: src/pathname.cpp
 file: src/word.cpp
+file: src/interpret.cpp
+file: src/run.cpp
+file: src/command.cpp
 file: src/function.cpp
 file: src/redirect.cpp
 file: src/trap.cpp
