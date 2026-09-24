@@ -4,12 +4,23 @@ kind: app
 name: shell
 use: mm.app
 use: mm.build
+use: mm.shell
+use: mm.shell.full
 use: mm.shell.posix
 file: shell.cpp
 ---
 
 # shell tool
 
-Runs a command through /bin/sh after resolving a project root the way the other
-tools do, optionally setting environment variables for it first. It consumes
-mm.shell.posix for host environment controls.
+Executes shell scripts natively. --run and -c parse with the project's own
+parser and evaluate through mm.shell.full over the mm.shell.posix host
+services; nothing here calls system() and nothing reaches /bin/sh unless
+--legacy-sh is given explicitly. --check, --tokens, and --dump-ast are
+parser-only modes, --capabilities and --commands are introspection, and
+--profile=embedded runs the bounded embedded evaluator instead.
+
+--legacy-sh is a deprecated one-release rollback that delegates to /bin/sh
+through the process service. It is never selected automatically after a native
+parse or execution failure, prints a deprecation diagnostic, and cannot be
+combined with --profile=embedded. The [manifest] command positional form is a
+deprecated alias for -c that uses the native parser.
