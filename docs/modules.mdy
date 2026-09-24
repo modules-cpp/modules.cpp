@@ -142,6 +142,8 @@ The source tree is organized by responsibility.
 |   +-- model/                mm.model, the models/ adapter
 |   +-- run/                  mm.run execution orchestration
 |   +-- shell/                mm.shell target-safe foundation;
+|                             shell/mcu mm.shell.mcu;
+|                             shell/full mm.shell.full;
 |                             shell/posix mm.shell.posix
 |   +-- test/                 mm.test
 |   +-- display/              mm.display portable display interface
@@ -161,7 +163,7 @@ The source tree is organized by responsibility.
 |   +-- model/                consistency front end; see docs/modules-model.mdy
 |   +-- json/                 JSON validator and formatter over mm.json
 |   +-- run/                  configured application execution
-|   +-- shell/                shell front end over mm.build and mm.shell.posix
+|   +-- shell/                native shell front end over mm.shell.full
 +-- tests/mm/
 |   +-- build/                mm.build tests
 |   +-- configure/            mm.configure tests
@@ -177,6 +179,8 @@ The source tree is organized by responsibility.
 |   +-- model/                mm.model tests
 |   +-- run/                  mm.run tests
 |   +-- shell/                mm.shell foundation tests;
+|                             shell/mcu mm.shell.mcu tests;
+|                             shell/full mm.shell.full tests;
 |                             shell/posix mm.shell.posix tests
 +-- tests/target/             target-only compile fixtures
 |   +-- board/                selected-board test fixture
@@ -378,19 +382,24 @@ has no dependencies on filesystem, environment, process, heap allocation,
 or platform providers, and builds across all supported host and target
 architectures.
 
+## mm.shell.mcu
+mm.shell.mcu provides the level-2 MCU composition, adding mm.mcu and mm.stdio
+to the embedded closure. It installs descriptors for MCU peripheral inspection
+and pin operations without dynamic heap allocation or POSIX dependencies.
+
+## mm.shell.full
+mm.shell.full provides the level-3 full shell profile. It implements pipelines,
+I/O redirections, here-documents, subshells, full word expansion with pathname
+expansion, traps, and functions over abstract host services without direct
+POSIX headers.
+
 ## mm.shell.posix
-mm.shell.posix provides host-only shell and environment services: current_shell
-reads $SHELL, get/set/unset wrap POSIX getenv/setenv/unsetenv against this
-process's real environment, and parse_script classifies a script's physical
-lines as a comment, an assignment, or a command. It declares option:
-buildable-target no because setenv and unsetenv are POSIX-specific.
+mm.shell.posix provides host-only POSIX service bindings for mm.shell.full:
+file operations, process creation and wait, pipeline plumbing, and signal
+handling. It also retains legacy environment helpers (current_shell, get, set,
+unset) and script line classification. It declares option: buildable-target no.
 
-current_shell is not what mm::build::run invokes: POSIX system(), which run
-wraps, always uses /bin/sh regardless of $SHELL. parse_script recognizes
-only this project's own script style; it does not parse real shell grammar
-such as quoting across lines, command substitution, or control flow.
-
-tools/shell consumes mm.shell.posix for host environment controls.
+tools/shell consumes mm.shell.full and mm.shell.posix for native execution.
 
 # Tools
 
@@ -491,21 +500,26 @@ Common commands are:
 - ./out/bin/model modules/mm.mdy
 
 ## shell
-tools/shell/shell.cpp is installed as out/bin/shell. It resolves a project
-root the same way build, test, and check do, then hands command to
-mm::build::run, which wraps it in /bin/sh: shell is a thin front end over
-mm.build's process execution and mm.shell.posix's environment functions, not
-its own implementation of either.
+tools/shell/shell.cpp is installed as out/bin/shell. It executes scripts
+natively using mm.shell.full over mm.shell.posix host services, without relying
+on /bin/sh or std::system.
 
--e NAME=VALUE, repeatable, calls mm.shell.posix's set before running command,
-so the child process command launches inherits it. Verbose mode prints
-mm.shell.posix's current_shell.
+Modes are:
+- `--run FILE [-- ARG...]`: execute FILE natively.
+- `-c TEXT [-- ARG...]`: execute TEXT natively.
+- `--check FILE...`: parse each file and report diagnostics.
+- `--tokens FILE`: dump the token stream.
+- `--dump-ast FILE`: dump the syntax tree.
+- `--profile=embedded`: run under the bounded embedded evaluator.
+- `--capabilities`: list capabilities of the active profile.
+- `--commands`: list installed builtins.
+- `--legacy-sh`: explicit one-release rollback escape to /bin/sh.
 
 Common commands are:
 
-- ./out/bin/shell "ls modules"
-- ./out/bin/shell -e MM_TEST=1 'echo "$MM_TEST"'
-- ./out/bin/shell -v modules/mm.mdy "ls tools"
+- ./out/bin/shell -c "echo native $((2+3))"
+- ./out/bin/shell --run build.sh -- --help
+- ./out/bin/shell -e MM_TEST=1 -c 'echo "$MM_TEST"'
 
 # Applications
 ## main
@@ -597,15 +611,14 @@ document, check, model, json, run, flash, debug, sketch) has a second,
 no-extension counterpart at the project root: `bootstrap`, `build`, `clean`,
 `check`, `document`, `model`, `json`, `test`, `configure`, `run`, `flash`,
 `debug`, `sketch`. Where the `.sh` version runs its work directly
-through the system shell, the no-extension version routes the same command
-through out/bin/shell (mm.shell.posix, tools/shell) instead. Before the first
-full build, the configure and build wrappers fall back to configure.sh and
-build.sh because bootstrap intentionally has not built mm.shell.posix. Once
-out/bin/shell exists, the two are otherwise equivalent, argument for argument: `./document
-modules/mm.mdy` and `./document.sh modules/mm.mdy` render the same subtree.
-`./bootstrap` is the one exception: it needs out/bin/shell to already
-exist, which is itself a product of a prior bootstrap, so a first-ever
-bootstrap on a fresh checkout must use `./bootstrap.sh`.
+through the system shell, the no-extension version routes the invocation
+through `out/bin/shell --run NAME.sh -- "$@"`.
+
+Before `out/bin/shell` exists, wrappers fall back to executing their `.sh`
+bodies with `sh`. For the one-release rollback window, setting
+`MM_SHELL_LEGACY=1` adds `--legacy-sh`. Once `out/bin/shell` is built,
+workflows execute natively and project child scripts execute directly within
+the native shell interpreter without invoking `/bin/sh`.
 
 For TDD, run the smallest relevant test target first:
 

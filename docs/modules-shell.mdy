@@ -992,3 +992,32 @@ evidence across the registered platform directories under platforms/:
   host environment.
 - m68k-linux-external: recorded as an external CMake fixture rather than a
   project-module lane.
+
+# Level-3 self-hosting and milestone acceptance
+
+Level-3 full-profile execution, host POSIX integration, child script policy,
+and self-hosting qualification evidence:
+
+- Full-profile syntax: complete parsing of pipelines (|), redirections (<, >,
+  >>), subshells ((...)), bracket patterns, and here-documents (<<PLAN).
+- Full evaluator: pipeline execution with concurrent child status, redirection
+  planning with temporary borrow and restoration, trap handling for 0, EXIT,
+  INT, and TERM.
+- Host POSIX services: non-allocating handle-based file, I/O, process, and
+  signal services in mm.shell.posix without exposing POSIX types.
+- Native shell CLI: tools/shell executes scripts natively through --run and -c
+  without relying on /bin/sh. --legacy-sh provides an explicit one-release
+  rollback path that delegates through the process service.
+- Dash semantic differential: exact stdout, stderr, exit status, and fixture
+  file matching between dash and the native evaluator across safe invocations of
+  every tracked project script.
+- Project-native child policy: scripts beginning with #!/bin/sh inside the
+  canonical project root execute directly within the native evaluator, verified
+  by process tracing to never launch /bin/sh.
+- Root launchers: all thirteen root wrappers invoke out/bin/shell --run NAME.sh
+  by default, retaining their banners, missing-tool recovery, and explicit
+  MM_SHELL_LEGACY=1 escape.
+- Two-generation self-hosting: clean bootstrap, configure, build, test, model,
+  and document pass generation A, followed by focused shell tests, test.sh,
+  model.sh, and second build in generation B with zero /bin/sh launches in the
+  native workflow.
