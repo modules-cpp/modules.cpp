@@ -78,6 +78,9 @@ debug-*.sh
 # local release scripts
 release-*.sh
 
+#local run scripts
+run_*.sh
+
 # the compatibility headers the sketch tool synthesises beside every
 # generated main.cpp; no directory prefix, so each is ignored at any depth
 Arduino.h
