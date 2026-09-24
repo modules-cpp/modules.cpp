@@ -462,8 +462,52 @@ A subshell forks the same way, so its assignments, working directory, and traps
 stay inside it while its external side effects are real. exit inside a subshell
 ends only the subshell.
 
-The native shell CLI and the dash differential harness are the remainder of this
-change set.
+## The native shell CLI
+
+tools/shell executes scripts natively. Its modes are:
+
+Opening fence
+shell [--project MANIFEST] --check FILE...
+shell [--project MANIFEST] --tokens FILE
+shell [--project MANIFEST] --dump-ast FILE
+shell [--project MANIFEST] --run FILE [-- ARG...]
+shell [--project MANIFEST] -c TEXT [-- ARG...]
+shell [--project MANIFEST] --profile=embedded --run FILE [-- ARG...]
+shell [--project MANIFEST] --capabilities
+shell [--project MANIFEST] --commands
+Closing fence
+
+MANIFEST defaults to mm.mdy and is resolved before any script runs, so native
+policy always has a root. -c carries no implicit project provenance. Every
+argument after `--` is preserved as one positional value. -e still sets an
+initial exported variable. Exactly one mode may be given.
+
+--check, --tokens, and --dump-ast are parser-only; --capabilities and --commands
+are introspection over the level's capability set and the installed pack.
+--run and -c evaluate through the interpreter over the host services:
+`mm::build::run`, `std::system`, and /bin/sh are gone from those paths. A script
+exits with its own status, so `-c 'exit 7'` exits 7.
+
+The `[MANIFEST] COMMAND` positional form remains for one migration release as an
+alias for -c. It prints a deprecation diagnostic and uses the native parser,
+not /bin/sh.
+
+### The temporary rollback
+
+--legacy-sh is an explicit, host-only rollback for one release. It delegates to
+/bin/sh through the process service, never through system(), prints a
+deprecation diagnostic to stderr, and cannot be combined with
+--profile=embedded.
+
+It is never selected automatically. A native parse failure, such as a backtick
+substitution, reports its diagnostic and exits with a usage code; a native
+runtime failure, such as a missing program, reports 127 to the script. Neither
+reaches /bin/sh. Verified with an execve trace: --legacy-sh executes /bin/sh
+exactly once, and -c executes it zero times.
+
+Removal requires a later plan after one released migration cycle.
+
+The dash differential harness is the remainder of this change set.
 
 # Foundation API
 
