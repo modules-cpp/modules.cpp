@@ -13,6 +13,9 @@ export module mm.shell.full:service;
 
 export namespace mm::shell::full {
 
+class FullState;
+class FullFunctionLibrary;
+
 enum class ServiceStatus {
     Ok, NotFound, PermissionDenied, Interrupted, WouldBlock,
     Invalid, Failed,
@@ -31,6 +34,12 @@ struct ProcessRequest {
     Handle input = invalid_handle;
     Handle output = invalid_handle;
     Handle error = invalid_handle;
+    // A pipeline may run a shell production in an isolated native child.
+    // Both pointers are borrowed until spawn forks; no POSIX type crosses
+    // this interface.
+    std::string_view native_source;
+    const FullState* native_state = nullptr;
+    const FullFunctionLibrary* native_functions = nullptr;
 };
 
 struct IoService {
@@ -60,6 +69,11 @@ struct SignalService {
     ServiceStatus (*poll)(void*, int&) = nullptr;
 };
 
+enum class FilePredicate {
+    Exists, Regular, Directory, Readable, Writable, Executable,
+    Nonempty, SymbolicLink,
+};
+
 // Directory enumeration is separate from byte I/O because pathname expansion
 // needs names and nothing else. list appends the entries of one directory,
 // without . and .., in whatever order the host reports them.
@@ -69,6 +83,10 @@ struct FileService {
                           std::vector<std::string>&) = nullptr;
     ServiceStatus (*status)(void*, std::string_view, bool&,
                             bool&) = nullptr;
+    ServiceStatus (*canonical)(void*, std::string_view,
+                               std::string&) = nullptr;
+    ServiceStatus (*test)(void*, std::string_view,
+                          FilePredicate, bool&) = nullptr;
 };
 
 struct Services {

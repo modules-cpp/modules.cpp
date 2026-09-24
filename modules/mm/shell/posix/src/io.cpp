@@ -56,6 +56,7 @@ full::ServiceStatus HostServices::open_callback(void* context,
             flags = O_WRONLY | O_CREAT | O_APPEND;
             break;
     }
+    flags |= O_CLOEXEC;
     // The service takes a view, and open needs a terminated string.
     const std::string name{path};
     const int descriptor = ::open(name.c_str(), flags, 0666);
@@ -72,6 +73,13 @@ full::ServiceStatus HostServices::pipe_callback(void* context,
     write_end = full::invalid_handle;
     int ends[2]{-1, -1};
     if (::pipe(ends) != 0) return classify(errno);
+    if (::fcntl(ends[0], F_SETFD, FD_CLOEXEC) != 0 ||
+        ::fcntl(ends[1], F_SETFD, FD_CLOEXEC) != 0) {
+        const auto failure = errno;
+        (void)::close(ends[0]);
+        (void)::close(ends[1]);
+        return classify(failure);
+    }
     read_end = self.publish_descriptor(ends[0], true);
     write_end = self.publish_descriptor(ends[1], true);
     return full::ServiceStatus::Ok;

@@ -1,4 +1,4 @@
-#
+#!/bin/sh
 # shell script to run the json tool through the shell tool instead of the
 # system shell directly; see json.sh for the plain version
 #
@@ -14,12 +14,7 @@ if [ ! -x "${MM_BUILD}/bin/shell" ]; then
     exec sh json.sh "$@"
 fi
 
-cmd="sh json.sh"
-# Each argument is single-quoted so it survives the second /bin/sh the
-# shell tool runs the command through: without that, spaces and shell
-# metacharacters in an argument would be re-interpreted there.
-for arg in "$@"; do
-    cmd="$cmd '$(printf '%s' "$arg" | sed "s/'/'\\\\''/g")'"
-done
-
-${MM_BUILD}/bin/shell "$cmd"
+if [ "${MM_SHELL_LEGACY:-0}" = 1 ]; then
+    exec "${MM_BUILD}/bin/shell" --legacy-sh --run json.sh -- "$@"
+fi
+exec "${MM_BUILD}/bin/shell" --run json.sh -- "$@"

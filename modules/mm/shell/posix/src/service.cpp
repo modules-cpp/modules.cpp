@@ -3,6 +3,8 @@
 module;
 
 #include <cstddef>
+#include <filesystem>
+#include <string_view>
 #include <vector>
 
 module mm.shell.posix;
@@ -35,7 +37,9 @@ full::SignalService HostServices::signal() {
 
 full::FileService HostServices::file() {
     return {this, &HostServices::list_callback,
-            &HostServices::status_callback};
+            &HostServices::status_callback,
+            &HostServices::canonical_callback,
+            &HostServices::test_callback};
 }
 
 full::Services HostServices::all() {
@@ -60,6 +64,10 @@ std::size_t HostServices::live_children() const {
 
 std::size_t HostServices::installed_signals() const {
     return signals_.size();
+}
+
+std::size_t HostServices::native_scripts_started() const {
+    return native_started_;
 }
 
 // A handle is one past the table index, so zero is never a valid handle and a
@@ -107,6 +115,15 @@ void HostServices::release_child(full::Handle handle) {
 full::Handle HostServices::borrow_descriptor(int descriptor) {
     if (descriptor < 0) return full::invalid_handle;
     return publish_descriptor(descriptor, false);
+}
+
+bool HostServices::set_native_project_root(std::string_view root) {
+    std::error_code error;
+    const auto canonical = std::filesystem::canonical(
+        std::filesystem::path{root}, error);
+    if (error || !std::filesystem::is_directory(canonical)) return false;
+    native_root_ = canonical.string();
+    return true;
 }
 
 }  // namespace mm::shell::posix

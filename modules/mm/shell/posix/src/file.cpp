@@ -5,9 +5,11 @@ module;
 #include <cerrno>
 #include <cstddef>
 #include <dirent.h>
+#include <filesystem>
 #include <string>
 #include <string_view>
 #include <sys/stat.h>
+#include <unistd.h>
 #include <vector>
 
 module mm.shell.posix;
@@ -71,6 +73,60 @@ full::ServiceStatus HostServices::status_callback(void*,
     }
     exists = true;
     directory = S_ISDIR(info.st_mode);
+    return full::ServiceStatus::Ok;
+}
+
+full::ServiceStatus HostServices::canonical_callback(
+    void*, std::string_view path, std::string& out) {
+    std::error_code error;
+    const auto resolved = std::filesystem::canonical(
+        std::filesystem::path{path}, error);
+    if (error) return classify(error.value());
+    out = resolved.string();
+    return full::ServiceStatus::Ok;
+}
+
+full::ServiceStatus HostServices::test_callback(
+    void*, std::string_view path, full::FilePredicate predicate,
+    bool& answer) {
+    answer = false;
+    const std::string name{path};
+    int mode = -1;
+    switch (predicate) {
+        case full::FilePredicate::Exists: mode = F_OK; break;
+        case full::FilePredicate::Readable: mode = R_OK; break;
+        case full::FilePredicate::Writable: mode = W_OK; break;
+        case full::FilePredicate::Executable: mode = X_OK; break;
+        default: break;
+    }
+    if (mode >= 0) {
+        answer = ::access(name.c_str(), mode) == 0;
+        return full::ServiceStatus::Ok;
+    }
+    struct stat info{};
+    const auto inspected = predicate ==
+        full::FilePredicate::SymbolicLink
+        ? ::lstat(name.c_str(), &info) : ::stat(name.c_str(), &info);
+    if (inspected != 0) {
+        return errno == ENOENT || errno == ENOTDIR ||
+                       errno == EACCES
+                   ? full::ServiceStatus::Ok : classify(errno);
+    }
+    switch (predicate) {
+        case full::FilePredicate::Regular:
+            answer = S_ISREG(info.st_mode);
+            break;
+        case full::FilePredicate::Directory:
+            answer = S_ISDIR(info.st_mode);
+            break;
+        case full::FilePredicate::Nonempty:
+            answer = info.st_size > 0;
+            break;
+        case full::FilePredicate::SymbolicLink:
+            answer = S_ISLNK(info.st_mode);
+            break;
+        default: break;
+    }
     return full::ServiceStatus::Ok;
 }
 

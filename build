@@ -1,4 +1,4 @@
-#
+#!/bin/sh
 # shell script to run build.sh through the shell tool instead of the system
 # shell directly; see build.sh for the plain version
 #
@@ -13,9 +13,7 @@ if [ ! -x "${MM_BUILD}/bin/shell" ]; then
     exec sh build.sh "$@"
 fi
 
-cmd="sh build.sh"
-for arg in "$@"; do
-    cmd="$cmd '$(printf '%s' "$arg" | sed "s/'/'\\\\''/g")'"
-done
-
-${MM_BUILD}/bin/shell "$cmd"
+if [ "${MM_SHELL_LEGACY:-0}" = 1 ]; then
+    exec "${MM_BUILD}/bin/shell" --legacy-sh --run build.sh -- "$@"
+fi
+exec "${MM_BUILD}/bin/shell" --run build.sh -- "$@"

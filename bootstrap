@@ -1,4 +1,4 @@
-#
+#!/bin/sh
 # shell script to run bootstrap.sh through the shell tool instead of the
 # system shell directly; see bootstrap.sh for the plain version
 #
@@ -7,9 +7,11 @@ MM_BUILD="out"
 echo "Run bootstrap"
 echo
 
-cmd="sh bootstrap.sh"
-for arg in "$@"; do
-    cmd="$cmd '$(printf '%s' "$arg" | sed "s/'/'\\\\''/g")'"
-done
+if [ ! -x "${MM_BUILD}/bin/shell" ]; then
+    exec sh bootstrap.sh "$@"
+fi
 
-${MM_BUILD}/bin/shell "$cmd"
+if [ "${MM_SHELL_LEGACY:-0}" = 1 ]; then
+    exec "${MM_BUILD}/bin/shell" --legacy-sh --run bootstrap.sh -- "$@"
+fi
+exec "${MM_BUILD}/bin/shell" --run bootstrap.sh -- "$@"

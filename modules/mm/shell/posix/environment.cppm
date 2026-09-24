@@ -6,6 +6,7 @@ module;
 #include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 export module mm.shell.posix:environment;
 
@@ -25,5 +26,7 @@ export namespace mm::shell {
 [[nodiscard]] bool set(
     std::string_view name, std::string_view value, bool overwrite = true);
 [[nodiscard]] bool unset(std::string_view name);
+// Captures this process's exported environment for a new owning FullState.
+[[nodiscard]] std::vector<std::string> snapshot_environment();
 
 }  // namespace mm::shell

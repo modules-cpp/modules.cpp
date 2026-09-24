@@ -21,6 +21,7 @@
 // Pawel Wodnicki (C) 2026
 // 32bitmicro LLC (C) 2026
 #include <cstdio>
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -156,10 +157,35 @@ struct HostStreams {
                              std::string_view name,
                              std::span<const std::string> arguments,
                              std::span<const std::string> exports,
-                             const std::string& directory, bool verbose) {
+                             const std::string& directory,
+                             const std::filesystem::path& project_root,
+                             bool native_policy, bool verbose) {
     mm::shell::posix::HostServices host;
+    if (native_policy &&
+        !host.set_native_project_root(project_root.string())) {
+        std::cerr << "shell: cannot resolve native project root\n";
+        return mm::build::exit_manifest;
+    }
     const HostStreams streams{host};
-    full::FullState state;
+    const auto environment = mm::shell::snapshot_environment();
+    std::vector<std::string_view> environment_views;
+    environment_views.reserve(environment.size());
+    std::size_t environment_bytes = 0;
+    for (const auto& entry : environment) {
+        environment_views.push_back(entry);
+        environment_bytes += entry.size() + 1;
+    }
+    full::StateCapacity capacity;
+    capacity.variable_slots = std::max(capacity.variable_slots,
+                                       environment.size() + 64);
+    capacity.variable_bytes = std::max(capacity.variable_bytes,
+                                       environment_bytes + 8192);
+    full::FullState state{capacity};
+    if (state.seed_environment(environment_views) !=
+        mm::shell::Status::Ok) {
+        std::cerr << "shell: cannot import host environment\n";
+        return mm::build::exit_run;
+    }
     state.set_directory(directory);
     for (const auto& entry : exports) {
         const auto assignment = split_assignment(entry);
@@ -584,12 +610,14 @@ int main(int argc, char** argv) {
         }
         if (embedded) return run_embedded(source, arguments);
         return run_native(source, path, arguments, exports,
-                          std::filesystem::current_path().string(), verbose);
+                          std::filesystem::current_path().string(),
+                          root, true, verbose);
     }
 
     const auto text = has_command ? command_text : alias_command;
     if (legacy) return run_legacy(false, text, arguments);
     if (embedded) return run_embedded(text, arguments);
     return run_native(text, "sh", arguments, exports,
-                      std::filesystem::current_path().string(), verbose);
+                      std::filesystem::current_path().string(),
+                      root, has_project, verbose);
 }

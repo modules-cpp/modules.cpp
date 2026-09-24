@@ -44,10 +44,15 @@ public:
     [[nodiscard]] std::size_t open_descriptors() const;
     [[nodiscard]] std::size_t live_children() const;
     [[nodiscard]] std::size_t installed_signals() const;
+    [[nodiscard]] std::size_t native_scripts_started() const;
 
     // Adopts an already-open descriptor this object did not open, such as the
     // process's own standard streams, without taking ownership of closing it.
     [[nodiscard]] full::Handle borrow_descriptor(int descriptor);
+
+    // Enables native execution only for scripts beneath this canonical
+    // project root. An empty root leaves ordinary external exec behavior.
+    [[nodiscard]] bool set_native_project_root(std::string_view root);
 
     void close_all();
     void restore_all_signals();
@@ -77,6 +82,10 @@ private:
                                              std::vector<std::string>&);
     static full::ServiceStatus status_callback(void*, std::string_view,
                                                bool&, bool&);
+    static full::ServiceStatus canonical_callback(
+        void*, std::string_view, std::string&);
+    static full::ServiceStatus test_callback(
+        void*, std::string_view, full::FilePredicate, bool&);
 
     [[nodiscard]] full::Handle publish_descriptor(long descriptor,
                                                  bool owned);
@@ -94,6 +103,9 @@ private:
     std::vector<Descriptor> descriptors_;
     std::vector<long> children_;
     std::vector<int> signals_;
+    std::string native_root_;
+    unsigned int native_depth_ = 0;
+    std::size_t native_started_ = 0;
 };
 
 }  // namespace mm::shell::posix

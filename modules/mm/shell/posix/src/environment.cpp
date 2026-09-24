@@ -7,6 +7,8 @@ module;
 #include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
+#include <unistd.h>
 
 module mm.shell.posix;
 
@@ -36,6 +38,15 @@ bool set(std::string_view name, std::string_view value, bool overwrite) {
 bool unset(std::string_view name) {
     const std::string key(name);
     return ::unsetenv(key.c_str()) == 0;
+}
+
+std::vector<std::string> snapshot_environment() {
+    std::vector<std::string> entries;
+    for (char** entry = ::environ; entry != nullptr && *entry != nullptr;
+         ++entry) {
+        entries.emplace_back(*entry);
+    }
+    return entries;
 }
 
 }  // namespace mm::shell

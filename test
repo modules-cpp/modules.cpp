@@ -1,4 +1,4 @@
-#
+#!/bin/sh
 # shell script to run test.sh through the shell tool instead of the system
 # shell directly; see test.sh for the plain version
 #
@@ -18,9 +18,7 @@ fi
 # the whole thing becomes one string passed as one argument. Quoting each "$@"
 # entry individually keeps every argument literal and separate.
 
-cmd="sh test.sh"
-for arg in "$@"; do
-    cmd="$cmd '$(printf '%s' "$arg" | sed "s/'/'\\\\''/g")'"
-done
-
-${MM_BUILD}/bin/shell "$cmd"
+if [ "${MM_SHELL_LEGACY:-0}" = 1 ]; then
+    exec "${MM_BUILD}/bin/shell" --legacy-sh --run test.sh -- "$@"
+fi
+exec "${MM_BUILD}/bin/shell" --run test.sh -- "$@"

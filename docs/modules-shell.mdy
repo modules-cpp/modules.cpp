@@ -507,7 +507,50 @@ exactly once, and -c executes it zero times.
 
 Removal requires a later plan after one released migration cycle.
 
-The dash differential harness is the remainder of this change set.
+The POSIX CLI suite compares the tracked shell-script corpus against dash in
+disposable trees. It checks status, separate stdout and stderr, resulting
+files, and the argv/environment/working-directory trace of fixture tools.
+Provisioning and hardware scripts use safe fixture modes; they are not run
+against real devices or installers during this comparison.
+
+### Project-native child scripts
+
+For --run, and for -c with an explicit --project, HostServices resolves a
+child command before exec. An executable, readable .sh file beneath the
+canonical project root whose first line is exactly #!/bin/sh runs in a child
+full evaluator. The thirteen registered no-extension root wrappers qualify
+under the same rule. A native child receives its own variable and positional
+state, working directory, streams, and exit status. Recursive native launches
+are limited to 32; an over-limit launch reports cannot execute (126).
+
+Canonical containment is checked after resolving symlinks. A path spelled
+inside the project but linked outside it is refused, not treated as a native
+script. Foreign shebangs retain external exec behavior. The POSIX process
+service uses explicit execve path search for that behavior: executable text
+without a shebang reports cannot execute, rather than silently falling back
+to /bin/sh through execvp. The service counts project-native children so an
+integration test can assert that classification occurred before exec.
+
+The CLI imports the host environment into owning FullState before applying
+-e overrides. External children therefore see the same exported values unless
+a script changes them. Host pipe and opened descriptors are close-on-exec;
+the native child closes inherited service-owned handles after stdio wiring.
+
+### Root launchers and rollback boundary
+
+The thirteen no-extension root launchers retain their banners and their
+missing-tool fallbacks. With the tool installed, each invokes
+`out/bin/shell --run NAME.sh -- "$@"` directly, without reconstructing a
+quoted command string. MM_SHELL_LEGACY=1 changes only that invocation to add
+--legacy-sh; a native failure never retries through the system shell. The
+json launcher keeps stdout banner-free.
+
+These launchers are themselves #!/bin/sh scripts so a pristine checkout can
+run bootstrap before the native binary exists. Directly invoking a launcher
+therefore starts that one POSIX interpreter. The no-/bin/sh guarantee applies
+to the native evaluator and its project children after `out/bin/shell` starts;
+a literal process-wide zero-/bin/sh trace requires invoking the binary
+directly rather than entering through a fallback-capable launcher.
 
 # Foundation API
 

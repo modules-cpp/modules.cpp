@@ -240,6 +240,12 @@ public:
 
     [[nodiscard]] WordFields run(std::string_view spelling) {
         WordFields result;
+        // An isolated quoted $@ contributes no field when there are no
+        // positionals. Ordinary empty quotes still contribute one.
+        if (state_.argument_count() == 0 &&
+            (spelling == "\"$@\"" || spelling == "\"${@}\"")) {
+            return result;
+        }
         if (!scan(spelling, result)) return result;
         auto fields = split_into_fields(builder_, state_.ifs(),
                                        request_.split);

@@ -38,6 +38,10 @@ public:
 
     [[nodiscard]] ShellState& core() { return core_; }
     [[nodiscard]] const ShellState& core() const { return core_; }
+    [[nodiscard]] StateCapacity capacity() const {
+        return {variables_.size(), variable_bytes_.size(),
+                positionals_.size(), positional_bytes_.size()};
+    }
     [[nodiscard]] std::string_view directory() const { return directory_; }
     void set_directory(std::string_view path);
     [[nodiscard]] Status seed_environment(

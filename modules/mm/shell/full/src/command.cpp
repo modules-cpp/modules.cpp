@@ -7,6 +7,7 @@ module;
 #include <span>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 module mm.shell.full;
@@ -64,19 +65,47 @@ namespace {
 }
 
 [[nodiscard]] int evaluate_test(std::span<const std::string> operands,
-                                bool& usage) {
+                                bool& usage, FileService files,
+                                std::string_view directory,
+                                ServiceStatus& service) {
     usage = false;
     if (operands.empty()) return 1;
     if (operands[0] == "!") {
-        const auto inner = evaluate_test(operands.subspan(1), usage);
+        const auto inner = evaluate_test(operands.subspan(1), usage,
+                                         files, directory, service);
         return usage ? 2 : (inner == 0 ? 1 : 0);
     }
     if (operands.size() == 1) return operands[0].empty() ? 1 : 0;
     if (operands.size() == 2) {
         if (operands[0] == "-n") return operands[1].empty() ? 1 : 0;
         if (operands[0] == "-z") return operands[1].empty() ? 0 : 1;
-        usage = true;
-        return 2;
+        auto predicate = FilePredicate::Exists;
+        const auto& op = operands[0];
+        if (op == "-e") predicate = FilePredicate::Exists;
+        else if (op == "-f") predicate = FilePredicate::Regular;
+        else if (op == "-d") predicate = FilePredicate::Directory;
+        else if (op == "-r") predicate = FilePredicate::Readable;
+        else if (op == "-w") predicate = FilePredicate::Writable;
+        else if (op == "-x") predicate = FilePredicate::Executable;
+        else if (op == "-s") predicate = FilePredicate::Nonempty;
+        else if (op == "-L" || op == "-h") {
+            predicate = FilePredicate::SymbolicLink;
+        } else {
+            usage = true;
+            return 2;
+        }
+        if (files.test == nullptr) {
+            service = ServiceStatus::Invalid;
+            return 1;
+        }
+        std::string path = operands[1];
+        if (!path.empty() && path.front() != '/' &&
+            !directory.empty()) {
+            path = std::string{directory} + "/" + path;
+        }
+        bool answer = false;
+        service = files.test(files.context, path, predicate, answer);
+        return service == ServiceStatus::Ok && answer ? 0 : 1;
     }
     if (operands.size() == 3) {
         const auto& op = operands[1];
@@ -178,6 +207,7 @@ Interpreter::Step Interpreter::run_simple(const FullScript& script,
 
     std::vector<std::string> names;
     std::vector<std::string> values;
+    last_substitution_ = 0;
     std::size_t index = 0;
     for (; index < words.size(); ++index) {
         const auto spelling = script.text(script.tokens[words[index]].source);
@@ -197,9 +227,9 @@ Interpreter::Step Interpreter::run_simple(const FullScript& script,
         names.emplace_back(spelling.substr(0, equal));
         values.push_back(expanded.fields.empty() ? std::string{}
                                                 : expanded.fields[0]);
+        last_substitution_ = expanded.substitution_status;
     }
 
-    last_substitution_ = 0;
     for (; index < words.size(); ++index) {
         if (!expand_fields(script, words[index], true, true,
                            command.arguments, failure)) {
@@ -290,8 +320,8 @@ Interpreter::Step Interpreter::run_simple(const FullScript& script,
     return step;
 }
 
-// Every stage after the first must be an external program: a builtin or a
-// function there would need its own process, which no abstract service offers.
+// The first stage runs in an isolated native child, so it cannot fill a pipe
+// before its reader has been started. Later stages are external programs.
 Interpreter::Step Interpreter::run_pipeline_node(const FullScript& script,
                                                  std::size_t node,
                                                  bool tested) {
@@ -308,33 +338,33 @@ Interpreter::Step Interpreter::run_pipeline_node(const FullScript& script,
         return {.status = 1, .service = ServiceStatus::Invalid};
     }
 
-    // The first stage runs in this shell with its output on a pipe, so a
-    // builtin such as echo or printf can feed the rest.
-    Handle read_end = invalid_handle;
-    Handle write_end = invalid_handle;
-    if (services_.io.pipe(services_.io.context, read_end, write_end) !=
-        ServiceStatus::Ok) {
-        return {.status = 1, .service = ServiceStatus::Failed};
+    const auto& first = script.nodes[children[0].node];
+    if (first.first_token >= script.tokens.size() ||
+        first.last_token >= script.tokens.size()) {
+        return {.status = 2,
+                .diagnostic = {ParseStatus::Malformed, 0,
+                               "invalid pipeline stage"}};
     }
-    const auto saved = streams_;
-    streams_.output = write_end;
-    auto first = run_node(script, children[0].node);
-    streams_ = saved;
-    (void)services_.io.close(services_.io.context, write_end);
-    if (!first.ok()) {
-        (void)services_.io.close(services_.io.context, read_end);
-        return first;
+    const auto begin = script.tokens[first.first_token].source.offset;
+    const auto end = script.tokens[first.last_token].source.offset;
+    if (end <= begin || end > script.source.size()) {
+        return {.status = 2,
+                .diagnostic = {ParseStatus::Malformed, begin,
+                               "empty pipeline stage"}};
     }
+    const std::string_view first_source{
+        script.source.data() + begin, end - begin};
 
-    // The remaining stages are one process each, wired by the service.
+    // The remaining stages are one external process each, wired by the
+    // portable pipeline coordinator.
     std::vector<std::vector<std::string>> arguments;
+    arguments.push_back({"pipeline"});
     std::vector<std::string> environment;
     state_.environment(environment);
     Step failure;
     for (std::size_t i = 1; i < children.size(); ++i) {
         const auto& stage = script.nodes[children[i].node];
         if (stage.kind != NodeKind::Simple) {
-            (void)services_.io.close(services_.io.context, read_end);
             return {.status = 2,
                     .diagnostic = {ParseStatus::Unsupported, 0,
                                    "only a simple command may follow a pipe"}};
@@ -345,12 +375,10 @@ Interpreter::Step Interpreter::run_pipeline_node(const FullScript& script,
              ++token) {
             if (script.tokens[token].kind != TokenKind::Word) continue;
             if (!expand_fields(script, token, true, true, fields, failure)) {
-                (void)services_.io.close(services_.io.context, read_end);
                 return failure;
             }
         }
         if (fields.empty()) {
-            (void)services_.io.close(services_.io.context, read_end);
             return {.status = 2,
                     .diagnostic = {ParseStatus::Malformed, 0,
                                    "pipeline stage has no command"}};
@@ -375,25 +403,40 @@ Interpreter::Step Interpreter::run_pipeline_node(const FullScript& script,
         request.arguments = views[i];
         request.environment = environment_views;
         request.directory = state_.directory();
-        if (i == 0) request.input = read_end;
+        if (i == 0) {
+            request.input = streams_.input;
+            request.native_source = first_source;
+            request.native_state = &state_;
+            request.native_functions = &functions_;
+        }
         if (i + 1 == views.size()) {
             request.output = streams_.output;
         }
         request.error = streams_.error;
         stages.push_back(request);
+        if (i == 0) continue;
         ExternalRecord record;
         record.arguments = arguments[i];
         record.environment = environment;
         record.directory = std::string{state_.directory()};
         externals_.push_back(record);
-        ++spawns_;
     }
     const auto outcome = run_pipeline(stages, services_);
-    (void)services_.io.close(services_.io.context, read_end);
+    if (outcome.stages_started > 1) {
+        spawns_ += outcome.stages_started - 1;
+    }
 
     Step step;
-    step.status = outcome.ok() ? outcome.exit_status : 127;
-    step.service = outcome.ok() ? ServiceStatus::Ok : ServiceStatus::Ok;
+    if (outcome.ok()) {
+        step.status = outcome.exit_status;
+    } else if (outcome.service == ServiceStatus::NotFound) {
+        step.status = 127;
+    } else if (outcome.service == ServiceStatus::PermissionDenied) {
+        step.status = 126;
+    } else {
+        step.status = 1;
+        step.service = outcome.service;
+    }
     state_.core().last_status = step.status;
     if (state_.core().errexit && step.status != 0 && tested_ == 0) {
         step.flow = Flow::Exit;
@@ -556,7 +599,10 @@ Interpreter::Step Interpreter::builtin(const Command& command,
             arguments = arguments.first(arguments.size() - 1);
         }
         auto usage = false;
-        step.status = evaluate_test(arguments, usage);
+        ServiceStatus service = ServiceStatus::Ok;
+        step.status = evaluate_test(arguments, usage, services_.file,
+                                    state_.directory(), service);
+        step.service = service;
         return step;
     }
     if (name == "pwd") {
@@ -567,14 +613,18 @@ Interpreter::Step Interpreter::builtin(const Command& command,
         return step;
     }
     if (name == "cd") {
-        if (operands.size() > 1) {
+        auto paths = operands;
+        if (!paths.empty() && paths.front() == "--") {
+            paths = paths.subspan(1);
+        }
+        if (paths.size() > 1) {
             step.status = 2;
             return step;
         }
-        const auto target = operands.empty()
+        const auto target = paths.empty()
                                 ? std::string{state_.core().lookup("HOME")
                                                   .value}
-                                : operands[0];
+                                : paths[0];
         if (target.empty()) {
             step.status = 1;
             return step;
@@ -598,8 +648,22 @@ Interpreter::Step Interpreter::builtin(const Command& command,
             step.status = 1;
             return step;
         }
+        if (services_.file.canonical != nullptr) {
+            std::string canonical;
+            if (services_.file.canonical(services_.file.context,
+                                         resolved, canonical) !=
+                ServiceStatus::Ok) {
+                step.status = 1;
+                return step;
+            }
+            resolved = std::move(canonical);
+        }
+        const std::string old_directory{state_.directory()};
+        (void)state_.core().assign("OLDPWD", old_directory);
+        state_.export_name("OLDPWD");
         state_.set_directory(resolved);
         (void)state_.core().assign("PWD", resolved);
+        state_.export_name("PWD");
         return step;
     }
     if (name == "exit") {

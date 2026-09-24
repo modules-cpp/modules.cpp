@@ -126,7 +126,7 @@ void repository_exposes_platform_definitions() {
     mm::test::expect(mps2 != nullptr && mps2->kind() == models::Kind::Board &&
                          mps2->sdk() == "arm-none-eabi-newlib" &&
                          mps2->cpu() == "cortex-m3" &&
-                         mps2->sources().size() == 1,
+                         mps2->sources().size() == 2,
                      "expected mps2 board's SDK, processor, and source");
     mm::test::expect(rp2040 != nullptr && rp2040->kind() == models::Kind::Board &&
                          rp2040->sdk() == "arm-none-eabi-newlib" &&

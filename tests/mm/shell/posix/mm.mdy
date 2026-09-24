@@ -8,6 +8,7 @@ use: mm.shell.full
 unit: tests/mm/shell/posix/environment.cpp
 unit: tests/mm/shell/posix/current_shell.cpp
 unit: tests/mm/shell/posix/parse_script.cpp
+unit: tests/mm/shell/posix/cli.cpp
 unit: tests/mm/shell/posix/services.cpp
 unit: tests/mm/shell/posix/interpret.cpp
 unit: tests/main.cpp
