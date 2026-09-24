@@ -340,8 +340,53 @@ SA_RESTART, so a pending condition interrupts a blocking read and the shell can
 act on it between commands. poll reports the lowest pending condition and
 consumes it, which keeps a run deterministic.
 
+## Full-profile word expansion
+
+expand_word_full turns one word's raw shell spelling into fields: quote
+handling, parameter expansion with every full-profile operator, arithmetic,
+command substitution, field splitting, pathname expansion, and quote removal.
+The caller says whether splitting and pathname expansion apply, because POSIX
+suppresses both for an assignment value, a here-document operand, a case
+selector, and a redirection target.
+
+Running a nested list is not expansion's job, so `$(list)` is delegated to a
+Substituter the interpreter supplies. Its status is reported back, which is what
+a command consisting only of a substitution exits with. Without a Substituter a
+substitution is Unsupported, and the obsolete backtick form is refused
+everywhere.
+
+### The quoting mask
+
+Expansion accumulates bytes with a per-byte quoting mask rather than a list of
+pieces. That mask is what lets the two later stages tell a literal
+metacharacter from an expanded one:
+
+- field splitting breaks on an unquoted IFS byte only, and additionally at a
+  recorded boundary so that `"$@"` stays one field per argument whatever IFS
+  says;
+- pathname expansion runs on a field holding an unquoted pattern byte.
+
+A quoted section counts even when it is empty, which is the difference between
+`""` and `"$unset"` yielding one empty field each and an unquoted empty
+expansion yielding none at all.
+
+A field mixing quoted and unquoted metacharacters, such as `"*"x*`, is left
+literal rather than risking a quoted metacharacter acting as a wildcard. That is
+a deliberate deviation: the safe direction is to under-expand.
+
+### Parameter operators
+
+The three colon forms come from mm.shell. The full profile adds `${#name}`, the
+plain `-`, `+`, `=` forms that treat only an unset parameter as unset, `:?`, and
+the four pattern trims `#`, `##`, `%`, `%%` through trim_parameter. An operand
+is itself a word, so it expands by the same rules with splitting and pathname
+expansion off, bounded by a recursion limit. `$#`, `$?`, `$$`, a positional, and
+both argument-vector forms are resolved directly; `$!` and `$-` are absent
+because there is no job control and no option string at this level.
+
 The native shell CLI and the dash differential harness are the remainder of this
-change set.
+change set. The interpreter that walks a FullScript and drives these pieces is
+the piece between them.
 
 # Foundation API
 

@@ -8,6 +8,7 @@ use: mm.shell.full
 unit: tests/mm/shell/full/scan.cpp
 unit: tests/mm/shell/full/services.cpp
 unit: tests/mm/shell/full/semantics.cpp
+unit: tests/mm/shell/full/words.cpp
 unit: tests/main.cpp
 ---
 

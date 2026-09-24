@@ -11,6 +11,7 @@ file: service.cppm mm.shell.full:service
 file: state.cppm mm.shell.full:state
 file: expand.cppm mm.shell.full:expand
 file: pathname.cppm mm.shell.full:pathname
+file: word.cppm mm.shell.full:word
 file: function.cppm mm.shell.full:function
 file: redirect.cppm mm.shell.full:redirect
 file: trap.cppm mm.shell.full:trap
@@ -21,6 +22,7 @@ file: src/parse.cpp
 file: src/state.cpp
 file: src/expand.cpp
 file: src/pathname.cpp
+file: src/word.cpp
 file: src/function.cpp
 file: src/redirect.cpp
 file: src/trap.cpp

@@ -9,6 +9,7 @@ export import :service;
 export import :state;
 export import :expand;
 export import :pathname;
+export import :word;
 export import :function;
 export import :redirect;
 export import :trap;
