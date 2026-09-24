@@ -21,6 +21,7 @@ unit: tests/mm/shell/script.cpp
 unit: tests/mm/shell/execute.cpp
 unit: tests/mm/shell/builtin.cpp
 unit: tests/mm/shell/session.cpp
+unit: tests/mm/shell/corpus.cpp
 unit: tests/main.cpp
 ---
 
@@ -30,18 +31,18 @@ Covers the target-safe mm.shell foundation: CapabilitySet bitset operations,
 standard capability profiles, name lookup, static CommandDescriptor Registry
 lifecycle and duplicate rejection, IoServices memory sink buffering, and
 preflight scratch overflow protection in CommandContext, the embedded scanner
-and measured parser, transactional state pools with positional call frames, signed arithmetic, and case
-pattern matching, field splitting, parameter resolution, word expansion,
-monotonic function storage with adopted handles, and the cooperative evaluator's simple-command
-dispatch, assignment semantics, conditionals, loops, case selection, brace
-groups, control-flow ownership, output staging, instrumented operation units,
-argv capacity bounds, bounded transaction scratch, set -e tested contexts
-against set -u, function definition, resolution order, call frames, return
-ownership and recursion bounds, script library installation, atomic packs and
-arena preflight, direct and run invocation with capability gating, command
-substitution capture, trimming, child isolation and refusals, atomic
-install_level1 admission, the core
-builtin pack's descriptor classes, output, test operators, option
+and measured parser, transactional state pools with positional call frames,
+signed arithmetic, and case pattern matching, field splitting, parameter
+resolution, word expansion, monotonic function storage with adopted handles,
+and the cooperative evaluator's simple-command dispatch, assignment semantics,
+conditionals, loops, case selection, brace groups, control-flow ownership,
+output staging, instrumented operation units, argv capacity bounds, bounded
+transaction scratch, set -e tested contexts against set -u, function
+definition, resolution order, call frames, return ownership and recursion
+bounds, script library installation, atomic packs and arena preflight, direct
+and run invocation with capability gating, command substitution capture,
+trimming, child isolation and refusals, atomic install_level1 admission, the
+core builtin pack's descriptor classes, output, test operators, option
 transactions, flow values, and introspection, and Session line accumulation,
 multiline continuation, editing bytes, malformed and overlong recovery, and
 drain ordering against a blocking transport.

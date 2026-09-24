@@ -1,0 +1,1 @@
+case $x in 1) echo 1 ;;

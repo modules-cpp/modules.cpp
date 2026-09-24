@@ -1,0 +1,1 @@
+while true; echo 1; done

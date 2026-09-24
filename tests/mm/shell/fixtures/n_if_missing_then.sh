@@ -1,0 +1,1 @@
+if true; echo 1; fi
