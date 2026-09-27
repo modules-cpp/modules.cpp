@@ -10,6 +10,7 @@ unit: tests/mm/parse/cursor_full.cpp
 unit: tests/mm/parse/sink.cpp
 unit: tests/mm/parse/errors.cpp
 unit: tests/mm/parse/number.cpp
+unit: tests/mm/parse/time.cpp
 unit: tests/main.cpp
 ---
 
