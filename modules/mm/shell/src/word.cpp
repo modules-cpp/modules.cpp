@@ -16,41 +16,6 @@ import mm.parse;
 namespace mm::shell {
 namespace {
 
-// Dialect adapters: translate mm.parse superset enums to mm.shell enums.
-[[nodiscard]] TokenKind to_shell_token(mm::parse::TokenKind kind) {
-    using P = mm::parse::TokenKind;
-    switch (kind) {
-        case P::End: return TokenKind::End;
-        case P::Newline: return TokenKind::Newline;
-        case P::Word: return TokenKind::Word;
-        case P::AndIf: return TokenKind::AndIf;
-        case P::OrIf: return TokenKind::OrIf;
-        case P::Semicolon: return TokenKind::Semicolon;
-        case P::DoubleSemicolon: return TokenKind::DoubleSemicolon;
-        case P::LeftParen: return TokenKind::LeftParen;
-        case P::RightParen: return TokenKind::RightParen;
-        case P::LeftBrace: return TokenKind::LeftBrace;
-        case P::RightBrace: return TokenKind::RightBrace;
-        case P::Bang: return TokenKind::Bang;
-        case P::CaseBar: return TokenKind::CaseBar;
-        default: return TokenKind::End;
-    }
-}
-
-[[nodiscard]] FragmentKind to_shell_fragment(mm::parse::FragmentKind kind) {
-    using P = mm::parse::FragmentKind;
-    switch (kind) {
-        case P::Literal: return FragmentKind::Literal;
-        case P::SingleQuoted: return FragmentKind::SingleQuoted;
-        case P::DoubleQuoted: return FragmentKind::DoubleQuoted;
-        case P::Escaped: return FragmentKind::Escaped;
-        case P::Parameter: return FragmentKind::Parameter;
-        case P::Arithmetic: return FragmentKind::Arithmetic;
-        case P::CommandSubstitution: return FragmentKind::CommandSubstitution;
-        default: return FragmentKind::Literal;
-    }
-}
-
 [[nodiscard]] SourceLocation location(std::string_view text,
                                        std::size_t at) {
     SourceLocation result{.offset = at};
@@ -91,24 +56,22 @@ struct Writer {
 };
 
 // Free-function adapters so mm.parse::Cursor can drive the Writer through
-// the Sink function-pointer seam.
+// the Sink function-pointer seam. The embedded dialect's TokenKind and
+// FragmentKind are aliases for mm::parse::TokenKind and
+// mm::parse::FragmentKind, so no translation is needed.
 static void sink_emit_fragment(void* ctx, mm::parse::FragmentKind kind,
                                 mm::parse::SourceSpan span, bool quoted) {
     auto* writer = static_cast<Writer*>(ctx);
-    writer->add(to_shell_fragment(kind), span.offset, span.length, quoted);
+    writer->add(kind, span.offset, span.length, quoted);
 }
 
 static void sink_emit_token(void* ctx, mm::parse::TokenKind kind,
                              mm::parse::SourceSpan span, bool quoted) {
-    // Token emission is recorded by the Cursor's ScanOutcome; the embedded
-    // dialect's scan_once reads the outcome directly. The token callback is
-    // a no-op for the embedded dialect: fragments are the payload.
     (void)ctx;
     (void)kind;
     (void)span;
     (void)quoted;
 }
-
 
 // The embedded dialect drives mm.parse::Cursor through the Sink seam.
 // The Writer is the Sink context; fragments are the payload.
@@ -125,10 +88,10 @@ static void sink_emit_token(void* ctx, mm::parse::TokenKind kind,
     };
     const auto outcome = cursor.scan(sink);
     ScanOutcome result;
-    result.token.kind = to_shell_token(outcome.kind);
-    result.token.source = {outcome.span.offset, outcome.span.length};
+    result.token.kind = outcome.kind;
+    result.token.source = outcome.span;
     result.token.next_offset = outcome.next_offset;
-    result.token.fragments_required = static_cast<std::size_t>(outcome.fragment_count);
+    result.token.fragments_required = outcome.fragment_count;
     result.token.has_unquoted_glob = writer.has_unquoted_glob;
     if (!outcome.complete) {
         result.status = ScanStatus::Malformed;
@@ -136,7 +99,6 @@ static void sink_emit_token(void* ctx, mm::parse::TokenKind kind,
     }
     return result;
 }
-
 
 }  // namespace
 

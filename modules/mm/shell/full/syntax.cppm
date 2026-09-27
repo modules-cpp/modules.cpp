@@ -9,8 +9,13 @@ module;
 
 export module mm.shell.full:syntax;
 
+import mm.parse;
+
 export namespace mm::shell::full {
 
+// The full dialect's token kinds. These are a superset of the embedded
+// dialect's TokenKind; the to_full_token adapter in src/scan.cpp translates
+// between mm::parse::TokenKind and this enum.
 enum class TokenKind {
     Word, IoNumber, Newline, Semicolon, DoubleSemicolon, AndIf, OrIf, Pipe,
     OpenParen, CloseParen, OpenBrace, CloseBrace, Input, Output,

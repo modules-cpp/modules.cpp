@@ -9,6 +9,7 @@ export module mm.shell:word;
 
 import :source;
 import :status;
+import mm.parse;
 
 export namespace mm::shell {
 
@@ -19,41 +20,25 @@ enum class ScanStatus {
     Overflow,
 };
 
-enum class TokenKind {
-    End,
-    Newline,
-    Word,
-    AndIf,
-    OrIf,
-    Semicolon,
-    DoubleSemicolon,
-    LeftParen,
-    RightParen,
-    LeftBrace,
-    RightBrace,
-    Bang,
-    CaseBar,
-};
+// The embedded dialect's token kinds. These are a subset of
+// mm::parse::TokenKind; the to_shell_token adapter in src/word.cpp
+// translates between the two.
+using TokenKind = mm::parse::TokenKind;
 
-enum class FragmentKind {
-    Literal,
-    SingleQuoted,
-    DoubleQuoted,
-    Escaped,
-    Parameter,
-    Arithmetic,
-    CommandSubstitution,
-};
+// The embedded dialect's fragment kinds. Identical to
+// mm::parse::FragmentKind; the to_shell_fragment adapter in src/word.cpp
+// is a pass-through.
+using FragmentKind = mm::parse::FragmentKind;
 
 struct WordFragment {
     FragmentKind kind = FragmentKind::Literal;
-    SourceSpan source;
+    mm::parse::SourceSpan source;
     bool quoted = false;
 };
 
 struct ScanToken {
     TokenKind kind = TokenKind::End;
-    SourceSpan source;
+    mm::parse::SourceSpan source;
     std::size_t next_offset = 0;
     std::size_t fragments_required = 0;
     bool has_unquoted_glob = false;
