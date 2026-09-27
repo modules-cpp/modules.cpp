@@ -23,13 +23,58 @@ struct PendingDocument {
     bool expand = true;
 };
 
-[[nodiscard]] bool blank(char c) {
-    return c == ' ' || c == '\t' || c == '\r';
+// Sink context: the Scanner's output and state, driven by mm.parse::Cursor.
+struct SinkContext {
+    FullScript& output;
+    std::vector<PendingDocument>* pending;
+    std::size_t* waiting;
+    bool* wants_delimiter;
+    bool* has_unquoted_glob;
+};
+
+// Translate mm.parse superset token kinds to full-profile kinds.
+[[nodiscard]] TokenKind to_full_token(mm::parse::TokenKind kind) {
+    using P = mm::parse::TokenKind;
+    switch (kind) {
+        case P::End: return TokenKind::End;
+        case P::Newline: return TokenKind::Newline;
+        case P::Word: return TokenKind::Word;
+        case P::AndIf: return TokenKind::AndIf;
+        case P::OrIf: return TokenKind::OrIf;
+        case P::Semicolon: return TokenKind::Semicolon;
+        case P::DoubleSemicolon: return TokenKind::DoubleSemicolon;
+        case P::LeftParen: return TokenKind::OpenParen;
+        case P::RightParen: return TokenKind::CloseParen;
+        case P::LeftBrace: return TokenKind::OpenBrace;
+        case P::RightBrace: return TokenKind::CloseBrace;
+        case P::Pipe: return TokenKind::Pipe;
+        case P::Input: return TokenKind::Input;
+        case P::Output: return TokenKind::Output;
+        case P::Append: return TokenKind::Append;
+        case P::HereDocument: return TokenKind::HereDocument;
+        case P::DuplicateInput: return TokenKind::DuplicateInput;
+        case P::DuplicateOutput: return TokenKind::DuplicateOutput;
+        case P::IoNumber: return TokenKind::IoNumber;
+        default: return TokenKind::Word;
+    }
 }
 
-[[nodiscard]] bool operator_start(char c) {
-    return c == ';' || c == '|' || c == '&' || c == '(' ||
-           c == ')' || c == '<' || c == '>';
+// The Sink::emit_token callback: push the token into FullScript.tokens.
+static void sink_emit_token(void* ctx, mm::parse::TokenKind kind,
+                              mm::parse::SourceSpan span, bool quoted) {
+    auto* sink = static_cast<SinkContext*>(ctx);
+    TokenKind full_kind = to_full_token(kind);
+    sink->output.tokens.push_back({full_kind, {span.offset, span.length},
+                                    quoted});
+}
+
+// The Sink::emit_fragment callback: no fragments in the full dialect.
+static void sink_emit_fragment(void* ctx, mm::parse::FragmentKind kind,
+                                 mm::parse::SourceSpan span, bool quoted) {
+    (void)ctx;
+    (void)kind;
+    (void)span;
+    (void)quoted;
 }
 
 struct Scanner {
@@ -47,193 +92,42 @@ struct Scanner {
         diagnostic = {status, offset, std::string(message)};
     }
 
-    void emit(TokenKind kind, std::size_t start,
-              bool quoted = false) {
-        output.tokens.push_back({kind, {start, at - start}, quoted});
-    }
-
-    // Skip a balanced $(...) or $((...)) without mistaking its operators
-    // for operators in the containing script. Quotes belong to this scope.
-    void dollar_parentheses() {
-        const auto start = at;
-        at += 2;
-        std::size_t depth = 1;
-        char quote = 0;
-        while (at < source.size()) {
-            const char c = source[at];
-            if (c == '\\') {
-                at += at + 1 < source.size() ? 2 : 1;
-                continue;
-            }
-            if (quote == '\'') {
-                if (c == quote) quote = 0;
-                ++at;
-                continue;
-            }
-            if (quote == '"') {
-                if (c == '"') quote = 0;
-                ++at;
-                continue;
-            }
-            if (c == '\'' || c == '"') {
-                quote = c;
-            } else if (c == '(') {
-                ++depth;
-            } else if (c == ')' && --depth == 0) {
-                ++at;
-                return;
-            }
-            ++at;
-        }
-        fail(ParseStatus::Incomplete, start,
-             "unclosed command or arithmetic substitution");
-    }
-
-    void dollar_braces() {
-        const auto start = at;
-        at += 2;
-        std::size_t depth = 1;
-        while (at < source.size()) {
-            if (source[at] == '\\' && at + 1 < source.size()) {
-                at += 2;
-                continue;
-            }
-            if (source[at] == '{') ++depth;
-            if (source[at] == '}' && --depth == 0) {
-                ++at;
-                return;
-            }
-            ++at;
-        }
-        fail(ParseStatus::Incomplete, start,
-             "unclosed parameter expansion");
-    }
-
-    void quote(char delimiter, bool& quoted) {
-        const auto start = at++;
-        quoted = true;
-        while (at < source.size()) {
-            if (source[at] == delimiter) {
-                ++at;
-                return;
-            }
-            if (delimiter == '"' && source[at] == '$' &&
-                at + 1 < source.size()) {
-                if (source[at + 1] == '(') {
-                    dollar_parentheses();
-                    if (diagnostic.status != ParseStatus::Complete) return;
-                    continue;
-                }
-                if (source[at + 1] == '{') {
-                    dollar_braces();
-                    if (diagnostic.status != ParseStatus::Complete) return;
-                    continue;
-                }
-            }
-            if (delimiter == '"' && source[at] == '`') {
-                fail(ParseStatus::Unsupported, at,
-                     "backtick substitution is not supported");
-                return;
-            }
-            if (delimiter == '"' && source[at] == '\\' &&
-                at + 1 < source.size()) {
-                at += 2;
+    // Handle a here-document delimiter: extract the delimiter from the
+    // token text, store it in pending, and clear wants_delimiter.
+    void handle_heredoc_delimiter(std::size_t offset, std::size_t length) {
+        auto* sink = &sink_ctx_;
+        const auto spelling = source.substr(offset, length);
+        std::string delimiter;
+        delimiter.reserve(spelling.size());
+        char in_quote = 0;
+        bool quoted_delimiter = false;
+        for (std::size_t i = 0; i < spelling.size(); ++i) {
+            const char ch = spelling[i];
+            if (in_quote != 0 && ch == in_quote) {
+                in_quote = 0;
+                quoted_delimiter = true;
+            } else if (in_quote == 0 &&
+                       (ch == '\'' || ch == '"')) {
+                in_quote = ch;
+                quoted_delimiter = true;
+            } else if (ch == '\\' && i + 1 < spelling.size()) {
+                delimiter.push_back(spelling[++i]);
+                quoted_delimiter = true;
             } else {
-                ++at;
+                delimiter.push_back(ch);
             }
         }
-        fail(ParseStatus::Incomplete, start, "unclosed quote");
-    }
-
-    void word() {
-        const auto start = at;
-        bool quoted = false;
-        while (at < source.size()) {
-            const char c = source[at];
-            if (blank(c) || c == '\n' || operator_start(c)) break;
-            if (c == '\0') {
-                fail(ParseStatus::Malformed, at, "NUL in script");
-                return;
-            }
-            if (c == '`') {
-                fail(ParseStatus::Unsupported, at,
-                     "backtick substitution is not supported");
-                return;
-            }
-            if (c == '\\') {
-                quoted = true;
-                if (at + 1 == source.size()) {
-                    fail(ParseStatus::Incomplete, at, "trailing escape");
-                    return;
-                }
-                at += 2;
-                continue;
-            }
-            if (c == '\'' || c == '"') {
-                quote(c, quoted);
-                if (diagnostic.status != ParseStatus::Complete) return;
-                continue;
-            }
-            if (c == '$' && at + 1 < source.size()) {
-                if (source[at + 1] == '(') {
-                    dollar_parentheses();
-                    if (diagnostic.status != ParseStatus::Complete) return;
-                    continue;
-                }
-                if (source[at + 1] == '{') {
-                    dollar_braces();
-                    if (diagnostic.status != ParseStatus::Complete) return;
-                    continue;
-                }
-            }
-            ++at;
-        }
-        const auto spelling = source.substr(start, at - start);
-        if (spelling == "[[" || spelling == "]]") {
-            fail(ParseStatus::Unsupported, start,
-                 "excluded shell construct");
+        if (delimiter.empty()) {
+            fail(ParseStatus::Malformed, offset,
+                 "empty here-document delimiter");
             return;
         }
-        bool io_number = !quoted && !spelling.empty() &&
-                         at < source.size() &&
-                         (source[at] == '<' || source[at] == '>');
-        for (const char digit : spelling) {
-            if (digit < '0' || digit > '9') io_number = false;
-        }
-        emit(io_number ? TokenKind::IoNumber : TokenKind::Word,
-             start, quoted);
-        if (wants_delimiter) {
-            std::string delimiter;
-            delimiter.reserve(spelling.size());
-            char in_quote = 0;
-            bool quoted_delimiter = false;
-            for (std::size_t i = 0; i < spelling.size(); ++i) {
-                const char ch = spelling[i];
-                if (in_quote != 0 && ch == in_quote) {
-                    in_quote = 0;
-                    quoted_delimiter = true;
-                } else if (in_quote == 0 &&
-                           (ch == '\'' || ch == '"')) {
-                    in_quote = ch;
-                    quoted_delimiter = true;
-                } else if (ch == '\\' && i + 1 < spelling.size()) {
-                    delimiter.push_back(spelling[++i]);
-                    quoted_delimiter = true;
-                } else {
-                    delimiter.push_back(ch);
-                }
-            }
-            if (delimiter.empty()) {
-                fail(ParseStatus::Malformed, start,
-                     "empty here-document delimiter");
-                return;
-            }
-            pending.push_back({waiting, std::move(delimiter),
-                               !quoted_delimiter});
-            wants_delimiter = false;
-        }
+        pending.push_back({*sink->waiting, std::move(delimiter),
+                           !quoted_delimiter});
+        *sink->wants_delimiter = false;
     }
 
+    // Collect here-document bodies: read lines until the delimiter is found.
     void documents() {
         for (auto& item : pending) {
             const auto body_start = at;
@@ -268,89 +162,49 @@ struct Scanner {
         pending.clear();
     }
 
+    SinkContext sink_ctx_;
+    mm::parse::Sink sink_;
+
     void run() {
-        while (at < source.size() &&
+        sink_ctx_ = {output, &pending, &waiting, &wants_delimiter,
+                      nullptr};
+        sink_ = {&sink_ctx_, sink_emit_token, sink_emit_fragment, false};
+        mm::parse::Cursor cursor{source, 0, mm::parse::Dialect::Full};
+
+        while (!cursor.at_end() &&
                diagnostic.status == ParseStatus::Complete) {
-            if (blank(source[at])) { ++at; continue; }
-            if (source[at] == '#') {
-                while (at < source.size() && source[at] != '\n') ++at;
-                continue;
-            }
-            const auto start = at;
-            if (source[at] == '\n') {
-                ++at;
-                emit(TokenKind::Newline, start);
+            const auto outcome = cursor.scan(sink_);
+            at = outcome.next_offset;
+
+            if (outcome.kind == mm::parse::TokenKind::Newline) {
                 if (wants_delimiter) {
-                    fail(ParseStatus::Malformed, start,
+                    fail(ParseStatus::Malformed, outcome.span.offset,
                          "missing here-document delimiter");
-                } else if (!pending.empty()) {
+                    return;
+                }
+                if (!pending.empty()) {
                     documents();
+                    if (diagnostic.status != ParseStatus::Complete) return;
                 }
                 continue;
             }
-            if ((source[at] == '{' || source[at] == '}') &&
-                (at + 1 == source.size() || blank(source[at + 1]) ||
-                 source[at + 1] == '\n' || source[at + 1] == ';')) {
-                const auto kind = source[at++] == '{'
-                    ? TokenKind::OpenBrace : TokenKind::CloseBrace;
-                emit(kind, start);
+            if (outcome.kind == mm::parse::TokenKind::HereDocument) {
+                waiting = output.tokens.size() - 1;
+                wants_delimiter = true;
                 continue;
             }
-            if (!operator_start(source[at])) {
-                word();
+            if (outcome.kind == mm::parse::TokenKind::Word &&
+                wants_delimiter) {
+                handle_heredoc_delimiter(outcome.span.offset,
+                                          outcome.span.length);
+                if (diagnostic.status != ParseStatus::Complete) return;
                 continue;
             }
-            if (at + 1 < source.size()) {
-                const auto pair = source.substr(at, 2);
-                if (pair == "&&") { at += 2; emit(TokenKind::AndIf, start);
-                    continue; }
-                if (pair == "||") { at += 2; emit(TokenKind::OrIf, start);
-                    continue; }
-                if (pair == ";;") { at += 2;
-                    emit(TokenKind::DoubleSemicolon, start); continue; }
-                if (pair == ">>") { at += 2;
-                    emit(TokenKind::Append, start); continue; }
-                if (pair == "<<") {
-                    if (at + 2 < source.size() &&
-                        (source[at + 2] == '-' ||
-                         source[at + 2] == '<')) {
-                        fail(ParseStatus::Unsupported, start,
-                             "here-document variant is not supported");
-                        continue;
-                    }
-                    at += 2;
-                    emit(TokenKind::HereDocument, start);
-                    waiting = output.tokens.size() - 1;
-                    wants_delimiter = true;
-                    continue;
-                }
-                if (pair == "<&") { at += 2;
-                    emit(TokenKind::DuplicateInput, start); continue; }
-                if (pair == ">&") { at += 2;
-                    emit(TokenKind::DuplicateOutput, start); continue; }
-                if (pair == "((" || pair == "<(" || pair == ">(") {
-                    fail(ParseStatus::Unsupported, start,
-                         "excluded shell construct");
-                    continue;
-                }
+            if (!outcome.complete) {
+                fail(ParseStatus::Malformed, outcome.span.offset,
+                     outcome.message);
+                return;
             }
-            const char c = source[at++];
-            if (c == '&') {
-                fail(ParseStatus::Unsupported, start,
-                     "asynchronous execution is not supported");
-                continue;
-            }
-            TokenKind kind = TokenKind::Word;
-            switch (c) {
-                case ';': kind = TokenKind::Semicolon; break;
-                case '|': kind = TokenKind::Pipe; break;
-                case '(': kind = TokenKind::OpenParen; break;
-                case ')': kind = TokenKind::CloseParen; break;
-                case '<': kind = TokenKind::Input; break;
-                case '>': kind = TokenKind::Output; break;
-                default: break;
-            }
-            emit(kind, start);
         }
         if (diagnostic.status == ParseStatus::Complete &&
             wants_delimiter) {
@@ -362,7 +216,7 @@ struct Scanner {
             fail(ParseStatus::Incomplete, at,
                  "missing here-document body");
         }
-        emit(TokenKind::End, at);
+        output.tokens.push_back({TokenKind::End, {at, 0}, false});
     }
 };
 

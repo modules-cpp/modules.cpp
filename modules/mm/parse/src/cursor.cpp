@@ -14,7 +14,7 @@ namespace mm::parse {
 
 // Dialect-specific predicates. The embedded dialect treats \r\n and bare \r
 // as line endings and space/tab as blank. The full dialect treats \r as blank
-// and only \n as a line ending. Both share the same operator_start set.
+// and only \n as a line ending.
 [[nodiscard]] bool cursor_line_end(char c, Dialect d) {
     return d == Dialect::Embedded ? (c == '\n' || c == '\r') : (c == '\n');
 }
@@ -27,7 +27,7 @@ namespace mm::parse {
 namespace {
 
 [[nodiscard]] bool name_first(char c) {
-    return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c == '_';
+    return (c >= 'A' && c <= 'Z') || (c == '_');
 }
 
 [[nodiscard]] bool name_rest(char c) {
@@ -177,10 +177,22 @@ void Cursor::skip_quote(char delimiter, Sink& sink) {
             error_at_ = at_;
             return;
         }
+        if (c == '`' && delimiter == '"' && dialect_ == Dialect::Full) {
+            error_ = true;
+            error_at_ = at_;
+            error_message = "backtick substitution is not supported";
+            return;
+        }
+        if (c == '\\' && delimiter == '"' && at_ + 1 < text_.size() &&
+            dialect_ == Dialect::Full) {
+            at_ += 2;
+            continue;
+        }
         ++at_;
     }
     error_ = true;
     error_at_ = start;
+    error_message = "unclosed quote";
 }
 
 void Cursor::expansion(bool quoted, Sink& sink) {
@@ -204,6 +216,7 @@ void Cursor::expansion(bool quoted, Sink& sink) {
         if (depth != 0) {
             error_ = true;
             error_at_ = start;
+            error_message = "unclosed parameter expansion";
             return;
         }
         if (sink.emit_fragment)
@@ -239,6 +252,7 @@ void Cursor::expansion(bool quoted, Sink& sink) {
         if (depth != 0 || quote != 0) {
             error_ = true;
             error_at_ = start;
+            error_message = "unclosed command or arithmetic substitution";
             return;
         }
         if (sink.emit_fragment)
@@ -291,9 +305,19 @@ void Cursor::scan_word(Sink& sink) {
         if (cursor_blank(c, dialect_) || cursor_line_end(c, dialect_) ||
             operator_start(c) || brace_operator(text_, at_))
             break;
-        if (c == '\0' || c == '`') {
+        if (c == '\0') {
             error_ = true;
             error_at_ = at_;
+            error_message = "NUL in script";
+            return;
+        }
+        if (c == '`') {
+            error_ = true;
+            error_at_ = at_;
+            error_message =
+                dialect_ == Dialect::Full
+                    ? "backtick substitution is not supported"
+                    : "backtick substitution is not supported";
             return;
         }
         if (c == '\\' || c == '\'' || c == '"' || c == '$') {
@@ -307,6 +331,7 @@ void Cursor::scan_word(Sink& sink) {
                 if (at_ + 1 == text_.size()) {
                     error_ = true;
                     error_at_ = at_;
+                    error_message = "trailing escape";
                     return;
                 }
                 if (is_continuation()) {
@@ -334,6 +359,15 @@ void Cursor::scan_word(Sink& sink) {
             sink.emit_fragment(sink.context, FragmentKind::Literal, span,
                                false);
     }
+    // Full dialect: check for excluded constructs.
+    if (dialect_ == Dialect::Full) {
+        const auto spelling = text_.substr(literal, at_ - literal);
+        if (spelling == "[[" || spelling == "]]") {
+            error_ = true;
+            error_at_ = literal;
+            error_message = "excluded shell construct";
+        }
+    }
 }
 
 ScanOutcome Cursor::scan(Sink& sink) {
@@ -357,6 +391,7 @@ ScanOutcome Cursor::scan(Sink& sink) {
         return result;
     }
 
+    // Newline: dialect-specific.
     if (cursor_line_end(c, dialect_)) {
         if (dialect_ == Dialect::Embedded) {
             if (c == '\r' &&
@@ -379,75 +414,137 @@ ScanOutcome Cursor::scan(Sink& sink) {
         return result;
     }
 
-    if (c == '&' && start + 1 < text_.size() && text_[start + 1] == '&') {
-        at_ += 2;
-        result.kind = TokenKind::AndIf;
-    } else if (c == '|' && start + 1 < text_.size() && text_[start + 1] == '|') {
-        at_ += 2;
-        result.kind = TokenKind::OrIf;
-    } else if (c == ';') {
-        at_ += start + 1 < text_.size() && text_[start + 1] == ';' ? 2 : 1;
-        result.kind = at_ - start == 2 ? TokenKind::DoubleSemicolon
-                                        : TokenKind::Semicolon;
-    } else if (c == '(' || c == ')') {
-        ++at_;
-        result.kind = c == '(' ? TokenKind::LeftParen : TokenKind::RightParen;
-    } else if (brace_operator(text_, start)) {
+    // Brace operators.
+    if ((c == '{' || c == '}') &&
+        (start + 1 == text_.size() ||
+         cursor_blank(text_[start + 1], dialect_) ||
+         cursor_line_end(text_[start + 1], dialect_) ||
+         text_[start + 1] == ';')) {
         ++at_;
         result.kind = c == '{' ? TokenKind::LeftBrace : TokenKind::RightBrace;
-    } else if (c == '!' &&
-               (start + 1 == text_.size() ||
-                cursor_blank(text_[start + 1], dialect_) ||
-                cursor_line_end(text_[start + 1], dialect_) ||
-                operator_start(text_[start + 1]) ||
-                brace_operator(text_, start + 1))) {
-        ++at_;
-        result.kind = TokenKind::Bang;
-    } else if (c == '|' && dialect_ == Dialect::Full) {
-        // Full dialect: single | is a pipe (after || is handled above).
-        ++at_;
-        result.kind = TokenKind::Pipe;
-    } else if (c == '|') {
-        // Embedded dialect: single | is a case bar.
-        ++at_;
-        result.kind = TokenKind::CaseBar;
-    } else if (c == '&' && dialect_ == Dialect::Full) {
-        // Full dialect: standalone & (not &&) is async, reported as Word.
-        ++at_;
-        result.kind = TokenKind::Word;
-    } else if (c == '<' && dialect_ == Dialect::Full) {
-        if (start + 1 < text_.size() && text_[start + 1] == '<') {
+        result.span = {start, 1};
+        result.next_offset = at_;
+        if (sink.emit_token)
+            sink.emit_token(sink.context, result.kind, result.span, false);
+        return result;
+    }
+
+    // Two-character operators (full dialect).
+    if (dialect_ == Dialect::Full && start + 1 < text_.size()) {
+        const auto pair = text_.substr(start, 2);
+        if (pair == "&&") {
             at_ += 2;
-            result.kind = TokenKind::HereDocument;
-        } else if (start + 1 < text_.size() &&
-                   text_[start + 1] == '&') {
+            result.kind = TokenKind::AndIf;
+        } else if (pair == "||") {
             at_ += 2;
-            result.kind = TokenKind::DuplicateInput;
-        } else {
-            ++at_;
-            result.kind = TokenKind::Input;
-        }
-    } else if (c == '>' && dialect_ == Dialect::Full) {
-        if (start + 1 < text_.size() && text_[start + 1] == '>') {
+            result.kind = TokenKind::OrIf;
+        } else if (pair == ";;") {
+            at_ += 2;
+            result.kind = TokenKind::DoubleSemicolon;
+        } else if (pair == ">>") {
             at_ += 2;
             result.kind = TokenKind::Append;
-        } else if (start + 1 < text_.size() &&
-                   text_[start + 1] == '&') {
+        } else if (pair == "<<") {
+            if (at_ + 2 < text_.size() &&
+                (text_[at_ + 2] == '-' || text_[at_ + 2] == '<')) {
+                error_ = true;
+                error_at_ = start;
+                error_message = "here-document variant is not supported";
+                result.complete = false;
+                return result;
+            }
+            at_ += 2;
+            result.kind = TokenKind::HereDocument;
+        } else if (pair == "<&") {
+            at_ += 2;
+            result.kind = TokenKind::DuplicateInput;
+        } else if (pair == ">&") {
             at_ += 2;
             result.kind = TokenKind::DuplicateOutput;
-        } else {
-            ++at_;
+        } else if (pair == "((" || pair == "<(" || pair == ">(") {
+            error_ = true;
+            error_at_ = start;
+            error_message = "excluded shell construct";
+            result.complete = false;
+            return result;
+        } else if (c == ';') {
+            at_ += 1;
+            result.kind = TokenKind::Semicolon;
+        } else if (c == '|') {
+            at_ += 1;
+            result.kind = TokenKind::Pipe;
+        } else if (c == '(' || c == ')') {
+            at_ += 1;
+            result.kind = c == '(' ? TokenKind::OpenParen : TokenKind::CloseParen;
+        } else if (c == '<') {
+            at_ += 1;
+            result.kind = TokenKind::Input;
+        } else if (c == '>') {
+            at_ += 1;
             result.kind = TokenKind::Output;
+        } else if (c == '&') {
+            error_ = true;
+            error_at_ = start;
+            error_message = "asynchronous execution is not supported";
+            result.complete = false;
+            return result;
+        } else {
+            // Not an operator: fall through to word scanning.
+            goto word_scan;
         }
-    } else if ((c == '&' || c == '<' || c == '>' || c == '`') &&
-               dialect_ == Dialect::Embedded) {
-        // Embedded dialect: these are malformed.
-        error_ = true;
-        error_at_ = start;
-        result.complete = false;
+        result.span = {start, at_ - start};
+        result.next_offset = at_;
+        if (sink.emit_token)
+            sink.emit_token(sink.context, result.kind, result.span, false);
         return result;
-    } else {
-        // Word: check for IoNumber in the full dialect.
+    }
+
+    // Embedded dialect: two-character operators.
+    if (dialect_ == Dialect::Embedded) {
+        if (c == '&' && start + 1 < text_.size() && text_[start + 1] == '&') {
+            at_ += 2;
+            result.kind = TokenKind::AndIf;
+        } else if (c == '|' && start + 1 < text_.size() &&
+                   text_[start + 1] == '|') {
+            at_ += 2;
+            result.kind = TokenKind::OrIf;
+        } else if (c == ';') {
+            at_ += start + 1 < text_.size() && text_[start + 1] == ';' ? 2 : 1;
+            result.kind = at_ - start == 2 ? TokenKind::DoubleSemicolon
+                                            : TokenKind::Semicolon;
+        } else if (c == '(' || c == ')') {
+            ++at_;
+            result.kind = c == '(' ? TokenKind::LeftParen
+                                    : TokenKind::RightParen;
+        } else if (c == '!' &&
+                   (start + 1 == text_.size() ||
+                    cursor_blank(text_[start + 1], dialect_) ||
+                    cursor_line_end(text_[start + 1], dialect_) ||
+                    operator_start(text_[start + 1]) ||
+                    brace_operator(text_, start + 1))) {
+            ++at_;
+            result.kind = TokenKind::Bang;
+        } else if (c == '|') {
+            ++at_;
+            result.kind = TokenKind::CaseBar;
+        } else if (c == '&' || c == '<' || c == '>' || c == '`') {
+            error_ = true;
+            error_at_ = start;
+            result.complete = false;
+            return result;
+        } else {
+            goto word_scan;
+        }
+        result.span = {start, at_ - start};
+        result.next_offset = at_;
+        if (sink.emit_token)
+            sink.emit_token(sink.context, result.kind, result.span, false);
+        return result;
+    }
+
+word_scan:
+    // Word scanning (both dialects).
+    {
         bool is_io_number = false;
         if (dialect_ == Dialect::Full) {
             auto pos = start;
@@ -464,11 +561,11 @@ ScanOutcome Cursor::scan(Sink& sink) {
         scan_word(sink);
         if (error_) {
             result.complete = false;
+            result.message = error_message;
             return result;
         }
         result.kind = is_io_number ? TokenKind::IoNumber : TokenKind::Word;
     }
-
     result.span = {start, at_ - start};
     result.next_offset = at_;
     if (sink.emit_token)

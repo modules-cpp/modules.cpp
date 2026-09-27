@@ -20,6 +20,7 @@ struct ScanOutcome {
     std::size_t next_offset = 0;
     std::size_t fragment_count = 0;
     bool has_unquoted_glob = false;
+    std::string_view message = {};
 };
 
 // A stateless cursor over source text. No allocation, no output ownership:
@@ -54,6 +55,7 @@ private:
     Dialect dialect_;
     bool error_ = false;
     std::size_t error_at_ = 0;
+    std::string_view error_message = {};
 };
 
 }  // namespace mm::parse
