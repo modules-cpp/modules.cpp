@@ -3,6 +3,7 @@
 module;
 
 #include <cstddef>
+#include <cstdint>
 #include <string_view>
 
 export module mm.parse:number;
@@ -29,8 +30,8 @@ struct NumberValue {
 };
 
 // Parse a number starting at `at` in `text`.
-[[nodiscard]] NumberValue parse_number(std::string_view text,
-                                        std::size_t at = 0);
+[[nodiscard]] NumberValue parse_number_at(std::string_view text,
+                                        std::size_t at);
 
 // Parse the entire text as a single number.
 [[nodiscard]] NumberValue parse_number(std::string_view text);

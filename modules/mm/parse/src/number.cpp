@@ -43,7 +43,7 @@ constexpr auto int64_min = std::numeric_limits<std::int64_t>::min();
             if (i == 0 || prev_underscore || i == digits.size() - 1) {
                 return false;
             }
-            prev_underscores = true;
+            prev_underscore = true;
             continue;
         }
         if (!is_digit(c)) return false;
@@ -55,7 +55,7 @@ constexpr auto int64_min = std::numeric_limits<std::int64_t>::min();
 
 }  // namespace
 
-[[nodiscard]] NumberValue parse_number(std::string_view text,
+[[nodiscard]] NumberValue parse_number_at(std::string_view text,
                                         std::size_t at) {
     NumberValue result;
     result.offset = at;
@@ -290,7 +290,7 @@ constexpr auto int64_min = std::numeric_limits<std::int64_t>::min();
 }
 
 [[nodiscard]] NumberValue parse_number(std::string_view text) {
-    return parse_number(text, 0);
+    return parse_number_at(text, 0);
 }
 
 }  // namespace mm::parse

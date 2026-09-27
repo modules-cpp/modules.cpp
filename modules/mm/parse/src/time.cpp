@@ -21,32 +21,32 @@ constexpr auto epoch_overflow = std::uint64_t(1e18);
 
 // Howard Hinnant's days-from-civil: maps (year, month, day) to days
 // since 1970-01-01. Pure integer arithmetic, no allocation.
-[[nodiscard]] std::int64_t days_from_civil(std::int64_t y,
-                                             std::int64_t m,
-                                             std::int64_t d) {
-    const auto era = (m > 2) ? y : y - 1;
-    const auto yoe = era - (m > 2 ? 1 : 0);  // year of era
-    const auto doy =
-        ((3 * (m + (m > 2 ? -3 : 9)) + 2) / 5) + d - 1;  // day of year
-    const auto doe = yoe * 365 + yoe / 4 - yoe / 100 + doe;
+[[nodiscard]] std::int64_t days_from_civil(std::int64_t yr,
+                                             std::int64_t mo,
+                                             std::int64_t dy) {
+    const std::int64_t era = (mo > 2) ? yr : yr - 1;
+    const std::int64_t yoe = era - (mo > 2 ? 1 : 0);  // year of era
+    const std::int64_t doy =
+        ((3 * (mo + (mo > 2 ? -3 : 9)) + 2) / 5) + dy - 1;  // day of year
+    const std::int64_t doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
     return era * 365 + (era - 1) / 4 - (era - 1) / 100 + (era - 1) / 400 - 719468 + doe;
 }
 
 // The inverse: days since 1970-01-01 to (year, month, day).
 void civil_from_days(std::int64_t days,
-                      unsigned int& y, unsigned int& m, unsigned int& d) {
-    const auto z = days + 719468;
-    const auto era = (z >= 0 ? z : z - 146096) / 146097;
-    const auto doe = z - era * 146097;
-    const auto yoe = (doe - doe / 100 + doe / 400 - doe / 2000) / 365;
-    const auto y = yoe + era * 100;
-    const auto doy = doe - (365 * yoe + yoe / 4 - yoe / 100 + yoe / 2000);
-    const auto mp = (5 * doy + 2) / 153;
-    const auto d_ = doy - (153 * mp - 2) / 5 + 1;
-    const auto m_ = (mp < 10) ? mp + 3 : mp - 9;
-    y = static_cast<unsigned int>((m_ <= 2) ? y + 1 : y);
-    m = static_cast<unsigned int>(m_);
-    d = static_cast<unsigned int>(d_);
+                      unsigned int& yr, unsigned int& mo, unsigned int& dy) {
+    const std::int64_t z = days + 719468;
+    const std::int64_t era = (z >= 0 ? z : z - 146096) / 146097;
+    const std::int64_t doe = z - era * 146097;
+    const std::int64_t yoe = (doe - doe / 100 + doe / 400 - doe / 2000) / 365;
+    const std::int64_t year = yoe + era * 100;
+    const std::int64_t doy = doe - (365 * yoe + yoe / 4 - yoe / 100 + yoe / 2000);
+    const std::int64_t mp = (5 * doy + 2) / 153;
+    const std::int64_t d_ = doy - (153 * mp - 2) / 5 + 1;
+    const std::int64_t m_ = (mp < 10) ? mp + 3 : mp - 9;
+    yr = static_cast<unsigned int>((m_ <= 2) ? year + 1 : year);
+    mo = static_cast<unsigned int>(m_);
+    dy = static_cast<unsigned int>(d_);
 }
 
 // Leap year check.
@@ -99,7 +99,7 @@ void civil_from_days(std::int64_t days,
 
 }  // namespace
 
-[[nodiscard]] TimeValue parse_time(std::string_view text,
+[[nodiscard]] TimeValue parse_time_at(std::string_view text,
                                      std::size_t at) {
     TimeValue result;
     result.offset = at;
@@ -335,7 +335,7 @@ void civil_from_days(std::int64_t days,
 }
 
 [[nodiscard]] TimeValue parse_time(std::string_view text) {
-    return parse_time(text, 0);
+    return parse_time_at(text, 0);
 }
 
 }  // namespace mm::parse

@@ -543,9 +543,16 @@ Status number(std::string_view digits, double& value) {
 Status extract_time(std::string_view text, TimeExtracted& out) {
     const auto result = mm::parse::parse_time(text);
     if (result.kind == mm::parse::TimeKind::Invalid) return Status::BadNumber;
-    out.kind = result.kind;
-    out.date = result.date;
-    out.duration = result.duration;
+    out.kind = static_cast<int>(result.kind);
+    out.year = result.date.year;
+    out.month = result.date.month;
+    out.day = result.date.day;
+    out.weekday = result.date.weekday;
+    out.hour = result.date.hour;
+    out.minute = result.date.minute;
+    out.second = result.date.second;
+    out.duration_value = result.duration.value;
+    out.duration_unit = static_cast<int>(result.duration.unit);
     out.epoch = result.epoch;
     return Status::Ok;
 }

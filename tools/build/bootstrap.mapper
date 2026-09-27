@@ -13,3 +13,8 @@ mm.json:scan mm.json-scan.gcm
 mm.json:status mm.json-status.gcm
 mm.json:value mm.json-value.gcm
 mm.mdy mm.mdy.gcm
+mm.parse mm.parse.gcm
+mm.parse:cursor mm.parse-cursor.gcm
+mm.parse:dialect mm.parse-dialect.gcm
+mm.parse:number mm.parse-number.gcm
+mm.parse:time mm.parse-time.gcm

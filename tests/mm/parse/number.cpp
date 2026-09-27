@@ -230,7 +230,7 @@ void test_edge_octal_large() {
 
 void test_parse_at_offset() {
     const std::string_view text = "abc 42 def";
-    const auto result = parse_number(text, 4);
+    const auto result = parse_number_at(text, 4);
     expect(result.kind == NumberKind::Integer, "parse at offset 4");
     expect(result.integer == 42, "parse at offset 42");
     expect(result.offset == 4, "offset is 4");
@@ -238,14 +238,14 @@ void test_parse_at_offset() {
 
 void test_parse_at_offset_with_ws() {
     const std::string_view text = "abc   42 def";
-    const auto result = parse_number(text, 3);
+    const auto result = parse_number_at(text, 3);
     expect(result.kind == NumberKind::Integer, "parse at offset 3");
     expect(result.integer == 42, "parse at offset 42");
 }
 
 void test_parse_at_end() {
     const std::string_view text = "abc";
-    const auto result = parse_number(text, 3);
+    const auto result = parse_number_at(text, 3);
     expect(result.kind == NumberKind::Invalid, "parse at end is Invalid");
 }
 

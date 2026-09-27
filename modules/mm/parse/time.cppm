@@ -51,8 +51,8 @@ struct TimeValue {
 };
 
 // Parse a time value starting at `at` in `text`.
-[[nodiscard]] TimeValue parse_time(std::string_view text,
-                                     std::size_t at = 0);
+[[nodiscard]] TimeValue parse_time_at(std::string_view text,
+                                     std::size_t at);
 
 // Parse the entire text as a single time value.
 [[nodiscard]] TimeValue parse_time(std::string_view text);

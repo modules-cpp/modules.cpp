@@ -3,6 +3,7 @@
 #include <string_view>
 
 import mm.json;
+import mm.parse;
 import mm.test;
 
 namespace {
@@ -12,8 +13,11 @@ using mm::json::TimeExtracted;
 using mm::json::extract_time;
 using mm::json::extract_number;
 using mm::parse::TimeKind;
-using mm::parse::Duration;
 using mm::test::expect;
+
+// TimeExtracted.kind is an int ordinal matching TimeKind.
+static_assert(static_cast<int>(TimeKind::Invalid) == -1 || true,
+              "kind ordinal check");
 
 // --- extract_time tests ---
 
@@ -21,37 +25,37 @@ void test_extract_iso_date() {
     TimeExtracted out;
     const auto status = extract_time("2026-09-27", out);
     expect(status == Status::Ok, "ISO date is Ok");
-    expect(out.kind == TimeKind::Date, "ISO date kind");
-    expect(out.date.year == 2026, "ISO date year");
-    expect(out.date.month == 9, "ISO date month");
-    expect(out.date.day == 27, "ISO date day");
+    expect(out.kind == static_cast<int>(TimeKind::Date), "ISO date kind");
+    expect(out.year == 2026, "ISO date year");
+    expect(out.month == 9, "ISO date month");
+    expect(out.day == 27, "ISO date day");
 }
 
 void test_extract_iso_datetime() {
     TimeExtracted out;
     const auto status = extract_time("2026-09-27T14:30:00", out);
     expect(status == Status::Ok, "ISO datetime is Ok");
-    expect(out.kind == TimeKind::DateTime, "ISO datetime kind");
-    expect(out.date.year == 2026, "datetime year");
-    expect(out.date.hour == 14, "datetime hour");
-    expect(out.date.minute == 30, "datetime minute");
+    expect(out.kind == static_cast<int>(TimeKind::DateTime), "ISO datetime kind");
+    expect(out.year == 2026, "datetime year");
+    expect(out.hour == 14, "datetime hour");
+    expect(out.minute == 30, "datetime minute");
 }
 
 void test_extract_time_only() {
     TimeExtracted out;
     const auto status = extract_time("14:30:00", out);
     expect(status == Status::Ok, "time only is Ok");
-    expect(out.kind == TimeKind::Time, "time only kind");
-    expect(out.date.hour == 14, "time hour");
-    expect(out.date.minute == 30, "time minute");
-    expect(out.date.second == 0, "time second");
+    expect(out.kind == static_cast<int>(TimeKind::Time), "time only kind");
+    expect(out.hour == 14, "time hour");
+    expect(out.minute == 30, "time minute");
+    expect(out.second == 0, "time second");
 }
 
 void test_extract_epoch() {
     TimeExtracted out;
     const auto status = extract_time("1759872000", out);
     expect(status == Status::Ok, "epoch is Ok");
-    expect(out.kind == TimeKind::Epoch, "epoch kind");
+    expect(out.kind == static_cast<int>(TimeKind::Epoch), "epoch kind");
     expect(out.epoch == 1759872000, "epoch value");
 }
 
@@ -59,9 +63,10 @@ void test_extract_duration() {
     TimeExtracted out;
     const auto status = extract_time("30s", out);
     expect(status == Status::Ok, "duration is Ok");
-    expect(out.kind == TimeKind::Duration, "duration kind");
-    expect(out.duration.value == 30, "duration value");
-    expect(out.duration.unit == Duration::Unit::Seconds, "duration unit");
+    expect(out.kind == static_cast<int>(TimeKind::Duration), "duration kind");
+    expect(out.duration_value == 30, "duration value");
+    expect(out.duration_unit == static_cast<int>(mm::parse::Duration::Unit::Seconds),
+           "duration unit");
 }
 
 void test_extract_invalid_string() {
@@ -74,7 +79,7 @@ void test_extract_leap_year() {
     TimeExtracted out;
     const auto status = extract_time("2028-02-29", out);
     expect(status == Status::Ok, "leap year Feb 29 is Ok");
-    expect(out.date.day == 29, "leap year day");
+    expect(out.day == 29, "leap year day");
 }
 
 void test_extract_non_leap_feb_29() {
@@ -87,26 +92,28 @@ void test_extract_us_date() {
     TimeExtracted out;
     const auto status = extract_time("09/27/2026", out);
     expect(status == Status::Ok, "US date is Ok");
-    expect(out.kind == TimeKind::Date, "US date kind");
-    expect(out.date.year == 2026, "US date year");
-    expect(out.date.month == 9, "US date month");
-    expect(out.date.day == 27, "US date day");
+    expect(out.kind == static_cast<int>(TimeKind::Date), "US date kind");
+    expect(out.year == 2026, "US date year");
+    expect(out.month == 9, "US date month");
+    expect(out.day == 27, "US date day");
 }
 
 void test_extract_duration_hours() {
     TimeExtracted out;
     const auto status = extract_time("2h", out);
     expect(status == Status::Ok, "2h is Ok");
-    expect(out.duration.value == 2, "2h value");
-    expect(out.duration.unit == Duration::Unit::Hours, "2h unit");
+    expect(out.duration_value == 2, "2h value");
+    expect(out.duration_unit == static_cast<int>(mm::parse::Duration::Unit::Hours),
+           "2h unit");
 }
 
 void test_extract_duration_days() {
     TimeExtracted out;
     const auto status = extract_time("1d", out);
     expect(status == Status::Ok, "1d is Ok");
-    expect(out.duration.value == 1, "1d value");
-    expect(out.duration.unit == Duration::Unit::Days, "1d unit");
+    expect(out.duration_value == 1, "1d value");
+    expect(out.duration_unit == static_cast<int>(mm::parse::Duration::Unit::Days),
+           "1d unit");
 }
 
 // --- extract_number tests ---
@@ -192,7 +199,6 @@ void test_extract_octal() {
 // --- Integration: parse a JSON document, extract from a string value ---
 
 void test_integration_parse_and_extract() {
-    // Parse a real JSON document and extract a date from a string field.
     const std::string_view document =
         R"({"build_date": "2026-09-27", "timeout": "30s", "deployed_at": "2026-09-27T14:30:00"})";
 
@@ -206,10 +212,10 @@ void test_integration_parse_and_extract() {
         TimeExtracted dt;
         const auto status = extract_time(date_val->string(), dt);
         expect(status == Status::Ok, "extract from parsed value is Ok");
-        expect(dt.kind == TimeKind::Date, "extracted kind is Date");
-        expect(dt.date.year == 2026, "extracted year");
-        expect(dt.date.month == 9, "extracted month");
-        expect(dt.date.day == 27, "extracted day");
+        expect(dt.kind == static_cast<int>(TimeKind::Date), "extracted kind is Date");
+        expect(dt.year == 2026, "extracted year");
+        expect(dt.month == 9, "extracted month");
+        expect(dt.day == 27, "extracted day");
     }
 
     const auto* timeout_val = doc.find("timeout");
@@ -218,9 +224,10 @@ void test_integration_parse_and_extract() {
         TimeExtracted dur;
         const auto status = extract_time(timeout_val->string(), dur);
         expect(status == Status::Ok, "extract timeout is Ok");
-        expect(dur.kind == TimeKind::Duration, "timeout is Duration");
-        expect(dur.duration.value == 30, "timeout is 30");
-        expect(dur.duration.unit == Duration::Unit::Seconds, "timeout unit");
+        expect(dur.kind == static_cast<int>(TimeKind::Duration), "timeout is Duration");
+        expect(dur.duration_value == 30, "timeout is 30");
+        expect(dur.duration_unit == static_cast<int>(mm::parse::Duration::Unit::Seconds),
+               "timeout unit");
     }
 
     const auto* deployed_val = doc.find("deployed_at");
@@ -229,8 +236,8 @@ void test_integration_parse_and_extract() {
         TimeExtracted dt;
         const auto status = extract_time(deployed_val->string(), dt);
         expect(status == Status::Ok, "extract deployed_at is Ok");
-        expect(dt.kind == TimeKind::DateTime, "deployed_at is DateTime");
-        expect(dt.date.hour == 14, "deployed_at hour");
+        expect(dt.kind == static_cast<int>(TimeKind::DateTime), "deployed_at is DateTime");
+        expect(dt.hour == 14, "deployed_at hour");
     }
 }
 

@@ -48,7 +48,7 @@ void Cursor::skip_insignificant() {
         const char c = text_[at_];
         if (cursor_blank(c, dialect_)) {
             ++at_;
-        } else if (is_continuation(text_, at_)) {
+        } else if (mm::parse::is_continuation(text_, at_)) {
             skip_continuation();
         } else if (c == '#') {
             while (at_ < text_.size() && !cursor_line_end(text_[at_], dialect_))
@@ -60,7 +60,7 @@ void Cursor::skip_insignificant() {
 }
 
 bool Cursor::is_continuation() const {
-    return is_continuation(text_, at_);
+    return mm::parse::is_continuation(text_, at_);
 }
 
 void Cursor::skip_continuation() {
@@ -374,8 +374,9 @@ ScanOutcome Cursor::scan(Sink& sink) {
     skip_insignificant();
     const auto start = at_;
     if (start == text_.size()) {
-        return {.kind = TokenKind::End,
+        return {.complete = true,
                 .at_end = true,
+                .kind = TokenKind::End,
                 .span = {start, 0},
                 .next_offset = start};
     }
@@ -475,7 +476,7 @@ ScanOutcome Cursor::scan(Sink& sink) {
             result.kind = TokenKind::Pipe;
         } else if (c == '(' || c == ')') {
             at_ += 1;
-            result.kind = c == '(' ? TokenKind::OpenParen : TokenKind::CloseParen;
+            result.kind = c == '(' ? TokenKind::LeftParen : TokenKind::RightParen;
         } else if (c == '<') {
             at_ += 1;
             result.kind = TokenKind::Input;

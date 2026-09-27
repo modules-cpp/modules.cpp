@@ -3,11 +3,11 @@ mm: 1.2
 kind: module
 name: parse
 module: mm.parse
-file: parse.cppm mm.parse
 file: dialect.cppm mm.parse:dialect
 file: cursor.cppm mm.parse:cursor
 file: number.cppm mm.parse:number
 file: time.cppm mm.parse:time
+file: parse.cppm mm.parse
 file: src/cursor.cpp
 file: src/number.cpp
 file: src/time.cpp
@@ -20,8 +20,7 @@ flags, character-class predicates, and a stateless cursor that advances over
 source text and reports token boundaries through a function-pointer Sink.
 
 The embedded dialect (mm.shell level-1) produces WordFragments and treats
-\
-r\n and bare \r as line endings. The full dialect (mm.shell.full level-3)
+\r\n and bare \r as line endings. The full dialect (mm.shell.full level-3)
 produces no fragments and treats \r as blank. Both dialects share the
 cursor, the predicates, and the dollar/quote skipping.
 

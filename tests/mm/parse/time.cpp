@@ -237,7 +237,7 @@ void test_invalid_no_year() {
 
 void test_parse_at_offset() {
     const std::string_view text = "date=2026-09-27;";
-    const auto result = parse_time(text, 5);
+    const auto result = parse_time_at(text, 5);
     expect(result.kind == TimeKind::Date, "parse at offset");
     expect(result.date.year == 2026, "parse at offset year");
     expect(result.offset == 5, "offset is 5");
@@ -245,7 +245,7 @@ void test_parse_at_offset() {
 
 void test_parse_at_end() {
     const std::string_view text = "abc";
-    const auto result = parse_time(text, 3);
+    const auto result = parse_time_at(text, 3);
     expect(result.kind == TimeKind::Invalid, "parse at end is Invalid");
 }
 

@@ -99,6 +99,7 @@ if [ "${mm_build1_status}" -ne 0 ] || [ ! -x "${MM_BUILD}/build1" ]; then
     mkdir -p "${MM_BUILD}/modules/mm/build/src"
     mkdir -p "${MM_BUILD}/modules/mm/configure/src"
     mkdir -p "${MM_BUILD}/modules/mm/json/src"
+    mkdir -p "${MM_BUILD}/modules/mm/parse/src"
     mkdir -p "${MM_BUILD}/tools/build"
 
     MCCP_MODULES="${MCCP}"
@@ -119,6 +120,40 @@ if [ "${mm_build1_status}" -ne 0 ] || [ ! -x "${MM_BUILD}/build1" ]; then
     ${MCCP_MODULES} ${MM_MODULE_FLAGS} \
         -c modules/mm/configure/src/configure.cpp \
         -o "${MM_BUILD}/modules/mm/configure/src/configure.o" || exit $?
+
+    # mm.parse is dependency-free; mm.json and mm.configure import it.
+    # Compile its partitions and implementation units first.
+    ${MCCP_MODULES} ${MM_MODULE_FLAGS} \
+        -c modules/mm/parse/dialect.cppm \
+        -o "${MM_BUILD}/modules/mm/parse/dialect.o" || exit $?
+
+    ${MCCP_MODULES} ${MM_MODULE_FLAGS} \
+        -c modules/mm/parse/cursor.cppm \
+        -o "${MM_BUILD}/modules/mm/parse/cursor.o" || exit $?
+
+    ${MCCP_MODULES} ${MM_MODULE_FLAGS} \
+        -c modules/mm/parse/number.cppm \
+        -o "${MM_BUILD}/modules/mm/parse/number.o" || exit $?
+
+    ${MCCP_MODULES} ${MM_MODULE_FLAGS} \
+        -c modules/mm/parse/time.cppm \
+        -o "${MM_BUILD}/modules/mm/parse/time.o" || exit $?
+
+    ${MCCP_MODULES} ${MM_MODULE_FLAGS} \
+        -c modules/mm/parse/parse.cppm \
+        -o "${MM_BUILD}/modules/mm/parse/parse.o" || exit $?
+
+    ${MCCP_MODULES} ${MM_MODULE_FLAGS} \
+        -c modules/mm/parse/src/cursor.cpp \
+        -o "${MM_BUILD}/modules/mm/parse/src/cursor.o" || exit $?
+
+    ${MCCP_MODULES} ${MM_MODULE_FLAGS} \
+        -c modules/mm/parse/src/number.cpp \
+        -o "${MM_BUILD}/modules/mm/parse/src/number.o" || exit $?
+
+    ${MCCP_MODULES} ${MM_MODULE_FLAGS} \
+        -c modules/mm/parse/src/time.cpp \
+        -o "${MM_BUILD}/modules/mm/parse/src/time.o" || exit $?
 
     # mm.build reads compile_commands.json through mm.json, so the json
     # partitions, primary interface, and implementation units come first.
@@ -215,6 +250,14 @@ if [ "${mm_build1_status}" -ne 0 ] || [ ! -x "${MM_BUILD}/build1" ]; then
     ${MCCP} ${MM_CPPFLAGS} \
         "${MM_BUILD}/modules/mm/mdy/mdy.o" \
         "${MM_BUILD}/modules/mm/mdy/src/mdy.o" \
+        "${MM_BUILD}/modules/mm/parse/dialect.o" \
+        "${MM_BUILD}/modules/mm/parse/cursor.o" \
+        "${MM_BUILD}/modules/mm/parse/number.o" \
+        "${MM_BUILD}/modules/mm/parse/time.o" \
+        "${MM_BUILD}/modules/mm/parse/parse.o" \
+        "${MM_BUILD}/modules/mm/parse/src/cursor.o" \
+        "${MM_BUILD}/modules/mm/parse/src/number.o" \
+        "${MM_BUILD}/modules/mm/parse/src/time.o" \
         "${MM_BUILD}/modules/mm/build/config.o" \
         "${MM_BUILD}/modules/mm/build/manifest.o" \
         "${MM_BUILD}/modules/mm/build/detail.o" \

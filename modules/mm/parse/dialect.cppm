@@ -74,10 +74,27 @@ struct Sink {
 };
 
 // Shared character-class predicates, defined once.
-[[nodiscard]] bool blank(char c);
-[[nodiscard]] bool line_end(char c);
-[[nodiscard]] bool operator_start(char c);
-[[nodiscard]] bool brace_operator(std::string_view text, std::size_t at);
-[[nodiscard]] bool is_continuation(std::string_view text, std::size_t at);
+[[nodiscard]] inline bool blank(char c) { return c == ' ' || c == '\t' || c == '\r'; }
+[[nodiscard]] inline bool line_end(char c) { return c == '\n' || c == '\r'; }
+[[nodiscard]] inline bool operator_start(char c) {
+    return c == '&' || c == '|' || c == ';' || c == '(' ||
+           c == ')' || c == '<' || c == '>';
+}
+[[nodiscard]] inline bool brace_operator(std::string_view text, std::size_t at) {
+    if (text.empty() || at >= text.size()) return false;
+    if (text[at] != '{' && text[at] != '}') return false;
+    if (at + 1 >= text.size()) return true;
+    const char next = text[at + 1];
+    return next == ' ' || next == '\t' || next == '\n' ||
+           next == '\r' || next == ';' ||
+           (next >= 'a' && next <= 'z') || (next >= 'A' && next <= 'Z');
+}
+[[nodiscard]] inline bool is_continuation(std::string_view text, std::size_t at) {
+    if (text.empty() || at >= text.size()) return false;
+    if (text[at] != '\\') return false;
+    if (at + 1 < text.size() && text[at + 1] == '\n') return true;
+    if (at + 2 < text.size() && text[at + 1] == '\r' && text[at + 2] == '\n') return true;
+    return false;
+}
 
 }  // namespace mm::parse

@@ -105,18 +105,31 @@ struct Decoded {
 [[nodiscard]] Status integer(std::string_view digits, long long& value);
 [[nodiscard]] Status number(std::string_view digits, double& value);
 
-// A date/time string extracted from a JSON string value. kind is the
-// mm.parse::TimeKind; date, duration, and epoch are valid per kind.
+// A date/time string extracted from a JSON string value. kind is an
+// ordinal matching mm::parse::TimeKind (0=Invalid, 1=Date, 2=DateTime,
+// 3=Time, 4=Epoch, 5=Duration); date, duration, and epoch are valid
+// per kind. The field ordinals mirror mm::parse::DateTime so a caller
+// that imports mm.parse can reinterpret the bytes directly.
 struct TimeExtracted {
-    mm::parse::TimeKind kind = mm::parse::TimeKind::Invalid;
-    mm::parse::DateTime date;
-    mm::parse::Duration duration;
+    int kind = -1;
+    // Field layout mirrors mm::parse::DateTime (7 x unsigned int):
+    unsigned int year = 0;
+    unsigned int month = 1;
+    unsigned int day = 1;
+    unsigned int weekday = 0;
+    unsigned int hour = 0;
+    unsigned int minute = 0;
+    unsigned int second = 0;
+    // Duration fields (valid when kind == 5):
+    std::uint64_t duration_value = 0;
+    int duration_unit = 0;
     std::uint64_t epoch = 0;
 };
 
 // Extract a date/time from a JSON string value. The input is the decoded
 // bytes (what unescape_into produced). Returns BadNumber when the string
-// does not match any supported shape.
+// does not match any supported shape. The caller maps out.kind onto
+// mm::parse::TimeKind and out.year..second onto mm::parse::DateTime.
 [[nodiscard]] Status extract_time(std::string_view text, TimeExtracted& out);
 
 // Extract a number from a JSON string value. Same input convention as
