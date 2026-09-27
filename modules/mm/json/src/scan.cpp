@@ -16,6 +16,7 @@ module mm.json;
 
 import :status;
 import :scan;
+import mm.parse;
 
 namespace mm::json {
 
@@ -517,83 +518,25 @@ Status unescape_into(std::string_view escaped, std::string& out) {
 }
 
 Status integer(std::string_view digits, long long& value) {
-    for (const char c : digits)
-        if (c == '.' || c == 'e' || c == 'E') return Status::BadNumber;
-    long long parsed = 0;
-    const auto result = std::from_chars(digits.data(), digits.data() + digits.size(), parsed);
-    if (result.ec != std::errc{} || result.ptr != digits.data() + digits.size())
+    const auto num = mm::parse::parse_number(digits);
+    if (num.kind != mm::parse::NumberKind::Integer || num.overflow) {
         return Status::BadNumber;
-    value = parsed;
+    }
+    value = static_cast<long long>(num.integer);
     return Status::Ok;
 }
 
-namespace {
-
-// Whether an out-of-range number is beneath double rather than beyond it:
-// the decimal exponent of its leading significant digit, from the digits
-// and the exponent field, is negative. digits is a token the scanner
-// accepted, so its shape is the grammar's.
-[[nodiscard]] bool underflows(std::string_view digits) {
-    std::size_t i = 0;
-    bool negative = false;
-    if (i < digits.size() && digits[i] == '-') { negative = true; ++i; }
-    (void)negative;
-    long long leading = 0;       // significant digits before the point
-    bool significant = false;
-    long long zeros_after_point = 0;
-    bool any_nonzero = false;
-    while (i < digits.size() && is_digit(digits[i])) {
-        if (digits[i] != '0') { significant = true; any_nonzero = true; }
-        if (significant) ++leading;
-        ++i;
-    }
-    if (i < digits.size() && digits[i] == '.') {
-        ++i;
-        while (i < digits.size() && is_digit(digits[i])) {
-            if (!significant) {
-                if (digits[i] == '0') ++zeros_after_point;
-                else { significant = true; any_nonzero = true; }
-            }
-            ++i;
-        }
-    }
-    long long exponent = 0;
-    if (i < digits.size() && (digits[i] == 'e' || digits[i] == 'E')) {
-        ++i;
-        bool negative_exponent = false;
-        if (i < digits.size() && (digits[i] == '+' || digits[i] == '-')) {
-            negative_exponent = digits[i] == '-';
-            ++i;
-        }
-        while (i < digits.size() && is_digit(digits[i])) {
-            if (exponent < 1'000'000'000) exponent = exponent * 10 + (digits[i] - '0');
-            ++i;
-        }
-        if (negative_exponent) exponent = -exponent;
-    }
-    if (!any_nonzero) return true;
-    const long long magnitude = leading > 0 ? leading - 1 : -(zeros_after_point + 1);
-    return magnitude + exponent < 0;
-}
-
-}  // namespace
-
 Status number(std::string_view digits, double& value) {
-    // libc++ before its floating-point from_chars implementation is complete
-    // declares that overload but deletes it.  strtod provides the same
-    // complete-token conversion on those hosts while retaining our explicit
-    // underflow policy.
-    std::string input(digits);
-    char* end = nullptr;
-    errno = 0;
-    const double parsed = std::strtod(input.c_str(), &end);
-    if (end != input.c_str() + input.size()) return Status::BadNumber;
-    if (errno == ERANGE) {
-        if (!underflows(digits)) return Status::BadNumber;
-        value = digits.starts_with('-') ? -0.0 : 0.0;
+    const auto num = mm::parse::parse_number(digits);
+    if (num.kind != mm::parse::NumberKind::Float &&
+        num.kind != mm::parse::NumberKind::Scientific) {
+        return Status::BadNumber;
+    }
+    if (num.overflow) {
+        value = num.real;
         return Status::Ok;
     }
-    value = parsed;
+    value = num.real;
     return Status::Ok;
 }
 
