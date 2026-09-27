@@ -2,6 +2,22 @@
 
 All notable changes to modules.cpp. Versions follow [semantic versioning](https://semver.org/).
 
+## [v1.1.1] — unreleased
+
+Maintenance release: GCC compatibility and macOS fixes carried forward from
+main.
+
+### Fixed
+
+- Bootstrap and build under GCC 14: `const auto` bindings of
+  `options.values(...)` triggered an internal compiler error in
+  `simplify_aggr_init_expr`; both are spelled as `std::vector<std::string>`
+  now. GCC 14 bootstraps, builds, and configures.
+- Bootstrap under GCC 15: the CI workflow builds with GCC 15 and installs
+  `cppcheck` for the `check` tool.
+- macOS: the build tool, configure tool, mdy parser, debug and run tests, and
+  the shell tool handle macOS paths and line endings.
+
 ## [v1.1.0] — unreleased
 
 Cross compilation. v1.0 built, tested and documented itself with one compiler.
