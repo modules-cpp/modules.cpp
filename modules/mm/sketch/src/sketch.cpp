@@ -18,6 +18,7 @@ module;
 module mm.sketch;
 
 import mm.mcu;
+import mm.parse;
 import mm.stdio;
 
 namespace mm::sketch {
@@ -1866,33 +1867,21 @@ void String::getBytes(byte* buffer, unsigned int size,
 long String::toInt() const {
     // Text that does not begin with a number answers 0, and parsing stops
     // at the first character that is not part of one.
-    std::string_view text(text_);
-    std::size_t start = 0;
-    while (start < text.size() &&
-           std::isspace(static_cast<unsigned char>(text[start]))) {
-        ++start;
-    }
-    long value = 0;
-    const auto* first = text.data() + start;
-    const auto* last = text.data() + text.size();
-    const auto res = std::from_chars(first, last, value);
-    if (res.ec != std::errc{}) return 0;
-    return value;
+    const auto num = mm::parse::parse_number(std::string_view{text_});
+    if (num.kind != mm::parse::NumberKind::Integer) return 0;
+    return static_cast<long>(num.integer);
 }
 
 double String::toDouble() const {
-    std::string_view text(text_);
-    std::size_t start = 0;
-    while (start < text.size() &&
-           std::isspace(static_cast<unsigned char>(text[start]))) {
-        ++start;
+    const auto num = mm::parse::parse_number(std::string_view{text_});
+    if (num.kind != mm::parse::NumberKind::Float &&
+        num.kind != mm::parse::NumberKind::Scientific &&
+        num.kind != mm::parse::NumberKind::Integer) {
+        return 0.0;
     }
-    double value = 0.0;
-    const auto* first = text.data() + start;
-    const auto* last = text.data() + text.size();
-    const auto res = std::from_chars(first, last, value);
-    if (res.ec != std::errc{}) return 0.0;
-    return value;
+    return num.kind == mm::parse::NumberKind::Integer
+               ? static_cast<double>(num.integer)
+               : num.real;
 }
 
 float String::toFloat() const { return static_cast<float>(toDouble()); }

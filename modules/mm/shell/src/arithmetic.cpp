@@ -11,6 +11,7 @@ module mm.shell;
 
 import :arithmetic;
 import :state;
+import mm.parse;
 
 namespace mm::shell {
 namespace {
@@ -33,23 +34,15 @@ constexpr auto negative_limit =
 [[nodiscard]] ArithmeticResult magnitude(std::string_view text,
                                           bool negative) {
     if (text.empty()) return {ArithmeticStatus::Syntax, 0, 0};
-    const auto limit = negative ? negative_limit
-                                : static_cast<std::uint64_t>(signed_max);
-    std::uint64_t value = 0;
-    for (std::size_t i = 0; i < text.size(); ++i) {
-        if (!digit(text[i])) return {ArithmeticStatus::Syntax, 0, i};
-        const auto next = static_cast<unsigned int>(text[i] - '0');
-        if (value > (limit - next) / 10) {
-            return {ArithmeticStatus::Range, 0, i};
-        }
-        value = value * 10 + next;
+    const auto num = mm::parse::parse_number(text);
+    if (num.kind != mm::parse::NumberKind::Integer) {
+        return {ArithmeticStatus::Syntax, 0, 0};
     }
-    if (negative && value == negative_limit) {
-        return {ArithmeticStatus::Ok, signed_min, 0};
+    if (num.overflow) {
+        return {ArithmeticStatus::Range, 0, 0};
     }
-    const auto signed_value = static_cast<std::int64_t>(value);
-    return {ArithmeticStatus::Ok,
-            negative ? -signed_value : signed_value, 0};
+    const auto value = static_cast<std::int64_t>(num.integer);
+    return {ArithmeticStatus::Ok, negative ? -value : value, 0};
 }
 
 [[nodiscard]] std::uint64_t absolute(std::int64_t value) {

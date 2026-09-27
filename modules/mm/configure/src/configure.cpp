@@ -17,6 +17,7 @@ module;
 #include <vector>
 
 module mm.configure;
+import mm.parse;
 
 namespace mm::configure {
 
@@ -407,9 +408,11 @@ std::optional<CompilerRequest> parse_compiler(std::string_view value) {
 
     unsigned major = 0;
     const auto digits = suffix.substr(1);
-    const auto parsed = std::from_chars(digits.data(), digits.data() + digits.size(), major);
-    if (parsed.ec != std::errc{} || parsed.ptr != digits.data() + digits.size() || major == 0)
+    const auto num = mm::parse::parse_number(digits);
+    if (num.kind != mm::parse::NumberKind::Integer || num.integer == 0) {
         return std::nullopt;
+    }
+    major = static_cast<unsigned>(num.integer);
 
     result.invocation += std::string(suffix);
     result.requested_major = major;

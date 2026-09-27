@@ -5,6 +5,7 @@ name: configure
 module: mm.configure
 file: configure.cppm
 file: src/configure.cpp
+use: mm.parse
 ---
 
 # mm.configure

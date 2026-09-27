@@ -13,6 +13,7 @@ module mm.shell.full;
 
 import :redirect;
 import :syntax;
+import mm.parse;
 
 namespace mm::shell::full {
 namespace {
@@ -76,16 +77,15 @@ RedirectionPlan plan_redirections(
         if (numbered) {
             const auto text = script.text(
                 script.tokens[node.first_token].source);
-            const auto converted = std::from_chars(
-                text.data(), text.data() + text.size(), step.target);
-            if (converted.ec != std::errc{} ||
-                converted.ptr != text.data() + text.size()) {
+            const auto num = mm::parse::parse_number(text);
+            if (num.kind != mm::parse::NumberKind::Integer || num.overflow) {
                 plan.diagnostic = {
                     ParseStatus::Malformed,
                     script.tokens[node.first_token].source.offset,
                     "invalid IO number"};
                 return plan;
             }
+            step.target = static_cast<std::size_t>(num.integer);
         }
         step.operand.assign(script.text(
             script.tokens[operator_at + 1].source));

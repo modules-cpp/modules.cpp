@@ -5,6 +5,7 @@ name: sketch
 module: mm.sketch
 use: mm.mcu
 use: mm.stdio
+use: mm.parse
 file: sketch.cppm
 file: src/sketch.cpp
 ---
