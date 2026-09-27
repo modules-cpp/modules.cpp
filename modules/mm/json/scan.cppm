@@ -105,6 +105,28 @@ struct Decoded {
 [[nodiscard]] Status integer(std::string_view digits, long long& value);
 [[nodiscard]] Status number(std::string_view digits, double& value);
 
+// A date/time string extracted from a JSON string value. kind is the
+// mm.parse::TimeKind; date, duration, and epoch are valid per kind.
+struct TimeExtracted {
+    mm::parse::TimeKind kind = mm::parse::TimeKind::Invalid;
+    mm::parse::DateTime date;
+    mm::parse::Duration duration;
+    std::uint64_t epoch = 0;
+};
+
+// Extract a date/time from a JSON string value. The input is the decoded
+// bytes (what unescape_into produced). Returns BadNumber when the string
+// does not match any supported shape.
+[[nodiscard]] Status extract_time(std::string_view text, TimeExtracted& out);
+
+// Extract a number from a JSON string value. Same input convention as
+// extract_time. Returns BadNumber when the string is not a recognized
+// number.
+[[nodiscard]] Status extract_number(std::string_view text,
+                                      long long& integer,
+                                      double& number,
+                                      bool& is_integer);
+
 }
 
 // Shared by the value partition: unescape into a string it owns, sizing it

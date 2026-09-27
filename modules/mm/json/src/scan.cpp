@@ -540,4 +540,26 @@ Status number(std::string_view digits, double& value) {
     return Status::Ok;
 }
 
+Status extract_time(std::string_view text, TimeExtracted& out) {
+    const auto result = mm::parse::parse_time(text);
+    if (result.kind == mm::parse::TimeKind::Invalid) return Status::BadNumber;
+    out.kind = result.kind;
+    out.date = result.date;
+    out.duration = result.duration;
+    out.epoch = result.epoch;
+    return Status::Ok;
+}
+
+Status extract_number(std::string_view text, long long& integer,
+                       double& number, bool& is_integer) {
+    const auto result = mm::parse::parse_number(text);
+    if (result.kind == mm::parse::NumberKind::Invalid) return Status::BadNumber;
+    is_integer = (result.kind == mm::parse::NumberKind::Integer);
+    integer = is_integer ? result.integer : 0;
+    number = is_integer
+               ? static_cast<double>(result.integer)
+               : result.real;
+    return Status::Ok;
+}
+
 }  // namespace mm::json

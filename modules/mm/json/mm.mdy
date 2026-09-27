@@ -9,6 +9,7 @@ file: value.cppm mm.json:value
 file: json.cppm mm.json
 file: src/scan.cpp
 file: src/value.cpp
+use: mm.parse
 ---
 
 # mm.json
@@ -21,5 +22,4 @@ Three partitions, listed before the primary interface because source order is
 declared. :status is the vocabulary the other two share. :scan is a pull
 reader over a string view that a fixed-buffer caller can use as it is. :value
 is a document model, parse, and write above the scanner, for the host tools.
-The module has no use: edge: it needs the standard library and nothing in the
-tree.
+:scan delegates numeric and time extraction to mm.parse.
