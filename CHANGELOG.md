@@ -2,6 +2,97 @@
 
 All notable changes to modules.cpp. Versions follow [semantic versioning](https://semver.org/).
 
+## [v1.2.4] — 2026-09-27
+
+A shared parsing core and numeric/time extraction. v1.2.3 added external
+sketches, `mm.json`, ADC/PWM, and the GPIO edge latch. v1.2.4 extracts the
+character-level shell scanner from `mm.shell` and `mm.shell.full` into a new
+`mm.parse` module, adds numeric and date/time parsing to `mm.parse`, and
+migrates five existing call sites to use it.
+
+16 commits since v1.2.3; 39 files changed, 3732 insertions, 717 deletions.
+
+### Added
+
+- **`mm.parse`.** A dependency-free module owning the character-level shell
+  scanning shared by `mm.shell` (level-1 embedded) and `mm.shell.full`
+  (level-3 full profile). The `:dialect` partition declares the `Dialect` enum
+  (Embedded/Full), the 21-value `TokenKind` superset, `FragmentKind`,
+  `SourceSpan`, the `Sink` function-pointer seam, and inline character-class
+  predicates. The `:cursor` partition is the `Cursor` class that advances
+  over source text and reports token boundaries through the `Sink`, with
+  dialect-specific line-ending, blank, quote, expansion, and operator
+  handling. The `:number` partition parses integers (decimal, hex `0x`,
+  octal `0o`, binary `0b`, underscore separators), floats, and scientific
+  notation via `parse_number(text)` and `parse_number_at(text, at)`. The
+  `:time` partition parses ISO dates, datetimes, time-only, epoch seconds,
+  and durations (`30s`, `5m`, `2h`, `1d`, `2w`) via `parse_time(text)` and
+  `parse_time_at(text, at)`, with Howard Hinnant's civil-calendar arithmetic
+  for epoch↔DateTime conversion. No `<chrono>`, no allocation, no exceptions.
+  `tests/mm/parse` covers all four partitions: predicates, cursor scanning
+  for both dialects, Sink callbacks, number formats, time formats, and error
+  recovery.
+
+- **`mm.json` extract functions.** `extract_time(text, out)` and
+  `extract_number(text, integer, number, is_integer)` in `mm.json:scan`,
+  delegating to `mm.parse::parse_time` and `mm.parse::parse_number`.
+  `TimeExtracted` uses flat fields mirroring `mm.parse::DateTime` so the
+  header does not need to import `mm.parse`. `tests/mm/json/extract.cpp`
+  covers extraction from parsed JSON string values including ISO dates,
+  datetimes, times, epochs, durations, hex, scientific, binary, octal, and
+  invalid inputs.
+
+### Changed
+
+- **`mm.shell/src/word.cpp`: 424 → 139 lines (−67%).** The old `Cursor`
+  struct (215 L), `scan_once` (85 L), and 7 character-class predicates were
+  replaced by a 20-line `scan_once` that drives `mm.parse::Cursor` through
+  the `Sink` seam. `TokenKind` and `FragmentKind` are now aliases for
+  `mm.parse::TokenKind` and `mm.parse::FragmentKind`.
+
+- **`mm.shell.full/src/scan.cpp`: 378 → 233 lines (−38%).** The old
+  `Scanner::word/quote/dollar_parentheses/dollar_braces` methods and the
+  operator-detection switch were replaced by a `run()` loop that calls
+  `mm.parse::Cursor::scan()`. A `to_full_token` adapter translates
+  `mm.parse::TokenKind` → `full::TokenKind`. The here-document state machine
+  is preserved unchanged.
+
+- **`mm.json/src/scan.cpp`: integer/number migrated to `mm.parse`.** The
+  hand-rolled `integer()` (10 L) and `number()` (18 L) functions, plus the
+  `underflows()` helper (50 L), were replaced by `mm.parse::parse_number`
+  calls. Net −70 lines.
+
+- **`mm.sketch/src/sketch.cpp`: String methods migrated.** `String::toInt()`,
+  `toDouble()`, and `toFloat()` now call `mm.parse::parse_number` instead of
+  `std::from_chars` with manual whitespace skipping. Net −25 lines.
+
+- **`mm.configure/src/configure.cpp`: version digits migrated.** Compiler
+  version parsing now calls `mm.parse::parse_number` instead of
+  `std::from_chars`. `mm.shell.full/src/redirect.cpp`: IoNumber parsing
+  migrated. `mm.shell/src/arithmetic.cpp`: the hand-rolled `magnitude()`
+  accumulator (15 L) replaced by `mm.parse::parse_number`. Net −15 lines.
+
+- **Bootstrap updated for `mm.parse`.** `bootstrap.sh`, `tools/build/main.cpp`,
+  and `tools/build/bootstrap.mapper` all include the `mm.parse` partition
+  sources in the fixed file list that builds `build1` before any manifest
+  can be walked. The `mm.parse` file entries in `mm.mdy` are ordered so
+  partitions compile before the primary interface.
+
+### Compatibility
+
+- `mm.parse` is a new module with no `use:` edge; it needs only
+  `<cstddef>`, `<cstdint>`, and `<string_view>`.
+- `mm.shell`, `mm.shell.full`, `mm.json`, `mm.configure`, and `mm.sketch`
+  each gain a `use: mm.parse` edge.
+- `mm.shell::TokenKind` and `mm.shell::FragmentKind` are now aliases for
+  `mm.parse::TokenKind` and `mm.parse::FragmentKind`; code referencing them
+  by name is unaffected.
+- `mm.json::TimeExtracted` is a new type in `mm.json:scan`; existing
+  `mm.json` interfaces are unchanged.
+- Bootstrap now compiles `mm.parse` before `mm.json` and `mm.configure`;
+  the fixed file list in `tools/build/main.cpp` and the shell fallback in
+  `bootstrap.sh` are updated accordingly.
+
 ## [v1.2.3] — Unreleased
 
 ### Added
@@ -625,6 +716,7 @@ framework or documentation generator. 77 commits from the initial commit on
   `xfail`, and `xpass` failing the run when a known defect starts passing.
 - GCC and Clang backends, selected per build.
 
+[v1.2.4]: https://github.com/modules-cpp/modules.cpp/releases/tag/v1.2.4
 [v1.2.1]: https://github.com/modules-cpp/modules.cpp/releases/tag/v1.2.1
 [v1.2.0]: https://github.com/modules-cpp/modules.cpp/releases/tag/v1.2.0
 [v1.1.0]: https://github.com/modules-cpp/modules.cpp/releases/tag/v1.1.0
