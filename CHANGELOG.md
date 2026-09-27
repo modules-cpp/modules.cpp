@@ -93,7 +93,7 @@ migrates five existing call sites to use it.
   the fixed file list in `tools/build/main.cpp` and the shell fallback in
   `bootstrap.sh` are updated accordingly.
 
-## [v1.2.3] — Unreleased
+## [v1.2.3] — 2026-09-27
 
 ### Added
 
