@@ -5,6 +5,7 @@ name: mm
 option: buildable-target no
 folder: mcu
 folder: mdy
+folder: parse
 folder: build
 folder: configure
 folder: debug
