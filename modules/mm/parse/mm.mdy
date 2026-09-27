@@ -6,7 +6,9 @@ module: mm.parse
 file: parse.cppm mm.parse
 file: dialect.cppm mm.parse:dialect
 file: cursor.cppm mm.parse:cursor
+file: number.cppm mm.parse:number
 file: src/cursor.cpp
+file: src/number.cpp
 ---
 
 # mm.parse
