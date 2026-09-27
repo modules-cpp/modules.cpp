@@ -2,7 +2,7 @@
 
 All notable changes to modules.cpp. Versions follow [semantic versioning](https://semver.org/).
 
-## [v1.1.1] — unreleased
+## [v1.1.1] — 2026-09-27
 
 Maintenance release: GCC compatibility and macOS fixes carried forward from
 main.
