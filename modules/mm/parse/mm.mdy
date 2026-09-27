@@ -7,8 +7,10 @@ file: parse.cppm mm.parse
 file: dialect.cppm mm.parse:dialect
 file: cursor.cppm mm.parse:cursor
 file: number.cppm mm.parse:number
+file: time.cppm mm.parse:time
 file: src/cursor.cpp
 file: src/number.cpp
+file: src/time.cpp
 ---
 
 # mm.parse

@@ -5,3 +5,4 @@ export module mm.parse;
 export import :dialect;
 export import :cursor;
 export import :number;
+export import :time;
