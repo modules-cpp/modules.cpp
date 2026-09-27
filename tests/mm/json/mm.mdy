@@ -7,6 +7,7 @@ use: mm.json
 unit: tests/mm/json/scan.cpp
 unit: tests/mm/json/value.cpp
 unit: tests/mm/json/corpus.cpp
+unit: tests/mm/json/extract.cpp
 unit: tests/main.cpp
 ---
 
