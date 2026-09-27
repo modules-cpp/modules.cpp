@@ -1,0 +1,21 @@
+---
+mm: 1.1
+kind: test
+name: parse
+use: mm.test
+use: mm.parse
+unit: tests/mm/parse/dialect.cpp
+unit: tests/mm/parse/cursor_embedded.cpp
+unit: tests/mm/parse/cursor_full.cpp
+unit: tests/mm/parse/sink.cpp
+unit: tests/mm/parse/errors.cpp
+unit: tests/main.cpp
+---
+
+# mm.parse tests
+
+Shared shell scanning: character-class predicates, token-kind superset,
+Cursor scanning for both dialects, Sink callback wiring, fragment
+production, operator tokenization, line-ending behavior, dollar/quote
+skipping, IoNumber detection, excluded-construct rejection, and error
+recovery.
