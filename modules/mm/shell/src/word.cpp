@@ -11,36 +11,44 @@ module mm.shell;
 import :source;
 import :status;
 import :word;
+import mm.parse;
 
 namespace mm::shell {
 namespace {
 
-[[nodiscard]] bool name_first(char c) {
-    return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c == '_';
+// Dialect adapters: translate mm.parse superset enums to mm.shell enums.
+[[nodiscard]] TokenKind to_shell_token(mm::parse::TokenKind kind) {
+    using P = mm::parse::TokenKind;
+    switch (kind) {
+        case P::End: return TokenKind::End;
+        case P::Newline: return TokenKind::Newline;
+        case P::Word: return TokenKind::Word;
+        case P::AndIf: return TokenKind::AndIf;
+        case P::OrIf: return TokenKind::OrIf;
+        case P::Semicolon: return TokenKind::Semicolon;
+        case P::DoubleSemicolon: return TokenKind::DoubleSemicolon;
+        case P::LeftParen: return TokenKind::LeftParen;
+        case P::RightParen: return TokenKind::RightParen;
+        case P::LeftBrace: return TokenKind::LeftBrace;
+        case P::RightBrace: return TokenKind::RightBrace;
+        case P::Bang: return TokenKind::Bang;
+        case P::CaseBar: return TokenKind::CaseBar;
+        default: return TokenKind::End;
+    }
 }
 
-[[nodiscard]] bool name_rest(char c) {
-    return name_first(c) || (c >= '0' && c <= '9');
-}
-
-[[nodiscard]] bool blank(char c) { return c == ' ' || c == '\t'; }
-
-[[nodiscard]] bool line_end(char c) { return c == '\n' || c == '\r'; }
-
-[[nodiscard]] bool special(char c) {
-    return c == '#' || c == '?' || c == '$' || c == '*' || c == '@';
-}
-
-[[nodiscard]] bool operator_start(char c) {
-    return c == '&' || c == '|' || c == ';' || c == '(' ||
-           c == ')' || c == '<' || c == '>';
-}
-
-[[nodiscard]] bool brace_operator(std::string_view text, std::size_t at) {
-    if (text[at] != '{' && text[at] != '}') return false;
-    const auto next = at + 1;
-    return next == text.size() || blank(text[next]) ||
-           line_end(text[next]) || text[next] == ';';
+[[nodiscard]] FragmentKind to_shell_fragment(mm::parse::FragmentKind kind) {
+    using P = mm::parse::FragmentKind;
+    switch (kind) {
+        case P::Literal: return FragmentKind::Literal;
+        case P::SingleQuoted: return FragmentKind::SingleQuoted;
+        case P::DoubleQuoted: return FragmentKind::DoubleQuoted;
+        case P::Escaped: return FragmentKind::Escaped;
+        case P::Parameter: return FragmentKind::Parameter;
+        case P::Arithmetic: return FragmentKind::Arithmetic;
+        case P::CommandSubstitution: return FragmentKind::CommandSubstitution;
+        default: return FragmentKind::Literal;
+    }
 }
 
 [[nodiscard]] SourceLocation location(std::string_view text,
@@ -82,308 +90,53 @@ struct Writer {
     }
 };
 
-struct Cursor {
-    std::string_view text;
-    std::size_t at = 0;
-    std::size_t error = 0;
-    ScanStatus status = ScanStatus::Complete;
-    Writer& writer;
+// Free-function adapters so mm.parse::Cursor can drive the Writer through
+// the Sink function-pointer seam.
+static void sink_emit_fragment(void* ctx, mm::parse::FragmentKind kind,
+                                mm::parse::SourceSpan span, bool quoted) {
+    auto* writer = static_cast<Writer*>(ctx);
+    writer->add(to_shell_fragment(kind), span.offset, span.length, quoted);
+}
 
-    [[nodiscard]] bool continuation() const {
-        return at + 1 < text.size() && text[at] == '\\' &&
-               (text[at + 1] == '\n' ||
-                (text[at + 1] == '\r' && at + 2 < text.size() &&
-                 text[at + 2] == '\n'));
-    }
+static void sink_emit_token(void* ctx, mm::parse::TokenKind kind,
+                             mm::parse::SourceSpan span, bool quoted) {
+    // Token emission is recorded by the Cursor's ScanOutcome; the embedded
+    // dialect's scan_once reads the outcome directly. The token callback is
+    // a no-op for the embedded dialect: fragments are the payload.
+    (void)ctx;
+    (void)kind;
+    (void)span;
+    (void)quoted;
+}
 
-    void skip_continuation() {
-        at += text[at + 1] == '\r' ? 3 : 2;
-    }
 
-    void fail(ScanStatus kind, std::size_t where) {
-        status = kind;
-        error = where;
-    }
-
-    void expansion(bool quoted) {
-        const auto start = at++;
-        if (at == text.size()) {
-            writer.add(quoted ? FragmentKind::DoubleQuoted
-                              : FragmentKind::Literal, start, 1, quoted);
-            return;
-        }
-        if (text[at] == '{') {
-            ++at;
-            unsigned int depth = 1;
-            while (at < text.size() && depth != 0) {
-                if (text[at] == '{') ++depth;
-                if (text[at] == '}') --depth;
-                ++at;
-            }
-            if (depth != 0) {
-                fail(ScanStatus::Incomplete, start);
-                return;
-            }
-            writer.add(FragmentKind::Parameter, start, at - start, quoted);
-            return;
-        }
-        if (text[at] == '(') {
-            const bool arithmetic = at + 1 < text.size() &&
-                                    text[at + 1] == '(';
-            at += arithmetic ? 2 : 1;
-            unsigned int depth = arithmetic ? 2 : 1;
-            char quote = 0;
-            while (at < text.size() && depth != 0) {
-                const char c = text[at];
-                if (c == '\\' && at + 1 < text.size()) {
-                    at += 2;
-                    continue;
-                }
-                if (quote != 0) {
-                    if (c == quote) quote = 0;
-                    ++at;
-                    continue;
-                }
-                if (c == '\'' || c == '"') {
-                    quote = c;
-                } else if (c == '(') {
-                    ++depth;
-                } else if (c == ')') {
-                    --depth;
-                }
-                ++at;
-            }
-            if (depth != 0 || quote != 0) {
-                fail(ScanStatus::Incomplete, start);
-                return;
-            }
-            writer.add(arithmetic ? FragmentKind::Arithmetic
-                                  : FragmentKind::CommandSubstitution,
-                       start, at - start, quoted);
-            return;
-        }
-        if (name_first(text[at])) {
-            do { ++at; } while (at < text.size() && name_rest(text[at]));
-        } else if ((text[at] >= '0' && text[at] <= '9') ||
-                   special(text[at])) {
-            ++at;
-        } else {
-            writer.add(quoted ? FragmentKind::DoubleQuoted
-                              : FragmentKind::Literal, start, 1, quoted);
-            return;
-        }
-        writer.add(FragmentKind::Parameter, start, at - start, quoted);
-    }
-
-    void quote(char delimiter) {
-        const auto opening = at++;
-        std::size_t literal = at;
-        bool emitted = false;
-        while (at < text.size()) {
-            if (text[at] == delimiter) {
-                if (at > literal || !emitted) {
-                    writer.add(delimiter == '\'' ? FragmentKind::SingleQuoted
-                                                 : FragmentKind::DoubleQuoted,
-                               literal, at - literal, true);
-                }
-                ++at;
-                return;
-            }
-            if (delimiter == '"' && text[at] == '$') {
-                if (at > literal) {
-                    writer.add(FragmentKind::DoubleQuoted,
-                               literal, at - literal, true);
-                    emitted = true;
-                }
-                expansion(true);
-                if (status != ScanStatus::Complete) return;
-                emitted = true;
-                literal = at;
-                continue;
-            }
-            if (delimiter == '"' && text[at] == '\\') {
-                if (continuation()) {
-                    if (at > literal) {
-                        writer.add(FragmentKind::DoubleQuoted,
-                                   literal, at - literal, true);
-                        emitted = true;
-                    }
-                    skip_continuation();
-                    literal = at;
-                    continue;
-                }
-                if (at + 1 == text.size()) {
-                    fail(ScanStatus::Incomplete, opening);
-                    return;
-                }
-                if (text[at + 1] == '$' || text[at + 1] == '"' ||
-                    text[at + 1] == '\\' || text[at + 1] == '`') {
-                    if (at > literal) {
-                        writer.add(FragmentKind::DoubleQuoted,
-                                   literal, at - literal, true);
-                        emitted = true;
-                    }
-                    writer.add(FragmentKind::Escaped, at + 1, 1, true);
-                    emitted = true;
-                    at += 2;
-                    literal = at;
-                    continue;
-                }
-            }
-            if (text[at] == '\0') {
-                fail(ScanStatus::Malformed, at);
-                return;
-            }
-            ++at;
-        }
-        fail(ScanStatus::Incomplete, opening);
-    }
-
-    void word() {
-        std::size_t literal = at;
-        while (at < text.size()) {
-            const char c = text[at];
-            if (c == '[') {
-                auto close = at + 1;
-                while (close < text.size() && !blank(text[close]) &&
-                       !line_end(text[close])) {
-                    if (text[close] == '\\' && close + 1 < text.size()) {
-                        close += 2;
-                        continue;
-                    }
-                    if (text[close] == ']') break;
-                    ++close;
-                }
-                if (close < text.size() && text[close] == ']') {
-                    at = close + 1;
-                    continue;
-                }
-            }
-            if (blank(c) || line_end(c) || operator_start(c) ||
-                brace_operator(text, at)) break;
-            if (c == '\0' || c == '`') {
-                fail(ScanStatus::Malformed, at);
-                return;
-            }
-            if (c == '\\' || c == '\'' || c == '"' || c == '$') {
-                if (at > literal) {
-                    writer.add(FragmentKind::Literal,
-                               literal, at - literal, false);
-                }
-                if (c == '\\') {
-                    if (at + 1 == text.size()) {
-                        fail(ScanStatus::Incomplete, at);
-                        return;
-                    }
-                    if (continuation()) {
-                        skip_continuation();
-                    } else {
-                        writer.add(FragmentKind::Escaped, at + 1, 1, false);
-                        at += 2;
-                    }
-                } else if (c == '$') {
-                    expansion(false);
-                } else {
-                    quote(c);
-                }
-                if (status != ScanStatus::Complete) return;
-                literal = at;
-                continue;
-            }
-            ++at;
-        }
-        if (at > literal) {
-            writer.add(FragmentKind::Literal, literal, at - literal, false);
-        }
-    }
-};
-
+// The embedded dialect drives mm.parse::Cursor through the Sink seam.
+// The Writer is the Sink context; fragments are the payload.
 [[nodiscard]] ScanOutcome scan_once(SourceView source,
                                      std::size_t offset,
                                      Writer& writer) {
     const auto text = source.text();
-    Cursor cursor{text, offset, 0, ScanStatus::Complete, writer};
+    mm::parse::Cursor cursor{text, offset, mm::parse::Dialect::Embedded};
+    mm::parse::Sink sink{
+        &writer,
+        sink_emit_token,
+        sink_emit_fragment,
+        false,
+    };
+    const auto outcome = cursor.scan(sink);
     ScanOutcome result;
-    while (cursor.at < text.size()) {
-        if (blank(text[cursor.at])) {
-            ++cursor.at;
-        } else if (cursor.continuation()) {
-            cursor.skip_continuation();
-        } else if (text[cursor.at] == '#') {
-            while (cursor.at < text.size() &&
-                   !line_end(text[cursor.at])) {
-                if (text[cursor.at] == '\0') {
-                    cursor.fail(ScanStatus::Malformed, cursor.at);
-                    result.status = cursor.status;
-                    result.issue = location(text, cursor.error);
-                    return result;
-                }
-                ++cursor.at;
-            }
-        } else {
-            break;
-        }
-    }
-    const auto start = cursor.at;
-    if (start == text.size()) {
-        result.token = {TokenKind::End, {start, 0}, start, 0};
-        return result;
-    }
-    const char c = text[start];
-    if (c == '\0') {
-        cursor.fail(ScanStatus::Malformed, start);
-    } else if (c == '\r' &&
-               (start + 1 == text.size() || text[start + 1] != '\n')) {
-        cursor.fail(ScanStatus::Malformed, start);
-    } else if (line_end(c)) {
-        cursor.at += c == '\r' && start + 1 < text.size() &&
-                             text[start + 1] == '\n' ? 2 : 1;
-        result.token.kind = TokenKind::Newline;
-    } else if (c == '&' && start + 1 < text.size() &&
-               text[start + 1] == '&') {
-        cursor.at += 2;
-        result.token.kind = TokenKind::AndIf;
-    } else if (c == '|' && start + 1 < text.size() &&
-               text[start + 1] == '|') {
-        cursor.at += 2;
-        result.token.kind = TokenKind::OrIf;
-    } else if (c == ';') {
-        cursor.at += start + 1 < text.size() && text[start + 1] == ';' ? 2 : 1;
-        result.token.kind = cursor.at - start == 2
-                                ? TokenKind::DoubleSemicolon
-                                : TokenKind::Semicolon;
-    } else if (c == '(' || c == ')') {
-        ++cursor.at;
-        result.token.kind = c == '(' ? TokenKind::LeftParen
-                                   : TokenKind::RightParen;
-    } else if (brace_operator(text, start)) {
-        ++cursor.at;
-        result.token.kind = c == '{' ? TokenKind::LeftBrace
-                                   : TokenKind::RightBrace;
-    } else if (c == '!' &&
-               (start + 1 == text.size() || blank(text[start + 1]) ||
-                line_end(text[start + 1]) ||
-                operator_start(text[start + 1]) ||
-                brace_operator(text, start + 1))) {
-        ++cursor.at;
-        result.token.kind = TokenKind::Bang;
-    } else if (c == '|') {
-        ++cursor.at;
-        result.token.kind = TokenKind::CaseBar;
-    } else if (c == '&' || c == '<' || c == '>' || c == '`') {
-        cursor.fail(ScanStatus::Malformed, start);
-    } else {
-        cursor.word();
-        result.token.kind = TokenKind::Word;
-    }
-    result.status = cursor.status;
-    result.issue = location(text, cursor.error);
-    result.token.source = {start, cursor.at - start};
-    result.token.next_offset = cursor.at;
-    result.token.fragments_required = writer.count;
+    result.token.kind = to_shell_token(outcome.kind);
+    result.token.source = {outcome.span.offset, outcome.span.length};
+    result.token.next_offset = outcome.next_offset;
+    result.token.fragments_required = static_cast<std::size_t>(outcome.fragment_count);
     result.token.has_unquoted_glob = writer.has_unquoted_glob;
+    if (!outcome.complete) {
+        result.status = ScanStatus::Malformed;
+        result.issue = location(text, cursor.offset());
+    }
     return result;
 }
+
 
 }  // namespace
 

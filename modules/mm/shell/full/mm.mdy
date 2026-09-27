@@ -4,6 +4,7 @@ kind: module
 name: shell-full
 module: mm.shell.full
 use: mm.shell
+use: mm.parse
 file: syntax.cppm mm.shell.full:syntax
 file: scan.cppm mm.shell.full:scan
 file: parse.cppm mm.shell.full:parse
@@ -37,3 +38,19 @@ file: src/execute.cpp
 
 Owning full-profile syntax and portable service contracts. This module has no
 POSIX headers or system calls; mm.shell.posix supplies concrete host services.
+execute.cppm
+expand.cppm
+full.cppm
+function.cppm
+interpret.cppm
+mm.mdy
+parse.cppm
+pathname.cppm
+redirect.cppm
+scan.cppm
+service.cppm
+src
+state.cppm
+syntax.cppm
+trap.cppm
+word.cppm

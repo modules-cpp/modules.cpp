@@ -12,6 +12,7 @@ module mm.shell.full;
 
 import :scan;
 import :syntax;
+import mm.parse;
 
 namespace mm::shell::full {
 namespace {

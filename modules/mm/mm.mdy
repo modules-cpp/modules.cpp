@@ -18,6 +18,7 @@ folder: lcd
 folder: imu/qmi8658
 folder: mcu
 folder: mdy
+folder: parse
 folder: model
 folder: rtc
 folder: rtc/pcf85063

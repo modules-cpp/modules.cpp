@@ -1,0 +1,25 @@
+---
+mm: 1.2
+kind: module
+name: parse
+module: mm.parse
+file: parse.cppm mm.parse
+file: dialect.cppm mm.parse:dialect
+file: cursor.cppm mm.parse:cursor
+file: src/cursor.cpp
+---
+
+# mm.parse
+
+Shared character-level shell scanning: source spans, token kinds, dialect
+flags, character-class predicates, and a stateless cursor that advances over
+source text and reports token boundaries through a function-pointer Sink.
+
+The embedded dialect (mm.shell level-1) produces WordFragments and treats
+\
+r\n and bare \r as line endings. The full dialect (mm.shell.full level-3)
+produces no fragments and treats \r as blank. Both dialects share the
+cursor, the predicates, and the dollar/quote skipping.
+
+This module has no use: edge: it needs the standard library and nothing in
+the tree.
