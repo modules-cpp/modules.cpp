@@ -93,9 +93,9 @@ All notable changes to modules.cpp. Versions follow [semantic versioning](https:
   power-up sequence and programs the output channel for I2S playback, and `play`
   ships the caller's samples down the I2S link as sixteen-bit little-endian
   bytes. Its clock dividers and its ADC/microphone path are absent, because the
-  input end is the microphone. `tests/mm/audio` and `tests/mm/audio-es8311` pin
-  both drivers' transcripts against a recording MCU platform. docs/modules-audio.mdy
-  specifies it.
+  input end is the microphone. `tests/mm/audio/microphone` and
+  `tests/mm/audio/es8311` pin both drivers' transcripts against a recording MCU
+  platform. docs/modules-audio.mdy specifies it.
 
 ### Changed
 

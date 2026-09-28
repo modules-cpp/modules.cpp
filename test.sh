@@ -216,8 +216,8 @@ run_test_target tests/mm/model/ || exit $?
 run_test_target tests/mm/run/ || exit $?
 run_test_target tests/mm/touch/ || exit $?
 run_test_target tests/mm/touch-cst816/ || exit $?
-run_test_target tests/mm/audio/ || exit $?
-run_test_target tests/mm/audio-es8311/ || exit $?
+run_test_target tests/mm/audio/microphone/ || exit $?
+run_test_target tests/mm/audio/es8311/ || exit $?
 run_test_target tests/mm/imu/ || exit $?
 run_test_target tests/mm/json/ || exit $?
 run_test_target tests/mm/lcd/ || exit $?

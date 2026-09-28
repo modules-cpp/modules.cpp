@@ -6,8 +6,8 @@ use: mm.test
 use: mm.mcu
 use: mm.audio
 use: mm.audio.es8311
-unit: tests/mm/audio-es8311/platform.cpp
-unit: tests/mm/audio-es8311/es8311.cpp
+unit: tests/mm/audio/es8311/platform.cpp
+unit: tests/mm/audio/es8311/es8311.cpp
 unit: tests/main.cpp
 ---
 

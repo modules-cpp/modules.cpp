@@ -3,8 +3,8 @@ mm: 1.1
 kind: dir
 name: mm
 option: buildable-target no
-folder: audio
-folder: audio-es8311
+folder: audio/microphone
+folder: audio/es8311
 folder: mcu
 folder: mdy
 folder: build
