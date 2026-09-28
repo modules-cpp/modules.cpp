@@ -49,8 +49,7 @@ All notable changes to modules.cpp. Versions follow [semantic versioning](https:
   registers an ES8311 `Output` that also drives the NS4150B amplifier enable
   on GP0 as the Speaker and an ES8311 `Input` as the Microphone, running the
   codec as the I2S slave on GP1, GP2, GP4, and GP5 with its MCLK input GP3
-  held low; it answers `Unsupported` from `configure` until a Pico provider
-  implements I2S. The Pico bridge's board table gives both boards a 3.3 V ADC
+  held low. The Pico bridge's board table gives both boards a 3.3 V ADC
   reference, no LED -- pico2's GP25 is their volume button -- and a default
   UART of UART1 on GP26 and GP27, because pico2's GP0 and GP1 are the
   amplifier enable and the codec's playback data. `apps/audio-smoke` plays a
@@ -60,6 +59,18 @@ All notable changes to modules.cpp. Versions follow [semantic versioning](https:
   requested 230 MHz. Wiring and register values were checked against the
   family's schematic and the ES8311 datasheet; none of it is qualified on
   hardware.
+- **I2S on the Pico SDK lanes.** `platform.pico.mcu` implements `mm.mcu` I2S
+  instance zero over PIO and DMA in the bridge's adapter, on RP2040 and on
+  RP2350 Arm and RISC-V. A clock state machine drives the bit and word clocks
+  by side-set and shifts the transmit line from configure to release; a
+  receive state machine samples the receive line in step with them. Each is
+  fed by two DMA channels in ping-pong over blocks the adapter owns, and the
+  DMA interrupt refills or empties those blocks from two 256-frame rings,
+  sending zeros and counting missed frames when the transmit ring runs dry
+  and dropping and counting frames the receive ring cannot hold. The rate is
+  reported exactly from the PIO clock divider. The execution model's model 3
+  now names that block copy among a transport handler's bounded work. Built
+  for every Pico SDK lane; unqualified on hardware.
 - **Paced ADC capture and a DAC in `mm.mcu`.** `adc_pace`, `adc_pace_rate`,
   `adc_pace_start`, `adc_take`, `adc_pace_progress`, and `adc_pace_stop`
   capture a channel continuously into a buffer the platform owns;

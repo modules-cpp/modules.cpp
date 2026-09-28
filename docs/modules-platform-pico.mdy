@@ -212,6 +212,30 @@ family:
 - interrupts_disable and interrupts_enable are the SDK's
   save_and_disable_interrupts and restore_interrupts on the calling core,
   crossing the private ABI as the core's mask word.
+- I2S instance zero is the adapter's PIO link, the Pico being its master. A
+  clock state machine drives the bit clock and the word clock by side-set --
+  so the word clock must be the GPIO after the bit clock, and pins stop at
+  GP31 -- and shifts the transmit line out at two PIO cycles a bit, from
+  configure to release, with the SDK's fractional clock divider setting the
+  rate; i2s_rate reports clk_sys times 256 over the divider in 256ths times
+  the cycles a frame takes. When the link has a receive line, a receive state
+  machine aligns to the word clock's falling edge, skips the right slot's
+  delayed last bit, and samples on every bit clock rising edge. Each state
+  machine is fed by two DMA channels chained in ping-pong over two blocks of
+  thirty-two frames the adapter owns, so the transmitter never runs dry and
+  the clocks never stop. Between the blocks and the calls sit two rings of
+  256 frames. The DMA interrupt, shared on DMA_IRQ_0, counts each finished
+  block, refills a transmit block from its ring with zeros for any frame the
+  ring lacks -- missed while the direction is started -- or empties a receive
+  block into its ring, dropping and counting what does not fit, and re-arms
+  the channel: the bounded work docs/modules-execution.mdy's model 3 allows.
+  The calls touch a ring only with interrupts masked. Frames cross the
+  private ABI as PIO words, one a frame with sixteen-bit slots, left high,
+  and two with thirty-two-bit slots; twenty-four-bit slots are refused. A
+  transmit stop empties the ring, and the at most two blocks already given
+  to the DMA still go out before the zeros. Release disables and unchains
+  both channel pairs before aborting them, then frees the state machines,
+  the programs, and the pads.
 - The ADC inventory is the SDK's: NUM_ADC_CHANNELS channels from ADC_BASE_PIN,
   the last of them the temperature sensor with no pin -- channels 0 to 3 on
   GP26 to GP29 and channel 4 the sensor on the RP2040 and RP2350A, 0 to 7 on

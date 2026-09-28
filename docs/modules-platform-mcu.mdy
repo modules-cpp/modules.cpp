@@ -697,6 +697,11 @@ before the platform is asked. These replace the byte-span i2s_write and
 i2s_read of the first I2S revision, which had no clock of their own to keep
 and so could not say what happened between two calls.
 
+The Pico provider implements instance zero over PIO and DMA; neither RP2040
+nor RP2350 has an I2S peripheral. docs/modules-platform-pico.mdy says how.
+The Linux provider answers Unsupported: on Linux, I2S is behind the sound
+card.
+
 ## Critical sections
 
 Opening fence

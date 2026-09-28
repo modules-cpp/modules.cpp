@@ -5,6 +5,9 @@
 #include "../stdio/stdio-c.h"
 #include "hardware/adc.h"
 #include "hardware/clocks.h"
+#include "hardware/dma.h"
+#include "hardware/pio.h"
+#include "hardware/pio_instructions.h"
 #include "hardware/pwm.h"
 #include "hardware/spi.h"
 #include "hardware/i2c.h"
@@ -147,13 +150,16 @@ enum {
     MM_PICO_OWNER_GPIO = 1,
     MM_PICO_OWNER_WATCHED = 2,
     MM_PICO_OWNER_ADC = 3,
-    MM_PICO_OWNER_PWM = 4
+    MM_PICO_OWNER_PWM = 4,
+    MM_PICO_OWNER_I2S = 5
 };
 static unsigned char mm_pico_pin_owner[NUM_BANK0_GPIOS];
 
+// A pad a peripheral holds: an analog claim, or an I2S link's.
 static int mm_pico_analog_holds(unsigned int pin) {
     return mm_pico_pin_owner[pin] == MM_PICO_OWNER_ADC ||
-           mm_pico_pin_owner[pin] == MM_PICO_OWNER_PWM;
+           mm_pico_pin_owner[pin] == MM_PICO_OWNER_PWM ||
+           mm_pico_pin_owner[pin] == MM_PICO_OWNER_I2S;
 }
 
 static void mm_pico_gpio_callback(unsigned int pin, uint32_t events) {
@@ -510,7 +516,8 @@ int mm_pico_mcu_adc_configure(unsigned int channel) {
         const unsigned int pin = (unsigned int)ADC_BASE_PIN + channel;
         if (!mm_pico_pin_valid(pin)) return MM_PICO_MCU_UNSUPPORTED;
         if (mm_pico_pin_owner[pin] == MM_PICO_OWNER_WATCHED ||
-            mm_pico_pin_owner[pin] == MM_PICO_OWNER_PWM)
+            mm_pico_pin_owner[pin] == MM_PICO_OWNER_PWM ||
+            mm_pico_pin_owner[pin] == MM_PICO_OWNER_I2S)
             return MM_PICO_MCU_BUSY;
         if (!mm_pico_adc_ready) {
             adc_init();
@@ -578,7 +585,8 @@ int mm_pico_mcu_pwm_configure(unsigned int pin, unsigned int top, unsigned int d
     if (top > 65534u || divider_x16 < 16u || divider_x16 > 4095u) return MM_PICO_MCU_BAD_ARGUMENT;
     if (mm_pico_pin_owner[pin] == MM_PICO_OWNER_PWM) return MM_PICO_MCU_OK;
     if (mm_pico_pin_owner[pin] == MM_PICO_OWNER_WATCHED ||
-        mm_pico_pin_owner[pin] == MM_PICO_OWNER_ADC)
+        mm_pico_pin_owner[pin] == MM_PICO_OWNER_ADC ||
+        mm_pico_pin_owner[pin] == MM_PICO_OWNER_I2S)
         return MM_PICO_MCU_BUSY;
     const unsigned int slice = (unsigned int)pwm_gpio_to_slice_num(pin);
     const unsigned int comparator = (unsigned int)pwm_gpio_to_channel(pin);
@@ -626,6 +634,520 @@ int mm_pico_mcu_pwm_release(unsigned int pin) {
 int mm_pico_mcu_ticks_ms(unsigned long* ticks) {
     if (ticks == NULL) return MM_PICO_MCU_BAD_ARGUMENT;
     *ticks = (unsigned long)to_ms_since_boot(get_absolute_time());
+    return MM_PICO_MCU_OK;
+}
+
+// I2S over PIO and DMA. One link, instance zero, the RP2350's and RP2040's
+// only form of I2S, since neither has the peripheral.
+//
+// A clock state machine is the link's master: it drives the bit clock and the
+// word clock by side-set -- which is why the word clock must be the GPIO after
+// the bit clock -- and shifts the transmit line out, two PIO cycles a bit.
+// It runs from configure to release, fed by a pair of DMA channels chained in
+// ping-pong from two blocks the adapter owns, so the clocks never stop and a
+// DAC deriving its own clocks from them never relocks. A receive state machine,
+// when the link has a receive line, samples it on each bit clock rising edge
+// after aligning to the word clock, and feeds a second ping-pong pair.
+//
+// Between the blocks and the caller sit two rings the adapter also owns, one
+// per direction, in PIO words: a frame is one word with sixteen-bit slots,
+// left slot high, and two words, left then right, with thirty-two-bit slots.
+// The DMA interrupt handler does the transport's bounded work and nothing
+// else: on each finished block it counts what the block carried, refills it
+// from the transmit ring -- with zeros for any frame the ring cannot supply,
+// counted as missed while the direction is started -- or empties it into the
+// receive ring, dropping and counting what does not fit, and re-arms the
+// channel. The calls below touch the rings only with interrupts masked, so
+// the handler and they never see a ring half-updated.
+
+#define MM_PICO_I2S_BLOCK_FRAMES 32u
+#define MM_PICO_I2S_RING_FRAMES 256u
+#define MM_PICO_I2S_MOST_WORDS 2u
+
+typedef struct {
+    uint32_t block[2][MM_PICO_I2S_BLOCK_FRAMES * MM_PICO_I2S_MOST_WORDS];
+    uint32_t ring[MM_PICO_I2S_RING_FRAMES * MM_PICO_I2S_MOST_WORDS];
+    unsigned int head;          // frames, next to write
+    unsigned int tail;          // frames, next to read
+    unsigned int count;         // frames in the ring
+    unsigned int block_real[2]; // transmit: ring frames in each block
+    unsigned int block_missed[2];
+    int channel[2];
+    int started;
+    uint64_t completed;
+    uint32_t missed;
+} mm_pico_i2s_lane_t;
+
+typedef struct {
+    int configured;
+    unsigned int bit_clock;
+    unsigned int word_clock;
+    int has_transmit;
+    unsigned int transmit;
+    int has_receive;
+    unsigned int receive;
+    unsigned long rate_hz;
+    unsigned int slot_bits;
+    unsigned int words_per_frame;
+    uint32_t divider_x256;
+    PIO clock_pio;
+    unsigned int clock_sm;
+    unsigned int clock_offset;
+    PIO receive_pio;
+    unsigned int receive_sm;
+    unsigned int receive_offset;
+    uint16_t clock_instructions[8];
+    uint16_t receive_instructions[7];
+    pio_program_t clock_program;
+    pio_program_t receive_program;
+    mm_pico_i2s_lane_t out;
+    mm_pico_i2s_lane_t in;
+} mm_pico_i2s_link_t;
+
+static mm_pico_i2s_link_t mm_pico_i2s;
+static int mm_pico_i2s_handler_ready;
+
+static unsigned int mm_pico_i2s_block_words(void) {
+    return MM_PICO_I2S_BLOCK_FRAMES * mm_pico_i2s.words_per_frame;
+}
+
+// The clock program, for a slot of slot_bits: each slot is slot_bits - 1 bits
+// in its own half of the word clock and its last bit in the first bit clock of
+// the other half, which is I2S's one-bit delay. Left is the low half.
+static void mm_pico_i2s_build_clock_program(unsigned int slot_bits) {
+    const unsigned int count = slot_bits - 2u;
+    uint16_t* p = mm_pico_i2s.clock_instructions;
+    p[0] = (uint16_t)(pio_encode_out(pio_pins, 1) | pio_encode_sideset(2, 0u));
+    p[1] = (uint16_t)(pio_encode_jmp_x_dec(0) | pio_encode_sideset(2, 1u));
+    p[2] = (uint16_t)(pio_encode_out(pio_pins, 1) | pio_encode_sideset(2, 2u));
+    p[3] = (uint16_t)(pio_encode_set(pio_x, count) | pio_encode_sideset(2, 3u));
+    p[4] = (uint16_t)(pio_encode_out(pio_pins, 1) | pio_encode_sideset(2, 2u));
+    p[5] = (uint16_t)(pio_encode_jmp_x_dec(4) | pio_encode_sideset(2, 3u));
+    p[6] = (uint16_t)(pio_encode_out(pio_pins, 1) | pio_encode_sideset(2, 0u));
+    p[7] = (uint16_t)(pio_encode_set(pio_x, count) | pio_encode_sideset(2, 1u));
+    mm_pico_i2s.clock_program.instructions = mm_pico_i2s.clock_instructions;
+    mm_pico_i2s.clock_program.length = 8;
+    mm_pico_i2s.clock_program.origin = -1;
+}
+
+// The receive program: find the start of a left slot -- the word clock
+// falling -- skip the right slot's delayed last bit, then sample on every bit
+// clock rising edge. Autopush packs frames exactly as the clock program
+// unpacks them.
+static void mm_pico_i2s_build_receive_program(void) {
+    const unsigned int bit_clock = mm_pico_i2s.bit_clock;
+    const unsigned int word_clock = mm_pico_i2s.word_clock;
+    uint16_t* p = mm_pico_i2s.receive_instructions;
+    p[0] = (uint16_t)pio_encode_wait_gpio(true, word_clock);
+    p[1] = (uint16_t)pio_encode_wait_gpio(false, word_clock);
+    p[2] = (uint16_t)pio_encode_wait_gpio(false, bit_clock);
+    p[3] = (uint16_t)pio_encode_wait_gpio(true, bit_clock);
+    p[4] = (uint16_t)pio_encode_wait_gpio(false, bit_clock);
+    p[5] = (uint16_t)pio_encode_wait_gpio(true, bit_clock);
+    p[6] = (uint16_t)pio_encode_in(pio_pins, 1);
+    mm_pico_i2s.receive_program.instructions = mm_pico_i2s.receive_instructions;
+    mm_pico_i2s.receive_program.length = 7;
+    mm_pico_i2s.receive_program.origin = -1;
+}
+
+// One transmit block from the ring, zeros for what it lacks.
+static void mm_pico_i2s_fill(unsigned int b) {
+    mm_pico_i2s_lane_t* lane = &mm_pico_i2s.out;
+    const unsigned int wpf = mm_pico_i2s.words_per_frame;
+    unsigned int real = 0;
+    for (unsigned int f = 0; f < MM_PICO_I2S_BLOCK_FRAMES; ++f) {
+        uint32_t* word = &lane->block[b][f * wpf];
+        if (lane->started && lane->count > 0) {
+            const uint32_t* from = &lane->ring[lane->tail * wpf];
+            for (unsigned int w = 0; w < wpf; ++w) word[w] = from[w];
+            lane->tail = (lane->tail + 1u) % MM_PICO_I2S_RING_FRAMES;
+            lane->count--;
+            real++;
+        } else {
+            for (unsigned int w = 0; w < wpf; ++w) word[w] = 0;
+        }
+    }
+    lane->block_real[b] = real;
+    lane->block_missed[b] = lane->started ? MM_PICO_I2S_BLOCK_FRAMES - real : 0u;
+}
+
+// One receive block into the ring, dropping and counting what does not fit.
+static void mm_pico_i2s_drain(unsigned int b) {
+    mm_pico_i2s_lane_t* lane = &mm_pico_i2s.in;
+    if (!lane->started) return;
+    const unsigned int wpf = mm_pico_i2s.words_per_frame;
+    for (unsigned int f = 0; f < MM_PICO_I2S_BLOCK_FRAMES; ++f) {
+        lane->completed++;
+        if (lane->count == MM_PICO_I2S_RING_FRAMES) {
+            lane->missed++;
+            continue;
+        }
+        uint32_t* to = &lane->ring[lane->head * wpf];
+        const uint32_t* word = &lane->block[b][f * wpf];
+        for (unsigned int w = 0; w < wpf; ++w) to[w] = word[w];
+        lane->head = (lane->head + 1u) % MM_PICO_I2S_RING_FRAMES;
+        lane->count++;
+    }
+}
+
+static void mm_pico_i2s_dma_handler(void) {
+    if (!mm_pico_i2s.configured) return;
+    for (unsigned int b = 0; b < 2; ++b) {
+        const int out_channel = mm_pico_i2s.out.channel[b];
+        if (out_channel >= 0 && dma_channel_get_irq0_status((uint)out_channel)) {
+            dma_channel_acknowledge_irq0((uint)out_channel);
+            mm_pico_i2s_lane_t* lane = &mm_pico_i2s.out;
+            lane->completed += lane->block_real[b];
+            lane->missed += lane->block_missed[b];
+            mm_pico_i2s_fill(b);
+            dma_channel_set_read_addr((uint)out_channel, lane->block[b], false);
+        }
+        const int in_channel = mm_pico_i2s.in.channel[b];
+        if (in_channel >= 0 && dma_channel_get_irq0_status((uint)in_channel)) {
+            dma_channel_acknowledge_irq0((uint)in_channel);
+            mm_pico_i2s_drain(b);
+            dma_channel_set_write_addr((uint)in_channel, mm_pico_i2s.in.block[b], false);
+        }
+    }
+}
+
+// Two channels, each chained to the other, each raising the interrupt when its
+// block is done. Neither is triggered here.
+static int mm_pico_i2s_claim_pair(mm_pico_i2s_lane_t* lane, int transmit, PIO pio,
+                                  unsigned int sm) {
+    lane->channel[0] = dma_claim_unused_channel(false);
+    lane->channel[1] = dma_claim_unused_channel(false);
+    if (lane->channel[0] < 0 || lane->channel[1] < 0) return 0;
+    const unsigned int words = mm_pico_i2s_block_words();
+    for (unsigned int b = 0; b < 2; ++b) {
+        const uint channel = (uint)lane->channel[b];
+        dma_channel_config config = dma_channel_get_default_config(channel);
+        channel_config_set_transfer_data_size(&config, DMA_SIZE_32);
+        channel_config_set_read_increment(&config, transmit != 0);
+        channel_config_set_write_increment(&config, transmit == 0);
+        channel_config_set_dreq(&config, pio_get_dreq(pio, sm, transmit != 0));
+        channel_config_set_chain_to(&config, (uint)lane->channel[1u - b]);
+        if (transmit)
+            dma_channel_configure(channel, &config, &pio->txf[sm], lane->block[b], words, false);
+        else
+            dma_channel_configure(channel, &config, lane->block[b], &pio->rxf[sm], words, false);
+        dma_channel_set_irq0_enabled(channel, true);
+    }
+    return 1;
+}
+
+// Chained channels are unchained and disabled before they are aborted, so
+// that neither can re-trigger the other mid-abort.
+static void mm_pico_i2s_free_pair(mm_pico_i2s_lane_t* lane) {
+    for (unsigned int b = 0; b < 2; ++b) {
+        if (lane->channel[b] < 0) continue;
+        const uint channel = (uint)lane->channel[b];
+        dma_channel_set_irq0_enabled(channel, false);
+        hw_clear_bits(&dma_hw->ch[channel].al1_ctrl, DMA_CH0_CTRL_TRIG_EN_BITS);
+    }
+    for (unsigned int b = 0; b < 2; ++b) {
+        if (lane->channel[b] < 0) continue;
+        const uint channel = (uint)lane->channel[b];
+        dma_channel_abort(channel);
+        dma_channel_acknowledge_irq0(channel);
+        dma_channel_unclaim(channel);
+        lane->channel[b] = -1;
+    }
+}
+
+static int mm_pico_i2s_same(unsigned int bit_clock, unsigned int word_clock, int has_transmit,
+                            unsigned int transmit, int has_receive, unsigned int receive,
+                            unsigned long rate_hz, unsigned int slot_bits) {
+    const mm_pico_i2s_link_t* l = &mm_pico_i2s;
+    return l->bit_clock == bit_clock && l->word_clock == word_clock &&
+           l->has_transmit == has_transmit && (!has_transmit || l->transmit == transmit) &&
+           l->has_receive == has_receive && (!has_receive || l->receive == receive) &&
+           l->rate_hz == rate_hz && l->slot_bits == slot_bits;
+}
+
+static void mm_pico_i2s_release_all(void) {
+    mm_pico_i2s_link_t* l = &mm_pico_i2s;
+    if (l->clock_pio != NULL) pio_sm_set_enabled(l->clock_pio, l->clock_sm, false);
+    if (l->receive_pio != NULL) pio_sm_set_enabled(l->receive_pio, l->receive_sm, false);
+    mm_pico_i2s_free_pair(&l->out);
+    mm_pico_i2s_free_pair(&l->in);
+    if (l->clock_pio != NULL)
+        pio_remove_program_and_unclaim_sm(&l->clock_program, l->clock_pio, l->clock_sm,
+                                          l->clock_offset);
+    if (l->receive_pio != NULL)
+        pio_remove_program_and_unclaim_sm(&l->receive_program, l->receive_pio,
+                                          l->receive_sm, l->receive_offset);
+    const unsigned int pins[4] = {l->bit_clock, l->word_clock, l->transmit, l->receive};
+    const int used[4] = {1, 1, l->has_transmit, l->has_receive};
+    for (unsigned int i = 0; i < 4; ++i) {
+        if (!used[i] || !l->configured) continue;
+        gpio_deinit(pins[i]);
+        mm_pico_pin_owner[pins[i]] = MM_PICO_OWNER_NONE;
+    }
+    l->configured = 0;
+    l->clock_pio = NULL;
+    l->receive_pio = NULL;
+}
+
+int mm_pico_mcu_i2s_configure(unsigned int instance, unsigned int bit_clock,
+                              unsigned int word_clock, int has_transmit, unsigned int transmit,
+                              int has_receive, unsigned int receive, unsigned long rate_hz,
+                              unsigned int slot_bits) {
+    if (instance != 0) return MM_PICO_MCU_UNSUPPORTED;
+    if (rate_hz == 0 || (slot_bits != 16 && slot_bits != 32) ||
+        (!has_transmit && !has_receive))
+        return MM_PICO_MCU_BAD_ARGUMENT;
+    const unsigned int pins[4] = {bit_clock, word_clock, transmit, receive};
+    const int used[4] = {1, 1, has_transmit, has_receive};
+    for (unsigned int i = 0; i < 4; ++i) {
+        if (!used[i]) continue;
+        if (!mm_pico_pin_valid(pins[i]) || pins[i] > 31u) return MM_PICO_MCU_BAD_ARGUMENT;
+        for (unsigned int j = 0; j < i; ++j)
+            if (used[j] && pins[j] == pins[i]) return MM_PICO_MCU_BAD_ARGUMENT;
+    }
+    // Side-set drives the two clocks from consecutive pins.
+    if (word_clock != bit_clock + 1u) return MM_PICO_MCU_BAD_ARGUMENT;
+    if (mm_pico_i2s.configured)
+        return mm_pico_i2s_same(bit_clock, word_clock, has_transmit, transmit, has_receive,
+                                receive, rate_hz, slot_bits)
+                   ? MM_PICO_MCU_OK
+                   : MM_PICO_MCU_BUSY;
+    for (unsigned int i = 0; i < 4; ++i)
+        if (used[i] && (mm_pico_gpio_watched[pins[i]] || mm_pico_analog_holds(pins[i])))
+            return MM_PICO_MCU_BUSY;
+
+    // Two PIO cycles a bit, two slots a frame. The divider has eight fraction
+    // bits and must be at least one.
+    const uint64_t cycles_per_frame = 4ull * slot_bits;
+    const uint64_t clock = (uint64_t)clock_get_hz(clk_sys);
+    const uint64_t divider_x256 =
+        (clock * 256ull + rate_hz * cycles_per_frame / 2ull) / (rate_hz * cycles_per_frame);
+    if (divider_x256 < 256ull || divider_x256 > 65535ull * 256ull + 255ull)
+        return MM_PICO_MCU_BAD_ARGUMENT;
+
+    mm_pico_i2s_link_t* l = &mm_pico_i2s;
+    l->bit_clock = bit_clock;
+    l->word_clock = word_clock;
+    l->has_transmit = has_transmit;
+    l->transmit = transmit;
+    l->has_receive = has_receive;
+    l->receive = receive;
+    l->rate_hz = rate_hz;
+    l->slot_bits = slot_bits;
+    l->words_per_frame = slot_bits == 16 ? 1u : 2u;
+    l->divider_x256 = (uint32_t)divider_x256;
+    l->out.channel[0] = l->out.channel[1] = -1;
+    l->in.channel[0] = l->in.channel[1] = -1;
+    l->out.started = l->in.started = 0;
+    l->out.head = l->out.tail = l->out.count = 0;
+    l->in.head = l->in.tail = l->in.count = 0;
+    l->clock_pio = NULL;
+    l->receive_pio = NULL;
+
+    mm_pico_i2s_build_clock_program(slot_bits);
+    PIO pio;
+    uint sm;
+    uint offset;
+    if (!pio_claim_free_sm_and_add_program(&l->clock_program, &pio, &sm, &offset))
+        return MM_PICO_MCU_BUSY;
+    l->clock_pio = pio;
+    l->clock_sm = sm;
+    l->clock_offset = offset;
+    if (has_receive) {
+        mm_pico_i2s_build_receive_program();
+        if (!pio_claim_free_sm_and_add_program(&l->receive_program, &pio, &sm, &offset)) {
+            pio_remove_program_and_unclaim_sm(&l->clock_program, l->clock_pio, l->clock_sm,
+                                              l->clock_offset);
+            l->clock_pio = NULL;
+            return MM_PICO_MCU_BUSY;
+        }
+        l->receive_pio = pio;
+        l->receive_sm = sm;
+        l->receive_offset = offset;
+    }
+    if (!mm_pico_i2s_claim_pair(&l->out, 1, l->clock_pio, l->clock_sm) ||
+        (has_receive && !mm_pico_i2s_claim_pair(&l->in, 0, l->receive_pio, l->receive_sm))) {
+        l->configured = 0;
+        mm_pico_i2s_release_all();
+        return MM_PICO_MCU_BUSY;
+    }
+
+    // The clock state machine: side-set on the clocks, out on the transmit
+    // line when there is one, autopull a word at a time, most significant bit
+    // first, the transmit FIFO doubled.
+    pio_sm_config c = pio_get_default_sm_config();
+    sm_config_set_wrap(&c, l->clock_offset, l->clock_offset + 7u);
+    sm_config_set_sideset(&c, 2, false, false);
+    sm_config_set_sideset_pins(&c, bit_clock);
+    if (has_transmit)
+        sm_config_set_out_pins(&c, transmit, 1);
+    else
+        sm_config_set_out_pins(&c, bit_clock, 0);
+    sm_config_set_out_shift(&c, false, true, 32);
+    sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_TX);
+    sm_config_set_clkdiv_int_frac8(&c, (uint32_t)(divider_x256 >> 8), (uint8_t)(divider_x256 & 255u));
+    pio_gpio_init(l->clock_pio, bit_clock);
+    pio_gpio_init(l->clock_pio, word_clock);
+    pio_sm_set_consecutive_pindirs(l->clock_pio, l->clock_sm, bit_clock, 2, true);
+    if (has_transmit) {
+        pio_gpio_init(l->clock_pio, transmit);
+        pio_sm_set_consecutive_pindirs(l->clock_pio, l->clock_sm, transmit, 1, true);
+    }
+    pio_sm_init(l->clock_pio, l->clock_sm, l->clock_offset + 7u, &c);
+
+    if (has_receive) {
+        pio_sm_config r = pio_get_default_sm_config();
+        sm_config_set_wrap(&r, l->receive_offset + 4u, l->receive_offset + 6u);
+        sm_config_set_in_pins(&r, receive);
+        sm_config_set_in_shift(&r, false, true, 32);
+        sm_config_set_fifo_join(&r, PIO_FIFO_JOIN_RX);
+        pio_gpio_init(l->receive_pio, receive);
+        pio_sm_set_consecutive_pindirs(l->receive_pio, l->receive_sm, receive, 1, false);
+        pio_sm_init(l->receive_pio, l->receive_sm, l->receive_offset, &r);
+    }
+
+    for (unsigned int i = 0; i < 4; ++i)
+        if (used[i]) mm_pico_pin_owner[pins[i]] = MM_PICO_OWNER_I2S;
+
+    const uint32_t saved = save_and_disable_interrupts();
+    l->configured = 1;
+    mm_pico_i2s_fill(0);
+    mm_pico_i2s_fill(1);
+    l->out.block_real[0] = l->out.block_real[1] = 0;
+    l->out.block_missed[0] = l->out.block_missed[1] = 0;
+    restore_interrupts(saved);
+    if (!mm_pico_i2s_handler_ready) {
+        irq_add_shared_handler(DMA_IRQ_0, mm_pico_i2s_dma_handler,
+                               PICO_SHARED_IRQ_HANDLER_DEFAULT_ORDER_PRIORITY);
+        irq_set_enabled(DMA_IRQ_0, true);
+        mm_pico_i2s_handler_ready = 1;
+    }
+    // The receiver first, so it is waiting for the word clock when the clock
+    // state machine starts it; the transmit DMA before the clock state
+    // machine, so its FIFO is full when the first bit is shifted.
+    if (has_receive) {
+        dma_channel_start((uint)l->in.channel[0]);
+        pio_sm_set_enabled(l->receive_pio, l->receive_sm, true);
+    }
+    dma_channel_start((uint)l->out.channel[0]);
+    pio_sm_set_enabled(l->clock_pio, l->clock_sm, true);
+    return MM_PICO_MCU_OK;
+}
+
+// hertz = clk_sys * 256 / (divider_x256 * cycles per frame).
+int mm_pico_mcu_i2s_rate(unsigned int instance, unsigned long long* numerator,
+                         unsigned long long* denominator) {
+    if (instance != 0) return MM_PICO_MCU_UNSUPPORTED;
+    if (!mm_pico_i2s.configured) return MM_PICO_MCU_BAD_ARGUMENT;
+    if (numerator == NULL || denominator == NULL) return MM_PICO_MCU_BAD_ARGUMENT;
+    *numerator = (unsigned long long)clock_get_hz(clk_sys) * 256ull;
+    *denominator = (unsigned long long)mm_pico_i2s.divider_x256 * 4ull * mm_pico_i2s.slot_bits;
+    return MM_PICO_MCU_OK;
+}
+
+static mm_pico_i2s_lane_t* mm_pico_i2s_lane(unsigned int instance, int receive) {
+    if (instance != 0 || !mm_pico_i2s.configured) return NULL;
+    if (receive) return mm_pico_i2s.has_receive ? &mm_pico_i2s.in : NULL;
+    return mm_pico_i2s.has_transmit ? &mm_pico_i2s.out : NULL;
+}
+
+int mm_pico_mcu_i2s_start(unsigned int instance, int receive) {
+    if (instance != 0) return MM_PICO_MCU_UNSUPPORTED;
+    mm_pico_i2s_lane_t* lane = mm_pico_i2s_lane(instance, receive);
+    if (lane == NULL) return MM_PICO_MCU_BAD_ARGUMENT;
+    const uint32_t saved = save_and_disable_interrupts();
+    if (receive) lane->head = lane->tail = lane->count = 0;
+    lane->completed = 0;
+    lane->missed = 0;
+    lane->block_real[0] = lane->block_real[1] = 0;
+    lane->block_missed[0] = lane->block_missed[1] = 0;
+    lane->started = 1;
+    restore_interrupts(saved);
+    return MM_PICO_MCU_OK;
+}
+
+// Frames into the transmit ring, as many as fit.
+int mm_pico_mcu_i2s_write(unsigned int instance, const uint32_t* words, size_t frames,
+                          size_t* accepted) {
+    if (instance != 0) return MM_PICO_MCU_UNSUPPORTED;
+    mm_pico_i2s_lane_t* lane = mm_pico_i2s_lane(instance, 0);
+    if (lane == NULL || accepted == NULL || (words == NULL && frames != 0))
+        return MM_PICO_MCU_BAD_ARGUMENT;
+    const unsigned int wpf = mm_pico_i2s.words_per_frame;
+    const uint32_t saved = save_and_disable_interrupts();
+    size_t moved = 0;
+    while (moved < frames && lane->count < MM_PICO_I2S_RING_FRAMES) {
+        uint32_t* to = &lane->ring[lane->head * wpf];
+        for (unsigned int w = 0; w < wpf; ++w) to[w] = words[moved * wpf + w];
+        lane->head = (lane->head + 1u) % MM_PICO_I2S_RING_FRAMES;
+        lane->count++;
+        moved++;
+    }
+    restore_interrupts(saved);
+    *accepted = moved;
+    return MM_PICO_MCU_OK;
+}
+
+// Frames out of the receive ring, as many as there are and fit.
+int mm_pico_mcu_i2s_read(unsigned int instance, uint32_t* words, size_t frames,
+                         size_t* count) {
+    if (instance != 0) return MM_PICO_MCU_UNSUPPORTED;
+    mm_pico_i2s_lane_t* lane = mm_pico_i2s_lane(instance, 1);
+    if (lane == NULL || count == NULL || (words == NULL && frames != 0))
+        return MM_PICO_MCU_BAD_ARGUMENT;
+    const unsigned int wpf = mm_pico_i2s.words_per_frame;
+    const uint32_t saved = save_and_disable_interrupts();
+    size_t moved = 0;
+    while (moved < frames && lane->count > 0) {
+        const uint32_t* from = &lane->ring[lane->tail * wpf];
+        for (unsigned int w = 0; w < wpf; ++w) words[moved * wpf + w] = from[w];
+        lane->tail = (lane->tail + 1u) % MM_PICO_I2S_RING_FRAMES;
+        lane->count--;
+        moved++;
+    }
+    restore_interrupts(saved);
+    *count = moved;
+    return MM_PICO_MCU_OK;
+}
+
+int mm_pico_mcu_i2s_progress(unsigned int instance, int receive,
+                             unsigned long long* completed, size_t* queued,
+                             unsigned long* missed) {
+    if (instance != 0) return MM_PICO_MCU_UNSUPPORTED;
+    mm_pico_i2s_lane_t* lane = mm_pico_i2s_lane(instance, receive);
+    if (lane == NULL || completed == NULL || queued == NULL || missed == NULL)
+        return MM_PICO_MCU_BAD_ARGUMENT;
+    const uint32_t saved = save_and_disable_interrupts();
+    *completed = lane->completed;
+    *queued = lane->count + (receive ? 0u : lane->block_real[0] + lane->block_real[1]);
+    *missed = lane->missed;
+    restore_interrupts(saved);
+    return MM_PICO_MCU_OK;
+}
+
+// The ring is emptied; a block already handed to the DMA still goes out,
+// which is at most two blocks, and the transmitter is on zeros after that.
+int mm_pico_mcu_i2s_stop(unsigned int instance, int receive) {
+    if (instance != 0) return MM_PICO_MCU_UNSUPPORTED;
+    mm_pico_i2s_lane_t* lane = mm_pico_i2s_lane(instance, receive);
+    if (lane == NULL) return MM_PICO_MCU_BAD_ARGUMENT;
+    const uint32_t saved = save_and_disable_interrupts();
+    lane->started = 0;
+    lane->head = lane->tail = lane->count = 0;
+    lane->block_real[0] = lane->block_real[1] = 0;
+    lane->block_missed[0] = lane->block_missed[1] = 0;
+    restore_interrupts(saved);
+    return MM_PICO_MCU_OK;
+}
+
+int mm_pico_mcu_i2s_release(unsigned int instance) {
+    if (instance != 0) return MM_PICO_MCU_UNSUPPORTED;
+    if (!mm_pico_i2s.configured) return MM_PICO_MCU_OK;
+    const uint32_t saved = save_and_disable_interrupts();
+    mm_pico_i2s.out.started = 0;
+    mm_pico_i2s.in.started = 0;
+    restore_interrupts(saved);
+    mm_pico_i2s_release_all();
     return MM_PICO_MCU_OK;
 }
 

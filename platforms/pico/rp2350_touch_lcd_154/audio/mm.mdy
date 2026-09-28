@@ -38,6 +38,5 @@ half-configured codec. The Microphone is the ES8311 Input, reading the left
 slot, where the codec's default ADCDAT selection puts the ADC in both slots,
 at the PGA's thirty decibels.
 
-It answers Unsupported from configure on every lane today, because no Pico
-platform provider implements mm.mcu's I2S yet. initialize reaches the codec
-over I2C and succeeds on the board. None of this is qualified on hardware.
+The link runs over the Pico platform's PIO I2S. None of this is qualified on
+hardware.

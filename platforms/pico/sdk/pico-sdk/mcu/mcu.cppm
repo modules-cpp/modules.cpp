@@ -3,6 +3,7 @@
 module;
 
 #include "mcu-cxx.h"
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -260,6 +261,148 @@ public:
         return status;
     }
 
+    // I2S: the adapter's PIO link, instance zero. The word width is checked
+    // here against the configured slots, and frames are packed into the
+    // adapter's PIO words: sixteen-bit slots as one word, left in the high
+    // half; thirty-two-bit slots as two, left then right.
+    [[nodiscard]] mm::mcu::Status i2s_configure(
+        const mm::mcu::I2sConfiguration& configuration) override {
+        const auto status = from(mm_pico_mcu_i2s_configure(
+            configuration.instance, configuration.bit_clock_gpio,
+            configuration.word_clock_gpio, configuration.transmit_gpio.has_value() ? 1 : 0,
+            configuration.transmit_gpio.value_or(0),
+            configuration.receive_gpio.has_value() ? 1 : 0,
+            configuration.receive_gpio.value_or(0), configuration.rate_hz,
+            configuration.slot_bits));
+        if (status == mm::mcu::Status::Ok) i2s_slot_bits = configuration.slot_bits;
+        return status;
+    }
+
+    [[nodiscard]] mm::mcu::Status i2s_rate(unsigned int instance,
+                                           mm::mcu::Frequency& actual) override {
+        unsigned long long numerator = 0;
+        unsigned long long denominator = 1;
+        const auto status = from(mm_pico_mcu_i2s_rate(instance, &numerator, &denominator));
+        if (status == mm::mcu::Status::Ok) actual = {numerator, denominator};
+        return status;
+    }
+
+    [[nodiscard]] mm::mcu::Status i2s_start(unsigned int instance,
+                                            mm::mcu::I2sDirection direction) override {
+        return from(mm_pico_mcu_i2s_start(instance, receiving(direction)));
+    }
+
+    [[nodiscard]] mm::mcu::Status i2s_write(unsigned int instance,
+                                            std::span<const std::int16_t> words,
+                                            std::size_t& accepted) override {
+        if (i2s_slot_bits != 16) return mm::mcu::Status::BadArgument;
+        std::uint32_t packed[i2s_chunk];
+        std::size_t total = 0;
+        const auto frames = words.size() / 2;
+        while (total < frames) {
+            const auto chunk = std::min(frames - total, i2s_chunk);
+            for (std::size_t i = 0; i < chunk; ++i) {
+                const auto left = static_cast<std::uint16_t>(words[2 * (total + i)]);
+                const auto right = static_cast<std::uint16_t>(words[2 * (total + i) + 1]);
+                packed[i] = (static_cast<std::uint32_t>(left) << 16) | right;
+            }
+            std::size_t moved = 0;
+            const auto status = from(mm_pico_mcu_i2s_write(instance, packed, chunk, &moved));
+            if (status != mm::mcu::Status::Ok) return status;
+            total += moved;
+            if (moved < chunk) break;
+        }
+        accepted = total;
+        return mm::mcu::Status::Ok;
+    }
+
+    [[nodiscard]] mm::mcu::Status i2s_write(unsigned int instance,
+                                            std::span<const std::int32_t> words,
+                                            std::size_t& accepted) override {
+        if (i2s_slot_bits != 32) return mm::mcu::Status::BadArgument;
+        std::uint32_t packed[2 * i2s_chunk];
+        std::size_t total = 0;
+        const auto frames = words.size() / 2;
+        while (total < frames) {
+            const auto chunk = std::min(frames - total, i2s_chunk);
+            for (std::size_t i = 0; i < 2 * chunk; ++i)
+                packed[i] = static_cast<std::uint32_t>(words[2 * total + i]);
+            std::size_t moved = 0;
+            const auto status = from(mm_pico_mcu_i2s_write(instance, packed, chunk, &moved));
+            if (status != mm::mcu::Status::Ok) return status;
+            total += moved;
+            if (moved < chunk) break;
+        }
+        accepted = total;
+        return mm::mcu::Status::Ok;
+    }
+
+    [[nodiscard]] mm::mcu::Status i2s_read(unsigned int instance, std::span<std::int16_t> words,
+                                           std::size_t& count) override {
+        if (i2s_slot_bits != 16) return mm::mcu::Status::BadArgument;
+        std::uint32_t packed[i2s_chunk];
+        std::size_t total = 0;
+        const auto frames = words.size() / 2;
+        while (total < frames) {
+            const auto chunk = std::min(frames - total, i2s_chunk);
+            std::size_t moved = 0;
+            const auto status = from(mm_pico_mcu_i2s_read(instance, packed, chunk, &moved));
+            if (status != mm::mcu::Status::Ok) return status;
+            for (std::size_t i = 0; i < moved; ++i) {
+                words[2 * (total + i)] = static_cast<std::int16_t>(packed[i] >> 16);
+                words[2 * (total + i) + 1] = static_cast<std::int16_t>(packed[i] & 0xffffu);
+            }
+            total += moved;
+            if (moved < chunk) break;
+        }
+        count = total;
+        return mm::mcu::Status::Ok;
+    }
+
+    [[nodiscard]] mm::mcu::Status i2s_read(unsigned int instance, std::span<std::int32_t> words,
+                                           std::size_t& count) override {
+        if (i2s_slot_bits != 32) return mm::mcu::Status::BadArgument;
+        std::uint32_t packed[2 * i2s_chunk];
+        std::size_t total = 0;
+        const auto frames = words.size() / 2;
+        while (total < frames) {
+            const auto chunk = std::min(frames - total, i2s_chunk);
+            std::size_t moved = 0;
+            const auto status = from(mm_pico_mcu_i2s_read(instance, packed, chunk, &moved));
+            if (status != mm::mcu::Status::Ok) return status;
+            for (std::size_t i = 0; i < 2 * moved; ++i)
+                words[2 * total + i] = static_cast<std::int32_t>(packed[i]);
+            total += moved;
+            if (moved < chunk) break;
+        }
+        count = total;
+        return mm::mcu::Status::Ok;
+    }
+
+    [[nodiscard]] mm::mcu::Status i2s_progress(unsigned int instance,
+                                               mm::mcu::I2sDirection direction,
+                                               mm::mcu::Progress& progress) override {
+        unsigned long long completed = 0;
+        std::size_t queued = 0;
+        unsigned long missed = 0;
+        const auto status = from(mm_pico_mcu_i2s_progress(instance, receiving(direction),
+                                                          &completed, &queued, &missed));
+        if (status == mm::mcu::Status::Ok)
+            progress = {completed, queued, static_cast<std::uint32_t>(missed)};
+        return status;
+    }
+
+    [[nodiscard]] mm::mcu::Status i2s_stop(unsigned int instance,
+                                           mm::mcu::I2sDirection direction) override {
+        return from(mm_pico_mcu_i2s_stop(instance, receiving(direction)));
+    }
+
+    [[nodiscard]] mm::mcu::Status i2s_release(unsigned int instance) override {
+        const auto status = from(mm_pico_mcu_i2s_release(instance));
+        if (status == mm::mcu::Status::Ok) i2s_slot_bits = 0;
+        return status;
+    }
+
     // The SDK's mask on the calling core, which is what excludes the GPIO
     // latch's callback and every other handler this platform installs.
     [[nodiscard]] mm::mcu::Status interrupts_disable(std::uint32_t& saved) override {
@@ -367,6 +510,17 @@ public:
         if (slice.members > 0 && --slice.members == 0) slice = {};
         return mm::mcu::Status::Ok;
     }
+
+private:
+    // Frames packed per adapter call.
+    static constexpr std::size_t i2s_chunk = 32;
+
+    [[nodiscard]] static int receiving(mm::mcu::I2sDirection direction) {
+        return direction == mm::mcu::I2sDirection::Receive ? 1 : 0;
+    }
+
+    // The configured slot width, zero while the link is not configured.
+    unsigned int i2s_slot_bits = 0;
 };
 
 PicoPlatform pico_platform;

@@ -54,6 +54,8 @@ target_link_libraries(mm_external
   pico_stdlib
   pico_stdio_usb
   hardware_adc
+  hardware_dma
+  hardware_pio
   hardware_pwm
   hardware_spi
   hardware_i2c

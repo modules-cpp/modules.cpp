@@ -242,12 +242,12 @@ What changes from model 2:
 
 - A transport's handler does bounded work for its transport. It MAY
   acknowledge the hardware, count, re-arm a DMA channel on the next half of
-  the provider's buffer, and switch the transfer to a buffer of silence
-  when the program has given nothing, or drop a received sample when the
-  buffer is full. That is all it MAY do: it touches no memory but the
-  provider's own records and buffers and no peripheral but the transport's,
-  its time does not depend on anything the program did, and every rule
-  model 2 states for a handler still holds.
+  the provider's buffer, copy a fixed block between that buffer and another
+  the provider owns, fill with silence what the program has not given, or
+  drop a received sample when the buffer is full. That is all it MAY do: it
+  touches no memory but the provider's own records and buffers and no
+  peripheral but the transport's, its time does not depend on anything the
+  program did, and every rule model 2 states for a handler still holds.
 - Silence and loss are the transport's, not the program's. A transmitter
   with nothing queued outputs silence by itself and counts the period; a
   receiver with nowhere to put a sample drops it and counts it. A program

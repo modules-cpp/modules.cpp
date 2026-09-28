@@ -287,8 +287,7 @@ from the board.
   the I2S master from a 6.144 MHz MCLK on GP3; this provider makes it the slave
   the mm.mcu I2S facility drives, with its master clock from the bit clock, and
   holds GP3 low. apps/audio-smoke plays a tone while recording through
-  whichever devices a board registers. Both answer Unsupported from configure
-  until a Pico provider implements mm.mcu I2S.
+  whichever devices a board registers, over the Pico platform's PIO I2S.
 - The Linux SDKs bind platform.linux.audio, a Microphone and a Speaker over the
   ALSA kernel interface with no library, their device paths read from the
   device map.
