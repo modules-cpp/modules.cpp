@@ -44,3 +44,11 @@ if(MM_BOARD STREQUAL "rp2350_lcd_154" OR
     PICO_DEFAULT_UART_TX_PIN=26
     PICO_DEFAULT_UART_RX_PIN=27)
 endif()
+
+# The Waveshare RP2350-Touch-LCD-2.8, per its schematic: ADC_AVDD is the 3V3
+# rail, and GP25, pico2's LED, is the battery key, so there is no LED. Its
+# GP0 and GP1 are the exposed UART, so pico2's default UART stands.
+if(MM_BOARD STREQUAL "rp2350_touch_lcd_28")
+  set(MM_ADC_REFERENCE_MV 3300)
+  set(MM_BOARD_HAS_LED 0)
+endif()

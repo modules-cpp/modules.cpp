@@ -272,10 +272,13 @@ from the board.
   platform.rp2350_touch_lcd_28.audio, in platforms/pico. Its schematic shows a
   PCM5101A DAC, strapped unmuted and for I2S framing with its system-clock pin
   grounded, feeding an always-on APA2068 amplifier, with BCK on GP2, LRCK on
-  GP3, and DIN on GP4. Its Speaker configures sixteen-bit I2S slots at
-  initialize, writes each sample to both slots, and never stops the clocks
-  before release. Its Microphone answers Unsupported: there is none, and GP26
-  and GP27 are the battery's.
+  GP3, and DIN on GP4. Its Speaker is an Out straight over mm.mcu I2S, since
+  the DAC has no control port. It configures sixteen-bit slots at the
+  nearest of 32, 44.1, 48, 96, and 192 kHz -- the rates the PCM5101A
+  datasheet lists for its PLL from a bit clock of 32 times the rate -- writes
+  each sample to both slots, and keeps the clocks running across stop and
+  start so the DAC stays locked. Its Microphone answers Unsupported: there is
+  none, and GP26 and GP27 are the battery's.
 - The Waveshare RP2350 LCD 1.54 family binds
   platform.rp2350_touch_lcd_154.audio, in platforms/pico: rp2350_lcd_154 binds
   it and rp2350_touch_lcd_154 inherits it. Its ES8311 is a full-duplex codec
@@ -390,8 +393,5 @@ holds, which would turn silent corruption into a diagnosis for one atomic load
 per call. Whether a pause that keeps what is below the Stream is worth adding
 to the transports. Whether a paced ADC should permit interleaved single reads,
 which would let a board read its battery while capturing at the cost of a gap
-in the capture. Whether the PCM5101A accepts a bit clock of thirty-two times
-the rate from its internal PLL, which sixteen-bit slots produce; if not, the
-Waveshare Speaker uses thirty-two-bit slots and nothing outside its provider
-changes. The name Stream sits beside mm::sketch::Stream, which means something
-else; a sketch that imports both modules qualifies one.
+in the capture. The name Stream sits beside mm::sketch::Stream, which means
+something else; a sketch that imports both modules qualifies one.

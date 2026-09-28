@@ -71,6 +71,17 @@ All notable changes to modules.cpp. Versions follow [semantic versioning](https:
   reported exactly from the PIO clock divider. The execution model's model 3
   now names that block copy among a transport handler's bounded work. Built
   for every Pico SDK lane; unqualified on hardware.
+- **RP2350-Touch-LCD-2.8 audio.** `platform.rp2350_touch_lcd_28.audio`, in
+  `platforms/pico`, which the board now binds: a Speaker straight over `mm.mcu`
+  I2S on GP2, GP3, and GP4 for the board's PCM5101A, which has no control port,
+  and a Microphone that answers `Unsupported`, the board having none. The
+  Speaker keeps the `Out` contract, sends each sample in both slots, and
+  configures the nearest of the rates the PCM5101A's datasheet lists for its
+  PLL from a bit clock of 32 times the rate, keeping the clocks running across
+  stop and start. The Pico bridge's board table gives the board a 3.3 V ADC
+  reference and no LED, its GP25 being the battery key, and the board's pin
+  maps were checked against Waveshare's schematic. `apps/audio-smoke` now
+  plays alone on a board whose Microphone answers `Unsupported`.
 - **Paced ADC capture and a DAC in `mm.mcu`.** `adc_pace`, `adc_pace_rate`,
   `adc_pace_start`, `adc_take`, `adc_pace_progress`, and `adc_pace_stop`
   capture a channel continuously into a buffer the platform owns;

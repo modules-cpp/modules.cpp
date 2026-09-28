@@ -7,26 +7,39 @@ platform-provider: mm.display platform.rp2350_touch_lcd_28.display
 platform-provider: mm.touch platform.rp2350_touch_lcd_28.touch
 platform-provider: mm.imu platform.rp2350_touch_lcd_28.imu
 platform-provider: mm.rtc platform.rp2350_touch_lcd_28.rtc
+platform-provider: mm.audio platform.rp2350_touch_lcd_28.audio
 ---
 
 # rp2350_touch_lcd_28
 
 A Waveshare RP2350-Touch-LCD-2.8: an RP2350A with 16MB of flash carrying a 240
 by 320 IPS panel on an ST7789, a five-point CST328 capacitive touch controller,
-a QMI8658 inertial sensor, and a PCF85063 clock.
+a QMI8658 inertial sensor, a PCF85063 clock, and a PCM5101A DAC driving an
+APA2068 amplifier and a speaker.
 
 It derives from pico2-arm because that is what it is: the same RP2350A the Pico
 SDK configures as pico2. The SDK publishes no board header for this product, and
 Waveshare's own firmware for it selects PICO_BOARD pico2 and drives every
 peripheral by explicit GPIO number, which is exactly what deriving does here.
-The chip, the SDK, and the ABI come from the base; the four bindings above and
+The chip, the SDK, and the ABI come from the base; the five bindings above and
 the pin maps in the providers are what this board adds.
 
-The panel is wired to SPI1 and the three I2C devices share I2C1.
+The panel is wired to SPI1 -- clock GP10, data GP11, CS GP13, DC GP14, reset
+GP15, backlight GP16 -- and the touch controller, the IMU, and the clock share
+I2C1 on GP6 and GP7, the touch controller's reset and interrupt on GP17 and
+GP18. The DAC's I2S link is bit clock GP2, word clock GP3, and data GP4; its
+audio provider, platform code rather than board description, lives under
+platforms/pico/rp2350_touch_lcd_28/audio. GP25 is the battery key, GP26 the
+battery enable, GP27 the battery sense, and GP19 to GP24 the TF card; GP0 and
+GP1 are the exposed UART.
 
-**The pin assignments in the providers are taken from a third-party board
-support package for this product, not from Waveshare's schematic, because the
-wiki refuses automated requests. They must be confirmed against the schematic
-before this board is trusted with hardware.**
+The Pico bridge's board table corrects two pico2 defaults for this board:
+GP25 is a key, not an LED, so the board reports no LED, and ADC_AVDD is the 3V3
+rail, so the ADC reference is 3300 mV.
+
+Every pin above was checked against Waveshare's schematic,
+RP2350-Touch-LCD-2.8-Schematic.pdf, read directly from files.waveshare.com;
+the providers' earlier pin maps, taken from a third-party board package,
+agree with it. None of it is qualified on hardware.
 
 https://www.waveshare.com/wiki/RP2350-Touch-LCD-2.8

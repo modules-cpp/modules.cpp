@@ -1,0 +1,12 @@
+---
+mm: 1.0
+kind: dir
+name: rp2350-touch-lcd-28-pico
+folder: audio
+---
+
+# rp2350-touch-lcd-28-pico
+
+Pico platform code for the Waveshare RP2350-Touch-LCD-2.8, whose board lives in
+boards/rp2350_touch_lcd_28. It is here rather than there because it drives the
+platform's transports rather than describing the board.

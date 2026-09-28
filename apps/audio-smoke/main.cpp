@@ -43,29 +43,37 @@ int main() {
     auto& speaker = mm::audio::selected_out();
     auto& microphone = mm::audio::selected_in();
     if (speaker.initialize() != mm::audio::Status::Ok) return 2;
-    if (microphone.initialize() != mm::audio::Status::Ok) return 3;
+    // A board without a microphone answers Unsupported, and the tone plays
+    // alone; any other answer is a failure.
+    const auto heard = microphone.initialize();
+    if (heard != mm::audio::Status::Ok && heard != mm::audio::Status::Unsupported) return 3;
+    const bool recording = heard == mm::audio::Status::Ok;
 
     mm::audio::Format format;
     if (speaker.configure({.rate_hz = requested_hz}, format) != mm::audio::Status::Ok) return 4;
-    mm::audio::Format recording;
-    if (microphone.configure(format, recording) != mm::audio::Status::Ok) return 5;
+    mm::audio::Format recorded_format;
+    if (recording && microphone.configure(format, recorded_format) != mm::audio::Status::Ok)
+        return 5;
     if (speaker_ring.configure(played, format) != mm::audio::Status::Ok) return 6;
-    if (microphone_ring.configure(recorded, recording) != mm::audio::Status::Ok) return 7;
+    if (recording && microphone_ring.configure(recorded, recorded_format) != mm::audio::Status::Ok)
+        return 7;
 
     fill(format.rate_hz);
-    if (microphone.start(microphone_ring) != mm::audio::Status::Ok) return 8;
+    if (recording && microphone.start(microphone_ring) != mm::audio::Status::Ok) return 8;
     if (speaker.start(speaker_ring) != mm::audio::Status::Ok) return 9;
 
     std::uint64_t position = 0;
     while (position < format.rate_hz) {
         fill(format.rate_hz);
         if (speaker.service() != mm::audio::Status::Ok) return 10;
-        if (microphone.service() != mm::audio::Status::Ok) return 11;
-        drain();
+        if (recording) {
+            if (microphone.service() != mm::audio::Status::Ok) return 11;
+            drain();
+        }
         if (speaker.position(position) != mm::audio::Status::Ok) return 12;
     }
 
     if (speaker.stop() != mm::audio::Status::Ok) return 13;
-    if (microphone.stop() != mm::audio::Status::Ok) return 14;
+    if (recording && microphone.stop() != mm::audio::Status::Ok) return 14;
     return 0;
 }

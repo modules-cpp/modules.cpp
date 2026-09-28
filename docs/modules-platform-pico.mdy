@@ -179,6 +179,9 @@ PICO_DEFAULT_UART as UART1 on GP26 and GP27, the exposed pins, because pico2's
 UART0 on GP0 and GP1 would drive the amplifier enable and the codec's playback
 data. The definitions reach every source the bridge compiles, the SDK's
 included, and pico2.h defines each default only when it is not already set.
+The RP2350-Touch-LCD-2.8 has a row of its own on the same grounds: a 3,300
+millivolt reference, and no LED, its GP25 being the battery key; its GP0 and
+GP1 are its exposed UART, so pico2's default UART stands.
 
 pico2-arm and pico2-w-arm declare security-domain: secure and select the Arm
 Secure processor row. rp2350-ram omits the key, keeps the non-secure default,

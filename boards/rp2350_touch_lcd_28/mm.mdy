@@ -17,4 +17,6 @@ QMI8658 inertial sensor, and a PCF85063 clock.
 
 Each provider owns its own wiring and nothing else. The device drivers are
 portable modules under modules/mm, and the board is the only place that knows
-which pin is which.
+which pin is which. The board's audio provider, which drives the platform's
+I2S rather than describing the board, lives under
+platforms/pico/rp2350_touch_lcd_28/audio.
