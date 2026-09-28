@@ -15,7 +15,7 @@ option: buildable-host no
 The board's CST816 capacitive touch controller: reset on GP16 and interrupt on
 GP15, at address 0x15.
 
-It shares I2C1 with the board's other I2C device: SDA on GP6 and SCL on GP7.
+It shares I2C1 with the board's IMU and codec: SDA on GP6 and SCL on GP7.
 Each provider configures that bus before its first transfer, which is
 idempotent and means no provider depends on another having been initialised
 first.

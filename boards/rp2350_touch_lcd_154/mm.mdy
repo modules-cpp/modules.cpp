@@ -2,6 +2,7 @@
 mm: 1.0
 kind: dir
 name: rp2350-touch-lcd-154-platform
+folder: board-lcd
 folder: board
 folder: display
 folder: touch
@@ -10,10 +11,13 @@ folder: imu
 
 # rp2350-touch-lcd-154-platform
 
-The Waveshare RP2350-Touch-LCD-1.54 composite board and the three board-owned
-providers it binds: an ST7789 colour panel, a CST816 touch controller, and a
-QMI8658 inertial sensor.
+The Waveshare RP2350 LCD 1.54 family: two boards for four SKUs, and the
+board-owned providers they bind. rp2350_lcd_154 is the RP2350-LCD-1.54 and its
+-EN battery option, with an ST7789 colour panel, a QMI8658 inertial sensor, and
+an ES8311 codec; rp2350_touch_lcd_154 is the RP2350-Touch-LCD-1.54 and its -EN
+option, which derives from it and adds a CST816 touch controller.
 
 Each provider owns its own wiring and nothing else. The device drivers are
-portable modules under modules/mm, and the board is the only place that knows
-which pin is which.
+portable modules under modules/mm, and the boards are the only place that
+knows which pin is which. The audio provider, which is platform code rather
+than board description, lives under platforms/pico/rp2350_touch_lcd_154/audio.

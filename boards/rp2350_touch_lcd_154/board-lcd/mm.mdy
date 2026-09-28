@@ -1,0 +1,52 @@
+---
+mm: 1.2
+kind: board
+name: rp2350_lcd_154
+derives-from: pico2-arm
+platform-provider: mm.display platform.rp2350_touch_lcd_154.display
+platform-provider: mm.imu platform.rp2350_touch_lcd_154.imu
+platform-provider: mm.audio platform.rp2350_touch_lcd_154.audio
+---
+
+# rp2350_lcd_154
+
+A Waveshare RP2350-LCD-1.54, SKU 34335, or RP2350-LCD-1.54-EN, SKU 34334: an
+RP2350A with 16MB of flash carrying a 240 by 240 IPS panel on an ST7789 over
+four-wire SPI, a QMI8658 inertial sensor, and an ES8311 codec with an analog
+microphone and an NS4150B amplifier driving a speaker. It has no touch
+controller. The -EN option names the battery bundle, not the board, so both
+SKUs are this one board.
+
+It derives from pico2-arm because that is what it is: the same RP2350A the
+Pico SDK configures as pico2. The SDK publishes no board header for this
+product, and Waveshare's own firmware selects PICO_BOARD pico2 and drives
+every peripheral by explicit GPIO number, which is exactly what deriving does
+here. rp2350_touch_lcd_154 derives from this board and adds its touch
+controller, so the common wiring is written once.
+
+The panel is on SPI1: CS GP9, clock GP10, data GP11, DC GP12, backlight GP13,
+reset GP14. The codec, the IMU at 0x6b, and on the touch model the touch
+controller share I2C1 on GP6 and GP7. The codec's I2S link is data out GP1,
+data in GP2, bit clock GP4, and word clock GP5; GP3 is its MCLK input, held
+low because the codec takes its master clock from the bit clock, and GP0
+enables the amplifier. GP28 is the battery enable and GP29 the battery sense
+on ADC3; GP24 and GP25 are the power and volume buttons; GP18 to GP23 are the
+microSD socket; GP17 is the charge status. GP26 and GP27 are the exposed UART.
+
+Two of pico2's defaults are wrong here, and the Pico bridge's board table
+replaces them for every board in this chain: GP25 is a button, not an LED, so
+the board reports no LED, and the default UART's GP0 and GP1 are the
+amplifier enable and the codec's playback data, so the default UART is UART1
+on the exposed GP26 and GP27. ADC_AVDD is the 3V3 rail, so the ADC reference
+is 3300 mV.
+
+Nothing here drives GP28. Waveshare's firmware raises it at startup to hold
+the board on when running from its battery; a program that must run on
+battery does the same.
+
+The wiring is taken from the schematic titled RP2350-Touch-LCD-1.54, which is
+the only one published for the family; the non-touch board's population is
+assumed to match it except for the touch controller. None of it is qualified on
+hardware.
+
+https://www.waveshare.com/product/rp2350-lcd-1.54.htm

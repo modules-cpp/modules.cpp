@@ -51,8 +51,10 @@ receiver drops are reported as overrun. The microphone's PGA gain is the
 board's, zero to ten steps of three decibels. Slots are sixteen or thirty-two
 bits wide.
 
-The register values follow the datasheet's map as Espressif's driver programs
-it for this mode. The first version of this driver, on the audio-work branch,
+The register values are checked against the ES8311 datasheet, revision 10.0,
+and follow the sequence Waveshare's firmware for the RP2350-Touch-LCD-1.54
+runs on this part, with the clock multiplier its own coefficient table gives
+for a master clock of 32 or 64 times the rate. The first version of this driver, on the audio-work branch,
 addressed the part at 0x06, programmed the ADC's serial port 0x0a for
 playback, and never enabled the clock manager, the analog section, or the DAC;
 each is corrected here, and the ADC it did not drive is now an Input. None of

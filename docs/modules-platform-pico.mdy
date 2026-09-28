@@ -162,6 +162,24 @@ pico, and the bridge selects PICO_BOARD=pico from that chain. The derived boards
 add only their matching mm.display providers for the monochrome and
 black/white/red Waveshare Pico-ePaper-2.66 variants.
 
+boards/rp2350_touch_lcd_154 holds the Waveshare RP2350 LCD 1.54 family as two
+composite boards for its four SKUs. rp2350_lcd_154 derives from pico2-arm and
+binds the panel, the IMU, and the ES8311 audio; rp2350_touch_lcd_154 derives
+from it and adds the touch controller, so its chain is three boards long and
+the bridge still finds pico2-arm at its end. The -EN SKUs differ only in the
+battery bundled with them and use the same two boards.
+
+The bridge's board table in resolve-board.cmake also carries what a child
+board's own wiring makes of its vendor ancestor's defaults, keyed on the
+selected board as the ADC reference row is. For both 1.54 boards it sets the
+reference to 3,300 millivolts, because their schematic ties ADC_AVDD to the
+3V3 rail; reports no LED, passing MM_BOARD_HAS_LED=0 to the adapter, because
+pico2's LED pin GP25 is the volume button there; and redefines
+PICO_DEFAULT_UART as UART1 on GP26 and GP27, the exposed pins, because pico2's
+UART0 on GP0 and GP1 would drive the amplifier enable and the codec's playback
+data. The definitions reach every source the bridge compiles, the SDK's
+included, and pico2.h defines each default only when it is not already set.
+
 pico2-arm and pico2-w-arm declare security-domain: secure and select the Arm
 Secure processor row. rp2350-ram omits the key, keeps the non-secure default,
 and therefore keeps its three-argument commands unchanged.

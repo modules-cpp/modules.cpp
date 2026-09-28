@@ -107,21 +107,18 @@ void initialize_identifies_resets_and_powers_up() {
     Codec codec_chip{wiring()};
     Output codec{codec_chip};
     expect(codec.initialize() == Status::Ok, "a codec at its address initialises");
-    expect(mm_test_es8311_write_count() == 14, "the driver performs fourteen register writes");
-    expect(wrote(0, 0x00, 0x1f) && wrote(1, 0x00, 0x80),
-           "reset is entered, then left with the state machine on as a slave");
-    expect(mm_test_es8311_ticks() == 5, "the reset pause is observed between the two");
-    expect(wrote(2, 0x01, 0xbf), "the master clock comes from the bit clock, every clock on");
-    expect(wrote(3, 0x0b, 0x00) && wrote(4, 0x0c, 0x00) && wrote(5, 0x10, 0x1f) &&
-               wrote(6, 0x11, 0x7f),
-           "the system and reference registers are set as the vendor sequence sets them");
-    expect(wrote(7, 0x0d, 0x01) && wrote(8, 0x0e, 0x02),
-           "the analog section powers up");
-    expect(wrote(9, 0x12, 0x00) && wrote(10, 0x13, 0x10),
+    expect(mm_test_es8311_write_count() == 11, "the driver performs eleven register writes");
+    expect(wrote(0, 0x00, 0x1f) && wrote(1, 0x00, 0x00) && wrote(2, 0x00, 0x80),
+           "reset is entered, released, then left with the state machine on as a slave");
+    expect(mm_test_es8311_ticks() == 5, "the reset pause is observed after entering");
+    expect(wrote(3, 0x01, 0xbf), "the master clock comes from the bit clock, every clock on");
+    expect(wrote(4, 0x0d, 0x01) && wrote(5, 0x0e, 0x02),
+           "the analog section, the PGA, and the modulator power up");
+    expect(wrote(6, 0x12, 0x00) && wrote(7, 0x13, 0x10),
            "the DAC and its output driver power up");
-    expect(wrote(11, 0x37, 0x08) && wrote(12, 0x32, 0xbf),
-           "the DAC ramps with its equaliser bypassed, at unity volume");
-    expect(wrote(13, 0x09, 0x4c),
+    expect(wrote(8, 0x37, 0x08) && wrote(9, 0x32, 0xbf),
+           "the DAC's equaliser is bypassed, at unity volume");
+    expect(wrote(10, 0x09, 0x4c),
            "the DAC's serial port, 0x09, is I2S sixteen-bit and muted until start");
     expect(!mm_test_es8311_link_configured(), "the link waits for configure");
 }
@@ -176,8 +173,8 @@ void configure_starts_the_link_and_programs_the_clocks() {
            "a rate the link holds is configured and reported");
     expect(mm_test_es8311_link_configured() && mm_test_es8311_link_rate() == 32'000,
            "the link runs at it");
-    expect(wrote(14, 0x02, 0x18) && wrote(15, 0x03, 0x10) && wrote(16, 0x04, 0x10) &&
-               wrote(17, 0x05, 0x00),
+    expect(wrote(11, 0x02, 0x18) && wrote(12, 0x03, 0x10) && wrote(13, 0x04, 0x10) &&
+               wrote(14, 0x05, 0x00),
            "sixteen-bit slots multiply the bit clock by eight to 256 times the rate");
     mm::audio::Rate exact;
     expect(codec.rate(exact) == Status::Ok && exact.numerator == 12'288'000 &&
@@ -194,9 +191,9 @@ void thirty_two_bit_slots_multiply_by_four() {
     Codec codec_chip{wiring(32)};
     Output codec{codec_chip};
     Format actual;
-    expect(codec.initialize() == Status::Ok && wrote(13, 0x09, 0x50),
+    expect(codec.initialize() == Status::Ok && wrote(10, 0x09, 0x50),
            "the serial port takes thirty-two-bit words");
-    expect(codec.configure(rate_32k, actual) == Status::Ok && wrote(14, 0x02, 0x10),
+    expect(codec.configure(rate_32k, actual) == Status::Ok && wrote(11, 0x02, 0x10),
            "and the bit clock is multiplied by four");
 }
 
@@ -219,7 +216,7 @@ void start_checks_the_stream() {
     ring.release(mm::audio::End::Consumer);
     expect(codec.start(ring) == Status::Ok && mm_test_es8311_link_started(),
            "a matching Stream starts the transmitter");
-    expect(wrote(18, 0x09, 0x0c), "and unmutes the serial port");
+    expect(wrote(15, 0x09, 0x0c), "and unmutes the serial port");
     expect(ring.claim(mm::audio::End::Consumer) == Status::Busy,
            "the codec holds the consumer end");
     expect(codec.start(ring) == Status::Busy, "a started codec cannot start again");
@@ -432,15 +429,15 @@ void input_initialize_selects_the_microphone() {
     Codec chip{microphone_wiring()};
     Input input{chip};
     expect(input.initialize() == Status::Ok, "a codec with a receive line initialises for input");
-    expect(mm_test_es8311_write_count() == 16, "the driver performs sixteen register writes");
-    expect(wrote(0, 0x00, 0x1f) && wrote(1, 0x00, 0x80) && wrote(8, 0x0e, 0x02),
+    expect(mm_test_es8311_write_count() == 11, "the driver performs eleven register writes");
+    expect(wrote(0, 0x00, 0x1f) && wrote(2, 0x00, 0x80) && wrote(5, 0x0e, 0x02),
            "the shared reset and power-up come first");
-    expect(wrote(9, 0x14, 0x1a), "the analog microphone is selected at thirty decibels");
-    expect(wrote(10, 0x15, 0x40) && wrote(11, 0x16, 0x24) && wrote(12, 0x17, 0xbf),
-           "the ADC ramps, scales, and runs at unity volume");
-    expect(wrote(13, 0x1b, 0x0a) && wrote(14, 0x1c, 0x6a),
-           "the high-pass filter removes the capsule's bias");
-    expect(wrote(15, 0x0a, 0x4c),
+    expect(wrote(6, 0x14, 0x1a), "the analog microphone is selected at thirty decibels");
+    expect(wrote(7, 0x16, 0x24) && wrote(8, 0x17, 0xbf),
+           "the ADC scales and runs at unity volume");
+    expect(wrote(9, 0x1c, 0x6a),
+           "the dynamic high-pass filter removes the capsule's bias");
+    expect(wrote(10, 0x0a, 0x4c),
            "the ADC's serial port, 0x0a, is I2S sixteen-bit and muted until start");
 }
 
@@ -462,7 +459,7 @@ void input_refuses_bad_wiring() {
     quiet.microphone_gain = 4;
     Codec quiet_chip{quiet};
     Input twelve_decibels{quiet_chip};
-    expect(twelve_decibels.initialize() == Status::Ok && wrote(9, 0x14, 0x14),
+    expect(twelve_decibels.initialize() == Status::Ok && wrote(6, 0x14, 0x14),
            "the gain is the PGA's step");
 }
 
@@ -475,7 +472,7 @@ void input_captures_its_slot_only_after_start() {
     expect(bring_up_input(input, ring, storage), "brought up");
     mm_test_es8311_receive(1, 2);
     expect(input.start(ring) == Status::Ok && mm_test_es8311_receiving(), "capture starts");
-    expect(wrote(20, 0x0a, 0x0c), "the ADC's port is unmuted");
+    expect(wrote(15, 0x0a, 0x0c), "the ADC's port is unmuted");
     expect(ring.claim(mm::audio::End::Producer) == Status::Busy,
            "the codec holds the producer end");
     mm_test_es8311_receive(100, -1);
@@ -515,7 +512,7 @@ void input_narrows_thirty_two_bit_words() {
     Input input{chip};
     Ring ring;
     std::int16_t storage[4] = {};
-    expect(bring_up_input(input, ring, storage) && wrote(15, 0x0a, 0x50),
+    expect(bring_up_input(input, ring, storage) && wrote(10, 0x0a, 0x50),
            "the ADC's port takes thirty-two-bit words");
     expect(input.start(ring) == Status::Ok, "started");
     mm_test_es8311_receive(0x12345678, 0);
@@ -636,7 +633,7 @@ void both_directions_share_one_chip_and_one_link() {
     expect(speaker.initialize() == Status::Ok && microphone.initialize() == Status::Ok,
            "both directions initialise");
     expect(count_writes(0x00, 0x1f) == 1, "the chip is reset once, not under the other");
-    expect(mm_test_es8311_write_count() == 21, "the shared, DAC, and ADC writes each happen once");
+    expect(mm_test_es8311_write_count() == 16, "the shared, DAC, and ADC writes each happen once");
     Format played;
     Format recorded;
     expect(speaker.configure(rate_32k, played) == Status::Ok &&

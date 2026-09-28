@@ -648,8 +648,10 @@ unsigned int mm_pico_mcu_gpio_count(void) {
     return (unsigned int)NUM_BANK0_GPIOS;
 }
 
+// A board whose vendor ancestor's LED pin is something else on it says so
+// through MM_BOARD_HAS_LED, from the bridge's board table.
 int mm_pico_mcu_has_led(void) {
-#ifdef PICO_DEFAULT_LED_PIN
+#if defined(PICO_DEFAULT_LED_PIN) && MM_BOARD_HAS_LED
     return 1;
 #else
     return 0;
@@ -657,7 +659,7 @@ int mm_pico_mcu_has_led(void) {
 }
 
 unsigned int mm_pico_mcu_led_gpio(void) {
-#ifdef PICO_DEFAULT_LED_PIN
+#if defined(PICO_DEFAULT_LED_PIN) && MM_BOARD_HAS_LED
     return (unsigned int)PICO_DEFAULT_LED_PIN;
 #else
     return 0;

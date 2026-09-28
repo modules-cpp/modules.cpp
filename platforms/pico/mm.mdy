@@ -7,4 +7,5 @@ folder: rp2040-ram
 folder: rp2040-ram-mcu
 folder: rp2350-ram
 folder: sdk
+folder: rp2350_touch_lcd_154
 ---

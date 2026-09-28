@@ -13,5 +13,7 @@ option: buildable-host no
 # platform.rp2350_touch_lcd_154.display
 
 The board's ST7789 panel: 240 by 240, RGB565, on SPI1 with the backlight on
-GP13. It owns the wiring and the panel's porch, power, and gamma settings, and
-registers the controller as mm.display.
+GP13, clocked at 62.5 MHz, the ST7789V2's fastest write cycle of 16 ns, which
+the Pico's SPI rounds down to what its divider holds. It owns the wiring and
+the panel's porch, power, and gamma settings, and registers the controller as
+mm.display.

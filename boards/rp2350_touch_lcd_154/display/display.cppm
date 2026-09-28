@@ -57,7 +57,7 @@ constexpr mm::lcd::st7789::Wiring wiring{
             .clock_gpio = 10,
             .transmit_gpio = 11,
             .receive_gpio = std::nullopt,
-            .baud = 230'000'000,
+            .baud = 62'500'000,
             .mode = mm::mcu::SpiMode::Mode0,
             .bit_order = mm::mcu::BitOrder::MostSignificantFirst},
     .chip_select_gpio = 9,

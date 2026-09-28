@@ -15,7 +15,8 @@ option: buildable-host no
 The board's QMI8658 inertial sensor at address 0x6b, with 0x6a as the alternate
 its SA0 strap may select.
 
-It shares I2C1 with the board's other I2C device: SDA on GP6 and SCL on GP7.
+It shares I2C1 with the board's codec and, on the touch model, its touch
+controller: SDA on GP6 and SCL on GP7.
 Each provider configures that bus before its first transfer, which is
 idempotent and means no provider depends on another having been initialised
 first.

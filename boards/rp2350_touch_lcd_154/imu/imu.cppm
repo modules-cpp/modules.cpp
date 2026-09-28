@@ -30,4 +30,6 @@ struct Register {
     Register() { mm::imu::set_imu(sensor); }
 };
 
+const Register registered;
+
 }  // namespace

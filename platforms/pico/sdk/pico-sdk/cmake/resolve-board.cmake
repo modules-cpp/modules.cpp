@@ -28,3 +28,19 @@ if(MM_BOARD STREQUAL "pico" OR
    MM_BOARD STREQUAL "pico2-w-riscv")
   set(MM_ADC_REFERENCE_MV 3300)
 endif()
+
+# The Waveshare RP2350 LCD 1.54 family, per its schematic: ADC_AVDD is the 3V3
+# rail; GP25, pico2's LED, is the volume button, so there is no LED; and pico2's
+# default UART on GP0 and GP1 would drive the amplifier enable and the codec's
+# playback data, so the default UART is UART1 on the exposed GP26 and GP27.
+set(MM_BOARD_HAS_LED 1)
+set(MM_BOARD_DEFINITIONS "")
+if(MM_BOARD STREQUAL "rp2350_lcd_154" OR
+   MM_BOARD STREQUAL "rp2350_touch_lcd_154")
+  set(MM_ADC_REFERENCE_MV 3300)
+  set(MM_BOARD_HAS_LED 0)
+  list(APPEND MM_BOARD_DEFINITIONS
+    PICO_DEFAULT_UART=1
+    PICO_DEFAULT_UART_TX_PIN=26
+    PICO_DEFAULT_UART_RX_PIN=27)
+endif()

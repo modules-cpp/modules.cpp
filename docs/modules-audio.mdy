@@ -276,6 +276,18 @@ from the board.
   initialize, writes each sample to both slots, and never stops the clocks
   before release. Its Microphone answers Unsupported: there is none, and GP26
   and GP27 are the battery's.
+- The Waveshare RP2350 LCD 1.54 family binds
+  platform.rp2350_touch_lcd_154.audio, in platforms/pico: rp2350_lcd_154 binds it and rp2350_touch_lcd_154 inherits
+  it. Its ES8311 is a full-duplex codec on I2S data out GP1, data in GP2, bit
+  clock GP4, and word clock GP5, controlled at 0x18 on I2C1, GP6 and GP7. Its
+  Speaker is an es8311 Output that also drives the NS4150B amplifier's enable,
+  GP0, high only between the codec's unmute and mute; its Microphone is an
+  es8311 Input on the analog microphone. Waveshare's firmware makes the codec
+  the I2S master from a 6.144 MHz MCLK on GP3; this provider makes it the slave
+  the mm.mcu I2S facility drives, with its master clock from the bit clock, and
+  holds GP3 low. apps/audio-smoke plays a tone while recording through
+  whichever devices a board registers. Both answer Unsupported from configure
+  until a Pico provider implements mm.mcu I2S.
 - The Linux SDKs bind platform.linux.audio, a Microphone and a Speaker over the
   ALSA kernel interface with no library, their device paths read from the
   device map.

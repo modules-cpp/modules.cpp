@@ -1,10 +1,13 @@
 // Pawel Wodnicki (C) 2026
 // 32bitmicro LLC (C) 2026
 //
-// Register values follow the ES8311 datasheet's map as Espressif's own driver
-// programs it for a slave-mode codec with the master clock taken from the bit
-// clock. They are unqualified on hardware until a board with this codec plays
-// and records through them.
+// Register values are checked against the ES8311 datasheet, revision 10.0,
+// and follow the sequence Waveshare's firmware for the RP2350-Touch-LCD-1.54
+// runs on this codec, except that the codec is the I2S slave here with its
+// master clock taken from the bit clock; the clock multiplier for that is the
+// one Waveshare's own coefficient table gives for a 32- or 64-times master
+// clock. They are unqualified on hardware until a board plays and records
+// through them.
 module;
 
 #include <algorithm>
@@ -30,19 +33,13 @@ constexpr unsigned int clock_dac_osr = 0x04;     // DAC oversampling
 constexpr unsigned int clock_dividers = 0x05;    // ADC and DAC clock dividers
 constexpr unsigned int serial_in = 0x09;         // the DAC's serial port, SDP IN
 constexpr unsigned int serial_out = 0x0a;        // the ADC's serial port, SDP OUT
-constexpr unsigned int system_power_1 = 0x0b;
-constexpr unsigned int system_power_2 = 0x0c;
 constexpr unsigned int analog_power = 0x0d;
 constexpr unsigned int analog_bias = 0x0e;
-constexpr unsigned int system_reference_1 = 0x10;
-constexpr unsigned int system_reference_2 = 0x11;
 constexpr unsigned int dac_power = 0x12;
 constexpr unsigned int output_driver = 0x13;
 constexpr unsigned int microphone_select = 0x14;  // input select and PGA gain
-constexpr unsigned int adc_ramp = 0x15;
 constexpr unsigned int adc_scale = 0x16;
 constexpr unsigned int adc_volume = 0x17;
-constexpr unsigned int adc_high_pass = 0x1b;
 constexpr unsigned int adc_equaliser = 0x1c;
 constexpr unsigned int dac_volume = 0x32;
 constexpr unsigned int dac_ramp = 0x37;
@@ -53,9 +50,10 @@ constexpr unsigned int chip_id_2 = 0xfe;
 constexpr unsigned int expected_id_1 = 0x83;
 constexpr unsigned int expected_id_2 = 0x11;
 
-// Reset: every block held in reset, then released with the state machine on
-// and the codec a slave, which is what bit six clear means.
+// Reset: every block held in reset, every reset released, then the state
+// machine on with the codec a slave, which is what bit six clear means.
 constexpr unsigned int reset_enter = 0x1f;
+constexpr unsigned int reset_release = 0x00;
 constexpr unsigned int reset_leave = 0x80;
 
 // The master clock from the bit clock (bit seven) with every clock enabled.
@@ -83,21 +81,17 @@ constexpr unsigned int zero_decibels = 0xbf;
 constexpr unsigned int microphone_input = 0x10;
 constexpr unsigned int most_gain = 10;
 
-// What both directions share after reset: the clock manager, the system and
-// reference registers as the vendor sequence sets them, and the analog
-// section, bias included.
+// What both directions share after reset: the clock manager, the analog
+// circuits and their bias with VMID charging (0x0d), and the PGA and the ADC
+// modulator (0x0e).
 constexpr unsigned char shared_power_up[][2] = {
     {clock_manager, clocks_from_bit_clock},
-    {system_power_1, 0x00},
-    {system_power_2, 0x00},
-    {system_reference_1, 0x1f},
-    {system_reference_2, 0x7f},
     {analog_power, 0x01},
     {analog_bias, 0x02},
 };
 
-// The DAC's: its power, the output driver, the ramp with the equaliser
-// bypassed, and unity volume.
+// The DAC's: its power (0x12), the output driver in headphone mode (0x13), its
+// equaliser bypassed (0x37), and unity volume where the default is -95.5 dB.
 constexpr unsigned char dac_power_up[][2] = {
     {dac_power, 0x00},
     {output_driver, 0x10},
@@ -105,14 +99,13 @@ constexpr unsigned char dac_power_up[][2] = {
     {dac_volume, zero_decibels},
 };
 
-// The ADC's after the input select: its ramp, its digital scale, unity
-// volume, and the high-pass filter that removes the capsule's DC bias with
-// the equaliser bypassed.
+// The ADC's after the input select: its filter synchronised to a standard
+// audio clock with the default 24 dB digital scale (0x16), unity volume where
+// the default is -95.5 dB (0x17), and its equaliser bypassed with the dynamic
+// high-pass filter that removes the capsule's DC bias (0x1c).
 constexpr unsigned char adc_power_up[][2] = {
-    {adc_ramp, 0x40},
     {adc_scale, 0x24},
     {adc_volume, zero_decibels},
-    {adc_high_pass, 0x0a},
     {adc_equaliser, 0x6a},
 };
 
@@ -199,6 +192,7 @@ Status Codec::initialize() {
 
     status = write_register(reset_register, reset_enter);
     if (status == Status::Ok) status = from_mcu(mm::mcu::delay_ms(wiring_.reset_delay_ms));
+    if (status == Status::Ok) status = write_register(reset_register, reset_release);
     if (status == Status::Ok) status = write_register(reset_register, reset_leave);
     if (status == Status::Ok) status = write_all(shared_power_up, std::size(shared_power_up));
     if (status != Status::Ok) return status;
