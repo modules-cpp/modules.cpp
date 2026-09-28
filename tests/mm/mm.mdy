@@ -20,7 +20,7 @@ folder: stdio
 folder: model
 folder: run
 folder: touch
-folder: touch-cst816
+folder: touch/cst816
 folder: imu
 folder: json
 folder: lcd

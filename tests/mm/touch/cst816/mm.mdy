@@ -6,8 +6,8 @@ use: mm.test
 use: mm.mcu
 use: mm.touch
 use: mm.touch.cst816
-unit: tests/mm/touch-cst816/platform.cpp
-unit: tests/mm/touch-cst816/cst816.cpp
+unit: tests/mm/touch/cst816/platform.cpp
+unit: tests/mm/touch/cst816/cst816.cpp
 unit: tests/main.cpp
 ---
 

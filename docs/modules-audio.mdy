@@ -277,9 +277,10 @@ from the board.
   before release. Its Microphone answers Unsupported: there is none, and GP26
   and GP27 are the battery's.
 - The Waveshare RP2350 LCD 1.54 family binds
-  platform.rp2350_touch_lcd_154.audio, in platforms/pico: rp2350_lcd_154 binds it and rp2350_touch_lcd_154 inherits
-  it. Its ES8311 is a full-duplex codec on I2S data out GP1, data in GP2, bit
-  clock GP4, and word clock GP5, controlled at 0x18 on I2C1, GP6 and GP7. Its
+  platform.rp2350_touch_lcd_154.audio, in platforms/pico: rp2350_lcd_154 binds
+  it and rp2350_touch_lcd_154 inherits it. Its ES8311 is a full-duplex codec
+  on I2S data out GP1, data in GP2, bit clock GP4, and word clock GP5,
+  controlled at 0x18 on I2C1, GP6 and GP7. Its
   Speaker is an es8311 Output that also drives the NS4150B amplifier's enable,
   GP0, high only between the codec's unmute and mute; its Microphone is an
   es8311 Input on the analog microphone. Waveshare's firmware makes the codec

@@ -25,8 +25,8 @@ registers them as its Speaker and its Microphone. A board whose link has no
 receive line registers the Output and, as docs/modules-audio.mdy asks of a
 board without a microphone, an In of its own whose every call answers
 Unsupported; an Input there would answer BadArgument, which says the wiring is
-wrong rather than that the board has no microphone.
-Two classes rather than one because a class cannot be an In and an Out at once
+wrong rather than that the board has no microphone. Output and Input are two
+classes rather than one because a class cannot be an In and an Out at once
 under one level of dispatch: their calls share names and not meanings.
 
 The codec is identified by its two chip identification registers, 0x83 and
@@ -54,9 +54,9 @@ bits wide.
 The register values are checked against the ES8311 datasheet, revision 10.0,
 and follow the sequence Waveshare's firmware for the RP2350-Touch-LCD-1.54
 runs on this part, with the clock multiplier its own coefficient table gives
-for a master clock of 32 or 64 times the rate. The first version of this driver, on the audio-work branch,
-addressed the part at 0x06, programmed the ADC's serial port 0x0a for
-playback, and never enabled the clock manager, the analog section, or the DAC;
-each is corrected here, and the ADC it did not drive is now an Input. None of
-this is qualified on hardware until a board with the codec plays and records
-through it.
+for a master clock of 32 or 64 times the rate. The first version of this
+driver, on the audio-work branch, addressed the part at 0x06, programmed the
+ADC's serial port 0x0a for playback, and never enabled the clock manager, the
+analog section, or the DAC; each is corrected here, and the ADC it did not
+drive is now an Input. None of this is qualified on hardware until a board
+with the codec plays and records through it.
