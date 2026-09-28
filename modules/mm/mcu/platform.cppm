@@ -12,6 +12,7 @@ import :status;
 import :board;
 import :spi_types;
 import :i2c_types;
+import :i2s_types;
 import :adc_types;
 import :pwm_types;
 
@@ -68,6 +69,16 @@ public:
     [[nodiscard]] virtual Status i2c_write_read(unsigned int, unsigned int,
                                                 std::span<const std::byte>,
                                                 std::span<std::byte>) {
+        return Status::Unsupported;
+    }
+
+    [[nodiscard]] virtual Status i2s_configure(const I2sConfiguration&) {
+        return Status::Unsupported;
+    }
+    [[nodiscard]] virtual Status i2s_write(unsigned int, std::span<const std::byte>) {
+        return Status::Unsupported;
+    }
+    [[nodiscard]] virtual Status i2s_read(unsigned int, std::span<std::byte>) {
         return Status::Unsupported;
     }
 

@@ -140,12 +140,14 @@ file: status.cppm mm.mcu:status
 file: board.cppm mm.mcu:board
 file: spi-types.cppm mm.mcu:spi_types
 file: i2c-types.cppm mm.mcu:i2c_types
+file: i2s-types.cppm mm.mcu:i2s_types
 file: adc-types.cppm mm.mcu:adc_types
 file: pwm-types.cppm mm.mcu:pwm_types
 file: platform.cppm mm.mcu:platform
 file: gpio.cppm mm.mcu:gpio
 file: spi.cppm mm.mcu:spi
 file: i2c.cppm mm.mcu:i2c
+file: i2s.cppm mm.mcu:i2s
 file: uart.cppm mm.mcu:uart
 file: timer.cppm mm.mcu:timer
 file: adc.cppm mm.mcu:adc
@@ -398,6 +400,17 @@ through, so the interface does not offer them.
 A provider that implements the operation must hold the bus across it. The Pico
 provider does so through the SDK's nostop argument, which makes the read a
 repeated start rather than a second transaction.
+
+I2S is a serial audio link carried beside them, and it is the facility that is
+neither addressed nor mode-encoded. I2S configuration carries the instance, the
+data, clock, and word-select GPIOs, and baud, which defaults to 1 MHz because
+that is a common serial bit rate and a caller that says nothing about it should
+still get a working link. There is no address, because the link is point-to-point
+and there is nothing to select on it. There is no mode or bit order, because the
+protocol fixes the framing, and no chip select, because a device's chip select,
+like its reset, belongs to the device transaction. Like I2C it is configure plus
+per-instance operations; read and write are the two halves of the full-duplex
+link, and each transfers a span of bytes.
 
 ## Analog facilities
 
@@ -717,6 +730,12 @@ binding. Unrelated executables retain their ordinary closure.
   the bus.
 - i2c_write_read reaches the provider as one operation, and a host stand-in
   observes one transaction rather than a write followed by a read.
+- I2S configuration carries instance, data, clock, and word-select GPIOs, and a
+  baud that defaults to 1 MHz. It names no address, mode, or bit order. An
+  unconfigured instance, a pin reused across the link's signals, and an empty
+  transfer are each rejected, and a rejected call puts nothing on the link.
+- An unserved platform answers Unsupported for every I2S operation rather than
+  failing to link.
 - An unserved platform answers Unsupported for every I2C operation rather than
   failing to link.
 - Both analog inventories reach the caller as the provider gave them, and the

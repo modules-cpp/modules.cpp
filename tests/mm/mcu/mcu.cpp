@@ -25,6 +25,10 @@ unsigned int mm_test_i2c_address();
 std::size_t mm_test_i2c_size();
 unsigned int mm_test_i2c_byte(std::size_t index);
 std::size_t mm_test_i2c_write_reads();
+bool mm_test_i2s_ready();
+unsigned long mm_test_i2s_baud();
+std::size_t mm_test_i2s_size();
+unsigned int mm_test_i2s_byte(std::size_t index);
 
 namespace {
 
@@ -209,6 +213,11 @@ void an_unserved_facility_answers_unsupported() {
            "so does an unimplemented I2C controller");
     expect(bare.i2c_write_read(0, 0x1a, {}, {}) == Status::Unsupported,
            "an unserved register read answers rather than dereferencing nothing");
+    expect(bare.i2s_configure({}) == Status::Unsupported,
+           "so does an unimplemented I2S controller");
+    expect(bare.i2s_write(0, {}) == Status::Unsupported &&
+               bare.i2s_read(0, {}) == Status::Unsupported,
+           "an unserved I2S transfer answers rather than dereferencing nothing");
     expect(bare.delay_ms(1) == Status::Unsupported, "so does an unimplemented timer");
     bool pending = true;
     expect(bare.gpio_watch(1, Pull::Up, Edge::Rising) == Status::Unsupported &&
@@ -362,6 +371,69 @@ void i2c_rejects_invalid_use() {
     expect(mm_test_i2c_size() == 0, "a rejected call writes nothing to the bus");
 }
 
+void i2s_configures_and_transfers_spans() {
+    mm_test_reset();
+    const mm::mcu::I2sConfiguration configuration{
+        .instance = 1,
+        .data_gpio = 8,
+        .clock_gpio = 9,
+        .word_select_gpio = 10,
+        .baud = 1'000'000,
+    };
+    expect(mm::mcu::i2s_configure(configuration) == Status::Ok,
+           "a valid I2S configuration succeeds");
+    expect(mm_test_i2s_ready() && mm_test_i2s_baud() == 1'000'000,
+           "the platform receives the complete I2S configuration");
+
+    const std::array frame{std::byte{0x01}, std::byte{0x02}, std::byte{0x03}};
+    expect(mm::mcu::i2s_write(1, frame) == Status::Ok, "a write to the link succeeds");
+    expect(mm_test_i2s_size() == 3 && mm_test_i2s_byte(0) == 0x01 &&
+               mm_test_i2s_byte(2) == 0x03,
+           "the platform observes the payload in order");
+
+    std::array<std::byte, 4> received{};
+    expect(mm::mcu::i2s_read(1, received) == Status::Ok, "a read from the link succeeds");
+    expect(received[0] == std::byte{0} && received[3] == std::byte{3},
+           "the caller's span is filled to its own size");
+}
+
+// The default is a common serial bit rate, so a caller that says nothing about
+// speed still gets a working link rather than a zero one.
+void i2s_configuration_defaults_to_a_working_rate() {
+    mm_test_reset();
+    const mm::mcu::I2sConfiguration configuration{
+        .instance = 0, .data_gpio = 8, .clock_gpio = 9, .word_select_gpio = 10};
+    expect(configuration.baud == 1'000'000, "the default baud is a working rate");
+    expect(mm::mcu::i2s_configure(configuration) == Status::Ok,
+           "a configuration that names only pins succeeds");
+}
+
+void i2s_rejects_invalid_use() {
+    mm_test_reset();
+    mm::mcu::I2sConfiguration invalid;
+    invalid.baud = 0;
+    expect(mm::mcu::i2s_configure(invalid) == Status::BadArgument,
+           "zero baud is rejected by the platform");
+    invalid.baud = 1'000'000;
+    invalid.data_gpio = 8;
+    invalid.clock_gpio = 8;
+    expect(mm::mcu::i2s_configure(invalid) == Status::BadArgument,
+           "one pin cannot carry two of the link's signals");
+
+    const mm::mcu::I2sConfiguration configuration{
+        .instance = 1, .data_gpio = 8, .clock_gpio = 9, .word_select_gpio = 10, .baud = 1'000'000};
+    expect(mm::mcu::i2s_configure(configuration) == Status::Ok, "the link configures");
+
+    const std::array frame{std::byte{0x15}};
+    expect(mm::mcu::i2s_write(0, frame) == Status::BadArgument,
+           "an instance the link was not configured on is rejected");
+    expect(mm::mcu::i2s_write(1, std::span<const std::byte>{}) == Status::BadArgument,
+           "an empty write is not a transfer");
+    expect(mm::mcu::i2s_read(1, std::span<std::byte>{}) == Status::BadArgument,
+           "an empty read asks for nothing");
+    expect(mm_test_i2s_size() == 0, "a rejected call writes nothing to the link");
+}
+
 const mm::test::case_ cases[] = {
     {"GPIO edge forwarding", &gpio_edge_forwards_and_preserves_output},
     {"board describes GPIOs and LED", &board_describes_gpio_inventory_and_led_attachment},
@@ -376,6 +448,9 @@ const mm::test::case_ cases[] = {
     {"i2c defaults to fast mode", &i2c_configuration_defaults_to_fast_mode},
     {"i2c write_read is one transaction", &i2c_write_read_is_one_transaction},
     {"i2c rejects invalid use", &i2c_rejects_invalid_use},
+    {"i2s configures and transfers spans", &i2s_configures_and_transfers_spans},
+    {"i2s defaults to a working rate", &i2s_configuration_defaults_to_a_working_rate},
+    {"i2s rejects invalid use", &i2s_rejects_invalid_use},
     {"every status reaches the caller", &every_status_reaches_the_caller},
     {"an unserved facility answers Unsupported", &an_unserved_facility_answers_unsupported},
 };

@@ -338,6 +338,41 @@ public:
         return mm::mcu::Status::Ok;
     }
 
+    [[nodiscard]] mm::mcu::Status i2s_configure(
+        const mm::mcu::I2sConfiguration& configuration) override {
+        if (forced != mm::mcu::Status::Ok) return forced;
+        if (configuration.instance > 1 || configuration.baud == 0 ||
+            configuration.data_gpio >= pin_count ||
+            configuration.clock_gpio >= pin_count ||
+            configuration.word_select_gpio >= pin_count ||
+            configuration.data_gpio == configuration.clock_gpio ||
+            configuration.data_gpio == configuration.word_select_gpio ||
+            configuration.clock_gpio == configuration.word_select_gpio)
+            return mm::mcu::Status::BadArgument;
+        i2s_configuration = configuration;
+        i2s_ready = true;
+        return mm::mcu::Status::Ok;
+    }
+
+    [[nodiscard]] mm::mcu::Status i2s_write(unsigned int instance,
+                                            std::span<const std::byte> data) override {
+        if (forced != mm::mcu::Status::Ok) return forced;
+        if (!i2s_ready || instance != i2s_configuration.instance || data.empty())
+            return mm::mcu::Status::BadArgument;
+        i2s_written.insert(i2s_written.end(), data.begin(), data.end());
+        return mm::mcu::Status::Ok;
+    }
+
+    [[nodiscard]] mm::mcu::Status i2s_read(unsigned int instance,
+                                           std::span<std::byte> data) override {
+        if (forced != mm::mcu::Status::Ok) return forced;
+        if (!i2s_ready || instance != i2s_configuration.instance || data.empty())
+            return mm::mcu::Status::BadArgument;
+        for (std::size_t i = 0; i < data.size(); ++i)
+            data[i] = static_cast<std::byte>(i2s_reply++);
+        return mm::mcu::Status::Ok;
+    }
+
     [[nodiscard]] mm::mcu::Status uart_write(unsigned int instance, const char* text) override {
         if (forced != mm::mcu::Status::Ok) return forced;
         if (text == nullptr) return mm::mcu::Status::BadArgument;
@@ -382,6 +417,10 @@ public:
         i2c_written.clear();
         i2c_write_reads = 0;
         i2c_reply = 0;
+        i2s_ready = false;
+        i2s_configuration = {};
+        i2s_written.clear();
+        i2s_reply = 0;
     }
 
     // Seven-bit addressing, and one device on the bus. A driver aimed at any
@@ -449,6 +488,10 @@ public:
     std::vector<std::byte> i2c_written;
     std::size_t i2c_write_reads = 0;
     unsigned int i2c_reply = 0;
+    bool i2s_ready = false;
+    mm::mcu::I2sConfiguration i2s_configuration;
+    std::vector<std::byte> i2s_written;
+    unsigned int i2s_reply = 0;
 };
 
 Stand stand;
@@ -499,6 +542,14 @@ unsigned int mm_test_i2c_byte(std::size_t index) {
                : 0;
 }
 std::size_t mm_test_i2c_write_reads() { return stand.i2c_write_reads; }
+bool mm_test_i2s_ready() { return stand.i2s_ready; }
+unsigned long mm_test_i2s_baud() { return stand.i2s_configuration.baud; }
+std::size_t mm_test_i2s_size() { return stand.i2s_written.size(); }
+unsigned int mm_test_i2s_byte(std::size_t index) {
+    return index < stand.i2s_written.size()
+               ? static_cast<unsigned int>(stand.i2s_written[index])
+               : 0;
+}
 void mm_test_adc_set_count(unsigned int channel, unsigned int count) {
     if (channel < std::size(adc_channels)) stand.adc_count[channel] = count;
 }
