@@ -1,0 +1,41 @@
+---
+mm: 1.2
+kind: module
+name: es8311
+module: mm.audio.es8311
+use: mm.audio
+use: mm.mcu
+file: es8311.cppm
+file: src/es8311.cpp
+---
+
+# mm.audio.es8311
+
+The Everest Semiconductor ES8311 audio codec, its DAC as an mm.audio Out, over
+portable mm.mcu I2C and I2S. It contains no vendor header and no board pin
+number: a board's provider supplies the wiring, constructs a Codec, and
+registers it as the board's Speaker. It sits where mm.imu.qmi8658 sits for the
+IMU, because the ES8311 is a chip with registers worth writing once.
+
+The codec is identified by its two chip identification registers, 0x83 and
+0x11 at 0xfd and 0xfe, and a part that answers otherwise is Unsupported. It is
+controlled at 0x18, or 0x19 with CE high. initialize resets it, powers up its
+analog section, DAC, and output driver at unity volume, and leaves the DAC's
+serial port muted. configure starts the I2S link as the platform's slave and
+programs the clock manager to take the codec's master clock from the bit clock,
+multiplied to 256 times the rate, so a board needs no MCLK line. start unmutes
+the port and stop mutes it before discarding what was queued.
+
+It keeps the Out contract: service offers its pending run first and reads from
+the Stream only when nothing is pending, the transmitter's silence on underrun
+is reported to the Stream, and position and pending come from the
+transmitter's progress. A mono sample goes to both slots. Slots are sixteen or
+thirty-two bits wide; the sixteen-bit link moves samples unchanged.
+
+The register values follow the datasheet's map as Espressif's driver programs
+it for this mode. The first version of this driver, on the audio-work branch,
+addressed the part at 0x06, programmed the ADC's serial port 0x0a where the
+DAC's is 0x09, and never enabled the clock manager, the analog section, or the
+DAC; each is corrected here. The ADC and microphone path is absent, because
+this module is an Out. None of this is qualified on hardware until a board with
+the codec plays through it.

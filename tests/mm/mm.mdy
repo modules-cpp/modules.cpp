@@ -5,6 +5,7 @@ name: mm
 option: buildable-target no
 folder: mcu
 folder: audio
+folder: audio/es8311
 folder: mdy
 folder: build
 folder: configure

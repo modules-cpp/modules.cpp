@@ -4,6 +4,7 @@ kind: dir
 name: mm
 folder: app
 folder: audio
+folder: audio/es8311
 folder: build
 folder: configure
 folder: debug

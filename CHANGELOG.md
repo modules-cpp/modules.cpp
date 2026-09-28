@@ -26,6 +26,18 @@ All notable changes to modules.cpp. Versions follow [semantic versioning](https:
   through nine, and three million samples through a ring of sixty-one on two
   threads. docs/modules-audio.mdy specifies it, and drafts/plan-audio.mdy
   records the research and the board providers still to come.
+- **`mm.audio.es8311`.** A portable driver for the Everest ES8311 codec's DAC
+  as an `mm.audio::Out`, over `mm.mcu` I2C and I2S, brought over from the
+  audio-work branch and reworked for this design. It identifies the part by
+  its chip registers, resets and powers up its clock manager, analog section,
+  DAC, and output driver, runs as the I2S slave with its master clock taken
+  from the bit clock, and keeps the `Out` contract: a pending run survives
+  zero and partial acceptance and errors, each sample goes to both slots, and
+  transmitter silence is reported as underrun. The review corrected the
+  earlier version's I2C address (0x06 to 0x18), its serial-port register (the
+  ADC's 0x0a to the DAC's 0x09), and its missing clock and power-up
+  programming. `tests/mm/audio/es8311` pins the transcript and the contract
+  against a recording platform. Unqualified on hardware.
 - **Paced ADC capture and a DAC in `mm.mcu`.** `adc_pace`, `adc_pace_rate`,
   `adc_pace_start`, `adc_take`, `adc_pace_progress`, and `adc_pace_stop`
   capture a channel continuously into a buffer the platform owns;
