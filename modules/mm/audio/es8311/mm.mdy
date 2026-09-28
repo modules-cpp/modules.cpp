@@ -1,0 +1,30 @@
+---
+mm: 1.2
+kind: module
+name: es8311
+module: mm.audio.es8311
+use: mm.audio
+use: mm.mcu
+file: es8311.cppm
+file: src/es8311.cpp
+---
+
+# mm.audio.es8311
+
+The EverAs ast ES8311 audio codec, its DAC as a playback output. It is
+programmed over portable mm.mcu I2C and plays over portable mm.mcu I2S. It
+contains no vendor header and no board pin number: a provider supplies the
+wiring and this module drives the protocol.
+
+Modelled on the mainline Linux ASoC driver for this codec. The codec answers on
+an eight-bit register and eight-bit value I2C bus, and is identified by the
+address its provider assigns rather than by a chip identifier register, which is
+how that driver probes it. initialize performs the driver's reset and power-up
+sequence and programs the output channel for I2S playback; play ships the
+caller's samples down the I2S link as sixteen-bit little-endian bytes.
+
+Two things in that driver are deliberately not reproduced. Its clock dividers,
+which turn the board's master clock into the bit and word clocks, are absent,
+because they depend on the master clock a board provides; the I2S link's baud is
+what this module controls. Its ADC and microphone path is absent, because this
+module is the output end and the input is mm.audio's microphone.

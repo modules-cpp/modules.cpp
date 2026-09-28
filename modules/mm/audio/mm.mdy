@@ -1,0 +1,31 @@
+---
+mm: 1.2
+kind: module
+name: audio
+module: mm.audio
+platform-interface:
+file: status.cppm mm.audio:status
+file: types.cppm mm.audio:types
+file: platform.cppm mm.audio:platform
+file: audio.cppm mm.audio
+file: src/audio.cpp
+---
+
+# mm.audio
+
+A portable audio interface. It is the two ends of an audio link and nothing
+more: input, which captures a microphone's samples, and output, which plays a
+codec's. Mixing, effects, resampling, and level policy are above this module;
+the controller registers and the serial link are detail below it.
+
+The link's two ends are separate because they are separate devices. A microphone
+is an input a caller captures from; a codec is an output a caller plays to. Each
+has its own initialize, its own description, and its own shutdown, so a board
+that has one but not the other still composes, and a caller that wants both
+names them.
+
+The serial link the drivers ride on, and the buses a codec is programmed over,
+are mm.mcu facilities. The drivers own those; a provider supplies the wiring.
+
+The platform-interface marker makes a selected board's audio provider part of an
+executable only when its ordinary closure reaches mm.audio.

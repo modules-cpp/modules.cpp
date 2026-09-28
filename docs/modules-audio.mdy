@@ -1,0 +1,251 @@
+---
+mm: 1.0
+kind: doc
+name: modules.cpp audio interface
+status: official
+release: v1.2.3
+---
+
+# modules.cpp audio interface
+
+# Status and authority
+
+status: official gives the implemented portions of this document the same
+authority as the other v1.2.x specifications. This document specifies the
+implemented portable audio interface and its microphone input and ES8311 codec
+output drivers. mm.audio, both drivers, and their host tests exist. Audio
+behaviour on hardware remains a hardware-qualification requirement rather than
+a completed claim.
+
+docs/modules-platform-mcu.mdy remains authoritative for the implemented mm.mcu
+interface, including the ADC, I2C, and I2S facilities these drivers use.
+docs/modules-mm.mdy remains authoritative for the closed v1.2 manifest schema.
+
+# Decision
+
+Audio is a device service layered above mm.mcu ADC, I2C, and I2S. It is not a
+mixer, an effect engine, a resampler, and not a policy module.
+
+The intended dependency direction is:
+
+Opening fence
+portable application
+        |
+     mm.audio
+        |
+selected board audio provider
+        |
+mm.audio.microphone (input) and mm.audio.es8311 (output)
+        |
+ADC, I2C, and I2S from mm.mcu
+        |
+selected MCU platform provider
+Closing fence
+
+An application using only portable audio behavior declares:
+
+Opening fence
+use: mm.audio
+Closing fence
+
+It does not name a controller, vendor, I2C address, ADC channel, GPIO number,
+or provider module. The selected physical board profile supplies those facts.
+
+# Portable interface
+
+mm.audio is a platform interface with an allocation-free API for description,
+initialization, capture, playback, and shutdown. Its fallback objects report
+Unsupported.
+
+The public shape is:
+
+Opening fence
+enum class Status { Ok, BadArgument, Unsupported,
+                    NotInitialized, Busy, Timeout, TransportError };
+
+using Sample = std::int16_t;
+
+enum class Direction { Input, Output };
+
+struct Description {
+    std::string_view name = "";
+    unsigned int rate = 0;
+    unsigned int channels = 0;
+    Direction direction = Direction::Input;
+};
+
+class Microphone {
+public:
+    virtual ~Microphone() = default;
+    [[nodiscard]] virtual Description description() const;
+    [[nodiscard]] virtual Status initialize();
+    [[nodiscard]] virtual Status capture(std::span<Sample>, std::size_t& count);
+    [[nodiscard]] virtual Status shutdown();
+};
+
+class Codec {
+public:
+    virtual ~Codec() = default;
+    [[nodiscard]] virtual Description description() const;
+    [[nodiscard]] virtual Status initialize();
+    [[nodiscard]] virtual Status play(std::span<const Sample>);
+    [[nodiscard]] virtual Status shutdown();
+};
+
+void set_microphone(Microphone&);
+[[nodiscard]] Microphone& selected_microphone();
+void set_codec(Codec&);
+[[nodiscard]] Codec& selected_codec();
+Closing fence
+
+`capture` fills the caller's span with as many samples as the microphone draws,
+and sets `count` to the number captured. `count` is written only when the call
+answers Ok, so a caller that ignores the status cannot mistake a stale count
+for a fresh reading. A span of any size is a valid capture; nothing audible is
+not an error.
+
+`play` ships the caller's samples to the codec. There is no count out, because
+a codec either takes the frame it was given or it does not.
+
+`Description` names the device, the rate it samples at, how many channels it
+carries, and which direction it faces. The two ends of the link are separate
+classes because they are separate devices: a microphone a caller captures from,
+and a codec a caller plays to. A board that has one but not the other still
+composes, and a caller that wants both names them.
+
+Like mm.touch, a device is polled: a caller calls capture or play, and a
+provider may use its own interrupt or DMA internally to make that cheap. Exposing
+an interrupt or DMA descriptor would mean exposing a callback registration
+mm.mcu does not have.
+
+The platform-interface marker makes a selected board's audio provider part of an
+executable only when its ordinary closure reaches mm.audio.
+
+# Microphone driver
+
+mm.audio.microphone implements a microphone input digitised by the platform's
+ADC. It contains no vendor header and no board pin number: a provider supplies
+the channel and this module drives the protocol.
+
+The driver receives immutable wiring:
+
+Opening fence
+struct Wiring {
+    unsigned int channel;   // the ADC channel the microphone's output is on
+    unsigned int rate;      // the sample rate the caller captures at
+    unsigned int bits;      // the ADC's width, for the count-to-sample scale
+};
+Closing fence
+
+A microphone is an analog source on an ADC channel. `initialize` claims the
+channel through mm.mcu `adc_configure`; the ADC is the authority on whether the
+channel exists, and a channel it does not offer answers BadArgument. `capture`
+draws one conversion per sample and maps each count to a sixteen-bit sample: the
+count is centred on the ADC's half scale, so a quiet input is a sample near zero
+rather than a large positive count, then scaled to sixteen bits. `shutdown`
+releases the channel.
+
+The ADC's conversion rate bounds real-time capture. That is a
+hardware-qualification, as the touch drivers treat their panel behaviour, and
+this module does not promise a rate the ADC cannot deliver.
+
+# The ES8311 driver
+
+mm.audio.es8311 implements the EverAs ast ES8311 audio codec, its DAC as a
+playback output, over portable mm.mcu I2C and I2S. It takes the same immutable
+wiring shape:
+
+Opening fence
+struct Wiring {
+    mm::mcu::I2cConfiguration i2c;
+    unsigned int address;        // the codec's I2C address, per its strap pins
+    mm::mcu::I2sConfiguration i2s;
+    unsigned int rate;           // the sample rate playback runs at
+    unsigned long reset_delay_ms; // the pause between entering and leaving reset
+};
+Closing fence
+
+Modelled on the mainline Linux ASoC driver for this codec. The codec answers on
+an eight-bit register and eight-bit value I2C bus, and is identified by the
+address its provider assigns rather than by a chip identifier register, which is
+how that driver probes it. `initialize` configures the I2C bus and performs the
+driver's reset and power-up sequence: it enters reset mode on the reset register,
+pauses for `reset_delay_ms`, leaves reset mode, clears the two system registers
+to power up the state machine, and programs the output channel for I2S playback.
+It then configures the I2S link. `play` ships the caller's samples down the I2S
+link as sixteen-bit little-endian bytes. `shutdown` mutes the output channel.
+
+Two things in the ASoC driver are deliberately not reproduced. Its clock
+dividers, which turn the board's master clock into the bit and word clocks, are
+absent, because they depend on the master clock a board provides; the I2S link's
+baud is what this module controls. Its ADC and microphone path is absent,
+because this module is the output end and the input is mm.audio's microphone.
+
+# Provider binding
+
+mm.audio carries the existing platform-interface marker. A concrete hardware
+board binds each end of the link to a provider:
+
+Opening fence
+platform-provider: mm.audio platform.<board>.microphone
+platform-provider: mm.audio platform.<board>.es8311
+Closing fence
+
+A provider imports mm.audio, the selected driver module, and mm.mcu. It owns the
+fixed ADC channel, I2C and I2S wiring, and device rate, constructs the driver,
+and registers the implementation from a retained static object. Existing provider
+validation, board-over-SDK precedence, conditional closure injection, and core
+platform-edge rules apply unchanged.
+
+# Test strategy
+
+Driver tests use a fake MCU Platform that records the ADC, I2C, and I2S
+operations. Tests compare semantic transcripts rather than merely checking that
+a source file compiled.
+
+Required host tests cover:
+
+- the microphone's count-to-sample centre and scale;
+- the conversions a capture draws, one per sample;
+- the channel a microphone claims and releases;
+- the ES8311's reset and power-up transcript in order;
+- the output-channel program for I2S playback;
+- the sixteen-bit little-endian frames play ships down the I2S link;
+- invalid-wiring refusals and the reinitialization path.
+
+Target qualification builds one portable app through the real Pico external
+CMake bridge, validates the ELF and UF2, and confirms the audio and MCU provider
+registration objects. It then flashes through flash.sh.
+
+# Implementation stages
+
+1. Implemented: add mm.audio with a host stand-in independent of any driver.
+2. Implemented: add mm.audio.microphone with capture and channel tests.
+3. Implemented: add mm.audio.es8311 with reset, power-up, and playback tests.
+4. Pending hardware: qualify capture and playback on a named board with a
+   microphone and an ES8311.
+
+# Acceptance criteria
+
+- An app importing only mm.audio links with exactly one selected audio provider
+  per end of the link, and the provider's driver closure.
+- The same app is unavailable on a board with no audio binding.
+- An app not importing mm.audio contains no audio provider or driver
+  registration object.
+- Driver host tests pass without Pico SDK or physical hardware.
+- I2C register accesses cross the platform boundary as write-read transactions,
+  not separate write and read calls, and playback crosses as I2S writes.
+- No driver source includes vendor or Pico SDK headers.
+- A successful link or flash is not reported as a successful capture or
+  playback.
+
+# What this does not settle
+
+- Microphone input is digitised by the platform's ADC, and output is the
+  ES8311's DAC. The ES8311's ADC and microphone path is absent, because this
+  module's input is mm.audio's microphone.
+- Mixing, effects, resampling, level policy, and sample-format conversion are
+  policy above this module.
+- A data-ready interrupt or DMA descriptor is not exposed; mm.mcu has no
+  callback registration.
+- Multi-device selection and runtime audio discovery are not specified.

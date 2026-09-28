@@ -1,0 +1,20 @@
+---
+mm: 1.0
+kind: test
+name: audio-es8311
+use: mm.test
+use: mm.mcu
+use: mm.audio
+use: mm.audio.es8311
+unit: tests/mm/audio-es8311/platform.cpp
+unit: tests/mm/audio-es8311/es8311.cpp
+unit: tests/main.cpp
+---
+
+# ES8311 codec driver tests
+
+Exercises the ES8311 driver's register transcript and playback against a
+recording MCU platform that answers as the codec does: the reset and power-up
+sequence, the output-channel program for I2S playback, the sixteen-bit
+little-endian frames play ships down the I2S link, the invalid-wiring refusals,
+and the lifecycle. No hardware is involved.

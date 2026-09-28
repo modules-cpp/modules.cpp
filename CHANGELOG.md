@@ -51,6 +51,14 @@ All notable changes to modules.cpp. Versions follow [semantic versioning](https:
   event read and monotonic poll, while Pico uses its GPIO callback and an
   event-assisted wait. `gpio-edge-smoke` builds for Pico ARM and RISC-V and
   provides a wired fixture for physical verification.
+- **I2S in `mm.mcu`.** A serial audio link facility beside SPI and I2C:
+  `i2s_configure` over `I2sConfiguration` (instance, data, clock, and
+  word-select GPIOs, and a baud defaulting to 1 MHz), plus per-instance
+  `i2s_write` and `i2s_read`, the two halves of the full-duplex link. The link
+  is point-to-point, so it carries no address the way I2C does, and no mode,
+  bit order, or chip select the way SPI does. Every provider inherits
+  `Unsupported` until its implementation lands; the host stand-in and
+  `tests/mm/mcu` pin the contracts. docs/modules-platform-mcu.mdy specifies it.
 - **`mm.touch.cst816`.** The Goodtek CST816 capacitive touch controller over
   portable mm.mcu I2C and GPIO, beside `mm.touch.cst328`. Eight-bit register
   map; the chip identifier register is checked at initialization; the
@@ -71,6 +79,23 @@ All notable changes to modules.cpp. Versions follow [semantic versioning](https:
   which is the same source the vendor's examples run; the wiki remains
   unreachable to automated requests. Its panel settings live with the board,
   not the driver, exactly as the 2.8 board's do.
+- **`mm.audio`.** A portable audio interface: the two ends of an audio link,
+  `Microphone` (capture) and `Codec` (playback), each with a `description`,
+  `initialize`, `shutdown`, and their transfer, over sixteen-bit `Sample`s. The
+  fallback objects answer `Unsupported`, as in mm.touch. Two drivers sit above
+  it. `mm.audio.microphone` is a microphone input digitised by the platform's
+  ADC: `capture` draws one conversion per sample, centring each count on the
+  ADC's half scale and scaling it to sixteen bits, so a quiet input is a sample
+  near zero. `mm.audio.es8311` is the EverAs ast ES8311 codec, its DAC as a
+  playback output, over portable mm.mcu I2C and I2S, modelled on the mainline
+  Linux ASoC driver: an eight-bit register and value over I2C, identified by
+  the address its provider assigns; `initialize` performs the reset and
+  power-up sequence and programs the output channel for I2S playback, and `play`
+  ships the caller's samples down the I2S link as sixteen-bit little-endian
+  bytes. Its clock dividers and its ADC/microphone path are absent, because the
+  input end is the microphone. `tests/mm/audio` and `tests/mm/audio-es8311` pin
+  both drivers' transcripts against a recording MCU platform. docs/modules-audio.mdy
+  specifies it.
 
 ### Changed
 

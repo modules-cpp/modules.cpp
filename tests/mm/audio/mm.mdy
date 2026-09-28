@@ -1,0 +1,19 @@
+---
+mm: 1.0
+kind: test
+name: audio
+use: mm.test
+use: mm.mcu
+use: mm.audio
+use: mm.audio.microphone
+unit: tests/mm/audio/platform.cpp
+unit: tests/mm/audio/microphone.cpp
+unit: tests/main.cpp
+---
+
+# Microphone driver tests
+
+Exercises the microphone driver's capture against a recording MCU platform that
+answers as an ADC does: the count-to-sample centre and scale, the conversions
+capture draws, the channel it claims and releases, the invalid-wiring refusals,
+and the lifecycle. No hardware is involved.

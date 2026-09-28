@@ -1,0 +1,26 @@
+---
+mm: 1.2
+kind: module
+name: microphone
+module: mm.audio.microphone
+use: mm.audio
+use: mm.mcu
+file: microphone.cppm
+file: src/microphone.cpp
+---
+
+# mm.audio.microphone
+
+A microphone input, digitised by the platform's ADC. It contains no vendor
+header and no board pin number: a provider supplies the channel and this module
+drives the protocol.
+
+A microphone is an analog source on an ADC channel. capture fills the caller's
+span with sixteen-bit samples: each conversion is centred on the ADC's half
+scale, so a quiet input is a sample near zero rather than a large positive
+count, then scaled to sixteen bits. count is the number captured, and nothing
+being audible is not an error, because a span of any size is a valid capture.
+
+The ADC's conversion rate bounds real-time capture; that is a hardware
+qualification, as the touch drivers treat their panel behaviour, and this module
+does not promise a rate the ADC cannot deliver.
