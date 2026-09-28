@@ -14,12 +14,13 @@ status: official gives the implemented portions of this document the same
 authority as the other v1.2.x specifications. This document specifies mm.audio,
 the portable audio interface: the In, Out, and Stream interfaces, the Ring
 stream, the sample arithmetic, and the selection pair, and mm.audio.es8311,
-the portable driver for the ES8311 codec's DAC. They and their host tests
-exist; the ES8311 driver is unqualified on hardware. The board providers that
-implement a Microphone and a Speaker -- on the bare Pico boards over paced ADC
-capture and a PWM-backed DAC, on the Waveshare RP2350-Touch-LCD-2.8 over I2S,
-on Linux over ALSA, under SDL over SDL's audio queue -- are specified in Board
-providers below as the contract they will be written to, and none exists yet.
+the portable driver for the ES8311 codec's DAC and ADC. They and their host
+tests exist; the ES8311 driver is unqualified on hardware. The board providers
+that implement a Microphone and a Speaker -- on the bare Pico boards over paced
+ADC capture and a PWM-backed DAC, on the Waveshare RP2350-Touch-LCD-2.8 over
+I2S, on Linux over ALSA, under SDL over SDL's audio queue -- are specified in
+Board providers below as the contract they will be written to, and none exists
+yet.
 
 docs/modules-platform-mcu.mdy remains authoritative for the mm.mcu transports
 a provider uses, including paced ADC capture, the DAC, and I2S, and their
@@ -292,26 +293,34 @@ part shares one register sequence. The driver implements In or Out itself,
 over mm.mcu, and takes its wiring from the board's provider, which constructs
 it and registers it as the board's Microphone or Speaker.
 
-mm.audio.es8311 is the first. It drives the Everest ES8311's DAC as an Out:
-identified by its chip registers, 0x83 and 0x11 at 0xfd and 0xfe, controlled
-at 0x18 or 0x19 over I2C, and fed over I2S as the platform's slave with its
-master clock taken from the bit clock and multiplied to 256 times the rate, so
-a board needs no MCLK line. initialize resets and powers it up with its serial
-port muted; configure starts the link and programs the clock multiplier for a
-sixteen- or thirty-two-bit slot; start unmutes and stop mutes before
-discarding the transmitter's queue, while the clocks keep running. It keeps
-the Out contract to the letter: the pending run is offered before the Stream
-is read, zero and partial acceptance and a transmitter error lose nothing,
-transmitter silence is reported as underrun, and position and pending come
-from the transmitter's progress. Its Description depth is its own scratch of
-sixty-four frames, a lower bound on its buffering, because mm.mcu does not
-report the platform's I2S depth.
+mm.audio.es8311 is the first. It drives the Everest ES8311 as three classes:
+Codec, the chip -- identified by its chip registers, 0x83 and 0x11 at 0xfd and
+0xfe, controlled at 0x18 or 0x19 over I2C, reset once, and fed over one I2S
+link as the platform's slave with its master clock taken from the bit clock
+and multiplied to 256 times the rate, so a board needs no MCLK line -- and
+Output and Input, its DAC and its ADC, each holding the Codec. They are two
+classes because a class cannot be an In and an Out under one level of
+dispatch. The link's one word clock is one rate for both: a configure at
+another rate moves it only while neither direction is started. Each direction
+powers up its own converter muted, unmutes its serial port on start, and mutes
+it on stop before discarding the transport's buffer, while the clocks keep
+running.
+
+Output keeps the Out contract: the pending run is offered before the Stream is
+read, zero and partial acceptance and a transmitter error lose nothing, each
+sample goes to both slots, transmitter silence is reported as underrun, and
+position and pending come from the transmitter's progress. Input keeps the In
+contract: it takes no more than the Stream has room for, reads the analog
+microphone's sample from the board's slot at the board's PGA gain, narrows
+thirty-two-bit words, and reports receiver drops as overrun. Each Description
+depth is the driver's own scratch of sixty-four frames, a lower bound on its
+buffering, because mm.mcu does not report the platform's I2S depth.
 
 An earlier version on the audio-work branch addressed the part at 0x06,
-programmed the ADC's serial port 0x0a where the DAC's is 0x09, never enabled
-the clock manager, the analog section, or the DAC, allocated a byte vector on
-every play, and sent each sample in one slot of a byte-span link. The driver
-here corrects each of these; its ADC and microphone path remains absent.
+programmed the ADC's serial port 0x0a for playback where the DAC's is 0x09,
+never enabled the clock manager, the analog section, or the DAC, allocated a
+byte vector on every play, sent each sample in one slot of a byte-span link,
+and had no input. The driver here corrects each of these.
 
 # Conformance
 
@@ -342,15 +351,23 @@ here corrects each of these; its ADC and microphone path remains absent.
 - With no provider, the selection is the fallback; a registered device is the
   one selected, and calls reach it.
 
-- The ES8311 driver identifies the part and refuses another; writes the reset,
-  power-up, and clock transcript in order for both slot widths; refuses a
-  rate outside eight to ninety-six kilohertz, a link with no transmit line,
-  and a twenty-four-bit slot; reconfigures an idle link at another rate by
-  releasing it; sends each sample in both slots, widened for thirty-two-bit
+- The ES8311 driver identifies the part and refuses another; resets it once
+  however many directions initialise; writes the shared, DAC, and ADC
+  transcripts in order for both slot widths; refuses a rate outside eight to
+  ninety-six kilohertz, a direction with no data line for it, a gain past ten
+  steps, and a twenty-four-bit slot; runs both directions at one rate and
+  moves the link only while neither is started.
+- Its Output sends each sample in both slots, widened for thirty-two-bit
   slots; keeps its pending run through zero acceptance, partial acceptance,
-  and a transmitter error, and reads the Stream only when nothing is pending;
+  and a transmitter error, reading the Stream only when nothing is pending;
   reports transmitter silence as underrun growth; and on stop mutes, discards
   the queue, keeps the clocks, releases the end, and resumes on restart.
+- Its Input captures only after start, from the wired slot, narrowing
+  thirty-two-bit words; takes no more than the Stream holds, so every sample
+  arrives once and in order; reports receiver drops as overrun growth, with
+  position counting them; leaves the Stream alone on a receiver error; and on
+  stop mutes and keeps what the Stream holds, a restart discarding what the
+  receiver held.
 
 tests/mm/audio and tests/mm/audio/es8311 pin these. No hardware is involved.
 

@@ -11,31 +11,50 @@ file: src/es8311.cpp
 
 # mm.audio.es8311
 
-The Everest Semiconductor ES8311 audio codec, its DAC as an mm.audio Out, over
-portable mm.mcu I2C and I2S. It contains no vendor header and no board pin
-number: a board's provider supplies the wiring, constructs a Codec, and
-registers it as the board's Speaker. It sits where mm.imu.qmi8658 sits for the
-IMU, because the ES8311 is a chip with registers worth writing once.
+The Everest Semiconductor ES8311 audio codec over portable mm.mcu I2C and I2S:
+its DAC as an mm.audio Out and its ADC as an mm.audio In. It contains no vendor
+header and no board pin number: a board's provider supplies the wiring. It sits
+where mm.imu.qmi8658 sits for the IMU, because the ES8311 is a chip with
+registers worth writing once.
+
+The chip is three classes. Codec is the chip itself -- the control bus, the
+reset, the clocks, and the one I2S link both directions share -- and is not an
+audio device. Output and Input are, and each holds a Codec. A board that plays
+and records through one ES8311 constructs one Codec and one of each and
+registers them as its Speaker and its Microphone. A board whose link has no
+receive line registers the Output and, as docs/modules-audio.mdy asks of a
+board without a microphone, an In of its own whose every call answers
+Unsupported; an Input there would answer BadArgument, which says the wiring is
+wrong rather than that the board has no microphone.
+Two classes rather than one because a class cannot be an In and an Out at once
+under one level of dispatch: their calls share names and not meanings.
 
 The codec is identified by its two chip identification registers, 0x83 and
 0x11 at 0xfd and 0xfe, and a part that answers otherwise is Unsupported. It is
-controlled at 0x18, or 0x19 with CE high. initialize resets it, powers up its
-analog section, DAC, and output driver at unity volume, and leaves the DAC's
-serial port muted. configure starts the I2S link as the platform's slave and
-programs the clock manager to take the codec's master clock from the bit clock,
-multiplied to 256 times the rate, so a board needs no MCLK line. start unmutes
-the port and stop mutes it before discarding what was queued.
+controlled at 0x18, or 0x19 with CE high. The first initialize of either
+direction resets it and powers up what both share; each direction then powers
+up its own converter and leaves its serial port muted, the DAC's at 0x09 and
+the ADC's at 0x0a. The link runs as the platform's slave with the codec's
+master clock taken from the bit clock, multiplied to 256 times the rate, so a
+board needs no MCLK line. Its one word clock means one rate for both
+directions: a configure at another rate moves the link only while neither
+direction is started, and a direction left at the old rate configures again.
+start unmutes a port and stop mutes it before discarding the transport's
+buffer, while the clocks keep running.
 
-It keeps the Out contract: service offers its pending run first and reads from
-the Stream only when nothing is pending, the transmitter's silence on underrun
-is reported to the Stream, and position and pending come from the
-transmitter's progress. A mono sample goes to both slots. Slots are sixteen or
-thirty-two bits wide; the sixteen-bit link moves samples unchanged.
+Output keeps the Out contract: service offers its pending run first and reads
+the Stream only when nothing is pending, each sample goes to both slots, and
+transmitter silence is reported as underrun. Input keeps the In contract:
+service takes no more than the Stream has room for, so it never holds a sample
+it cannot write, the analog microphone's sample is the input_slot word, and
+receiver drops are reported as overrun. The microphone's PGA gain is the
+board's, zero to ten steps of three decibels. Slots are sixteen or thirty-two
+bits wide.
 
 The register values follow the datasheet's map as Espressif's driver programs
 it for this mode. The first version of this driver, on the audio-work branch,
-addressed the part at 0x06, programmed the ADC's serial port 0x0a where the
-DAC's is 0x09, and never enabled the clock manager, the analog section, or the
-DAC; each is corrected here. The ADC and microphone path is absent, because
-this module is an Out. None of this is qualified on hardware until a board with
-the codec plays through it.
+addressed the part at 0x06, programmed the ADC's serial port 0x0a for
+playback, and never enabled the clock manager, the analog section, or the DAC;
+each is corrected here, and the ADC it did not drive is now an Input. None of
+this is qualified on hardware until a board with the codec plays and records
+through it.

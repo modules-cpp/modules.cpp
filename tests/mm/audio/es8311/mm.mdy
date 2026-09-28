@@ -14,10 +14,14 @@ unit: tests/main.cpp
 # ES8311 codec driver tests
 
 Exercises the ES8311 driver against a recording MCU platform that answers as
-the codec and an I2S transmitter do: identification, the reset and power-up
-transcript, the clock program for both slot widths, configure's refusals and
-reconfiguration, the Out contract -- a pending run kept through zero and
+the codec and a full-duplex I2S link do. For the Output: identification, the
+reset and power-up transcript, the clock program for both slot widths,
+configure's refusals and reconfiguration, a pending run kept through zero and
 partial acceptance and through an error, the Stream read only when nothing is
 pending, each sample in both slots, silence reported as underrun, position,
-pending, stop, and restart -- and sleep. The transmitter consumes a frame only
-when a case ticks it. No hardware is involved.
+pending, stop, restart, and sleep. For the Input: the microphone's transcript
+and gain, capture only after start, either slot, thirty-two-bit words
+narrowed, never taking more than the Stream holds, receiver drops reported as
+overrun, errors, stop and restart. And one chip shared by both: one reset, one
+link, one rate. The transmitter sends a frame only when a case ticks it and the
+receiver receives one only when a case feeds it. No hardware is involved.
