@@ -260,6 +260,19 @@ public:
         return status;
     }
 
+    // The SDK's mask on the calling core, which is what excludes the GPIO
+    // latch's callback and every other handler this platform installs.
+    [[nodiscard]] mm::mcu::Status interrupts_disable(std::uint32_t& saved) override {
+        unsigned int raw = 0;
+        const auto status = from(mm_pico_mcu_interrupts_disable(&raw));
+        if (status == mm::mcu::Status::Ok) saved = raw;
+        return status;
+    }
+
+    [[nodiscard]] mm::mcu::Status interrupts_enable(std::uint32_t saved) override {
+        return from(mm_pico_mcu_interrupts_enable(saved));
+    }
+
     [[nodiscard]] mm::mcu::AdcDescription adc_description() const override {
         describe_adc();
         return {std::span<const mm::mcu::AdcChannel>{adc_channels, adc_channel_count}};

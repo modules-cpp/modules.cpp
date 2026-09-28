@@ -543,6 +543,16 @@ public:
         return Status::Ok;
     }
 
+    // No handler of this provider runs in the process: GPIO edges arrive on a
+    // descriptor the program reads, and no signal disposition is installed.
+    // There is nothing to exclude, so a section is kept by doing nothing.
+    [[nodiscard]] Status interrupts_disable(std::uint32_t& saved) override {
+        saved = 0;
+        return Status::Ok;
+    }
+
+    [[nodiscard]] Status interrupts_enable(std::uint32_t) override { return Status::Ok; }
+
     // The inventories are the map's entries; the reference is the map's
     // when it says one, else the IIO scale times the channel's range when
     // the device can be found, else zero.

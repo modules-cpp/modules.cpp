@@ -18,7 +18,9 @@ provider, or application is written against one contract rather than
 inferred from several.
 
 Each interface document owns its own calls and their answers:
-docs/modules-platform-mcu.mdy owns mm.mcu and the GPIO edge latch,
+docs/modules-platform-mcu.mdy owns mm.mcu, the GPIO edge latch, the
+continuous transports, and the critical section, docs/modules-audio.mdy the
+audio interface,
 docs/modules-display.mdy the display, docs/modules-stdio.mdy the console,
 and docs/modules-touch.mdy, docs/modules-imu.mdy, and docs/modules-rtc.mdy
 the device interfaces. docs/modules-c++20.mdy owns what code may say; this
@@ -36,9 +38,11 @@ A modules.cpp program is one thread of control that runs from main to
 return, on one core, and every call it makes returns to it. Nothing runs
 application code on the program's behalf: no callback, no handler, no
 thread. Where hardware acts on its own, a provider may record that it did
-in a latch, and the program asks the latch when it chooses.
+in a latch, and the program asks the latch when it chooses; where hardware
+moves data on its own clock, a provider may move it through a buffer it
+owns, and the program fills or drains the buffer when it chooses.
 
-There are two models, and the second is the first with one addition.
+There are three models, and each is the one before with one addition.
 
 # Model 1: straight blocking execution
 
@@ -144,7 +148,8 @@ about that.
 The GPIO edge facility in mm.mcu -- `gpio_watch`, `gpio_take`,
 `gpio_wait`, and `gpio_unwatch`, specified in docs/modules-platform-mcu.mdy
 -- adds interrupts to model 1 without changing its shape. The rule is that
-an interrupt may set a flag and may not run application code.
+an interrupt may record what the hardware did and may not run application
+code.
 
 Opening fence
 // A button on a pulled-up input: pressed is low, so a press is a falling
@@ -177,9 +182,11 @@ What stays and what changes:
 - The handler belongs to the provider and is trivial. On the Pico it is the
   SDK's GPIO callback setting one flag and signalling an event; on Linux it
   is the kernel queueing an event on a descriptor. A handler MUST NOT call
-  portable code, allocate, log, or touch a bus. No portable code has an
-  interrupt context, so no driver need be re-entrant and no rule about
-  priorities or preemption enters any portable contract.
+  portable code, allocate, log, block, or touch a bus or peripheral other
+  than the one whose event it services. No portable code has an interrupt
+  context, so no driver need be re-entrant and no rule about priorities or
+  preemption enters any portable contract. Model 3 widens what a handler
+  may do for a transport, and only for one.
 - The latch coalesces. It reports at least one selected edge observed and
   not yet reported: no count, no order, no timestamp, no debounce. That is
   the whole promise, and it is what lets one contract hold on a one-flag
@@ -219,6 +226,69 @@ today, and docs/modules-touch.mdy says so; the change is staged behind a
 hardware check of the controller's interrupt behaviour, and that document
 changes when the driver does.
 
+# Model 3: the transport
+
+Paced ADC capture, the DAC, and I2S in mm.mcu, specified in
+docs/modules-platform-mcu.mdy, keep a clock of their own: a converter takes
+or delivers a sample every period whether or not the program is in a call.
+No flag can say that, and no call can complete it, so these facilities are
+the latch with data in it. The provider owns a buffer, the hardware moves
+samples between the buffer and the pins on the transport's clock, and the
+program gives to or takes from the buffer with calls that never wait and
+answer a partial count, possibly zero. mm.audio's Microphone and Speaker are
+built on them, and their service call is where the program does its share.
+
+What changes from model 2:
+
+- A transport's handler does bounded work for its transport. It MAY
+  acknowledge the hardware, count, re-arm a DMA channel on the next half of
+  the provider's buffer, and switch the transfer to a buffer of silence
+  when the program has given nothing, or drop a received sample when the
+  buffer is full. That is all it MAY do: it touches no memory but the
+  provider's own records and buffers and no peripheral but the transport's,
+  its time does not depend on anything the program did, and every rule
+  model 2 states for a handler still holds.
+- Silence and loss are the transport's, not the program's. A transmitter
+  with nothing queued outputs silence by itself and counts the period; a
+  receiver with nowhere to put a sample drops it and counts it. A program
+  that services late hears a gap and learns its length; it is never asked to
+  have been on time.
+- What the program observes still changes between its calls only as the
+  hardware changes it. A queue draining and a count growing are the
+  transport's clock at work, as a pin's level is, and each call reports the
+  buffer as it was when the call ran.
+- The buffer belongs to the provider, never to the program. No handler
+  reaches a Stream or any other memory above the seam, so a Stream needs no
+  interrupt safety and a Microphone or Speaker needs no re-entrancy.
+
+# Critical sections
+
+`interrupts_disable` and `interrupts_enable` in mm.mcu, and `InterruptGuard`
+that makes a section a scope, are the one way code above the seam affects
+interrupt delivery. Between the two calls no handler of the selected
+platform runs on the calling core, so a short sequence of calls sees one
+state of the world: two transports' progress read at one instant to
+measure their drift, or a provider module's records read together with a
+count its handler keeps. A platform with no handler above its seam -- the
+Linux provider, whose events arrive on descriptors -- answers `Ok` and masks
+nothing, which is the same promise kept trivially.
+
+- A section MUST be short and bounded. It MUST NOT contain `delay_ms`,
+  `gpio_wait`, a bus transfer, or any other call that waits, because a
+  handler it holds off may be what the wait is waiting for, and a
+  transport held off too long misses its period.
+- A section MUST end on the core that began it. The mask is per core, as
+  the Pico latch already is.
+- `interrupts_enable` restores what its `interrupts_disable` saved rather
+  than unmasking outright, so sections nest when each level has its own
+  state and they end in reverse order. A state is held from its disable to
+  its enable: a second disable of a held state, or an enable of a state not
+  held, is refused before the platform is asked.
+- A section excludes the platform's handlers from the caller's statements;
+  it does not make a handler of the caller's. Nothing here names a vector,
+  sets a priority, or installs anything, and nothing between the two calls
+  runs anywhere but on the program's thread.
+
 # What is excluded
 
 These are not omissions. Each is a shape that was considered and declined,
@@ -234,6 +304,8 @@ and the reason is recorded so it is not reconsidered by accident.
   accepted one would have to be audited against it.
 - General interrupt access. No portable interface names a vector, sets a
   priority, installs a handler, or receives timer, DMA, or bus interrupts.
+  Masking the platform's handlers on the calling core, above, is the one
+  exception, and it only ever withholds a handler; it never runs one.
 - Preemption and threads above the seam. A provider MAY use a thread
   inside itself where its platform requires one; it MUST NOT run portable
   code on it, and it MUST NOT expose it.
@@ -261,12 +333,18 @@ can answer yes to each of these against its document and its code.
   document says so.
 - No query waits for state to change.
 - No call sleeps, spins, or blocks except `delay_ms`, a transfer, a
-  declared bounded wait, and `gpio_wait`.
+  declared bounded wait, and `gpio_wait`. A continuous transport's give,
+  take, read, and write are not transfers in this sense: they move what fits
+  in the provider's buffer and return.
 - Output parameters change only on `Ok`, the provider's record stays true
   after a failure, and its document says whether the hardware is left as
   it was.
-- No handler, thread, or signal disposition exists outside a provider, and
-  a provider's handler sets a flag and nothing else.
+- No handler, thread, or signal disposition exists outside a provider. A
+  provider's handler sets a flag, or, for a continuous transport, does the
+  bounded work model 3 lists and nothing else; no handler touches memory
+  above the seam.
+- A critical section is short, contains no call that waits, ends on the
+  core that began it, and ends in reverse order of beginning.
 - Nothing the program can observe changes between two of its calls except
   as the hardware changes it.
 

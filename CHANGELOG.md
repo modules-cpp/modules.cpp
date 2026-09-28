@@ -2,10 +2,99 @@
 
 All notable changes to modules.cpp. Versions follow [semantic versioning](https://semver.org/).
 
-## [v1.2.3] — Unreleased
+## [v1.2.4] — Unreleased
 
 ### Added
 
+- **`mm.audio`.** A portable audio interface of three interface classes:
+  `In`, a source of sampled sound; `Out`, a sink; and `Stream`, the
+  connection with one producer and one consumer that carries samples between
+  either one and an application, or between the two directly. It knows no
+  pin, transport, or board: a board's platform provider derives a
+  `Microphone` from `In` and a `Speaker` from `Out` and registers one of each.
+  `Ring` is the shipped `Stream`, a ring over caller-owned storage that never
+  allocates, with two indices each written by one side through plain atomic
+  loads and stores, zero-copy regions bounded by the wrap, device claims per
+  end, and underrun and overrun counts. Samples are sixteen-bit and mono;
+  `to_sample`, `to_sample_offset`, and their inverses convert to and from any
+  width from one to thirty-two bits. `Format` carries the nominal rate and
+  `Rate` the exact one, because two devices asked for one rate generally run
+  at two. `Out` adds `pending` for draining; `service` never waits, a device
+  keeps what its transport did not accept, and silence on underrun is the
+  transport's. The fallbacks answer `Unsupported`. `tests/mm/audio` pins the
+  arithmetic at every width, the ring at every offset of capacities one
+  through nine, and three million samples through a ring of sixty-one on two
+  threads. docs/modules-audio.mdy specifies it, and drafts/plan-audio.mdy
+  records the research and the board providers still to come.
+- **Paced ADC capture and a DAC in `mm.mcu`.** `adc_pace`, `adc_pace_rate`,
+  `adc_pace_start`, `adc_take`, `adc_pace_progress`, and `adc_pace_stop`
+  capture a channel continuously into a buffer the platform owns;
+  `AdcChannel` gains `maximum_pace_hz` and `pace_depth`. A paced channel owns
+  the whole converter, so every `adc_read` and every other channel's
+  configure or pace answers `Busy` until release. The new DAC facility,
+  `dac_description` through `dac_release` over a `DacOutput` inventory,
+  queues levels at a rate and holds half scale -- not its last level -- when
+  starved. Both report exact rates as a `Frequency` and what they have done
+  as a `Progress`. Every provider inherits `Unsupported`, and paced
+  capture's limits are zero, until its implementation lands.
+
+- **Critical sections in `mm.mcu`.** `interrupts_disable` and
+  `interrupts_enable` over an `InterruptState`, and `InterruptGuard` for a
+  scope: between the two no handler of the selected platform runs on the
+  calling core. Enable restores what its disable saved, so sections nest; a
+  held state cannot begin a second section and an enable without a disable
+  is refused before the platform is asked. The Pico provider uses the SDK's
+  `save_and_disable_interrupts` and `restore_interrupts`; the Linux,
+  rp2040-ram, and widget-rp2040 providers install no handler and answer Ok
+  without masking. `tests/mm/mcu/interrupt.cpp` pins nesting, order, and the
+  guard.
+
+### Changed
+
+- **Execution model, model 3.** docs/modules-execution.mdy adds the
+  transport: a continuous transport's handler may acknowledge, count, re-arm
+  a DMA channel on the provider's buffer, switch to a buffer of silence, and
+  drop a sample it has no room for, and nothing more; no handler touches
+  memory above the seam. It also states what a critical section may contain,
+  and records masking as the one exception to general interrupt access.
+- **I2S in `mm.mcu` is a continuous transport.** Its clock runs from
+  configure to release, so the byte-span `i2s_write` and `i2s_read` became
+  queueing calls over a buffer the platform owns, with `i2s_rate`,
+  `i2s_start`, `i2s_progress`, `i2s_stop`, and `i2s_release` beside them.
+  `I2sConfiguration` names bit and word clock GPIOs, optional transmit and
+  receive GPIOs, `rate_hz`, and `slot_bits` in place of the data, clock,
+  word-select GPIOs and baud; sixteen-bit slots move `std::int16_t` words and
+  wider ones `std::int32_t`, a starved transmitter sends zeros by itself, and
+  a link claims its pads. Paced ADC capture, the DAC, and I2S share one
+  lifecycle, specified once in docs/modules-platform-mcu.mdy. No provider
+  implemented the earlier form.
+
+## [v1.2.3] — 2026-09-18
+
+Something to measure with. v1.2.2 put pictures on the panels; v1.2.3 gives a
+program the analog world and the wire beneath it: an ADC and a PWM in
+`mm.mcu` beside GPIO, SPI, and I2C, implemented on the Pico SDK lanes and on
+Linux; a GPIO edge latch that reports what happened on a pin without ever
+running application code in a handler; the execution model that says why it
+is a latch, written down once for every interface; and a core JSON module
+that the build itself is the first consumer of. It also fixes the Clang link
+failure the Linux tests met on a Raspberry Pi, and documents the Linux
+device map in full.
+
+11 commits since v1.2.2; 460 files changed, 8110 insertions, 277 deletions,
+352 of those files the vendored JSON Parsing Test Suite.
+
+### Added
+
+- **Execution model.** docs/modules-execution.mdy specifies how a modules.cpp
+  program executes: one thread of control from main to return, every call
+  returning, no callback or handler running application code, and hardware
+  that acts on its own recorded in a latch the program asks when it chooses.
+  It states once the rules the interface documents apply one at a time, and
+  the Linux console and device map were brought to it: a console write is
+  bounded on a pipe, FIFO, terminal, or socket and plain on a regular file,
+  and the map override is read through a nonblocking descriptor checked to
+  be a regular file and capped at 64 KiB, so the first board query returns.
 - **`mm.json`.** A core module reading and writing RFC 8259 JSON without
   exceptions, templates, or, in its scanner, allocation. The `:status`
   partition names the faults and where they are; the `:scan` partition is a
@@ -77,6 +166,10 @@ All notable changes to modules.cpp. Versions follow [semantic versioning](https:
 - `mm.build` reads a bridge's `compile_commands.json` through `mm.json`; the
   private reader it carried is gone, and the bootstrap compiles `mm.json`
   before `mm.build`.
+- docs/modules-platform-linux.mdy documents the device map in full: its two
+  layers, the override grammar, every key of every facility with its default
+  and meaning, the validation rules, and a complete example for a Raspberry
+  Pi.
 - A watched GPIO is owned by its provider: another watch or configuration
   answers Busy, and unwatch leaves the pin unconfigured. Linux maps ENXIO and
   EOPNOTSUPP to Unsupported for edge requests while retaining the existing

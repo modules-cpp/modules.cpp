@@ -1,0 +1,23 @@
+---
+mm: 1.0
+kind: test
+name: audio
+use: mm.test
+use: mm.audio
+unit: tests/mm/audio/sample.cpp
+unit: tests/mm/audio/ring.cpp
+unit: tests/mm/audio/stream.cpp
+unit: tests/mm/audio/platform.cpp
+unit: tests/main.cpp
+---
+
+# mm.audio test target
+
+Exercises the sample arithmetic at every width from one to thirty-two bits,
+Ring's contract -- configure refusals, wrap at every offset for capacities that
+are and are not powers of two, the zero-copy regions, full and empty, claims,
+and loss counts -- and a producer and a consumer on two threads pushing a few
+million samples through a small ring in order. It checks that Stream, In, and
+Out answer honestly where nothing implements them, that a Stream other than a
+Ring stands in for one, and that the selection pair returns what was
+registered. No hardware and no platform provider are involved.

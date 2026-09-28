@@ -3,6 +3,7 @@ mm: 1.0
 kind: dir
 name: mm
 folder: app
+folder: audio
 folder: build
 folder: configure
 folder: debug

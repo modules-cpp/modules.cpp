@@ -209,6 +209,7 @@ run_test_target tests/mm/fonts/ || exit $?
 run_test_target tests/mm/gfx/ || exit $?
 run_test_target tests/mm/flash/ || exit $?
 run_test_target tests/mm/mcu/ || exit $?
+run_test_target tests/mm/audio/ || exit $?
 run_test_target tests/mm/mdy/ || exit $?
 run_test_target tests/mm/shell/ || exit $?
 run_test_target tests/mm/stdio/ || exit $?

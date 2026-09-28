@@ -191,6 +191,9 @@ family:
   assignments.
 - delay_ms and ticks_ms use Pico SDK's monotonic timer. The timer's epoch remains
   platform-defined, as required by mm.mcu.
+- interrupts_disable and interrupts_enable are the SDK's
+  save_and_disable_interrupts and restore_interrupts on the calling core,
+  crossing the private ABI as the core's mask word.
 - The ADC inventory is the SDK's: NUM_ADC_CHANNELS channels from ADC_BASE_PIN,
   the last of them the temperature sensor with no pin -- channels 0 to 3 on
   GP26 to GP29 and channel 4 the sensor on the RP2040 and RP2350A, 0 to 7 on

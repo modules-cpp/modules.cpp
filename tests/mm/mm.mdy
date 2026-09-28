@@ -4,6 +4,7 @@ kind: dir
 name: mm
 option: buildable-target no
 folder: mcu
+folder: audio
 folder: mdy
 folder: build
 folder: configure

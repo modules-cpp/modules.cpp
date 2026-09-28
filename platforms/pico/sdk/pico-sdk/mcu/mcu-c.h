@@ -52,6 +52,12 @@ int mm_pico_mcu_uart_write(unsigned int instance, const char* text);
 int mm_pico_mcu_delay_ms(unsigned long milliseconds);
 int mm_pico_mcu_ticks_ms(unsigned long* ticks);
 
+// A critical section on the calling core: the SDK's save_and_disable_interrupts
+// and restore_interrupts. saved is the core's mask word, PRIMASK on Arm and
+// mstatus.MIE on RISC-V, handed back unchanged.
+int mm_pico_mcu_interrupts_disable(unsigned int* saved);
+int mm_pico_mcu_interrupts_enable(unsigned int saved);
+
 // The analog facilities. Channels and outputs are the SDK's own numbering:
 // ADC channel n is GPIO base + n up to the temperature channel, which has no
 // pin; a PWM output is its GPIO, and the slice and comparator queries say

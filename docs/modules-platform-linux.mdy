@@ -259,6 +259,10 @@ pad is GPIO 3 so that pwm_output_for_gpio(3) finds output 0.
 - platform.linux.imu obtains all six axes from one IIO buffered record. It
   derives layout from scan types and scale from realbits plus the IIO scale.
 
+The MCU provider installs no handler in the process, so a critical section
+has nothing to exclude: interrupts_disable and interrupts_enable answer Ok
+and mask nothing.
+
 The MCU provider watches GPIO edges on its existing line request, changing
 configuration in place, or requests a new line when none exists. A watched
 descriptor is nonblocking. Watch discards queued setup events before it

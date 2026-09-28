@@ -629,6 +629,17 @@ int mm_pico_mcu_ticks_ms(unsigned long* ticks) {
     return MM_PICO_MCU_OK;
 }
 
+int mm_pico_mcu_interrupts_disable(unsigned int* saved) {
+    if (saved == NULL) return MM_PICO_MCU_BAD_ARGUMENT;
+    *saved = (unsigned int)save_and_disable_interrupts();
+    return MM_PICO_MCU_OK;
+}
+
+int mm_pico_mcu_interrupts_enable(unsigned int saved) {
+    restore_interrupts((uint32_t)saved);
+    return MM_PICO_MCU_OK;
+}
+
 const char* mm_pico_mcu_board_name(void) {
     return MM_SELECTED_BOARD;
 }

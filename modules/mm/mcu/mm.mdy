@@ -9,7 +9,10 @@ file: board.cppm mm.mcu:board
 file: spi-types.cppm mm.mcu:spi_types
 file: i2c-types.cppm mm.mcu:i2c_types
 file: i2s-types.cppm mm.mcu:i2s_types
+file: transport-types.cppm mm.mcu:transport_types
+file: interrupt-types.cppm mm.mcu:interrupt_types
 file: adc-types.cppm mm.mcu:adc_types
+file: dac-types.cppm mm.mcu:dac_types
 file: pwm-types.cppm mm.mcu:pwm_types
 file: platform.cppm mm.mcu:platform
 file: gpio.cppm mm.mcu:gpio
@@ -18,7 +21,9 @@ file: i2c.cppm mm.mcu:i2c
 file: i2s.cppm mm.mcu:i2s
 file: uart.cppm mm.mcu:uart
 file: timer.cppm mm.mcu:timer
+file: interrupt.cppm mm.mcu:interrupt
 file: adc.cppm mm.mcu:adc
+file: dac.cppm mm.mcu:dac
 file: pwm.cppm mm.mcu:pwm
 file: mcu.cppm mm.mcu
 file: src/platform.cpp
@@ -48,22 +53,39 @@ does not. Addresses are seven-bit. i2c_write_read is one operation rather than a
 write followed by a read, because a register read must not release the bus
 between the two halves.
 
-I2S is a serial audio link beside them: a data line, a bit clock, and a
-word-select line, paced by baud. It is point-to-point, so it carries no address
-the way I2C does, and no mode, bit order, or chip select the way SPI does. Like
-I2C it is configure plus per-instance operations, and read and write are the two
-halves of the full-duplex link.
+I2S is a serial audio link beside them: a bit clock, a word clock, and a data
+line in each direction it carries. It is point-to-point, so it carries no
+address the way I2C does, and no mode, bit order, or chip select the way SPI
+does. Like I2C it is configure plus per-instance operations. Unlike I2C its
+clock runs from configure to release, so write and read queue frames to and
+from a buffer the platform owns rather than completing a transfer, and words
+are sixteen bits when the slots are and thirty-two when they are wider.
 
-ADC and PWM are the analog facilities. Each addresses its own inventory by
+Paced ADC capture, the DAC, and I2S are the continuous transports, and they
+share one lifecycle, the GPIO edge latch's extended to a clock that runs:
+configure claims and sets the rate, start begins moving samples, give or take
+move them without blocking, progress reports what the transport has done since
+start, stop discards the platform's buffer and returns to idle, release
+returns the pads. Rates are reported exactly as a Frequency. A transmitter with
+nothing queued outputs silence by itself -- half scale for a DAC, zeros for
+I2S -- and a receiver with a full buffer drops, and both count it. A paced
+channel owns the whole converter, because the converter has one multiplexer.
+
+interrupts_disable and interrupts_enable make a critical section against the
+platform's own handlers on the calling core, and InterruptGuard makes one a
+scope. Enable restores what its disable saved, so sections nest. A platform
+with no handler above its seam answers Ok and masks nothing.
+
+ADC, DAC, and PWM are the analog facilities. Each addresses its own inventory by
 number, and each inventory entry names the GPIO it is attached to when it is
 attached to one, so a caller that knows a pin finds the channel or output in
 one lookup. Their inventories are answered by the platform per channel and per
 output, since a reference or a period range is a fact about one of them and not
 about the board. A pad is one thing at a time: a plain GPIO configuration
 yields to an analog claim, a watched GPIO and an analog claim yield only to
-their own release. The two type partitions precede the platform partition,
-whose description methods return their types, and the two call partitions
-follow it.
+their own release. The type partitions precede the platform partition,
+whose description methods return their types, and the call partitions follow
+it.
 
 A platform supplies an object rather than functions. A name declared in this
 module's purview is attached to it and cannot be defined from outside, so the seam

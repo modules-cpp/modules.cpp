@@ -6,6 +6,7 @@
 // millisecond clock, and saying so is better than pretending.
 module;
 
+#include <cstdint>
 #include <optional>
 #include <span>
 #include <string_view>
@@ -93,6 +94,16 @@ public:
     [[nodiscard]] mm::mcu::Status gpio_read(unsigned int pin, bool& high) override {
         if (pin >= pin_count) return mm::mcu::Status::BadArgument;
         high = (reg(sio_base + 0x04) & (1UL << pin)) != 0;  // GPIO_IN
+        return mm::mcu::Status::Ok;
+    }
+    // This provider enables no interrupt and installs no handler, so there is
+    // nothing for a critical section to exclude and it is kept by doing nothing.
+    [[nodiscard]] mm::mcu::Status interrupts_disable(std::uint32_t& saved) override {
+        saved = 0;
+        return mm::mcu::Status::Ok;
+    }
+
+    [[nodiscard]] mm::mcu::Status interrupts_enable(std::uint32_t) override {
         return mm::mcu::Status::Ok;
     }
 };
