@@ -51,6 +51,26 @@ All notable changes to modules.cpp. Versions follow [semantic versioning](https:
   event read and monotonic poll, while Pico uses its GPIO callback and an
   event-assisted wait. `gpio-edge-smoke` builds for Pico ARM and RISC-V and
   provides a wired fixture for physical verification.
+- **`mm.touch.cst816`.** The Goodtek CST816 capacitive touch controller over
+  portable mm.mcu I2C and GPIO, beside `mm.touch.cst328`. Eight-bit register
+  map; the chip identifier register is checked at initialization; the
+  finger-count poll is followed by the coordinate read only while a contact is
+  on the panel; the four-byte point decodes the high nibbles and the low
+  bytes. The reference driver's interrupt handler, gesture mode, and mirror
+  transform are absent for the same reasons the CST328 ones are: mm.touch is
+  polled, reports points in the panel's own coordinates, and mm.mcu has no
+  callbacks. `tests/mm/touch-cst816` pins the transcript against a recording
+  platform.
+- **`rp2350_touch_lcd_154` board.** The Waveshare RP2350-Touch-LCD-1.54
+  composite board. It derives from pico2-arm and binds three platform
+  providers: an ST7789 panel (240 by 240, RGB565, SPI1, backlight on GP13) on
+  `mm.display`, a CST816 touch controller at address 0x15 (reset on GP16,
+  interrupt on GP15) on `mm.touch`, and a QMI8658 inertial sensor on
+  `mm.imu`. The panel's porch, power, and gamma settings and the three pin
+  maps come from Waveshare's public firmware repository for this product,
+  which is the same source the vendor's examples run; the wiki remains
+  unreachable to automated requests. Its panel settings live with the board,
+  not the driver, exactly as the 2.8 board's do.
 
 ### Changed
 

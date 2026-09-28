@@ -1,0 +1,21 @@
+---
+mm: 1.2
+kind: module
+name: rp2350-touch-lcd-154-touch
+module: platform.rp2350_touch_lcd_154.touch
+use: mm.touch
+use: mm.touch.cst816
+use: mm.mcu
+file: touch.cppm
+option: buildable-host no
+---
+
+# platform.rp2350_touch_lcd_154.touch
+
+The board's CST816 capacitive touch controller: reset on GP16 and interrupt on
+GP15, at address 0x15.
+
+It shares I2C1 with the board's other I2C device: SDA on GP6 and SCL on GP7.
+Each provider configures that bus before its first transfer, which is
+idempotent and means no provider depends on another having been initialised
+first.
