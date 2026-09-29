@@ -605,7 +605,7 @@ Wire2 is a third bus, instance 2. No board declares a default wiring for it, so 
 
 Wire and Wire1 are two buses with separate state: transmit and receive buffers, pending write, clock, and pins. Wire is bus 0, on the board's I2C wiring; Wire1 is bus 1, on the board's second I2C wiring, Board::second_i2c in mm.mcu, which the Pico SDK vendor boards give as instance 1 on GP26 and GP27, the Arduino cores' Wire1 pins. A board without a second wiring leaves Wire1.begin() failing with Status::Unsupported. Diagnostics name the bus: Wire.begin, Wire1.begin.
 
-begin(sda, scl) and begin(sda, scl, frequency) are the ESP32 and ESP8266 cores' spelling for the same choice made at begin: each non-negative pin replaces the board's, and a nonzero frequency is then set as setClock sets it.
+begin(sda, scl) and begin(sda, scl, frequency) make the same choice at begin: each non-negative pin replaces the board's, and a nonzero frequency is then set as setClock sets it.
 
 setSDA and setSCL are the RP2040 and RP2350 cores' spelling for choosing a bus's pins. Before begin they record the pin and return true, and begin then uses them in place of the board's; with both named, a bus begins on its own instance even where the board declares no wiring for it. After begin a running bus keeps its pins, so each returns true only for the pin already in use.
 

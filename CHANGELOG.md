@@ -46,8 +46,8 @@ All notable changes to modules.cpp. Versions follow [semantic versioning](https:
   third I2C bus, instance 2, with no board wiring, so it begins only on named
   pins.
 - **`Wire.begin(sda, scl)`.** `TwoWire::begin(int sda, int scl)` and
-  `begin(int sda, int scl, unsigned long frequency)`, the ESP32 and ESP8266
-  cores' spelling for choosing a bus's pins at begin.
+  `begin(int sda, int scl, unsigned long frequency)` choose a bus's pins,
+  and optionally its clock, at begin.
 
 With `Wire1` and, for `ADS_pointerToFunction`, the legacy profile, all 27
 examples of RobTillaart's ADS1X15 build; `ADS_RP2040_WIRE1` and

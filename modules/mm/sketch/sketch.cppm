@@ -709,8 +709,7 @@ public:
     constexpr explicit TwoWire(unsigned int bus) : bus_(bus) {}
 
     bool begin();
-    // The ESP32 and ESP8266 cores' spelling: pins, and optionally a clock,
-    // chosen at begin. A negative pin keeps the board's.
+    // Pins, and optionally a clock, chosen at begin. A negative pin keeps the board's.
     bool begin(int sda, int scl);
     bool begin(int sda, int scl, unsigned long frequency);
     bool end();
