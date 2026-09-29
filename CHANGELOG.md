@@ -23,7 +23,10 @@ All notable changes to modules.cpp. Versions follow [semantic versioning](https:
   and refuses a value the core has no spelling for with `BadArgument`. Only an
   application generated with `sketch --legacy` sees them: its manifest carries
   the new `sketch-profile: legacy` key, and its `main.cpp` and `Sketch.h` add
-  `using namespace mm::sketch::legacy`. The core vocabulary is unchanged, so
+  `using namespace mm::sketch::legacy`, and its `main.cpp` includes `Sketch.h`
+  ahead of the sketch's own includes, where a sketch toolchain puts
+  `Arduino.h`, so a library header that includes nothing itself (RobTillaart's
+  `Kurtosis.h`) compiles. The core vocabulary is unchanged, so
   `digitalWrite(pin, 1)` is still refused without it, and a call the core
   already accepts keeps the core overload with it. The build reports every
   legacy application and the sketch libraries compiled into it. RobTillaart's

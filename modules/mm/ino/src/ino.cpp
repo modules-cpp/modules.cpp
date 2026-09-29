@@ -440,17 +440,21 @@ TransformResult transform(std::span<const SourceFile> sources, bool legacy) {
     }
     out += " -- do not edit by hand.\n";
 
-    // 2. Hoisted includes
+    // 2 and 3. The hoisted includes and the compatibility header, which a
+    // sketch toolchain supplies without being asked and which gives the
+    // sketch text below the spellings mm.sketch does not export by itself.
+    // In the core profile it is the last include, because it imports
+    // mm.sketch and a standard header included after an import is what the
+    // hoist exists to avoid. The legacy profile puts it first, where a sketch
+    // toolchain puts Arduino.h, so a library header that includes nothing
+    // itself still finds uint32_t and Serial declared.
+    const std::string compatibility_include =
+        "#include \"" + std::string(sketch_header_name()) + "\"\n";
+    if (legacy) out += compatibility_include;
     for (const auto& inc : hoisted_includes) {
         out += "#include " + inc + "\n";
     }
-
-    // 3. The compatibility header, which a sketch toolchain supplies without
-    // being asked and which gives the sketch text below the spellings
-    // mm.sketch does not export by itself. It is the last include, because it
-    // imports mm.sketch and a standard header included after an import is
-    // what the hoist above exists to avoid.
-    out += "#include \"" + std::string(sketch_header_name()) + "\"\n";
+    if (!legacy) out += compatibility_include;
 
     // 4. Prelude
     out += "import mm.sketch;\n";

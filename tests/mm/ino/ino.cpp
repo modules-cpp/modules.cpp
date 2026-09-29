@@ -382,9 +382,10 @@ void sketch_header_synthesis() {
            " compare it");
 }
 
-// The legacy profile changes exactly two lines of what is generated, the
-// header comment and a using-directive, in main.cpp and in Sketch.h, and the
-// check reads the profile from the manifest.
+// The legacy profile changes what is generated in three ways: the header
+// comment and a using-directive, in main.cpp and in Sketch.h, and, in
+// main.cpp, Sketch.h included ahead of the sketch's own includes. The check
+// reads the profile from the manifest.
 void legacy_profile_generation() {
     const std::vector<mm::ino::SourceFile> sources = {
         {"app.ino", "void setup() {}\nvoid loop() {}\n"}};
@@ -396,6 +397,18 @@ void legacy_profile_generation() {
     expect(legacy.output.find("using namespace mm::sketch;\nusing namespace mm::sketch::legacy;\n") !=
                std::string::npos,
            "the legacy profile adds its using-directive after the core one");
+
+    const std::vector<mm::ino::SourceFile> including = {
+        {"app.ino", "#include \"Lib.h\"\n#include <vector>\nvoid setup() {}\nvoid loop() {}\n"}};
+    const auto core_including = mm::ino::transform(including);
+    const auto legacy_including = mm::ino::transform(including, true);
+    expect(core_including.ok && legacy_including.ok, "both profiles transform includes");
+    expect(core_including.output.find("#include \"Lib.h\"\n#include <vector>\n#include \"Sketch.h\"\n") !=
+               std::string::npos,
+           "the core profile includes Sketch.h after the sketch's includes");
+    expect(legacy_including.output.find("#include \"Sketch.h\"\n#include \"Lib.h\"\n#include <vector>\nimport mm.sketch;\n") !=
+               std::string::npos,
+           "the legacy profile includes Sketch.h first, as a sketch toolchain includes Arduino.h");
     expect(legacy.output.find("(mm: 1.3, legacy profile)") != std::string::npos,
            "a legacy main.cpp says so in its header");
     expect(mm::ino::sketch_header(true).find("using namespace mm::sketch::legacy;") !=
