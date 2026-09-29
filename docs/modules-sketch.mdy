@@ -163,10 +163,6 @@ The other enumerations of this module -- Status, Base, Trigger, SpiMode -- remai
 
 Opening fence
 [[nodiscard]] int analogRead(unsigned int pin);
-[[nodiscard]] int analogRead(unsigned char pin);
-[[nodiscard]] int analogRead(int pin);
-[[nodiscard]] int analogRead(long pin);
-[[nodiscard]] int analogRead(unsigned long pin);
 void analogReadResolution(int bits);
 
 void analogWrite(unsigned int pin, int value);
@@ -175,8 +171,6 @@ void analogWriteResolution(int bits);
 Closing fence
 
 analogRead samples the analog voltage on pin via mm.mcu adc_read. If pin corresponds to an attached ADC channel via adc_channel_for_gpio or matches an ADC channel number directly, the channel is claimed and sampled. The reading is scaled to the resolution configured by analogReadResolution (defaulting to 10 bits, range [0, 1023]). On failure or unsupported platforms, analogRead returns 0 and records the error status.
-
-analogRead has one overload per integer type a pin arrives as. A sketch or library that stores analogRead's address as int (*)(uint8_t), the signature the Arduino core declares, or as int (*)(int), finds an exact match, and a call with a long or an unsigned long is not ambiguous; a narrower type promotes to int. Every overload reads the same channel. A pin no channel can have, negative or wider than unsigned int, is passed on as one that names no channel, so it fails with Status::BadArgument rather than wrapping onto a real pin.
 
 analogReadResolution sets the resolution of values returned by analogRead in bits (range [1, 31], default 10). Invalid bit values record Status::BadArgument and leave the resolution unchanged.
 
@@ -532,6 +526,8 @@ public:
     constexpr explicit TwoWire(unsigned int bus);
 
     bool begin();
+    bool begin(int sda, int scl);
+    bool begin(int sda, int scl, unsigned long frequency);
     bool end();
     void setClock(unsigned long clock_speed);
     bool setSDA(unsigned int pin);
@@ -561,6 +557,8 @@ Wire provides I2C master communication over mm.mcu's i2c_configure, i2c_write, i
 
 Wire and Wire1 are two buses with separate state: transmit and receive buffers, pending write, clock, and pins. Wire is bus 0, on the board's I2C wiring; Wire1 is bus 1, on the board's second I2C wiring, Board::second_i2c in mm.mcu, which the Pico SDK vendor boards give as instance 1 on GP26 and GP27, the Arduino cores' Wire1 pins. A board without a second wiring leaves Wire1.begin() failing with Status::Unsupported. Diagnostics name the bus: Wire.begin, Wire1.begin.
 
+begin(sda, scl) and begin(sda, scl, frequency) are the ESP32 and ESP8266 cores' spelling for the same choice made at begin: each non-negative pin replaces the board's, and a nonzero frequency is then set as setClock sets it.
+
 setSDA and setSCL are the RP2040 and RP2350 cores' spelling for choosing a bus's pins. Before begin they record the pin and return true, and begin then uses them in place of the board's; with both named, a bus begins on its own instance even where the board declares no wiring for it. After begin a running bus keeps its pins, so each returns true only for the pin already in use.
 
 begin initializes the I2C bus using the board's default I2C wiring (data and clock GPIOs) at 100 kHz. If the board declares no I2C wiring, begin returns false and latches Status::Unsupported. Wire.begin(addr) and the slave callbacks onReceive/onRequest are declined: mm.mcu is a master-only interface. end resets the sketch Wire state without deconfiguring the underlying peripheral hardware; the object may be re-initialized with begin.
@@ -574,6 +572,68 @@ endTransmission executes the buffered write via mm.mcu i2c_write. It returns a s
 requestFrom reads up to min(quantity, 32) bytes from the given address into an internal receive buffer. If a deferred write is pending for the same address, the operation becomes a combined write-then-read. Returns the number of bytes received.
 
 available returns the count of unread bytes in the receive buffer. read returns the next byte and advances the read head, or -1 if the buffer is exhausted. peek returns the next byte without advancing the head, or -1. flush is a no-op.
+
+## The legacy profile
+
+The vocabulary above has one signature per function, and it refuses what it
+does not mean: digitalWrite takes a Level, and an integer does not convert to
+one. The Arduino core accepts integers in those places, and published libraries
+rely on it. The legacy profile accepts them, for applications that ask.
+
+Opening fence
+namespace mm::sketch::legacy {
+bool digitalWrite(unsigned int pin, int level);          // 0 LOW, else HIGH
+bool digitalWrite(Led, int level);
+bool pinMode(unsigned int pin, int mode);                // 0 INPUT, 1 OUTPUT,
+bool pinMode(Led, int mode);                             // 2 INPUT_PULLUP,
+                                                         // 3 INPUT_PULLDOWN
+[[nodiscard]] int analogRead(unsigned char pin);
+[[nodiscard]] int analogRead(int pin);
+[[nodiscard]] int analogRead(long pin);
+[[nodiscard]] int analogRead(unsigned long pin);
+[[nodiscard]] unsigned long pulseIn(unsigned int pin, int value,
+                                    unsigned long timeout = 1000000UL);
+[[nodiscard]] unsigned long pulseInLong(unsigned int pin, int value,
+                                        unsigned long timeout = 1000000UL);
+byte shiftIn(unsigned int data_pin, unsigned int clock_pin, int bit_order);
+void shiftOut(unsigned int data_pin, unsigned int clock_pin, int bit_order,
+              byte val);                                 // 0 LSBFIRST, 1 MSBFIRST
+}
+Closing fence
+
+The namespace is part of mm.sketch and is exported with it, but nothing sees it
+unless the application is generated with sketch --legacy: its manifest then
+carries sketch-profile: legacy, and its main.cpp and Sketch.h add using
+namespace mm::sketch::legacy after using namespace mm::sketch, so the sketch
+and the library sources that include Arduino.h both see the overloads. An
+application without the key never has the namespace in scope, and
+digitalWrite(pin, 1) is refused there as before.
+
+Each overload forwards to the core function it loosens and behaves exactly as
+that function does; only what it accepts differs. A value the core has no
+spelling for -- a mode above 3, a bit order above 1 -- records
+Status::BadArgument under the core function's name and does not reach the
+core function. The analogRead overloads let a sketch or library store
+analogRead's address as int (*)(uint8_t), the core's signature, or as
+int (*)(int), and a pin no channel can have, negative or wider than unsigned
+int, fails as an unknown pin does rather than wrapping onto a real one.
+
+With both namespaces in scope, a call the core accepts keeps the core overload:
+each core parameter is an exact match where the legacy one needs a promotion,
+so digitalWrite(pin, HIGH), pinMode(pin, OUTPUT), and shiftOut(d, c, MSBFIRST,
+v) resolve as they do without the profile. A uint8_t, char, short, or bool
+level promotes to int and takes the legacy overload. tests/mm/sketch compiles
+both kinds of call in one translation unit.
+
+The build reports every legacy application, and the sketch libraries compiled
+into one, under the application's link line and in a closing summary, so a
+project sees where it accepts what the core does not.
+
+The inventory holds what published code was found to need. Its first entries
+came from RobTillaart's libraries: AS5600, FastShiftInOut, ParallelPrinter,
+PinOutGroup, MATRIX7219, logicAnalyzer, and Stopwatch_RT pass integer or bool
+levels, and ADS1X15's ADS_pointerToFunction takes analogRead's address. Other
+signatures the Arduino core accepts are added when code needs them.
 
 ## Variables, types, and constants
 

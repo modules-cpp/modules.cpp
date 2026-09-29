@@ -375,6 +375,27 @@ void sketch_library_refusals() {
         "\nfile: main.cpp\nsketch: a.ino\nsketch-library: main.cpp\n");
     expect(!mm::build::load_project(proj_tree.root(), policy).ok,
            "sketch-library naming a file is refused");
+
+    ext_tree.manifest_raw("",
+        "mm: 1.3\nkind: app\nname: a\nproject: " + rel_proj +
+        "\nfile: main.cpp\nsketch-profile: legacy\n");
+    expect(!mm::build::load_project(proj_tree.root(), policy).ok,
+           "sketch-profile without sketch: is refused");
+
+    ext_tree.manifest_raw("",
+        "mm: 1.3\nkind: app\nname: a\nproject: " + rel_proj +
+        "\nfile: main.cpp\nsketch: a.ino\nsketch-profile: loose\n");
+    expect(!mm::build::load_project(proj_tree.root(), policy).ok,
+           "a sketch-profile other than legacy is refused");
+
+    ext_tree.manifest_raw("",
+        "mm: 1.3\nkind: app\nname: a\nproject: " + rel_proj +
+        "\nfile: main.cpp\nsketch: a.ino\nsketch-profile: legacy\n");
+    const auto legacy = mm::build::load_project(proj_tree.root(), policy);
+    bool marked = false;
+    for (const auto& target : legacy.targets)
+        if (target.name == "a") marked = target.sketch_legacy;
+    expect(legacy.ok && marked, "sketch-profile: legacy marks the application");
 }
 
 const mm::test::case_ cases[] = {

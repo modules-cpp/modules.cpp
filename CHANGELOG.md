@@ -14,16 +14,37 @@ All notable changes to modules.cpp. Versions follow [semantic versioning](https:
   board table says so. `setSDA` and `setSCL`, the RP2040 and RP2350 cores'
   spelling, choose a bus's pins before `begin`. Diagnostics name the bus
   (`Wire1.begin`).
-- **`analogRead` overloads.** `analogRead` takes `unsigned char`, `int`,
-  `long`, and `unsigned long` pins as well as `unsigned int`, so a sketch that
-  stores its address as `int (*)(uint8_t)`, the Arduino core's signature,
-  compiles; a pin no channel can have fails with `BadArgument` rather than
-  wrapping onto a real one.
+- **The legacy sketch profile.** `mm.sketch` exports a namespace
+  `mm::sketch::legacy` with the Arduino core's looser signatures:
+  `digitalWrite` with an integer or `bool` level, `pinMode` with an integer
+  mode, `pulseIn` and `pulseInLong` with an integer level, `shiftIn` and
+  `shiftOut` with an integer bit order, and `analogRead` for `unsigned char`,
+  `int`, `long`, and `unsigned long` pins. Each forwards to the core function
+  and refuses a value the core has no spelling for with `BadArgument`. Only an
+  application generated with `sketch --legacy` sees them: its manifest carries
+  the new `sketch-profile: legacy` key, and its `main.cpp` and `Sketch.h` add
+  `using namespace mm::sketch::legacy`. The core vocabulary is unchanged, so
+  `digitalWrite(pin, 1)` is still refused without it, and a call the core
+  already accepts keeps the core overload with it. The build reports every
+  legacy application and the sketch libraries compiled into it. RobTillaart's
+  AS5600, which passes a `uint8_t` level, builds all 27 of its examples in the
+  legacy profile.
+- **`Wire.begin(sda, scl)`.** `TwoWire::begin(int sda, int scl)` and
+  `begin(int sda, int scl, unsigned long frequency)`, the ESP32 and ESP8266
+  cores' spelling for choosing a bus's pins at begin.
 
-With both, all 27 examples of RobTillaart's ADS1X15 build; `ADS_RP2040_WIRE1`
-and `ADS_pointerToFunction` did not.
+With `Wire1` and, for `ADS_pointerToFunction`, the legacy profile, all 27
+examples of RobTillaart's ADS1X15 build; `ADS_RP2040_WIRE1` and
+`ADS_pointerToFunction` did not.
 
 ### Fixed
+
+- `mm.ino` copied a function's default arguments into the prototype it
+  generates, so a sketch defining `uint16_t f(float &c, bool reset = false)`
+  failed with "default argument given for parameter 2": C++ allows a default
+  in only one declaration. The generated prototype now drops each default
+  whole, including defaults that are calls or literals containing commas, and
+  the definition keeps it. docs/modules-ino.mdy states the rule and its limit.
 
 - `mm.parse` read a duration's count into a signed 64-bit value without a
   bound, so `parse_time("99999999999999999999s")` overflowed, which is

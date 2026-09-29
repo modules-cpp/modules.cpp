@@ -382,6 +382,57 @@ void sketch_header_synthesis() {
            " compare it");
 }
 
+// The legacy profile changes exactly two lines of what is generated, the
+// header comment and a using-directive, in main.cpp and in Sketch.h, and the
+// check reads the profile from the manifest.
+void legacy_profile_generation() {
+    const std::vector<mm::ino::SourceFile> sources = {
+        {"app.ino", "void setup() {}\nvoid loop() {}\n"}};
+    const auto core = mm::ino::transform(sources);
+    const auto legacy = mm::ino::transform(sources, true);
+    expect(core.ok && legacy.ok, "both profiles transform");
+    expect(core.output.find("mm::sketch::legacy") == std::string::npos,
+           "the core profile does not bring in the legacy namespace");
+    expect(legacy.output.find("using namespace mm::sketch;\nusing namespace mm::sketch::legacy;\n") !=
+               std::string::npos,
+           "the legacy profile adds its using-directive after the core one");
+    expect(legacy.output.find("(mm: 1.3, legacy profile)") != std::string::npos,
+           "a legacy main.cpp says so in its header");
+    expect(mm::ino::sketch_header(true).find("using namespace mm::sketch::legacy;") !=
+                   std::string::npos &&
+               mm::ino::sketch_header(false) == mm::ino::sketch_header(),
+           "the legacy Sketch.h brings the namespace in, the core one is unchanged");
+
+    const std::string manifest = "---\nmm: 1.3\nkind: app\nname: app\nsketch: app.ino\n---\n\n# app\n";
+    const auto marked = mm::ino::with_legacy_profile(manifest);
+    expect(marked == "---\nmm: 1.3\nkind: app\nname: app\nsketch: app.ino\n"
+                     "sketch-profile: legacy\n---\n\n# app\n",
+           "with_legacy_profile adds the key to the front matter");
+    expect(mm::ino::with_legacy_profile(marked) == marked,
+           "with_legacy_profile leaves a legacy manifest unchanged");
+    expect(mm::ino::with_legacy_profile("no front matter").empty(),
+           "with_legacy_profile refuses text without front matter");
+
+    const mm::test::scoped_tree tree{"ino_legacy_check"};
+    const auto dir = tree.root();
+    std::ofstream(dir / "app.ino") << sources.front().content;
+    std::ofstream(dir / "main.cpp") << legacy.output;
+    std::ofstream(dir / std::string(mm::ino::sketch_header_name()))
+        << mm::ino::sketch_header(true);
+    for (const auto& alias : mm::ino::sketch_alias_headers())
+        std::ofstream(dir / std::string(alias)) << mm::ino::sketch_alias_header(alias);
+    mm::mdy::MDYDocument doc;
+    doc.metadata["kind"] = {"app"};
+    doc.metadata["sketch"] = {"app.ino"};
+    std::string error;
+    expect(!mm::ino::check_application(dir, doc, error),
+           "legacy output under a core manifest does not match");
+    doc.metadata["sketch-profile"] = {"legacy"};
+    expect(mm::ino::is_legacy_application(doc), "the manifest selects the legacy profile");
+    expect(mm::ino::check_application(dir, doc, error),
+           "legacy output under a legacy manifest matches");
+}
+
 void sketch_header_is_checked() {
     const mm::test::scoped_tree tree{"ino_header_check"};
     const auto dir = tree.root();
@@ -838,6 +889,7 @@ const mm::test::case_ cases[] = {
     {"function used before definition", &function_used_before_definition},
     {"prototype already written", &prototype_already_written},
     {"prototype drops default arguments", &prototype_drops_default_arguments},
+    {"legacy profile generation", &legacy_profile_generation},
     {"standard include in middle", &standard_include_in_middle},
     {"sketch with main is rejected", &sketch_with_main_is_rejected},
     {"quoted include is hoisted", &quoted_include_is_hoisted},

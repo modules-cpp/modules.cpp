@@ -82,6 +82,7 @@ const std::vector<ManifestKeyRule> manifest_key_rules = {
     {"derives-from", 12, "board"},
     {"sketch", 13, "app"},
     {"sketch-library", 13, "app"},
+    {"sketch-profile", 13, "app"},
     {"project", 13, "app dir"},
 };
 

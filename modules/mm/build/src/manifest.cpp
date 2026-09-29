@@ -549,6 +549,24 @@ void walk_project(const std::filesystem::path& dir, std::size_t parent, Project&
             }
             target.sketches.push_back(sketch);
         }
+        {
+            const auto profiles = all(doc, "sketch-profile");
+            if (!profiles.empty()) {
+                if (target.sketches.empty()) {
+                    std::cerr << state.policy.tool << ": " << manifest.string()
+                              << ": sketch-profile requires sketch:\n";
+                    project.ok = false;
+                    return;
+                }
+                if (profiles.size() != 1 || profiles.front() != "legacy") {
+                    std::cerr << state.policy.tool << ": " << manifest.string()
+                              << ": sketch-profile takes one value, legacy\n";
+                    project.ok = false;
+                    return;
+                }
+                target.sketch_legacy = true;
+            }
+        }
         for (const auto& entry : all(doc, "sketch-library")) {
             if (target.sketches.empty()) {
                 std::cerr << state.policy.tool << ": " << manifest.string()

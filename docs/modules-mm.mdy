@@ -163,6 +163,11 @@ than accidental.
   the library root and must point back up at it; the resolved directory must
   still lie inside the owning tree, so the library root, not the example
   directory, is what carries project: for such a tree.
+- sketch-profile is valid on app, requires mm: 1.3, and requires sketch: on the
+  same manifest. Its one value, legacy, selects mm.sketch's legacy profile,
+  which docs/modules-sketch.mdy specifies; without it an application is in the
+  core profile. The sketch tool writes it for sketch --legacy, and the build
+  reports every application that carries it.
 
 # External targets
 

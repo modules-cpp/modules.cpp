@@ -691,29 +691,6 @@ int analogRead(unsigned int pin) {
     return static_cast<int>(scaled);
 }
 
-// The other pin types forward to the one above. A value no pin can have --
-// negative, or wider than unsigned int -- becomes one that names no channel,
-// so it fails there the way an unknown pin does, rather than wrapping onto a
-// real one.
-namespace {
-constexpr unsigned int no_analog_pin = ~0u;
-}
-
-int analogRead(unsigned char pin) { return analogRead(static_cast<unsigned int>(pin)); }
-
-int analogRead(int pin) {
-    return analogRead(pin < 0 ? no_analog_pin : static_cast<unsigned int>(pin));
-}
-
-int analogRead(long pin) {
-    return analogRead(pin < 0 || static_cast<unsigned long>(pin) > no_analog_pin
-                          ? no_analog_pin
-                          : static_cast<unsigned int>(pin));
-}
-
-int analogRead(unsigned long pin) {
-    return analogRead(pin > no_analog_pin ? no_analog_pin : static_cast<unsigned int>(pin));
-}
 
 void analogReadResolution(int bits) {
     CallScope scope{"analogReadResolution"};
@@ -3091,6 +3068,21 @@ bool TwoWire::begin() {
     return true;
 }
 
+bool TwoWire::begin(int sda, int scl) {
+    auto& state = wire_states_[bus_];
+    if (!state.begun) {
+        if (sda >= 0) state.sda = static_cast<unsigned int>(sda);
+        if (scl >= 0) state.scl = static_cast<unsigned int>(scl);
+    }
+    return begin();
+}
+
+bool TwoWire::begin(int sda, int scl, unsigned long frequency) {
+    if (!begin(sda, scl)) return false;
+    if (frequency != 0) setClock(frequency);
+    return wire_states_[bus_].begun;
+}
+
 bool TwoWire::end() {
     CallScope scope{wire_names_[bus_].end};
     const bool flushed = flush_pending_wire_write(bus_);
@@ -3313,5 +3305,113 @@ void TwoWire::flush() {
 
 TwoWire Wire{0};
 TwoWire Wire1{1};
+
+// The legacy profile. Each forwards to the core function it loosens; a value
+// the core has no spelling for is refused here with BadArgument, under the
+// core function's name, and the core function is not called.
+namespace legacy {
+
+namespace {
+
+constexpr unsigned int no_analog_pin = ~0u;
+
+[[nodiscard]] Level level_of(int value) { return value == 0 ? LOW : HIGH; }
+
+[[nodiscard]] bool mode_of(int value, Mode& mode) {
+    switch (value) {
+        case 0: mode = INPUT; return true;
+        case 1: mode = OUTPUT; return true;
+        case 2: mode = INPUT_PULLUP; return true;
+        case 3: mode = INPUT_PULLDOWN; return true;
+        default: return false;
+    }
+}
+
+[[nodiscard]] bool bit_order_of(int value, BitOrder& order) {
+    switch (value) {
+        case 0: order = LSBFIRST; return true;
+        case 1: order = MSBFIRST; return true;
+        default: return false;
+    }
+}
+
+}  // namespace
+
+bool digitalWrite(unsigned int pin, int level) {
+    return mm::sketch::digitalWrite(pin, level_of(level));
+}
+
+bool digitalWrite(Led led, int level) {
+    return mm::sketch::digitalWrite(led, level_of(level));
+}
+
+bool pinMode(unsigned int pin, int mode) {
+    Mode chosen = INPUT;
+    if (!mode_of(mode, chosen)) {
+        CallScope scope{"pinMode"};
+        record_failure(Status::BadArgument, "pinMode");
+        return false;
+    }
+    return mm::sketch::pinMode(pin, chosen);
+}
+
+bool pinMode(Led led, int mode) {
+    Mode chosen = INPUT;
+    if (!mode_of(mode, chosen)) {
+        CallScope scope{"pinMode"};
+        record_failure(Status::BadArgument, "pinMode");
+        return false;
+    }
+    return mm::sketch::pinMode(led, chosen);
+}
+
+int analogRead(unsigned char pin) {
+    return mm::sketch::analogRead(static_cast<unsigned int>(pin));
+}
+
+int analogRead(int pin) {
+    return mm::sketch::analogRead(pin < 0 ? no_analog_pin : static_cast<unsigned int>(pin));
+}
+
+int analogRead(long pin) {
+    return mm::sketch::analogRead(pin < 0 || static_cast<unsigned long>(pin) > no_analog_pin
+                                      ? no_analog_pin
+                                      : static_cast<unsigned int>(pin));
+}
+
+int analogRead(unsigned long pin) {
+    return mm::sketch::analogRead(pin > no_analog_pin ? no_analog_pin
+                                                      : static_cast<unsigned int>(pin));
+}
+
+unsigned long pulseIn(unsigned int pin, int value, unsigned long timeout) {
+    return mm::sketch::pulseIn(pin, level_of(value), timeout);
+}
+
+unsigned long pulseInLong(unsigned int pin, int value, unsigned long timeout) {
+    return mm::sketch::pulseInLong(pin, level_of(value), timeout);
+}
+
+byte shiftIn(unsigned int data_pin, unsigned int clock_pin, int bit_order) {
+    BitOrder order = MSBFIRST;
+    if (!bit_order_of(bit_order, order)) {
+        CallScope scope{"shiftIn"};
+        record_failure(Status::BadArgument, "shiftIn");
+        return 0;
+    }
+    return mm::sketch::shiftIn(data_pin, clock_pin, order);
+}
+
+void shiftOut(unsigned int data_pin, unsigned int clock_pin, int bit_order, byte val) {
+    BitOrder order = MSBFIRST;
+    if (!bit_order_of(bit_order, order)) {
+        CallScope scope{"shiftOut"};
+        record_failure(Status::BadArgument, "shiftOut");
+        return;
+    }
+    mm::sketch::shiftOut(data_pin, clock_pin, order, val);
+}
+
+}  // namespace legacy
 
 } // namespace mm::sketch

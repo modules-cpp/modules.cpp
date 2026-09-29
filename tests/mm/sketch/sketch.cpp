@@ -202,6 +202,70 @@ void digital_io_and_led() {
     expect(digitalRead(LED_BUILTIN) == LOW, "digitalRead LED_BUILTIN should be LOW when off");
 }
 
+// The legacy profile, in scope the way sketch --legacy puts it: both using
+// directives, so every call below is resolved exactly as in a legacy sketch.
+void legacy_profile() {
+    using namespace mm::sketch::legacy;
+    clearError();
+
+    // A call the core accepts keeps the core overload; these compile only
+    // because no legacy overload makes them ambiguous.
+    expect(pinMode(10, OUTPUT) && digitalWrite(10, HIGH) && digitalRead(10) == HIGH,
+           "core spellings resolve with the legacy profile in scope");
+
+    // Integer and bool levels: zero LOW, anything else HIGH.
+    const std::uint8_t on = 1;
+    expect(digitalWrite(10, 0) && digitalRead(10) == LOW, "legacy digitalWrite 0 is LOW");
+    expect(digitalWrite(10, on) && digitalRead(10) == HIGH, "legacy digitalWrite uint8_t 1 is HIGH");
+    expect(digitalWrite(10, false) && digitalRead(10) == LOW, "legacy digitalWrite false is LOW");
+    expect(digitalWrite(10, !digitalRead(10)) && digitalRead(10) == HIGH,
+           "legacy digitalWrite of a negated read toggles");
+    expect(digitalWrite(10, 7) && digitalRead(10) == HIGH, "legacy digitalWrite nonzero is HIGH");
+    expect(pinMode(LED_BUILTIN, 1) && digitalWrite(LED_BUILTIN, 1) &&
+               digitalRead(LED_BUILTIN) == HIGH,
+           "legacy pinMode and digitalWrite on LED_BUILTIN");
+
+    // Integer modes, and a mode the core has no spelling for.
+    expect(pinMode(11, 1), "legacy pinMode 1 is OUTPUT");
+    clearError();
+    expect(!pinMode(11, 7) && lastError() == Status::BadArgument,
+           "legacy pinMode refuses an unknown mode");
+    clearError();
+
+    // Integer bit orders.
+    test_start_gpio_log();
+    shiftOut(2, 3, 1, static_cast<byte>(0x80));
+    expect(test_gpio_log_size() > 0, "legacy shiftOut with an integer bit order writes");
+    test_stop_gpio_log();
+    clearError();
+    shiftOut(2, 3, 5, static_cast<byte>(0x80));
+    expect(lastError() == Status::BadArgument, "legacy shiftOut refuses an unknown bit order");
+    clearError();
+
+    // Every pin type reads the same channel, and analogRead's address converts
+    // to the core's int (*)(uint8_t) as well as to int (*)(int).
+    test_reset_adc();
+    test_adc_set_count(0, 4095);
+    int (*read_byte)(std::uint8_t) = analogRead;
+    int (*read_int)(int) = analogRead;
+    expect(read_byte(26) == 1023 && read_int(26) == 1023,
+           "analogRead through int (*)(uint8_t) and int (*)(int)");
+    expect(analogRead(static_cast<long>(26)) == 1023 &&
+               analogRead(static_cast<unsigned long>(26)) == 1023 &&
+               analogRead(static_cast<short>(26)) == 1023 &&
+               analogRead(26u) == 1023,
+           "analogRead takes every pin type");
+    clearError();
+    expect(analogRead(-1) == 0 && lastError() == Status::BadArgument,
+           "a negative pin names no channel");
+    clearError();
+    expect(analogRead(static_cast<unsigned long>(26) + (1ul << 32)) == 0 &&
+               lastError() == Status::BadArgument,
+           "a pin wider than unsigned int does not wrap onto a channel");
+    clearError();
+    test_reset_adc();
+}
+
 void time_and_delay() {
     const unsigned long t1 = millis();
     expect(t1 > 0, "millis should return ticks");
@@ -1582,6 +1646,18 @@ void second_wire_bus() {
         requestExit(0);
     }, nullptr);
     clearError();
+
+    // begin(sda, scl) and begin(sda, scl, frequency) choose the pins at begin.
+    test_reset_i2c();
+    run([]{
+        clearError();
+        expect(Wire1.begin(21, 22, 400000UL), "Wire1.begin with pins and a clock");
+        expect(test_get_i2c_config_instance() == 1 && test_get_i2c_config_data() == 21 &&
+                   test_get_i2c_config_clock() == 22,
+               "begin(sda, scl, frequency) uses the given pins on instance 1");
+        requestExit(0);
+    }, nullptr);
+    clearError();
     test_reset_i2c();
 }
 
@@ -1819,26 +1895,6 @@ void analog_read_operations() {
     test_adc_set_count(0, 0);
     val = analogRead(26);
     expect(val == 0, "default 10-bit resolution scales 0 to 0");
-
-    // Every pin type reads the same channel, and analogRead's address converts
-    // to the Arduino core's int (*)(uint8_t) as well as to int (*)(int).
-    test_adc_set_count(0, 4095);
-    int (*read_byte)(std::uint8_t) = analogRead;
-    int (*read_int)(int) = analogRead;
-    expect(read_byte(26) == 1023 && read_int(26) == 1023,
-           "analogRead through int (*)(uint8_t) and int (*)(int)");
-    expect(analogRead(static_cast<long>(26)) == 1023 &&
-               analogRead(static_cast<unsigned long>(26)) == 1023 &&
-               analogRead(static_cast<short>(26)) == 1023,
-           "analogRead takes long, unsigned long, and promoted short pins");
-    clearError();
-    expect(analogRead(-1) == 0 && lastError() == Status::BadArgument,
-           "a negative pin names no channel");
-    clearError();
-    expect(analogRead(static_cast<unsigned long>(26) + (1ul << 32)) == 0 &&
-               lastError() == Status::BadArgument,
-           "a pin wider than unsigned int does not wrap onto a channel");
-    clearError();
 
     // Reading by channel number directly (channel 1 on GPIO 27, 10 bits)
     test_adc_set_count(1, 1023);
@@ -2264,6 +2320,7 @@ const mm::test::case_ cases[] = {
     {"interrupt preserved across runs", &interrupt_preserved_across_runs},
     {"spi communication", &spi_communication},
     {"wire communication", &wire_communication},
+    {"legacy profile", &legacy_profile},
     {"second wire bus", &second_wire_bus},
     {"analog read operations", &analog_read_operations},
     {"analog write operations", &analog_write_operations},

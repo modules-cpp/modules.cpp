@@ -52,6 +52,9 @@ struct BuildableNode {
     // exercises, in declared order. Each contributes an include directory and
     // the sources compiled into this application.
     std::vector<std::filesystem::path> sketch_libraries;
+    // sketch-profile: legacy. The build compiles such an application like any
+    // other and reports it, with its sketch libraries, as legacy code.
+    bool sketch_legacy = false;
     std::vector<std::filesystem::path> objects;  // filled in by compile
     bool external = false;
     bool non_core = false;

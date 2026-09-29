@@ -369,6 +369,24 @@ it. Every sketch application receives that entry, a standalone one included,
 so a sketch that spells the include itself reaches the same file rather than
 a second one.
 
+# The legacy profile
+
+sketch --legacy DIRECTORY, and sketch --library --legacy LIBRARY for every
+example of a library, generate applications in mm.sketch's legacy profile. The
+manifest gains sketch-profile: legacy, written into a new manifest or added to
+an existing one's front matter, and the generated files differ from the core
+profile's in two lines each: main.cpp's header reads (mm: 1.3, legacy profile)
+and its prelude adds using namespace mm::sketch::legacy after using namespace
+mm::sketch, and Sketch.h does the same for the library sources that include
+it. The five forwarders are unchanged.
+
+The manifest, not the command line, is the record. A later run without
+--legacy regenerates a legacy application as legacy, the build's regeneration
+does the same, and --check compares each application with the profile its
+manifest selects. --check --legacy additionally refuses an application whose
+manifest does not select it. To return an application to the core profile,
+remove the key and rerun sketch.
+
 # Library mode
 
 The sketch tool provides library mode for discovering, manifest-generating,

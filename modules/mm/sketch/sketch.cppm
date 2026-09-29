@@ -69,15 +69,7 @@ bool ledOn();
 bool ledOff();
 [[nodiscard]] bool hasBuiltinLed();
 
-// One overload per integer type a pin arrives as, so a sketch that takes
-// analogRead's address as int (*)(uint8_t), the Arduino core's signature, or
-// as int (*)(int) gets an exact match, and a call with any of them is never
-// ambiguous. All read the same channel.
 [[nodiscard]] int analogRead(unsigned int pin);
-[[nodiscard]] int analogRead(unsigned char pin);
-[[nodiscard]] int analogRead(int pin);
-[[nodiscard]] int analogRead(long pin);
-[[nodiscard]] int analogRead(unsigned long pin);
 void analogReadResolution(int bits);
 
 void analogWrite(unsigned int pin, int value);
@@ -679,6 +671,10 @@ public:
     constexpr explicit TwoWire(unsigned int bus) : bus_(bus) {}
 
     bool begin();
+    // The ESP32 and ESP8266 cores' spelling: pins, and optionally a clock,
+    // chosen at begin. A negative pin keeps the board's.
+    bool begin(int sda, int scl);
+    bool begin(int sda, int scl, unsigned long frequency);
     bool end();
     void setClock(unsigned long clock_speed);
     bool setSDA(unsigned int pin);
@@ -707,3 +703,43 @@ extern TwoWire Wire;
 extern TwoWire Wire1;
 
 } // namespace mm::sketch
+
+// The legacy profile: the Arduino core's looser signatures, for sketches and
+// vendored libraries written against it. Nothing here is visible to a sketch
+// unless its application is generated with sketch --legacy, which adds
+// using namespace mm::sketch::legacy beside using namespace mm::sketch. Every
+// function forwards to the core one it loosens and behaves exactly as that one
+// does; only what it accepts differs. A call the core already accepts keeps
+// its core overload, because each core parameter is an exact match where the
+// legacy one needs a promotion. docs/modules-sketch.mdy lists why each is here.
+export namespace mm::sketch::legacy {
+
+// A level as an integer or bool: zero is LOW, anything else HIGH.
+bool digitalWrite(unsigned int pin, int level);
+bool digitalWrite(Led, int level);
+
+// A mode as the core's integer: 0 INPUT, 1 OUTPUT, 2 INPUT_PULLUP,
+// 3 INPUT_PULLDOWN. Any other value is refused with BadArgument.
+bool pinMode(unsigned int pin, int mode);
+bool pinMode(Led, int mode);
+
+// A pin of any integer type, so analogRead's address converts to
+// int (*)(uint8_t), the core's signature. A pin no channel can have fails
+// as an unknown pin does rather than wrapping onto a real one.
+[[nodiscard]] int analogRead(unsigned char pin);
+[[nodiscard]] int analogRead(int pin);
+[[nodiscard]] int analogRead(long pin);
+[[nodiscard]] int analogRead(unsigned long pin);
+
+// A pulse level as an integer: zero is LOW, anything else HIGH.
+[[nodiscard]] unsigned long pulseIn(unsigned int pin, int value,
+                                    unsigned long timeout = 1000000UL);
+[[nodiscard]] unsigned long pulseInLong(unsigned int pin, int value,
+                                        unsigned long timeout = 1000000UL);
+
+// A bit order as the core's integer: 0 LSBFIRST, 1 MSBFIRST. Any other value
+// is refused with BadArgument.
+byte shiftIn(unsigned int data_pin, unsigned int clock_pin, int bit_order);
+void shiftOut(unsigned int data_pin, unsigned int clock_pin, int bit_order, byte val);
+
+}  // namespace mm::sketch::legacy
