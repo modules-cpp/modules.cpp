@@ -1,0 +1,5 @@
+0 three colour bars were drawn and held
+1 1 is display.initialize: on DRM a compositor holds DRM master, so run this
+1 from a virtual terminal; under SDL a headless session or an SDL_VIDEODRIVER
+1 override
+2 2 is the geometry check: the provider reported none

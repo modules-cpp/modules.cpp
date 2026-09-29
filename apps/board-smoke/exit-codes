@@ -1,0 +1,5 @@
+0 all four interfaces initialised and answered; board-smoke has no console,
+0 so a white frame is its only output
+2 2 is display.initialize: on Linux a compositor holds DRM master
+4 4 is touch.initialize: on Linux /dev/input needs the input group
+5 5 is imu.initialize: this machine exposes no IIO device

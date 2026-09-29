@@ -190,3 +190,23 @@ mm_expectations() {
         echo "library $input"
     done
 }
+
+# pico or linux for a board: the Linux family names and sdk are Linux, and any
+# other board is whatever its chain's SDK is.
+mm_board_platform() {
+    case "$1" in
+        generic|sdl|epaper|sdk) echo linux; return 0 ;;
+    esac
+    name=$1
+    while [ -n "$name" ]; do
+        manifest=$(mm_named_manifest board "$name") || return 1
+        sdk_name=$(mm_manifest_value "$manifest" sdk)
+        [ -n "$sdk_name" ] && break
+        name=$(mm_manifest_value "$manifest" derives-from)
+    done
+    case "$sdk_name" in
+        pico-*) echo pico ;;
+        linux-*) echo linux ;;
+        *) return 1 ;;
+    esac
+}

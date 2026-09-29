@@ -1,0 +1,2 @@
+build-epaper: unknown demo: clock (expected gfx or font)
+exit 64

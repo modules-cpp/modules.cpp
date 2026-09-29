@@ -133,6 +133,18 @@ All notable changes to modules.cpp. Versions follow [semantic versioning](https:
   `test.sh`, pins seventeen dry runs. Every build script now restores the
   configuration record it found, a cross target or a board included, rather
   than resetting to the host lane. Step 2 of drafts/plan-build-scripts.mdy.
+- Feature wrappers over the two platform scripts, each a short declaration
+  that works on every board of either platform: `build-display.sh`,
+  `build-gfx.sh`, `build-font.sh`, `build-epaper.sh` (`--app gfx|font`,
+  `--panel bw|bwr`), `build-analog.sh`, `build-gpio-edge.sh`,
+  `build-stdio.sh`, `build-board.sh`, `build-audio.sh`, and the two that build
+  more than once, `build-sdl.sh` and `build-linux-smoke.sh`. `--board` picks
+  the platform from the board's chain, and every platform option passes
+  through; on the SDL and e-paper Linux boards `--run` must succeed. Exit-code
+  explanations moved beside their applications as `exit-codes` files. The
+  sixteen other old script names are one-line shims for one release, the
+  step-1 board profiles are gone, and `tests/scripts` pins twenty more dry
+  runs, wrappers and shims included. Step 3 of drafts/plan-build-scripts.mdy.
 - `tests/mm/touch-cst816` moved to `tests/mm/touch/cst816`, beside the CST328
   tests it shares an interface with, as `tests/mm/audio/es8311` sits under
   `tests/mm/audio`. The suite keeps its name, touch-cst816, and `test.sh` now

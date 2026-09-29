@@ -164,55 +164,6 @@ mm_verify_elf() {
     fi
 }
 
-# The profile of a composite board, from scripts/boards: board_interfaces and,
-# for each interface, provider_<interface> and driver_<interface>. A board
-# with no profile is a usage error.
-mm_load_board() {
-    profile="$script_dir/scripts/boards/$1.sh"
-    if [ ! -f "$profile" ]; then
-        echo "$test_name: no board profile: $profile" >&2
-        exit 64
-    fi
-    # shellcheck source=/dev/null
-    . "$profile"
-}
-
-# The provider a loaded profile binds an interface to, and the driver behind
-# it, by interface name.
-mm_board_provider() {
-    eval "printf '%s\n' \"\${provider_$1:-}\""
-}
-
-mm_board_driver() {
-    eval "printf '%s\n' \"\${driver_$1:-}\""
-}
-
-# Every interface the loaded profile binds, checked against what the
-# application reaches: one initializer of its provider if the application
-# reaches the interface and none if it does not -- the absences are as much the
-# assertion as the presences -- and, for a reached interface with a driver
-# behind it, that driver's symbols, which is what catches a board wired to an
-# interface but not to its controller.
-mm_verify_board_providers() {
-    image=$1
-    reached=" $2 "
-    for interface in $board_interfaces; do
-        provider=$(mm_board_provider "$interface")
-        driver=$(mm_board_driver "$interface")
-        case "$reached" in
-            *" $interface "*)
-                mm_verify_provider "$image" "$provider" 1
-                if [ -n "$driver" ]; then
-                    mm_verify_symbol "$image" "$driver"
-                fi
-                ;;
-            *)
-                mm_verify_provider "$image" "$provider" 0
-                ;;
-        esac
-    done
-}
-
 # The application directory an argument names: a directory with a manifest, or
 # the directory of that name under apps/. Sets app_path and app.
 mm_resolve_app() {

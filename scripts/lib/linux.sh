@@ -131,11 +131,9 @@ mm_linux_verify_image() {
     mm_verify_elf "$1" "$machine" hosted
 }
 
-# A NEEDED entry for libSDL2, or none: the proof that a library's link-input
-# reached the link line, or that an image which names no SDL provider did not
-# pay for it. expected is yes or no; an optional third argument explains a
-# missing entry further.
-# A NEEDED entry for lib<name>, or none, in general.
+# A NEEDED entry for lib<name>, or none: the proof that a library's link input
+# reached the link line, or that an image which reaches no module naming the
+# library did not pay for it. expected is yes or no.
 mm_linux_verify_library() {
     image=$1
     name=$2
@@ -147,23 +145,6 @@ mm_linux_verify_library() {
     fi
     if [ "$expected" = no ] && [ "$count" -ne 0 ]; then
         echo "$test_name: $image links $name and should not" >&2
-        exit 1
-    fi
-}
-
-mm_linux_verify_sdl2() {
-    image=$1
-    expected=$2
-    count=$("$readelf_command" -d "$image" | grep -c 'Shared library: \[libSDL2' || true)
-    if [ "$expected" = yes ] && [ "$count" -eq 0 ]; then
-        echo "$test_name: $image does not link SDL2" >&2
-        if [ "$#" -gt 2 ]; then
-            echo "  $3" >&2
-        fi
-        exit 1
-    fi
-    if [ "$expected" = no ] && [ "$count" -ne 0 ]; then
-        echo "$test_name: $image links SDL2 and should not" >&2
         exit 1
     fi
 }

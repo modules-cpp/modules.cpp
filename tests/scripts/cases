@@ -16,3 +16,23 @@ linux-gfx-sdl|build-linux.sh|--board sdl --arch aarch64 --app gfx-demo --no-symb
 linux-font-epaper|build-linux.sh|--board epaper --arch aarch64 --app font-demo --dry-run|0
 linux-display-sdk|build-linux.sh|--board sdk --arch x86_64 --app display-demo --no-library SDL2 --dry-run|0
 linux-unknown-arch|build-linux.sh|--board generic --arch sparc --app gfx-demo --dry-run|64
+wrap-gfx-28|build-gfx.sh|--dry-run|0
+wrap-gfx-sdl|build-gfx.sh|--board sdl --arch aarch64 --run --dry-run|0
+wrap-font-154|build-font.sh|--board rp2350_touch_lcd_154 --flash --dry-run|0
+wrap-display-generic|build-display.sh|--arch x86_64 --run --dry-run|0
+wrap-epaper-font-bwr|build-epaper.sh|--app font --panel bwr --dry-run|0
+wrap-epaper-gfx-linux|build-epaper.sh|--app gfx --board epaper --arch aarch64 --dry-run|0
+wrap-epaper-bad-app|build-epaper.sh|--app clock --dry-run|64
+wrap-analog-riscv|build-analog.sh|-b pico2-riscv --dry-run|0
+wrap-gpio-edge|build-gpio-edge.sh|--dry-run|0
+wrap-stdio|build-stdio.sh|--board pico2-arm --dry-run|0
+wrap-board-generic|build-board.sh|--board generic --arch aarch64 --dry-run|0
+wrap-audio-28|build-audio.sh|--board rp2350_touch_lcd_28 --dry-run|0
+wrap-audio-lcd-154|build-audio.sh|--board rp2350_lcd_154 --dry-run|0
+wrap-unknown-board|build-gfx.sh|--board nosuch --dry-run|64
+wrap-sdl|build-sdl.sh|--arch x86_64 --dry-run|0
+wrap-linux-smoke|build-linux-smoke.sh|--arch aarch64 --dry-run|0
+shim-gfx-28|build-gfx-demo-rp2350_touch_lcd_28.sh|--flash --dry-run|0
+shim-epaper-panel|build-gfx-demo-pico-epaper.sh|--panel b --dry-run|0
+shim-linux-epaper-font|build-linux-epaper-font-demo.sh|-a x86_64 --dry-run|0
+shim-linux-board|build-linux-board-smoke.sh|-a aarch64 --run --dry-run|0

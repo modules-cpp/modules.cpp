@@ -1,0 +1,2 @@
+build-gfx: unknown board: nosuch
+exit 64
