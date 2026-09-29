@@ -2,13 +2,16 @@
 
 All notable changes to modules.cpp. Versions follow [semantic versioning](https://semver.org/).
 
-## [Unreleased]
+## [v1.3.0] — 2026-09-29
 
-Development on `main` since the release branch diverged, not yet in a
-release: external sketches through `project:`, and `mm.parse`, which takes
-the character-level shell scanner out of `mm.shell` and `mm.shell.full`,
-adds numeric and date/time parsing, and replaces five existing call sites'
-own parsing.
+Something to run sketches with. v1.2.4 gave a program sound; v1.3.0 gives the
+project a language of its own to be driven in and a door for code written for
+another platform: `.ino` sketches build as ordinary modules.cpp applications,
+inside the tree or outside it, over `mm.sketch`'s Arduino-compatible
+vocabulary; a shell of the project's own runs the tracked scripts and the root
+launchers without `/bin/sh`, and scales down to an allocation-free embedded
+shell on a Pico; and `mm.parse` gives both shells and the JSON and configure
+readers one scanner and one number reader. Manifests gain `mm: 1.3`.
 
 ### Added
 
@@ -23,26 +26,42 @@ own parsing.
   `out/bin` tools. The `sketch` preprocessor provides 4-case tree detection,
   atomic file generation through `write_guarded` using POSIX `openat` and
   `renameat`, and build-time regeneration when `main.cpp` is missing or stale.
-
-- **`mm.parse`.** A dependency-free module owning the character-level shell
-  scanning shared by `mm.shell` (level-1 embedded) and `mm.shell.full`
-  (level-3 full profile). The `:dialect` partition declares the `Dialect` enum
-  (Embedded/Full), the 21-value `TokenKind` superset, `FragmentKind`,
-  `SourceSpan`, the `Sink` function-pointer seam, and inline character-class
-  predicates. The `:cursor` partition is the `Cursor` class that advances
-  over source text and reports token boundaries through the `Sink`, with
-  dialect-specific line-ending, blank, quote, expansion, and operator
-  handling. The `:number` partition parses integers (decimal, hex `0x`,
-  octal `0o`, binary `0b`, underscore separators), floats, and scientific
-  notation via `parse_number(text)` and `parse_number_at(text, at)`. The
-  `:time` partition parses ISO dates, datetimes, time-only, epoch seconds,
-  and durations (`30s`, `5m`, `2h`, `1d`, `2w`) via `parse_time(text)` and
-  `parse_time_at(text, at)`, with Howard Hinnant's civil-calendar arithmetic
-  for epoch↔DateTime conversion. No `<chrono>`, no allocation, no exceptions.
-  `tests/mm/parse` covers all four partitions: predicates, cursor scanning
-  for both dialects, Sink callbacks, number formats, time formats, and error
-  recovery.
-
+- **Sketches.** `mm.ino` turns `.ino` sources into a standard C++20
+  translation unit: a prelude, hoisted includes, generated prototypes, the
+  sketch bodies with line markers, and a `main` that calls
+  `mm::sketch::run`. `tools/sketch` is its front end, including a library
+  mode that registers a sketch library's examples, `--check` for committed
+  output, and a source guard that writes through `openat` and `renameat`
+  without following symlinks. `mm.sketch` is the vocabulary above `mm.mcu` and
+  `mm.stdio`: digital, analog, and advanced I/O, time, math, characters,
+  random numbers, bits and bytes, external interrupts, `Serial`, `SPI`,
+  `Wire`, `Stream`, `String`, `Print`, and `Printable`, with a generated
+  `Sketch.h` compatibility header for vendored libraries. `apps/ino` holds
+  the blink, button, and echo sketches. docs/modules-ino.mdy and
+  docs/modules-sketch.mdy specify them.
+- **The project shell.** `mm.shell` is now a target-safe, allocation-free
+  level-1 shell over caller-owned storage, with `apps/shell-smoke` as its
+  acceptance application; `mm.shell.mcu` composes it with `mm.mcu` and
+  `mm.stdio` at level 2 (`apps/mcu-shell`, measured against
+  `apps/mcu-shell-size-control` on RP2040 and RP2350); `mm.shell.full` is the
+  level-3 host profile with pipelines, redirections, here-documents,
+  subshells, traps, functions, and command substitution over abstract
+  services; and `mm.shell.posix` keeps the legacy POSIX services behind their
+  own module. `tools/shell` runs scripts natively with `--run`, `-c`,
+  `--check`, `--tokens`, `--dump-ast`, `--capabilities`, and `--commands`,
+  and the thirteen no-extension root launchers run their `.sh` scripts
+  through it. `--legacy-sh`, or `MM_SHELL_LEGACY=1` for the launchers, is a
+  one-release rollback to `/bin/sh`. The tracked scripts are compared with
+  dash for status, output, files, and the environment handed to child tools.
+  docs/modules-shell.mdy specifies all four levels.
+- **`mm.parse`.** One shell scanner, `Cursor`, for both shell dialects,
+  driven through a function-pointer `Sink`, with the shared `TokenKind`,
+  `FragmentKind`, and `SourceSpan`; a number reader for decimal, `0x`, `0o`,
+  and `0b` integers with `_` separators, fractions including `.5`, and
+  exponents, whose integers reach `INT64_MIN` and whose decimal integers also
+  carry their nearest double; and a time reader for durations, epoch seconds,
+  times, dates, and date-times. It has no `use:` edge. docs/modules-parse.mdy
+  specifies it.
 - **`mm.json` extract functions.** `extract_time(text, out)` and
   `extract_number(text, integer, number, is_integer)` in `mm.json:scan`,
   delegating to `mm.parse::parse_time` and `mm.parse::parse_number`.
@@ -51,42 +70,30 @@ own parsing.
   covers extraction from parsed JSON string values including ISO dates,
   datetimes, times, epochs, durations, hex, scientific, binary, octal, and
   invalid inputs.
+- **`./check.sh` lists documented exceptions, and `--strict`.** A use the
+  Known non-conformance list in docs/modules-c++20.mdy permits is printed as an
+  exception on every run and counted in the summary; `--strict` reports each
+  as a violation and fails. mm.sketch's unscoped `Mode`, `Level`, and
+  `BitOrder` and its `SketchNumber`, `sq`, `constrain`, and `map` templates
+  are the entry this release adds, excepted by name so anything else is still
+  an error.
+- `scripts/unused-includes.py` reports standard headers a translation unit
+  includes and never uses.
+- `scripts/configure-pico.sh` owns the Pico board table and configures a
+  Pico lane; `scripts/build-pico-project.sh` builds an external project for a
+  Pico board with it.
 
 ### Changed
 
-- **`mm.shell/src/word.cpp`: 424 → 139 lines (−67%).** The old `Cursor`
-  struct (215 L), `scan_once` (85 L), and 7 character-class predicates were
-  replaced by a 20-line `scan_once` that drives `mm.parse::Cursor` through
-  the `Sink` seam. `TokenKind` and `FragmentKind` are now aliases for
-  `mm.parse::TokenKind` and `mm.parse::FragmentKind`.
-
-- **`mm.shell.full/src/scan.cpp`: 378 → 233 lines (−38%).** The old
-  `Scanner::word/quote/dollar_parentheses/dollar_braces` methods and the
-  operator-detection switch were replaced by a `run()` loop that calls
-  `mm.parse::Cursor::scan()`. A `to_full_token` adapter translates
-  `mm.parse::TokenKind` → `full::TokenKind`. The here-document state machine
-  is preserved unchanged.
-
-- **`mm.json/src/scan.cpp`: integer/number migrated to `mm.parse`.** The
-  hand-rolled `integer()` (10 L) and `number()` (18 L) functions, plus the
-  `underflows()` helper (50 L), were replaced by `mm.parse::parse_number`
-  calls. Net −70 lines.
-
-- **`mm.sketch/src/sketch.cpp`: String methods migrated.** `String::toInt()`,
-  `toDouble()`, and `toFloat()` now call `mm.parse::parse_number` instead of
-  `std::from_chars` with manual whitespace skipping. Net −25 lines.
-
-- **`mm.configure/src/configure.cpp`: version digits migrated.** Compiler
-  version parsing now calls `mm.parse::parse_number` instead of
-  `std::from_chars`. `mm.shell.full/src/redirect.cpp`: IoNumber parsing
-  migrated. `mm.shell/src/arithmetic.cpp`: the hand-rolled `magnitude()`
-  accumulator (15 L) replaced by `mm.parse::parse_number`. Net −15 lines.
-
-- **Bootstrap updated for `mm.parse`.** `bootstrap.sh`, `tools/build/main.cpp`,
-  and `tools/build/bootstrap.mapper` all include the `mm.parse` partition
-  sources in the fixed file list that builds `build1` before any manifest
-  can be walked. The `mm.parse` file entries in `mm.mdy` are ordered so
-  partitions compile before the primary interface.
+- `mm.build` is split into partitions -- `:graph`, `:manifest`,
+  `:platform`, `:config`, `:compile`, and `:external` -- in place of one
+  5,700-line source, and its tests are regrouped to match, with new coverage
+  of root resolution, version rules, the link gate, lanes, and library link
+  inputs.
+- `mm.shell`, `mm.shell.full`, `mm.json`, `mm.configure`, and `mm.sketch` read
+  shell tokens and numbers through `mm.parse` instead of their own scanners
+  and accumulators. Shell arithmetic still accepts decimal digits alone, and
+  JSON still refuses a number too large for a double.
 - **`.` in the full-profile shell.** `out/bin/shell --run` runs `. FILE`
   in the current shell, so the build scripts under `scripts/`, which share
   `scripts/lib` that way, parse and run in the project shell as in dash: a
@@ -94,24 +101,48 @@ own parsing.
   after it are its positional parameters while it runs, and an unreadable file
   ends the shell with status 2. `source` stays excluded. Inside a function
   `$0` is now the script's name rather than the function's, as POSIX has it.
-- `scripts/build-pico.sh` is the Pico platform script from the release
-  branch; the external-project builder it replaced on `main` is now
+- `scripts/build-pico.sh` is the Pico platform script from v1.2.4; the
+  external-project builder `main` had under that name is
   `scripts/build-pico-project.sh`.
+- The Linux device-map override file is opened by `platform.linux.defaults`,
+  not by the `platform.linux.map` interface, so the interface compiles for
+  bare-metal targets whose C library has no file descriptors.
+- `test.sh` runs `tests/mm/parse`, `tests/mm/shell/mcu`, `tests/mm/ino`, and
+  `tests/mm/sketch`, which were in the tests manifest but never run.
+
+### Fixed
+
+- Configuring a bare-metal board that declares a linker script wrote absolute
+  paths the build refused, and the tree could then not be reconfigured; the
+  paths are recorded project-relative.
+- `bootstrap.sh` adds `-flarge-source-files -fno-ipa-sra` under GCC 14, whose
+  module location space and `-O2` pass otherwise abort on this tree.
+- The move to `mm.parse` left `main` unbuildable and, once built, broken:
+  newlines vanished from the full shell's tokens, here-document bodies ran as
+  commands, IO numbers and lowercase `$name` were not recognised, refusals
+  lost their Incomplete and Unsupported kinds, fragment counts were wrong,
+  `INT64_MIN` was refused, and JSON accepted `1e400`. All are fixed and
+  covered.
+- `mm.parse`'s own tests had never run and 19 of 131 failed. The code was
+  wrong for epoch dates (the calendar conversion is Howard Hinnant's again),
+  a `{` before a letter (a word, not an operator), leading-dot floats, and a
+  single operator at the end of the text in the full dialect; the tests were
+  wrong for a bare `\r`, a NUL inside a word, comments, continuations, and
+  three epoch values, and now state what the scanner has always done.
 
 ### Compatibility
 
-- `mm.parse` is a new module with no `use:` edge; it needs only
-  `<cstddef>`, `<cstdint>`, and `<string_view>`.
+- `mm: 1.0`, `1.1`, and `1.2` manifests are unchanged and still valid. `mm:
+  1.3` adds `project:`, `sketch:`, and `sketch-library:`.
 - `mm.shell`, `mm.shell.full`, `mm.json`, `mm.configure`, and `mm.sketch`
-  each gain a `use: mm.parse` edge.
-- `mm.shell::TokenKind` and `mm.shell::FragmentKind` are now aliases for
-  `mm.parse::TokenKind` and `mm.parse::FragmentKind`; code referencing them
-  by name is unaffected.
-- `mm.json::TimeExtracted` is a new type in `mm.json:scan`; existing
-  `mm.json` interfaces are unchanged.
-- Bootstrap now compiles `mm.parse` before `mm.json` and `mm.configure`;
-  the fixed file list in `tools/build/main.cpp` and the shell fallback in
-  `bootstrap.sh` are updated accordingly.
+  each gain a `use: mm.parse` edge. `mm.shell::TokenKind`,
+  `mm.shell::FragmentKind`, and `mm.shell::SourceSpan` are aliases of
+  `mm.parse`'s.
+- `mm.json::TimeExtracted` is new; existing `mm.json` interfaces are
+  unchanged.
+- The root launchers no longer run their scripts through `/bin/sh` when
+  `out/bin/shell` is installed; set `MM_SHELL_LEGACY=1` to restore it for this
+  release.
 
 ## [v1.2.4] — 2026-09-28
 
@@ -950,7 +981,7 @@ framework or documentation generator. 77 commits from the initial commit on
   `xfail`, and `xpass` failing the run when a known defect starts passing.
 - GCC and Clang backends, selected per build.
 
-[Unreleased]: https://github.com/modules-cpp/modules.cpp/compare/v1.2.4...HEAD
+[v1.3.0]: https://github.com/modules-cpp/modules.cpp/releases/tag/v1.3.0
 [v1.2.4]: https://github.com/modules-cpp/modules.cpp/releases/tag/v1.2.4
 [v1.2.3]: https://github.com/modules-cpp/modules.cpp/releases/tag/v1.2.3
 [v1.2.2]: https://github.com/modules-cpp/modules.cpp/releases/tag/v1.2.2

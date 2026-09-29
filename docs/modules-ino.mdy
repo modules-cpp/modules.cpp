@@ -3,7 +3,7 @@ mm: 1.0
 kind: doc
 name: modules.cpp ino preprocessor specification
 status: official
-release: v1.2.3
+release: v1.3.0
 ---
 
 # Sketch preprocessor specification
@@ -12,7 +12,8 @@ release: v1.2.3
 
 This document specifies mm.ino and the sketch tool front end. It defines
 how .ino sketch files are transformed into standard ISO C++20 application
-translation units. It describes implemented behavior for release v1.2.3.
+translation units. It describes implemented behavior, first released in
+v1.3.0.
 
 docs/modules-sketch.mdy specifies the runtime environment and vocabulary provided by mm.sketch; docs/modules-c++20.mdy specifies language rules and include permissions in ordinary translation units; docs/modules-mm.mdy specifies the manifest schema, including mm: 1.3 and the sketch: key.
 

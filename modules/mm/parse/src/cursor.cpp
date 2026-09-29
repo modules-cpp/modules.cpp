@@ -462,8 +462,9 @@ ScanOutcome Cursor::scan(Sink& sink) {
         return result;
     }
 
-    // Two-character operators (full dialect).
-    if (dialect_ == Dialect::Full && start + 1 < text_.size()) {
+    // Operators (full dialect). pair is one character long at the end of the
+    // text, where only the single-character operators can match.
+    if (dialect_ == Dialect::Full) {
         const auto pair = text_.substr(start, 2);
         if (pair == "&&") {
             at_ += 2;

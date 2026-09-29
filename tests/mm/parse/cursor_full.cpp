@@ -109,13 +109,13 @@ void test_full_parens() {
     Sink sink = make_sink(ts);
     Cursor cursor{"(", 0, Dialect::Full};
     ScanOutcome open = cursor.scan(sink);
-    expect(open.kind == TokenKind::OpenParen, "( is OpenParen");
+    expect(open.kind == TokenKind::LeftParen, "( is OpenParen");
 
     TestSink ts2;
     Sink sink2 = make_sink(ts2);
     Cursor cursor2{")", 0, Dialect::Full};
     ScanOutcome close = cursor2.scan(sink2);
-    expect(close.kind == TokenKind::CloseParen, ") is CloseParen");
+    expect(close.kind == TokenKind::RightParen, ") is CloseParen");
 }
 
 void test_full_braces() {

@@ -12,6 +12,7 @@ using mm::parse::TimeValue;
 using mm::parse::DateTime;
 using mm::parse::Duration;
 using mm::parse::parse_time;
+using mm::parse::parse_time_at;
 using mm::test::expect;
 
 // --- ISO date tests ---
@@ -141,8 +142,11 @@ void test_epoch_basic() {
     const auto result = parse_time("1759872000");
     expect(result.kind == TimeKind::Epoch, "epoch kind");
     expect(result.epoch == 1759872000, "epoch value");
-    // 1759872000 = 2026-09-27 (verify date conversion)
-    expect(result.date.year >= 2026, "epoch year >= 2026");
+    // 1759872000 is 2025-10-07 21:20:00 UTC.
+    expect(result.date.year == 2025 && result.date.month == 10 &&
+               result.date.day == 7 && result.date.hour == 21 &&
+               result.date.minute == 20,
+           "epoch converts to its UTC date");
 }
 
 void test_epoch_zero() {
@@ -156,7 +160,7 @@ void test_epoch_zero() {
 
 void test_epoch_leap_year() {
     // 2028-02-29 12:00:00 UTC
-    const auto result = parse_time("1739817600");
+    const auto result = parse_time("1835438400");
     expect(result.kind == TimeKind::Epoch, "leap year epoch");
     expect(result.date.year == 2028, "leap year epoch year");
     expect(result.date.month == 2, "leap year epoch month");
@@ -169,6 +173,8 @@ void test_epoch_too_few_digits() {
 }
 
 void test_epoch_overflow() {
+    // 999999999999 is in the year 33658, past the last year a DateTime
+    // carries.
     const auto result = parse_time("999999999999");
     expect(result.kind == TimeKind::Epoch, "large epoch kind");
     expect(result.overflow, "large epoch overflows");

@@ -3,7 +3,7 @@ mm: 1.0
 kind: doc
 name: modules.cpp developer guide
 status: official
-release: v1.2.4
+release: v1.3.0
 ---
 
 # Introduction
@@ -193,7 +193,7 @@ The source tree is organized by responsibility.
 |   +-- modules-build.mdy     build tool and lane-selection specification
 |   +-- modules-c++20.mdy     C++20 language subset specification
 |   +-- modules-cmake.mdy     external CMake builder specification
-|   +-- modules-configure.mdy official configure specification for release v1.2.4
+|   +-- modules-configure.mdy official configure specification for release v1.3.0
 |   +-- modules-debug.mdy     debug tool and debugger specification
 |   +-- modules-display.mdy   portable display interface and binding design
 |   +-- modules-epaper.mdy    ePaper transport and controller architecture
@@ -202,17 +202,21 @@ The source tree is organized by responsibility.
 |   +-- modules-fonts.mdy     bitmap font module and IBM Plex Mono tables
 |   +-- modules-gfx.mdy       packed graphics surfaces and drawing
 |   +-- modules-imu.mdy       portable inertial interface and QMI8658 driver
+|   +-- modules-ino.mdy       the .ino sketch preprocessor and sketch tool
 |   +-- modules-json.mdy      RFC 8259 JSON: scanner, value model, json tool
 |   +-- modules-lcd.mdy       portable colour LCD controllers and ST7789
 |   +-- modules-libraries.mdy vendored library and wrapper specification
 |   +-- modules-mm.mdy        manifest schema specification, every mm: version
 |   +-- modules-model.mdy     the abstract data model
+|   +-- modules-parse.mdy     shared shell scanner, number and time readers
 |   +-- modules-platform-linux.mdy the native Linux platform and its providers
 |   +-- modules-platform-mcu.mdy   portable MCU interface and provider injection
 |   +-- modules-platform-pico.mdy  the Pico platform family
 |   +-- modules-platforms.mdy SDK, board, and platform specification
 |   +-- modules-rtc.mdy       portable real-time clock and PCF85063 driver
 |   +-- modules-run.mdy       run tool and runner specification
+|   +-- modules-shell.mdy     the project shell, embedded to full profile
+|   +-- modules-sketch.mdy    mm.sketch, the Arduino-compatible vocabulary
 |   +-- modules-stdio.mdy     portable console and Pico USB CDC provider
 |   +-- modules-test.mdy      test tool and target execution specification
 |   +-- modules-touch.mdy     portable touch interface and CST328 driver

@@ -3,7 +3,7 @@ mm: 1.0
 kind: doc
 name: modules.cpp shell specification
 status: official
-release: v1.2.3
+release: v1.3.0
 ---
 
 # modules.cpp shell specification
@@ -191,7 +191,9 @@ positionals and variables into its own buffers.
 
 The full grammar adds pipelines, input/output/append and descriptor
 redirections, parenthesized subshells, compound commands, and here-documents.
-It retains embedded constructs and parses all 36 tracked /bin/sh scripts.
+It retains embedded constructs and parses all 46 tracked /bin/sh scripts: the
+thirteen root scripts, the two Pico provisioning scripts, and the 31 under
+scripts/, including the helpers under scripts/lib they load with `.`.
 The tracked corpus has one here-document, cat <<PLAN in scripts/release.sh;
 a fixture separately covers a quoted delimiter. <<- is unsupported. An
 unquoted delimiter permits body expansion at evaluation time; a quoted one

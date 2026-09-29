@@ -47,9 +47,12 @@ void test_nul_byte() {
     TestSink ts;
     Sink sink = make_sink(ts);
     std::string_view text("foo\0bar", 7);
+    // A NUL inside a word refuses the word, as mm.shell's level-1 scanner
+    // always has.
     Cursor cursor{text, 0, Dialect::Embedded};
     ScanOutcome result = cursor.scan(sink);
-    expect(result.kind == TokenKind::Word, "word before NUL");
+    expect(!result.complete && result.message == "NUL in script",
+           "word containing NUL is refused");
     Cursor cursor2{text, 3, Dialect::Embedded};
     Sink sink2 = make_sink(ts);
     ScanOutcome result2 = cursor2.scan(sink2);
@@ -122,11 +125,8 @@ void test_embedded_bare_cr_at_end() {
     Cursor cursor2{"\r", 0, Dialect::Embedded};
     Sink sink2 = make_sink(ts);
     ScanOutcome result = cursor2.scan(sink2);
-    // A lone \r at start of scan: embedded dialect treats it as a line end,
-    // but if it's at the very end with no following \n, it's still a valid
-    // line ending (the check is for \r NOT followed by \n when \r is the
-    // first char of the token).
-    expect(result.kind == TokenKind::Newline, "bare CR at end is Newline");
+    // A \r at the end of the text has no \n to complete it.
+    expect(!result.complete, "bare CR at end is refused");
 }
 
 void test_full_cr_in_word() {

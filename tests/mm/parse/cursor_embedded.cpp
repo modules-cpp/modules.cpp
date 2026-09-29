@@ -138,9 +138,15 @@ void test_embedded_crlf() {
 void test_embedded_bare_cr() {
     TestSink ts;
     Sink sink = make_sink(ts);
+    // A line ends at \n or \r\n; a \r without its \n is refused, as
+    // mm.shell's level-1 grammar has always refused it.
     Cursor cursor{"\r", 0, Dialect::Embedded};
     ScanOutcome result = cursor.scan(sink);
-    expect(result.kind == TokenKind::Newline, "bare CR is Newline");
+    expect(!result.complete, "bare CR is refused");
+    Cursor crlf{"\r\n", 0, Dialect::Embedded};
+    ScanOutcome ended = crlf.scan(sink);
+    expect(ended.kind == TokenKind::Newline && ended.span.length == 2,
+           "CR LF is one Newline");
 }
 
 void test_embedded_malformed_ampersand() {
@@ -165,10 +171,14 @@ void test_embedded_malformed_lt() {
 void test_embedded_comment() {
     TestSink ts;
     Sink sink = make_sink(ts);
+    // The comment is skipped; the newline that ends it is still a token.
     Cursor cursor{"# comment\nword", 0, Dialect::Embedded};
+    ScanOutcome newline = cursor.scan(sink);
+    expect(newline.kind == TokenKind::Newline && newline.span.offset == 9,
+           "comment skipped, its line end returned");
     ScanOutcome result = cursor.scan(sink);
-    expect(result.kind == TokenKind::Word, "comment skipped, word returned");
-    expect(result.span.offset == 11, "word starts after comment");
+    expect(result.kind == TokenKind::Word, "word after the comment");
+    expect(result.span.offset == 10, "word starts after comment");
 }
 
 void test_embedded_line_continuation() {
@@ -177,7 +187,8 @@ void test_embedded_line_continuation() {
     Cursor cursor{"foo\\\nbar", 0, Dialect::Embedded};
     ScanOutcome result = cursor.scan(sink);
     expect(result.kind == TokenKind::Word, "continued word is Word");
-    expect(result.span.length == 7, "continued word spans foo+bar");
+    expect(result.span.length == 8,
+           "continued word spans foo, the continuation, and bar");
 }
 
 void test_embedded_command_substitution() {

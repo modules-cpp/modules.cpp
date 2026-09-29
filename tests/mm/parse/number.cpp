@@ -1,5 +1,7 @@
 // Pawel Wodnicki (C) 2026
 // 32bitmicro LLC (C) 2026
+#include <cstdint>
+#include <limits>
 #include <string_view>
 
 import mm.parse;
@@ -10,6 +12,7 @@ namespace {
 using mm::parse::NumberKind;
 using mm::parse::NumberValue;
 using mm::parse::parse_number;
+using mm::parse::parse_number_at;
 using mm::test::expect;
 
 // --- Integer tests ---
@@ -223,7 +226,7 @@ void test_edge_binary_large() {
 void test_edge_octal_large() {
     const auto result = parse_number("0o77777777777");
     expect(result.kind == NumberKind::Integer, "0o77777777777 is Integer");
-    expect(result.integer == 7335873995, "0o77777777777 value");
+    expect(result.integer == 8589934591, "0o77777777777 value");
 }
 
 // --- parse_number(text, at) tests ---

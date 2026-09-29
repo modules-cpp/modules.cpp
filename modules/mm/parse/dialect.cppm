@@ -11,7 +11,7 @@ export namespace mm::parse {
 
 // Which token dialect the scanner produces.
 enum class Dialect {
-    Embedded,  // mm.shell level-1: fragments, \r\n and bare \r are line ends
+    Embedded,  // mm.shell level-1: fragments, \n and \r\n end a line, bare \r is refused
     Full,      // mm.shell.full level-3: no fragments, \r is blank
 };
 
@@ -84,10 +84,11 @@ struct Sink {
     if (text.empty() || at >= text.size()) return false;
     if (text[at] != '{' && text[at] != '}') return false;
     if (at + 1 >= text.size()) return true;
+    // A brace is an operator only when a word cannot continue after it: at
+    // the end, before a blank or line end, or before ;. {x is a word.
     const char next = text[at + 1];
     return next == ' ' || next == '\t' || next == '\n' ||
-           next == '\r' || next == ';' ||
-           (next >= 'a' && next <= 'z') || (next >= 'A' && next <= 'Z');
+           next == '\r' || next == ';';
 }
 [[nodiscard]] inline bool is_continuation(std::string_view text, std::size_t at) {
     if (text.empty() || at >= text.size()) return false;

@@ -13,40 +13,27 @@ import :time;
 namespace mm::parse {
 namespace {
 
-constexpr auto epoch_overflow = std::uint64_t(1e18);
+// The last year a DateTime here carries, the same bound a parsed date has.
+constexpr std::uint64_t last_year = 9999;
 
 [[nodiscard]] bool is_digit(char c) {
     return c >= '0' && c <= '9';
 }
 
-// Howard Hinnant's days-from-civil: maps (year, month, day) to days
-// since 1970-01-01. Pure integer arithmetic, no allocation.
-[[nodiscard]] std::int64_t days_from_civil(std::int64_t yr,
-                                             std::int64_t mo,
-                                             std::int64_t dy) {
-    const std::int64_t era = (mo > 2) ? yr : yr - 1;
-    const std::int64_t yoe = era - (mo > 2 ? 1 : 0);  // year of era
-    const std::int64_t doy =
-        ((3 * (mo + (mo > 2 ? -3 : 9)) + 2) / 5) + dy - 1;  // day of year
-    const std::int64_t doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-    return era * 365 + (era - 1) / 4 - (era - 1) / 100 + (era - 1) / 400 - 719468 + doe;
-}
-
-// The inverse: days since 1970-01-01 to (year, month, day).
+// Howard Hinnant's civil_from_days: days since 1970-01-01 to (year, month,
+// day) in the proleptic Gregorian calendar. Pure integer arithmetic.
 void civil_from_days(std::int64_t days,
-                      unsigned int& yr, unsigned int& mo, unsigned int& dy) {
+                     std::int64_t& yr, unsigned int& mo, unsigned int& dy) {
     const std::int64_t z = days + 719468;
     const std::int64_t era = (z >= 0 ? z : z - 146096) / 146097;
-    const std::int64_t doe = z - era * 146097;
-    const std::int64_t yoe = (doe - doe / 100 + doe / 400 - doe / 2000) / 365;
-    const std::int64_t year = yoe + era * 100;
-    const std::int64_t doy = doe - (365 * yoe + yoe / 4 - yoe / 100 + yoe / 2000);
-    const std::int64_t mp = (5 * doy + 2) / 153;
-    const std::int64_t d_ = doy - (153 * mp - 2) / 5 + 1;
-    const std::int64_t m_ = (mp < 10) ? mp + 3 : mp - 9;
-    yr = static_cast<unsigned int>((m_ <= 2) ? year + 1 : year);
-    mo = static_cast<unsigned int>(m_);
-    dy = static_cast<unsigned int>(d_);
+    const std::int64_t doe = z - era * 146097;                    // [0, 146096]
+    const std::int64_t yoe =
+        (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;   // [0, 399]
+    const std::int64_t doy = doe - (365 * yoe + yoe / 4 - yoe / 100);  // [0, 365]
+    const std::int64_t mp = (5 * doy + 2) / 153;                  // [0, 11]
+    dy = static_cast<unsigned int>(doy - (153 * mp + 2) / 5 + 1);
+    mo = static_cast<unsigned int>(mp < 10 ? mp + 3 : mp - 9);
+    yr = yoe + era * 400 + (mo <= 2 ? 1 : 0);
 }
 
 // Leap year check.
@@ -168,22 +155,26 @@ void civil_from_days(std::int64_t days,
                 result.length = digit_end - at;
                 result.consumed = result.length;
                 result.epoch = value;
-                if (value < epoch_overflow) {
-                    // Convert to DateTime.
-                    const auto days = static_cast<std::int64_t>(
-                        value / 86400);
+                // The instant as a UTC DateTime, unless it falls after the
+                // last year a DateTime carries; then overflow is set and the
+                // date is left unset.
+                std::int64_t year = 0;
+                unsigned int month = 1;
+                unsigned int day = 1;
+                civil_from_days(static_cast<std::int64_t>(value / 86400),
+                                year, month, day);
+                if (year > static_cast<std::int64_t>(last_year)) {
+                    result.overflow = true;
+                } else {
                     const auto rem = value % 86400;
-                    civil_from_days(days,
-                                      result.date.year,
-                                      result.date.month,
-                                      result.date.day);
+                    result.date.year = static_cast<unsigned int>(year);
+                    result.date.month = month;
+                    result.date.day = day;
                     result.date.hour = static_cast<unsigned int>(rem / 3600);
                     result.date.minute =
                         static_cast<unsigned int>((rem % 3600) / 60);
                     result.date.second =
                         static_cast<unsigned int>(rem % 60);
-                } else {
-                    result.overflow = true;
                 }
                 return result;
             }

@@ -36,8 +36,9 @@ mm.configure, which depend on it.
 # Dialects and tokens
 
 Dialect selects one of two shell lexical rules. Embedded is mm.shell's level
-1: a line ends at \n, at \r\n, or at a bare \r, only space and tab are
-blank, and a word is reported as a sequence of fragments. Full is
+1: a line ends at \n or \r\n, a \r without its \n is refused as malformed,
+only space and tab are blank, and a word is reported as a sequence of
+fragments. Full is
 mm.shell.full's level 3: a line ends at \n, \r is blank, and no fragments are
 produced.
 
@@ -84,9 +85,12 @@ statuses:
   construct" are unsupported;
 - "NUL in script" and a refusal without a message are malformed.
 
-The embedded dialect refuses NUL anywhere, a comment included, and refuses
+A brace is an operator only at the end of the text or before a blank, a line
+end, or ;, so {x is a word. The embedded dialect refuses NUL anywhere, a word
+or a comment included, and refuses
 &, <, >, and a backtick outside a word as operators it does not have. The full
-dialect reads an IoNumber as a word of digits alone ended by < or >, and
+dialect reads an IoNumber as a word of digits alone ended by < or >, reads a
+single-character operator at the very end of the text as that operator, and
 refuses [[, ]], ((, <(, and >(.
 
 In the embedded dialect every expansion is a fragment, inside double quotes
@@ -103,7 +107,8 @@ read, and a caller that needs the whole text to be a number compares them.
 
 A number has an optional sign, then either a radix prefix 0x, 0o, or 0b with
 digits of that radix, or decimal digits with an optional fraction and an
-optional exponent. An underscore may appear among the digits and is ignored. A
+optional exponent. The integer digits may be absent when a fraction follows,
+so .5 and -.5 are numbers. An underscore may appear among the digits and is ignored. A
 trailing point without fraction digits is accepted; an exponent without
 digits is not.
 
@@ -133,7 +138,8 @@ leading blanks, trying in order:
 - a Duration: decimal digits followed by exactly one of s, m, h, d, or w and
   nothing else;
 - an Epoch: ten to twelve decimal digits followed by the end or a blank, also
-  converted to a DateTime in UTC unless it overflows;
+  converted to a DateTime in UTC; one after the year 9999, the last a
+  DateTime here carries, sets overflow and leaves the date unset;
 - a Time: HH:MM or HH:MM:SS, with hours below 24 and minutes and seconds
   below 60;
 - a Date: YYYY-MM-DD or YYYY/MM/DD, optionally followed by T or a space and a

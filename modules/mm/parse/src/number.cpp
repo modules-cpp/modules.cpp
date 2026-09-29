@@ -136,7 +136,11 @@ constexpr auto int64_min = std::numeric_limits<std::int64_t>::min();
             any_digit = true;
             ++i;
         }
-        if (!any_digit) return result;  // No digits at all.
+        // No integer digits is a number only as a fraction: .5 and -.5.
+        if (!any_digit &&
+            !(i + 1 < text.size() && text[i] == '.' && is_digit(text[i + 1]))) {
+            return result;
+        }
 
         number_end = i;
 
