@@ -32,3 +32,14 @@ wrap-audio-lcd-154|build-audio.sh|--board rp2350_lcd_154 --dry-run|0
 wrap-unknown-board|build-gfx.sh|--board nosuch --dry-run|64
 wrap-sdl|build-sdl.sh|--arch x86_64 --dry-run|0
 wrap-linux-smoke|build-linux-smoke.sh|--arch aarch64 --dry-run|0
+target-aarch64|build-aarch64-linux-gnu.sh|--compiler aarch64-linux-gnu-g++ --run --dry-run|0
+target-aarch64-sdl|build-aarch64-linux-gnu.sh|--compiler aarch64-linux-gnu-g++ --board sdl-linux-aarch64 --app gfx-demo --dry-run|0
+target-x86_64|build-x86_64-linux-gnu.sh|--compiler x86_64-linux-gnu-g++ --keep --dry-run|0
+target-armhf|build-arm-linux-gnueabihf.sh|--compiler arm-linux-gnueabihf-g++ --app main --control target-smoke-any --run --dry-run|0
+target-armhf-unbound|build-arm-linux-gnueabihf.sh|--compiler arm-linux-gnueabihf-g++ --app gfx-demo --dry-run|77
+target-arm-none-eabi|build-arm-none-eabi.sh|--compiler arm-none-eabi-g++ --run --dry-run|0
+target-m68k|build-m68k-linux-gnu.sh|--compiler m68k-linux-gnu-g++-16 --run --dry-run|0
+target-m68k-external|build-m68k-linux-external.sh|--compiler m68k-linux-gnu-g++-16 --dry-run|0
+target-sdk-mismatch|build-target.sh|--target m68k-linux-gnu --sdk linux-x86_64 --app main --dry-run|64
+target-missing-lane|build-target.sh|--target m68k-linux-gnu --app main --dry-run|64
+target-unknown-machine|build-target.sh|--target riscv64-linux-gnu --sdk linux-x86_64 --app main --dry-run|64

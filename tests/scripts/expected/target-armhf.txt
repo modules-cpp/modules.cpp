@@ -1,0 +1,10 @@
+build-target: dry run
+  lane      arm-linux-gnueabihf arm-linux-gnueabihf-g++ arm-linux-gnueabihf-glibc none hosted
+  configure ./configure --target arm-linux-gnueabihf --compiler arm-linux-gnueabihf-g++ --target-host --sdk arm-linux-gnueabihf-glibc --build debug
+  runner    native when this machine is arm-linux-gnueabihf
+  build     ./build --target apps/main/
+  image     out-target-arm-linux-gnueabihf/apps/main/main
+  elf       ARM hosted
+  control   ./build --target apps/target-smoke-any/
+  run       ./out-target-arm-linux-gnueabihf/apps/main/main, or qemu-arm -L /usr/arm-linux-gnueabihf on another machine (must succeed: no)
+exit 0

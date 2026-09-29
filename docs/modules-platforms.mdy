@@ -515,6 +515,15 @@ Every platform diagnostic names the manifest it came from. A mismatch names both
 
 ./check platforms
 
+scripts/build-target.sh wraps these steps for any target lane: it configures the lane, builds one application, checks the image's ELF machine and the providers its closure reaches as the manifests say, optionally runs it, and restores the configuration record it found. One wrapper per platform names the lane and a default application:
+
+- scripts/build-aarch64-linux-gnu.sh and scripts/build-x86_64-linux-gnu.sh: the Linux platform's linux-aarch64 and linux-x86_64 SDKs, target-smoke-any; --board adds a generic, sdl, or epaper board.
+- scripts/build-arm-linux-gnueabihf.sh and scripts/build-m68k-linux-gnu.sh: the glibc cross SDKs, target-smoke-any, run under qemu user mode.
+- scripts/build-m68k-linux-external.sh: the m68k-linux-external SDK and its cmake-demo-smoke application.
+- scripts/build-arm-none-eabi.sh: the mps2-an385 board and its target-smoke, run by qemu-system.
+
+scripts/build-linux.sh remains the native Linux platform's script, and scripts/build-pico.sh the Pico boards'.
+
 # Conformance
 
 - A platform manifest is read from the walk configure already performs, and no tool opens it a second time.

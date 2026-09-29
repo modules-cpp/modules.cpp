@@ -1,0 +1,2 @@
+build-target: linux-x86_64 is an SDK for x86_64-linux-gnu, not m68k-linux-gnu
+exit 64

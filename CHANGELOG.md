@@ -154,6 +154,19 @@ All notable changes to modules.cpp. Versions follow [semantic versioning](https:
   and docs/modules-platform-linux.mdy gain a section on the platform scripts
   and the wrappers, and docs/modules-stdio.mdy names `build-stdio.sh`. Step 4
   of drafts/plan-build-scripts.mdy.
+- `scripts/build-target.sh` builds one application for any target lane
+  configure accepts -- `--target`, `--sdk` or `--board`, `--compiler`,
+  `--target-host`, `--runner` -- and verifies the image's ELF machine and its
+  providers, drivers, and libraries from the manifests, as the Pico and Linux
+  scripts do. `--run` goes through `./run` when the lane has a runner, and
+  otherwise runs a hosted image directly or under qemu user mode with the
+  SDK's runtime prefix. One wrapper per platform names the lane and a default
+  application: `build-aarch64-linux-gnu.sh`, `build-x86_64-linux-gnu.sh`,
+  `build-arm-linux-gnueabihf.sh`, `build-arm-none-eabi.sh` (mps2-an385 under
+  qemu-system), `build-m68k-linux-gnu.sh`, and `build-m68k-linux-external.sh`
+  (cmake-demo-smoke). A missing cross toolchain or SDK runtime prefix is
+  reported with exit 65 before the configuration is touched, and
+  `tests/scripts` pins eleven more dry runs.
 - `tests/mm/touch-cst816` moved to `tests/mm/touch/cst816`, beside the CST328
   tests it shares an interface with, as `tests/mm/audio/es8311` sits under
   `tests/mm/audio`. The suite keeps its name, touch-cst816, and `test.sh` now
