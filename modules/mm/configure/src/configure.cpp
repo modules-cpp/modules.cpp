@@ -790,10 +790,15 @@ bool option_error(std::string_view tool, const OptionNode& node, std::string_vie
 bool relative_directory(const std::filesystem::path& root, const std::filesystem::path& path,
                         std::filesystem::path& result) {
     if (path.is_absolute()) {
+        // macOS commonly spells the same directory as /tmp and /private/tmp.
+        // Resolve aliases before comparing with the canonical project root;
+        // lexical comparison alone incorrectly rejects the project root.
         std::error_code ec;
         const auto canonical_path = std::filesystem::weakly_canonical(path, ec);
         if (ec) return false;
         result = canonical_path.lexically_relative(root);
+        // libc++ may represent a path relative to itself as an empty path,
+        // whereas libstdc++ commonly yields ".".
         if (result.empty()) {
             if (canonical_path != root) return false;
             result = ".";

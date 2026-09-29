@@ -2,6 +2,7 @@
 // 32bitmicro LLC (C) 2026
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <optional>
 #include <span>
 #include <string_view>
@@ -234,6 +235,44 @@ void an_unserved_facility_answers_unsupported() {
            "so does an unimplemented I2C controller");
     expect(bare.i2c_write_read(0, 0x1a, {}, {}) == Status::Unsupported,
            "an unserved register read answers rather than dereferencing nothing");
+    expect(bare.i2s_configure({}) == Status::Unsupported,
+           "so does an unimplemented I2S controller");
+    std::size_t moved = 7;
+    const std::int16_t words16[2] = {};
+    std::int32_t words32[2] = {};
+    mm::mcu::Frequency rate;
+    mm::mcu::Progress progress;
+    expect(bare.i2s_write(0, std::span<const std::int16_t>{words16}, moved) ==
+                   Status::Unsupported &&
+               bare.i2s_read(0, std::span<std::int32_t>{words32}, moved) ==
+                   Status::Unsupported &&
+               moved == 7,
+           "an unserved I2S transfer answers rather than dereferencing nothing");
+    expect(bare.i2s_rate(0, rate) == Status::Unsupported &&
+               bare.i2s_start(0, mm::mcu::I2sDirection::Transmit) == Status::Unsupported &&
+               bare.i2s_progress(0, mm::mcu::I2sDirection::Receive, progress) ==
+                   Status::Unsupported &&
+               bare.i2s_stop(0, mm::mcu::I2sDirection::Transmit) == Status::Unsupported &&
+               bare.i2s_release(0) == Status::Unsupported,
+           "so does every other I2S operation");
+    const std::uint16_t levels[1] = {};
+    expect(bare.dac_description().outputs.empty() &&
+               bare.dac_configure(0, 8'000) == Status::Unsupported &&
+               bare.dac_rate(0, rate) == Status::Unsupported &&
+               bare.dac_start(0) == Status::Unsupported &&
+               bare.dac_give(0, levels, moved) == Status::Unsupported &&
+               bare.dac_progress(0, progress) == Status::Unsupported &&
+               bare.dac_stop(0) == Status::Unsupported &&
+               bare.dac_release(0) == Status::Unsupported,
+           "an unserved DAC has no outputs and answers Unsupported");
+    std::uint16_t counts[1] = {};
+    expect(bare.adc_pace(0, 8'000) == Status::Unsupported &&
+               bare.adc_pace_rate(0, rate) == Status::Unsupported &&
+               bare.adc_pace_start(0) == Status::Unsupported &&
+               bare.adc_take(0, counts, moved) == Status::Unsupported &&
+               bare.adc_pace_progress(0, progress) == Status::Unsupported &&
+               bare.adc_pace_stop(0) == Status::Unsupported,
+           "so does unserved paced capture");
     expect(bare.delay_ms(1) == Status::Unsupported, "so does an unimplemented timer");
     bool pending = true;
     expect(bare.gpio_watch(1, Pull::Up, Edge::Rising) == Status::Unsupported &&

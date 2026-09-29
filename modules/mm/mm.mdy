@@ -3,6 +3,8 @@ mm: 1.0
 kind: dir
 name: mm
 folder: app
+folder: audio
+folder: audio/es8311
 folder: build
 folder: configure
 folder: debug
@@ -32,4 +34,5 @@ folder: stdio
 folder: test
 folder: touch
 folder: touch/cst328
+folder: touch/cst816
 ---

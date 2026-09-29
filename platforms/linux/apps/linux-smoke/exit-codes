@@ -1,0 +1,3 @@
+0 every facility this machine has initialised and answered
+6 6 is display.initialize: a compositor holds DRM master
+8 8 is touch.initialize: /dev/input needs the input group

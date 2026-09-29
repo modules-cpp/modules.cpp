@@ -1,216 +1,200 @@
 #!/bin/sh
-# Build an external project for a Pico board.
+# Build one application for a Pico board through the Pico SDK bridge, and
+# verify what came out.
 #
-#   scripts/build-pico.sh [-b BOARD] [-r] <directory> [build arguments]
+#   scripts/build-pico.sh --board BOARD --app APP [--symbol PATTERN]...
+#                         [--no-symbol PATTERN]... [--abi SYMBOL]...
+#                         [--control APP] [--flash] [--keep] [--dry-run]
 #
-# The directory is an external tree, or one application inside one: a tree
-# whose root manifest carries project: and points back here. It is built where
-# it lives, and nothing is written into this repository. Naming a tree builds
-# every application in it, and each one that reaches the SDK gets its own
-# CMake bridge, so name the application's own directory to build just that
-# one. Arguments after the directory are passed to build; --target is already
-# passed, since a Pico build is a target build.
+# BOARD is any Pico board: one of the six the Pico SDK recognises, or a
+# composite board under boards/, whose lane is its vendor ancestor's. APP is an
+# application directory, or the name of one under apps/.
 #
-# What this adds over calling out/bin/build directly is the environment that
-# call needs. The Pico SDK bridge declares picotool_DIR in its
-# cmake/mm-requires.txt, and build refuses rather than searching for the
-# package: docs/modules-cmake.mdy states that no package directory is found
-# implicitly, because the path and the package's contents are part of the
-# external cache identity. This script names the copy that
-# platforms/pico/install-sdk-tools.sh installed, so the variable is declared
-# rather than ambient, and passes it to one build.
+# What the image must contain is not written here. It is read from the
+# manifests the way the build reads them: the application's closure, the board's
+# bindings along its derives-from chain and its SDK's, and for every platform
+# interface the closure reaches, the bound provider and its own uses, to a
+# fixed point. The image must then carry one initializer of every provider in
+# that closure and none of every other provider the lane binds -- the absences
+# are as much the assertion as the presences -- and the symbols of every driver
+# module a reached provider uses, which is what catches a board wired to an
+# interface but not to its controller.
 #
-# The lane comes from scripts/configure-pico.sh, which owns the board table
-# and configures the tree. It is configured before the build and left
-# configured afterwards,
-# because the next thing done to an external Pico project is flashing or
-# debugging it. That differs from the test scripts under scripts/, which
-# restore the host configuration because a test must leave the tree as it
-# found it. -r restores it here too, and ./configure does it by hand.
+# --symbol and --no-symbol add demangled patterns the image must or must not
+# contain, --abi raw symbols it must define, and --control a second
+# application checked against its own closure, which for a portable
+# application that reaches no interface is every provider absent.
+#
+# --dry-run prints the lane, the commands, and every check, and touches
+# nothing; it needs no Pico tools. --keep leaves the board's lane configured
+# afterwards, for flashing or debugging; otherwise the configuration the tree
+# had before is restored on every exit. --flash writes the image with picotool
+# while the lane is still configured; put the board in BOOTSEL first.
+#
+# The prebuilt Pico tools default to platforms/pico/pico-sdk. Set MM_PICO_TOOLS
+# or picotool_DIR to select another installation.
 set -eu
 
-script_name=build-pico.sh
-project_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+test_name=build-pico
+. "$(dirname -- "$0")/lib/common.sh"
+. "$(dirname -- "$0")/lib/pico.sh"
+. "$(dirname -- "$0")/lib/manifest.sh"
+mm_enter_root
 
-board=pico
-restore=false
-external=
+board=
+app_argument=
+control_argument=
+symbols=
+no_symbols=
+abi=
+flash_app=no
+keep=no
+dry_run=no
 
 while [ "$#" -gt 0 ]; do
     case "$1" in
         -b|--board)
-            [ "$#" -ge 2 ] || {
-                echo "$script_name: $1 requires a board name" >&2; exit 64; }
+            mm_option_value "$#" "$1" "a board name"
             board=$2
             shift 2
             ;;
-        -r|--restore-host)
-            restore=true
+        -a|--app)
+            mm_option_value "$#" "$1" "an application"
+            app_argument=$2
+            shift 2
+            ;;
+        --symbol)
+            mm_option_value "$#" "$1" "a pattern"
+            symbols="$symbols $2"
+            shift 2
+            ;;
+        --no-symbol)
+            mm_option_value "$#" "$1" "a pattern"
+            no_symbols="$no_symbols $2"
+            shift 2
+            ;;
+        --abi)
+            mm_option_value "$#" "$1" "a symbol"
+            abi="$abi $2"
+            shift 2
+            ;;
+        --control)
+            mm_option_value "$#" "$1" "an application"
+            control_argument=$2
+            shift 2
+            ;;
+        --flash)
+            flash_app=yes
+            shift
+            ;;
+        --keep)
+            keep=yes
+            shift
+            ;;
+        --dry-run)
+            dry_run=yes
             shift
             ;;
         -h|--help)
-            sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'
+            sed -n '2,34p' "$0" | sed 's/^# \{0,1\}//'
             exit 0
             ;;
-        --)
-            shift
-            break
-            ;;
-        -*)
-            echo "$script_name: unknown option: $1" >&2
-            exit 64
-            ;;
         *)
-            external=$1
-            shift
-            break
+            mm_unknown_argument "$1"
             ;;
     esac
 done
 
-lane=$("$(dirname -- "$0")/configure-pico.sh" -b "$board" --print) || exit $?
-target=${lane%% *}
-lane=${lane#* }
-compiler=${lane%% *}
-
-if [ -z "$external" ]; then
-    echo "usage: $0 [-b BOARD] [-r] <directory> [build arguments]" >&2
+if [ -z "$board" ] || [ -z "$app_argument" ]; then
+    echo "$test_name: --board and --app are required; see --help" >&2
     exit 64
 fi
 
-# Resolved before this script changes directory, so a relative path means what
-# it meant in the caller's shell.
-if [ ! -d "$external" ]; then
-    echo "$script_name: not a directory: $external" >&2
-    exit 65
+mm_pico_lane "$board"
+mm_resolve_app "$app_argument"
+binary="out-target-$target/$app_path/$app"
+
+bindings=$(mm_bindings "" "$board")
+bound=$(mm_bound_providers "" "$board")
+closure=$(mm_closure "$app_path/mm.mdy" "$bindings")
+unbound=$(mm_unbound "$closure" "$bindings")
+if [ -n "$unbound" ]; then
+    echo "$test_name: $app reaches $(echo $unbound), which $board does not bind" >&2
+    echo "  the build makes it unavailable on this lane" >&2
+    exit 77
 fi
-external=$(CDPATH= cd -- "$external" && pwd)
+expectations=$(mm_expectations "$closure" "$bound")
 
-if [ ! -f "$external/mm.mdy" ]; then
-    echo "$script_name: no manifest in $external" >&2
-    echo "  an external project's root carries mm.mdy with project:" >&2
-    echo "  run out/bin/sketch on it first for a sketch application" >&2
-    exit 65
-fi
-
-# build takes one directory and one lane. The lane is added below, so a
-# forwarded one would be a duplicate, and a forwarded path would be a second
-# directory -- which is usually an application inside the tree that was named.
-forwarded_lane=false
-for arg in "$@"; do
-    case "$arg" in
-        --target)
-            forwarded_lane=true
-            ;;
-        --host)
-            echo "$script_name: --host contradicts a Pico build" >&2
-            exit 64
-            ;;
-        -*)
-            ;;
-        /*)
-            echo "$script_name: two directories given:" >&2
-            echo "  $external" >&2
-            echo "  $arg" >&2
-            echo "  build takes one; name the application's own directory" >&2
-            exit 64
-            ;;
-        *)
-            echo "$script_name: two directories given: $external and $arg" >&2
-            echo "  build takes one. To build that application alone, run:" >&2
-            echo "  $0 $external/$arg" >&2
-            exit 64
-            ;;
-    esac
-done
-
-cd "$project_dir"
-
-mm_pico_tools=${MM_PICO_TOOLS:-"$project_dir/platforms/pico/pico-sdk"}
-if [ ! -d "$mm_pico_tools" ]; then
-    echo "$script_name: Pico tools directory not found: $mm_pico_tools" >&2
-    echo "  run platforms/pico/install-sdk-tools.sh to install them" >&2
-    exit 65
-fi
-mm_pico_tools=$(CDPATH= cd -- "$mm_pico_tools" && pwd)
-
-# An explicit picotool_DIR still wins, as docs/modules-cmake.mdy describes.
-mm_picotool_dir=${picotool_DIR:-"$mm_pico_tools/picotool"}
-if [ ! -d "$mm_picotool_dir" ]; then
-    echo "$script_name: picotool package not found: $mm_picotool_dir" >&2
-    echo "  run platforms/pico/install-sdk-tools.sh to install it" >&2
-    exit 65
-fi
-mm_picotool_dir=$(CDPATH= cd -- "$mm_picotool_dir" && pwd)
-if [ ! -f "$mm_picotool_dir/picotoolConfig.cmake" ] && \
-   [ ! -f "$mm_picotool_dir/picotool-config.cmake" ]; then
-    echo "$script_name: no CMake package in $mm_picotool_dir" >&2
-    echo "  expected picotoolConfig.cmake or picotool-config.cmake" >&2
-    exit 65
+control_path=
+if [ -n "$control_argument" ]; then
+    saved_path=$app_path
+    saved_app=$app
+    mm_resolve_app "$control_argument"
+    control_path=$app_path
+    control_app=$app
+    app_path=$saved_path
+    app=$saved_app
+    control_binary="out-target-$target/$control_path/$control_app"
+    control_expectations=$(mm_expectations \
+        "$(mm_closure "$control_path/mm.mdy" "$bindings")" "$bound")
 fi
 
-if [ ! -f platforms/pico/sdk/pico-sdk/upstream/README.md ]; then
-    echo "$script_name: Pico SDK checkout is absent" >&2
-    echo "  run platforms/pico/sdk/pico-sdk/vendor.sh" >&2
-    exit 65
-fi
-
-if [ ! -x out/bin/configure ] || [ ! -x out/bin/build ]; then
-    echo "$script_name: host tools not found" >&2
-    echo "  run ./bootstrap.sh && ./build.sh first" >&2
-    exit 65
-fi
-
-PATH="$mm_pico_tools/bin:$PATH"
-export PATH
-
-for command_name in "$compiler" cmake; do
-    if ! command -v "$command_name" >/dev/null 2>&1; then
-        echo "$script_name: required command not found: $command_name" >&2
-        exit 65
+if [ "$dry_run" = yes ]; then
+    echo "$test_name: dry run"
+    echo "  lane      $target $compiler $sdk $board"
+    echo "  configure ./configure --target $target --compiler $compiler --sdk $sdk --board $board --build debug"
+    echo "  build     ./build --target $app_path/"
+    echo "  image     $binary"
+    printf '%s\n' "$expectations" | sed 's/^/  /'
+    for pattern in $symbols; do echo "  symbol $pattern"; done
+    for pattern in $no_symbols; do echo "  no-symbol $pattern"; done
+    for symbol in $abi; do echo "  abi $symbol"; done
+    echo "  uf2 $family"
+    if [ -n "$control_path" ]; then
+        echo "  control   ./build --target $control_path/"
+        printf '%s\n' "$control_expectations" | sed 's/^/  control /'
     fi
-done
-
-if [ "$restore" = true ]; then
-    restore_host() {
-        status=$?
-        trap - 0
-        if ! ./configure >/dev/null 2>&1; then
-            echo "$script_name: failed to restore the host configuration" >&2
-            [ "$status" -ne 0 ] || status=1
-        fi
-        exit "$status"
-    }
-    trap restore_host 0
+    [ "$flash_app" = yes ] && echo "  flash     ./flash.sh $app_path/"
+    [ "$keep" = yes ] && echo "  keep      $board"
+    exit 0
 fi
 
-echo "Pico build"
-echo "  project   $project_dir"
-echo "  external  $external"
-echo "  board     $board"
-echo "  picotool  $mm_picotool_dir"
-echo
-
-scripts/configure-pico.sh -b "$board"
-
-if [ "$forwarded_lane" = true ]; then
-    picotool_DIR="$mm_picotool_dir" out/bin/build "$external" "$@"
-else
-    picotool_DIR="$mm_picotool_dir" out/bin/build --target "$external" "$@"
+mm_pico_prepare
+if [ "$keep" = no ]; then
+    mm_trap_restore_host
 fi
 
-# Artifacts land under the external tree's root, not under the application
-# directory that was named, so ascend to the outermost manifest to find them.
-tree_root=$external
-dir=$external
-while [ -f "$dir/mm.mdy" ]; do
-    tree_root=$dir
-    parent=$(dirname -- "$dir")
-    [ "$parent" != "$dir" ] || break
-    dir=$parent
-done
+mm_pico_banner
+echo "  board  $board"
+echo "  app    $app"
 
-echo
-echo "Images in $tree_root/out-target-$target:"
-find "$tree_root/out-target-$target" -name '*.uf2' -type f 2>/dev/null |
-    sed "s|^|  |" || true
+mm_pico_configure
+mm_pico_build "$app_path/"
+mm_pico_verify_image "$binary"
+mm_verify_expectations "$binary" "$expectations"
+for pattern in $symbols; do mm_verify_symbol "$binary" "$pattern"; done
+for pattern in $no_symbols; do mm_verify_no_symbol "$binary" "$pattern"; done
+if [ -n "$abi" ]; then
+    # shellcheck disable=SC2086
+    mm_verify_defined "$binary" ABI $abi
+fi
+mm_pico_verify_uf2 "$binary"
+
+echo "  providers $(printf '%s\n' "$expectations" | awk '$1 == "provider" && $3 == 1 { printf "%s ", $2 }')"
+echo "  drivers   $(printf '%s\n' "$expectations" | awk '$1 == "driver" { printf "%s ", $2 }')"
+
+if [ -n "$control_path" ]; then
+    mm_pico_build "$control_path/"
+    mm_verify_expectations "$control_binary" "$control_expectations"
+    echo "  control   $control_app carries only its own closure's providers"
+fi
+
+if [ "$flash_app" = yes ]; then
+    mm_pico_flash "$app_path/"
+fi
+
+if [ "$keep" = no ]; then
+    mm_leave_host
+fi
+
+echo "PASS: $test_name $board $app"

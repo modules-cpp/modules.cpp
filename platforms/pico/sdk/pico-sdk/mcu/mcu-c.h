@@ -10,6 +10,7 @@
 // and they would then not match the adapter's definitions.
 
 #include <stddef.h>
+#include <stdint.h>
 
 enum {
     MM_PICO_MCU_OK = 0,
@@ -53,6 +54,33 @@ int mm_pico_mcu_delay_ms(unsigned long milliseconds);
 int mm_pico_mcu_ticks_ms(unsigned long* ticks);
 int mm_pico_mcu_delay_us(unsigned long microseconds);
 int mm_pico_mcu_ticks_us(unsigned long* ticks);
+
+// I2S over PIO and DMA, instance zero only. Frames cross as PIO words: one
+// word a frame with sixteen-bit slots, the left slot in the high half; two
+// words a frame, left then right, with thirty-two-bit slots. receive selects
+// the direction for start, progress, and stop.
+int mm_pico_mcu_i2s_configure(unsigned int instance, unsigned int bit_clock,
+                              unsigned int word_clock, int has_transmit, unsigned int transmit,
+                              int has_receive, unsigned int receive, unsigned long rate_hz,
+                              unsigned int slot_bits);
+int mm_pico_mcu_i2s_rate(unsigned int instance, unsigned long long* numerator,
+                         unsigned long long* denominator);
+int mm_pico_mcu_i2s_start(unsigned int instance, int receive);
+int mm_pico_mcu_i2s_write(unsigned int instance, const uint32_t* words, size_t frames,
+                          size_t* accepted);
+int mm_pico_mcu_i2s_read(unsigned int instance, uint32_t* words, size_t frames,
+                         size_t* count);
+int mm_pico_mcu_i2s_progress(unsigned int instance, int receive,
+                             unsigned long long* completed, size_t* queued,
+                             unsigned long* missed);
+int mm_pico_mcu_i2s_stop(unsigned int instance, int receive);
+int mm_pico_mcu_i2s_release(unsigned int instance);
+
+// A critical section on the calling core: the SDK's save_and_disable_interrupts
+// and restore_interrupts. saved is the core's mask word, PRIMASK on Arm and
+// mstatus.MIE on RISC-V, handed back unchanged.
+int mm_pico_mcu_interrupts_disable(unsigned int* saved);
+int mm_pico_mcu_interrupts_enable(unsigned int saved);
 
 // The analog facilities. Channels and outputs are the SDK's own numbering:
 // ADC channel n is GPIO base + n up to the temperature channel, which has no

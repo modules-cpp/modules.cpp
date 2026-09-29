@@ -1,0 +1,8 @@
+build-target: dry run
+  lane      m68k-linux-gnu m68k-linux-gnu-g++-16 m68k-linux-glibc none hosted
+  configure ./configure --target m68k-linux-gnu --compiler m68k-linux-gnu-g++-16 --target-host --sdk m68k-linux-glibc --runner qemu-user --build debug
+  build     ./build --target apps/target-smoke-any/
+  image     out-target-m68k-linux-gnu/apps/target-smoke-any/target-smoke-any
+  elf       68000 hosted
+  run       ./run --target apps/target-smoke-any/ (must succeed: no)
+exit 0

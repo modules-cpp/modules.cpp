@@ -1,0 +1,7 @@
+build-target: dry run
+  lane      m68k-linux-gnu m68k-linux-gnu-g++-16 m68k-linux-external none hosted
+  configure ./configure --target m68k-linux-gnu --compiler m68k-linux-gnu-g++-16 --target-host --sdk m68k-linux-external --runner qemu-user --build debug
+  build     ./build --target platforms/m68k-linux-external/apps/cmake-demo-smoke/
+  image     out-target-m68k-linux-gnu/platforms/m68k-linux-external/apps/cmake-demo-smoke/cmake-demo-smoke
+  elf       68000 hosted
+exit 0

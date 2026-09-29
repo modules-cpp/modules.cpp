@@ -1,0 +1,3 @@
+build-pico: board-smoke reaches mm.rtc mm.touch, which rp2350_lcd_154 does not bind
+  the build makes it unavailable on this lane
+exit 77

@@ -1,0 +1,8 @@
+build-target: dry run
+  lane      arm-none-eabi arm-none-eabi-g++ arm-none-eabi-newlib mps2-an385 bare
+  configure ./configure --target arm-none-eabi --compiler arm-none-eabi-g++ --board mps2-an385 --runner qemu-system --build debug
+  build     ./build --target platforms/mps2-an385/target-smoke/
+  image     out-target-arm-none-eabi/platforms/mps2-an385/target-smoke/target-smoke
+  elf       ARM bare
+  run       ./run --target platforms/mps2-an385/target-smoke/ (must succeed: no)
+exit 0

@@ -1,0 +1,16 @@
+0 four lines and the whole charset were drawn and held in four orientations
+1 1 is display.initialize: on DRM a compositor holds DRM master; under SDL a
+1 headless session or an SDL_VIDEODRIVER override; on the emulated e-paper the
+1 controller's reset or busy handshake with the emulated chip failed
+2 2 is the geometry check: the panel is neither one nor sixteen bits deep, or
+2 reported no size
+3 3 is the frame budget: the panel is wider or narrower than the demo's static
+3 frame allows
+4 4 is display.clear
+5 5 is fonts.render: a line did not compose
+6 6 is gfx.write: expansion or display.write failed, or an e-paper controller
+6 refused the packed frame
+7 7 is display.refresh; on the emulated e-paper, the refresh did not complete
+7 or the window could not be shown
+8 8 is mcu.delay_ms: the hold did not complete
+9 9 is display.sleep

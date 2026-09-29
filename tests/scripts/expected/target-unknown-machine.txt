@@ -1,0 +1,2 @@
+build-target: no machine known for riscv64-linux-gnu; add it to lib/target.sh
+exit 64

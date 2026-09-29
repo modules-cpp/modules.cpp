@@ -1,0 +1,2 @@
+build-pico: no application at nosuch or apps/nosuch
+exit 64

@@ -12,7 +12,10 @@ import :status;
 import :board;
 import :spi_types;
 import :i2c_types;
+import :i2s_types;
+import :transport_types;
 import :adc_types;
+import :dac_types;
 import :pwm_types;
 
 export namespace mm::mcu {
@@ -85,11 +88,52 @@ public:
         return Status::Unsupported;
     }
 
+    [[nodiscard]] virtual Status i2s_configure(const I2sConfiguration&) {
+        return Status::Unsupported;
+    }
+    [[nodiscard]] virtual Status i2s_rate(unsigned int, Frequency&) {
+        return Status::Unsupported;
+    }
+    [[nodiscard]] virtual Status i2s_start(unsigned int, I2sDirection) {
+        return Status::Unsupported;
+    }
+    [[nodiscard]] virtual Status i2s_write(unsigned int, std::span<const std::int16_t>,
+                                           std::size_t&) {
+        return Status::Unsupported;
+    }
+    [[nodiscard]] virtual Status i2s_write(unsigned int, std::span<const std::int32_t>,
+                                           std::size_t&) {
+        return Status::Unsupported;
+    }
+    [[nodiscard]] virtual Status i2s_read(unsigned int, std::span<std::int16_t>,
+                                          std::size_t&) {
+        return Status::Unsupported;
+    }
+    [[nodiscard]] virtual Status i2s_read(unsigned int, std::span<std::int32_t>,
+                                          std::size_t&) {
+        return Status::Unsupported;
+    }
+    [[nodiscard]] virtual Status i2s_progress(unsigned int, I2sDirection, Progress&) {
+        return Status::Unsupported;
+    }
+    [[nodiscard]] virtual Status i2s_stop(unsigned int, I2sDirection) {
+        return Status::Unsupported;
+    }
+    [[nodiscard]] virtual Status i2s_release(unsigned int) { return Status::Unsupported; }
+
     [[nodiscard]] virtual Status uart_write(unsigned int, const char*) {
         return Status::Unsupported;
     }
 
     [[nodiscard]] virtual Status delay_ms(unsigned long) { return Status::Unsupported; }
+
+    // saved is the platform's own word, handed back unchanged to enable.
+    [[nodiscard]] virtual Status interrupts_disable(std::uint32_t&) {
+        return Status::Unsupported;
+    }
+    [[nodiscard]] virtual Status interrupts_enable(std::uint32_t) {
+        return Status::Unsupported;
+    }
     [[nodiscard]] virtual Status ticks_ms(unsigned long&) { return Status::Unsupported; }
     [[nodiscard]] virtual Status delay_us(unsigned long) { return Status::Unsupported; }
     [[nodiscard]] virtual Status ticks_us(unsigned long&) { return Status::Unsupported; }
@@ -104,6 +148,39 @@ public:
         return Status::Unsupported;
     }
     [[nodiscard]] virtual Status adc_release(unsigned int) { return Status::Unsupported; }
+    [[nodiscard]] virtual Status adc_pace(unsigned int, unsigned long) {
+        return Status::Unsupported;
+    }
+    [[nodiscard]] virtual Status adc_pace_rate(unsigned int, Frequency&) {
+        return Status::Unsupported;
+    }
+    [[nodiscard]] virtual Status adc_pace_start(unsigned int) { return Status::Unsupported; }
+    [[nodiscard]] virtual Status adc_take(unsigned int, std::span<std::uint16_t>,
+                                          std::size_t&) {
+        return Status::Unsupported;
+    }
+    [[nodiscard]] virtual Status adc_pace_progress(unsigned int, Progress&) {
+        return Status::Unsupported;
+    }
+    [[nodiscard]] virtual Status adc_pace_stop(unsigned int) { return Status::Unsupported; }
+
+    [[nodiscard]] virtual DacDescription dac_description() const { return {}; }
+    [[nodiscard]] virtual Status dac_configure(unsigned int, unsigned long) {
+        return Status::Unsupported;
+    }
+    [[nodiscard]] virtual Status dac_rate(unsigned int, Frequency&) {
+        return Status::Unsupported;
+    }
+    [[nodiscard]] virtual Status dac_start(unsigned int) { return Status::Unsupported; }
+    [[nodiscard]] virtual Status dac_give(unsigned int, std::span<const std::uint16_t>,
+                                          std::size_t&) {
+        return Status::Unsupported;
+    }
+    [[nodiscard]] virtual Status dac_progress(unsigned int, Progress&) {
+        return Status::Unsupported;
+    }
+    [[nodiscard]] virtual Status dac_stop(unsigned int) { return Status::Unsupported; }
+    [[nodiscard]] virtual Status dac_release(unsigned int) { return Status::Unsupported; }
 
     [[nodiscard]] virtual PwmDescription pwm_description() const { return {}; }
     [[nodiscard]] virtual Status pwm_configure(unsigned int, std::uint64_t) {

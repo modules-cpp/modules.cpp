@@ -198,6 +198,11 @@ actual=$(./out/bin/mdy -s 2>&1) || status=$?
 check "app mdy output" "$expected_status" "$status" "$expected" "$actual"
 
 echo
+echo test build scripts
+echo
+sh tests/scripts/run.sh || exit $?
+
+echo
 echo test test
 echo
 run_test_target tests/mm/build/ || exit $?
@@ -209,6 +214,8 @@ run_test_target tests/mm/fonts/ || exit $?
 run_test_target tests/mm/gfx/ || exit $?
 run_test_target tests/mm/flash/ || exit $?
 run_test_target tests/mm/mcu/ || exit $?
+run_test_target tests/mm/audio/ || exit $?
+run_test_target tests/mm/audio/es8311/ || exit $?
 run_test_target tests/mm/mdy/ || exit $?
 run_test_target tests/mm/shell/ || exit $?
 run_test_target tests/mm/shell/full/ || exit $?
@@ -217,6 +224,7 @@ run_test_target tests/mm/stdio/ || exit $?
 run_test_target tests/mm/model/ || exit $?
 run_test_target tests/mm/run/ || exit $?
 run_test_target tests/mm/touch/ || exit $?
+run_test_target tests/mm/touch/cst816/ || exit $?
 run_test_target tests/mm/imu/ || exit $?
 run_test_target tests/mm/json/ || exit $?
 run_test_target tests/mm/lcd/ || exit $?

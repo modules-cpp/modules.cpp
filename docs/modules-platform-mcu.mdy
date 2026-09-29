@@ -3,7 +3,7 @@ mm: 1.0
 kind: doc
 name: modules.cpp platform MCU provider specification
 status: official
-release: v1.2.3
+release: v1.2.4
 ---
 
 # modules.cpp platform MCU provider specification
@@ -140,15 +140,22 @@ file: status.cppm mm.mcu:status
 file: board.cppm mm.mcu:board
 file: spi-types.cppm mm.mcu:spi_types
 file: i2c-types.cppm mm.mcu:i2c_types
+file: i2s-types.cppm mm.mcu:i2s_types
+file: transport-types.cppm mm.mcu:transport_types
+file: interrupt-types.cppm mm.mcu:interrupt_types
 file: adc-types.cppm mm.mcu:adc_types
+file: dac-types.cppm mm.mcu:dac_types
 file: pwm-types.cppm mm.mcu:pwm_types
 file: platform.cppm mm.mcu:platform
 file: gpio.cppm mm.mcu:gpio
 file: spi.cppm mm.mcu:spi
 file: i2c.cppm mm.mcu:i2c
+file: i2s.cppm mm.mcu:i2s
 file: uart.cppm mm.mcu:uart
 file: timer.cppm mm.mcu:timer
+file: interrupt.cppm mm.mcu:interrupt
 file: adc.cppm mm.mcu:adc
+file: dac.cppm mm.mcu:dac
 file: pwm.cppm mm.mcu:pwm
 file: mcu.cppm mm.mcu
 file: src/platform.cpp
@@ -413,6 +420,15 @@ A provider that implements the operation must hold the bus across it. The Pico
 provider does so through the SDK's nostop argument, which makes the read a
 repeated start rather than a second transaction.
 
+I2S is a serial audio link carried beside them, and it is the facility that is
+neither addressed nor mode-encoded. There is no address, because the link is
+point-to-point and there is nothing to select on it. There is no mode or bit
+order, because the protocol fixes the framing, and no chip select, because a
+device's chip select, like its reset, belongs to the device transaction. Like
+I2C it is configure plus per-instance operations. Unlike I2C its clock does not
+stop between transfers, which makes it a continuous transport; it is specified
+with the other two below.
+
 ## Analog facilities
 
 ADC and PWM are the two analog facilities, partitions beside SPI and I2C with
@@ -425,6 +441,8 @@ struct AdcChannel {
     std::optional<unsigned int> gpio;    // absent for an internal source
     unsigned int bits;                   // a count lies in [0, 2^bits)
     unsigned int reference_millivolts;   // full scale, or zero if unknown
+    unsigned long maximum_pace_hz;       // zero where it cannot be paced
+    std::size_t pace_depth;              // counts buffered while paced
 };
 struct AdcDescription { std::span<const AdcChannel> channels; };
 
@@ -473,8 +491,10 @@ adc_configure claims a channel: a pin channel's pad goes to the converter and
 an internal source is enabled; on a channel already claimed it is idempotent.
 adc_read performs one bounded conversion and answers a count in [0, 2^bits);
 on an unconfigured channel it is BadArgument. adc_release is idempotent,
-leaves a pin unconfigured, and disables an internal source. One-shot reading
-is the only timing mode. A channel's bits lie in [1, 31]; its reference is
+leaves a pin unconfigured, and disables an internal source, and on a paced
+channel it ends the pacing too. One-shot reading is adc_read's only timing
+mode; paced capture is the other, a continuous transport specified below. A
+channel's bits lie in [1, 31]; its reference is
 the full-scale voltage when the board knows it and zero when it does not,
 which does not prevent a raw read. adc_millivolts is count times reference
 over 2^bits - 1, rounded to nearest in 64-bit integer arithmetic, and zero
@@ -517,16 +537,231 @@ period under two ticks or beyond the counter's reach, or an intermediate
 that would overflow, and it commits its plan only on Ok. It uses no 128-bit
 integer. A counter of another shape plans for itself.
 
-Polarity, phase-correct counting, capture, DMA-fed sequences, servo, and
-tone are outside these facilities; a tone belongs above PWM.
+Polarity, phase-correct counting, capture, servo, and tone are outside these
+facilities; a tone belongs above PWM. A DMA-fed sequence of levels is the DAC,
+below, which a platform may implement over a PWM output.
+
+## Continuous transports
+
+Paced ADC capture, the DAC, and I2S run on a clock the hardware keeps, so a
+call cannot complete a transfer the way i2c_write or adc_read does: there is no
+moment at which a stream of samples is finished, only a rate at which it must
+keep arriving. They are presented the way the GPIO edge latch is, as a
+hardware process filling or draining a buffer the platform owns, with
+synchronous calls that never wait. All three share one lifecycle:
+
+- configure claims the pads and the hardware and sets the nearest rate the
+  hardware holds; the transport idles, a transmitter outputting silence.
+- start begins moving samples between the hardware and the platform's buffer,
+  and restarts progress at zero. A receiver discards what it held, so nothing
+  converted before start is ever taken.
+- give or write queues samples for a transmitter, and take or read collects
+  them from a receiver, each answering a partial count that may be zero.
+- progress reports what the transport has done since start.
+- stop discards the platform's buffer and returns to idle; the claim stays.
+- release returns the pads.
+
+Opening fence
+struct Frequency {                       // hertz = numerator / denominator
+    std::uint64_t numerator;
+    std::uint64_t denominator;
+};
+
+struct Progress {
+    std::uint64_t completed;             // output, or converted, since start
+    std::size_t queued;                  // given and not output, or
+                                         // converted and not taken
+    std::uint32_t missed;                // periods of silence, or samples
+                                         // dropped for want of room
+};
+Closing fence
+
+Rates are asked for in hertz and reported exactly. A divider rarely produces
+the rate asked for, two transports asked for one rate generally run at two,
+and the difference accumulates for as long as both run, so rounding the answer
+to hertz would hide exactly what a caller matching two clocks needs. A
+Frequency carries the divider's terms instead, and needs no floating point.
+
+A transmitter with nothing queued at a period outputs silence by itself --
+half scale for a DAC, zeros for I2S -- and counts the period as missed; a
+receiver with a full buffer drops the newest sample and counts it. Neither
+waits for a caller, and neither is the failure of any call. That is what lets
+a caller that services late hear a gap rather than a stale level, and learn
+how long the gap was.
+
+### Paced ADC capture
+
+Opening fence
+[[nodiscard]] Status adc_pace(unsigned int channel, unsigned long rate_hz);
+[[nodiscard]] Status adc_pace_rate(unsigned int channel, Frequency&);
+[[nodiscard]] Status adc_pace_start(unsigned int channel);
+[[nodiscard]] Status adc_take(unsigned int channel,
+                              std::span<std::uint16_t> counts,
+                              std::size_t& count);
+[[nodiscard]] Status adc_pace_progress(unsigned int channel, Progress&);
+[[nodiscard]] Status adc_pace_stop(unsigned int channel);
+Closing fence
+
+adc_pace claims the channel as adc_configure does, and the whole converter
+with it, at the nearest rate the converter holds. A zero rate, one above the
+channel's maximum_pace_hz, and a channel whose maximum is zero are
+BadArgument. The converter has one input multiplexer, and switching it during
+capture would corrupt the paced stream, so while any channel is paced -- idle
+or started, from adc_pace until adc_release -- adc_read on every channel,
+the paced one included, adc_configure of another channel, and adc_pace of
+another channel answer Busy. The same channel may be paced again at another
+rate while idle, and is Busy while started. adc_pace_stop ends conversion but
+keeps the channel and the converter until adc_release.
+
+### DAC
+
+Opening fence
+struct DacOutput {
+    unsigned int number;                 // what the DAC functions accept
+    std::string_view name;
+    std::optional<unsigned int> gpio;
+    unsigned int bits;                   // a level lies in [0, 2^bits)
+    bool pwm;                            // a modulator behind a filter
+    unsigned long minimum_rate_hz;       // both zero when the provider
+    unsigned long maximum_rate_hz;       // cannot advertise them
+    std::size_t depth;                   // levels the platform queues
+};
+struct DacDescription { std::span<const DacOutput> outputs; };
+
+[[nodiscard]] DacDescription dac_description();
+[[nodiscard]] Status dac_configure(unsigned int output, unsigned long rate_hz);
+[[nodiscard]] Status dac_rate(unsigned int output, Frequency&);
+[[nodiscard]] Status dac_start(unsigned int output);
+[[nodiscard]] Status dac_give(unsigned int output,
+                              std::span<const std::uint16_t> levels,
+                              std::size_t& accepted);
+[[nodiscard]] Status dac_progress(unsigned int output, Progress&);
+[[nodiscard]] Status dac_stop(unsigned int output);
+[[nodiscard]] Status dac_release(unsigned int output);
+[[nodiscard]] Status dac_output_for_gpio(unsigned int gpio,
+                                         unsigned int& output);
+Closing fence
+
+A DAC output holds a level at a rate. dac_configure claims it at the nearest
+rate it holds and holds half scale; a zero rate, or one outside nonzero
+advertised limits, is BadArgument, and as with PWM zero limits mean unknown. A
+PWM-backed output also claims its PWM output. A give containing a level at or
+above 2^bits is refused whole, so a caller never learns afterwards that part
+of what it gave was played. With nothing queued the output holds half scale,
+not its last level: an output that held its last level would hold whatever DC
+the program left it at. On Pico a DAC output is a PWM output whose compare
+register a paced DMA channel rewrites, latched at the counter's wrap, so the
+rates it holds are whole numbers of carrier periods, and dac_rate says which.
+
+### I2S
+
+Opening fence
+struct I2sConfiguration {
+    unsigned int instance = 0;
+    unsigned int bit_clock_gpio = 0;
+    unsigned int word_clock_gpio = 0;
+    std::optional<unsigned int> transmit_gpio;
+    std::optional<unsigned int> receive_gpio;
+    unsigned long rate_hz = 48'000;      // the word clock, one frame a period
+    unsigned int slot_bits = 16;         // the width of a slot on the wire
+};
+enum class I2sDirection { Transmit, Receive };
+
+[[nodiscard]] Status i2s_configure(const I2sConfiguration&);
+[[nodiscard]] Status i2s_rate(unsigned int instance, Frequency&);
+[[nodiscard]] Status i2s_start(unsigned int instance, I2sDirection);
+[[nodiscard]] Status i2s_write(unsigned int instance,
+                               std::span<const std::int16_t> words,
+                               std::size_t& accepted);
+[[nodiscard]] Status i2s_write(unsigned int instance,
+                               std::span<const std::int32_t> words,
+                               std::size_t& accepted);
+[[nodiscard]] Status i2s_read(unsigned int instance,
+                              std::span<std::int16_t> words,
+                              std::size_t& count);
+[[nodiscard]] Status i2s_read(unsigned int instance,
+                              std::span<std::int32_t> words,
+                              std::size_t& count);
+[[nodiscard]] Status i2s_progress(unsigned int instance, I2sDirection,
+                                  Progress&);
+[[nodiscard]] Status i2s_stop(unsigned int instance, I2sDirection);
+[[nodiscard]] Status i2s_release(unsigned int instance);
+Closing fence
+
+The word clock selects the slot, left while low, and every frame carries two
+slots whatever the device uses. A transmitter names transmit_gpio, a receiver
+receive_gpio, and a full-duplex link both; start, progress, and stop are per
+direction, and a direction with no data line answers BadArgument. i2s_configure
+starts the clocks, transmitting zeros, and they run until i2s_release: a DAC
+that derives its own clocks from the bit clock, as the PCM5101A on the
+Waveshare RP2350-Touch-LCD-2.8 does, relocks audibly every time they stop. A
+zero rate, a slot width the platform does not carry, no data line, a pin used
+for two of the link's signals, or a wiring the platform cannot drive -- on
+Pico, a word clock not on the GPIO after the bit clock -- is BadArgument. The
+same configuration again is idempotent, and another configuration of a
+configured instance is Busy until release.
+
+slot_bits decides the word in memory: sixteen-bit slots are std::int16_t and
+wider ones std::int32_t, signed and right-aligned. The width is a pair of
+overloads rather than a template, and an overload that does not match the
+configured width is BadArgument, so a sixteen-bit link moves samples without
+widening them and its buffer is half the size. Words go left then right, a
+frame is two words, counts are in frames, and an odd word count is BadArgument
+before the platform is asked. These replace the byte-span i2s_write and
+i2s_read of the first I2S revision, which had no clock of their own to keep
+and so could not say what happened between two calls.
+
+The Pico provider implements instance zero over PIO and DMA; neither RP2040
+nor RP2350 has an I2S peripheral. docs/modules-platform-pico.mdy says how.
+The Linux provider answers Unsupported: on Linux, I2S is behind the sound
+card.
+
+## Critical sections
+
+Opening fence
+struct InterruptState {
+    std::uint32_t saved;                 // the platform's own word
+    bool held;                           // between a disable and its enable
+};
+
+[[nodiscard]] Status interrupts_disable(InterruptState&);
+[[nodiscard]] Status interrupts_enable(InterruptState&);
+
+class InterruptGuard {                   // disables when constructed,
+public:                                  // enables when destroyed
+    [[nodiscard]] Status status() const; // whether the section is in force
+};
+Closing fence
+
+Between interrupts_disable and its interrupts_enable no handler of the
+selected platform runs on the calling core. That is what lets code above the
+seam read two transports' progress at one instant, or read a provider's
+records together with a count its handler keeps, and see one state of the
+world. The platform's word -- PRIMASK on Arm, mstatus.MIE on RISC-V -- is
+saved into the state and handed back unchanged, so enable restores what its
+disable found rather than unmasking outright, and sections nest when each
+level has its own state and they end in reverse order. A held state is
+BadArgument for disable and a state not held is BadArgument for enable, and
+neither reaches the platform; the state changes only on Ok. InterruptGuard
+makes a section a scope, and enables on destruction only when its disable
+succeeded.
+
+The Pico provider masks with the SDK's save_and_disable_interrupts and
+restore_interrupts, which excludes the GPIO latch's callback and every
+handler a transport installs. The Linux provider installs no handler in the
+process, so it answers Ok and masks nothing; so do rp2040-ram and
+widget-rp2040, which enable no interrupt. An unserved platform answers
+Unsupported. docs/modules-execution.mdy states what a section may contain:
+nothing that waits, and it ends on the core that began it.
 
 ## Pad ownership
 
-The selected platform owns GPIO, ADC, and PWM state together, and a pad is
-one thing at a time. A plain GPIO configuration is a replaceable claim:
+The selected platform owns GPIO, ADC, DAC, PWM, and I2S state together, and a
+pad is one thing at a time. A plain GPIO configuration is a replaceable claim:
 adc_configure or pwm_configure may take it over, and on success the digital
-mode -- and, for an output, its level -- is gone. A watched GPIO answers
-Busy, and its latch is untouched. An ADC or PWM claim blocks gpio_configure,
+mode -- and, for an output, its level -- is gone; so may dac_configure and
+i2s_configure. A watched GPIO answers Busy, and its latch is untouched. An ADC,
+DAC, PWM, or I2S claim blocks gpio_configure,
 gpio_watch, gpio_write, gpio_read, and a competing analog claim with Busy;
 a refused gpio_read leaves its output unchanged. Release returns the pad to
 an unconfigured state.
@@ -548,9 +783,11 @@ inventory, group, range, and ownership first, changes the mux and peripheral,
 and records the new owner last, so a failed call leaves its record true. If
 hardware cannot be restored, the provider records the pin as unconfigured and
 answers TransportError rather than claim a configuration it cannot verify.
-This is not a universal pin arbiter: SPI and I2C configuration registers no
-pad claim, and board wiring must not assign those signals to an analog pin at
-the same time.
+A paced ADC channel claims its pad and the converter; a DAC output claims its
+pad and, when PWM-backed, its PWM output; an I2S link claims its two clock
+pads and whichever data pads it has. This is not a universal pin arbiter: SPI
+and I2C configuration registers no pad claim, and board wiring must not assign
+those signals to an analog pin at the same time.
 
 # Per-executable closure augmentation
 
@@ -731,6 +968,38 @@ binding. Unrelated executables retain their ordinary closure.
   the bus.
 - i2c_write_read reaches the provider as one operation, and a host stand-in
   observes one transaction rather than a write followed by a read.
+- I2S configuration carries instance, bit and word clock GPIOs, optional
+  transmit and receive GPIOs, a rate that defaults to 48 kHz, and a slot width
+  that defaults to sixteen bits. It names no address, mode, or bit order. A
+  zero rate, an uncarried slot width, no data line, a pin reused across the
+  link's signals, and an instance the platform lacks are each rejected and
+  claim nothing; a held pad is Busy; the same configuration is idempotent and
+  another is Busy.
+- An I2S link claims its pads, runs its clocks from configure to release, and
+  transmits zeros while idle, stopped, or starved, counting starved frames as
+  missed; a receiver drops and counts frames its buffer has no room for, and
+  receives nothing before start. Words match the slot width or are refused,
+  an odd word count is refused, and a direction with no data line is refused.
+- Paced capture claims the channel and the whole converter: while a channel is
+  paced every adc_read, another channel's adc_configure, and another channel's
+  adc_pace answer Busy, until adc_release. It refuses a zero rate, a rate above
+  the channel's maximum, and a channel that cannot be paced; converts only
+  after start; takes oldest first; drops and counts the newest when full; and
+  discards its buffer on stop and on start.
+- A DAC output claims its pad and holds half scale; plays queued levels at its
+  rate; returns to half scale, not its last level, when starved, counting each
+  such period; accepts no more than its depth; refuses a give containing a
+  level outside its width whole; and discards its queue on stop.
+- Each continuous transport reports its exact rate as a Frequency, and its
+  progress restarts at zero on start.
+- An unserved platform answers Unsupported for every I2S, paced ADC, and DAC
+  operation, has an empty DAC inventory, and leaves output parameters alone.
+- A critical section disables and enables through the platform once each;
+  sections nest and must end in reverse order, an out-of-order end being
+  refused; a held state cannot begin a second section and an enable without a
+  disable is refused, neither reaching the platform; a platform's refusal
+  leaves the state alone; InterruptGuard ends only a section it began; and an
+  unserved platform answers Unsupported.
 - An unserved platform answers Unsupported for every I2C operation rather than
   failing to link.
 - Both analog inventories reach the caller as the provider gave them, and the

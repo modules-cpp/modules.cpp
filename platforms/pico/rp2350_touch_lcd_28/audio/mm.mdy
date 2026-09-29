@@ -1,0 +1,42 @@
+---
+mm: 1.2
+kind: module
+name: rp2350-touch-lcd-28-audio
+module: platform.rp2350_touch_lcd_28.audio
+use: mm.audio
+use: mm.mcu
+file: audio.cppm
+option: buildable-host no
+---
+
+# platform.rp2350_touch_lcd_28.audio
+
+The Waveshare RP2350-Touch-LCD-2.8's Speaker and Microphone. The board's
+schematic shows a TI PCM5101A DAC feeding an APA2068 amplifier, and no
+microphone.
+
+The Speaker is an mm.audio Out straight over mm.mcu I2S, because the PCM5101A
+has no control port: its straps select I2S framing and leave it unmuted, its
+system-clock pin is grounded, and the amplifier's mute is tied off and its
+shutdown pulled up. Nothing in software enables, mutes, or configures either
+part; the program controls only the stream. The link is bit clock GP2, word
+clock GP3, and data GP4, with sixteen-bit slots.
+
+With SCK grounded the DAC generates its clocks from the bit clock with its
+PLL. The datasheet's table of rates that PLL accepts with a bit clock of 32
+times the rate is 32, 44.1, 48, 96, 192, and 384 kHz; the Speaker configures
+the nearest of the first five, and a caller asking for another gets that one
+back as its actual Format. The DAC holds its outputs at zero while it
+resynchronises, so the Speaker configures the link at configure and keeps its
+clocks running until the provider is gone: starting and stopping playback
+changes only what the transmitter sends, not whether the DAC is locked.
+
+It keeps the Out contract as mm.audio.es8311's Output does: service offers its
+pending run first and reads the Stream only when nothing is pending, each
+mono sample goes to both slots, transmitter silence is reported as underrun,
+and position and pending come from the transmitter's progress.
+
+The Microphone answers Unsupported to every call: there is none, and the ADC
+pins that could take one, GP26 and GP27, are the battery enable and sense.
+
+None of this is qualified on hardware.

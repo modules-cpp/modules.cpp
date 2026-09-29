@@ -1,0 +1,30 @@
+---
+mm: 1.2
+kind: module
+name: cst816
+module: mm.touch.cst816
+use: mm.mcu
+use: mm.touch
+file: cst816.cppm
+file: src/cst816.cpp
+---
+
+# mm.touch.cst816
+
+The Goodtek CST816 capacitive touch controller, over portable mm.mcu I2C and
+GPIO. It contains no vendor header and no board pin number: a board's provider
+supplies the wiring and this module drives the protocol.
+
+The register map is eight-bit, and the one point the controller holds is four
+bytes: the high nibbles of the two coordinates, then the low bytes. The
+finger-count register says how many contacts are on the panel; this driver
+decodes the one the reference driver reports and treats the rest as not
+available, because a coordinate that is not decoded is not reported.
+
+Modelled on Waveshare's reference driver for the RP2350-Touch-LCD-1.54. Three
+things in that driver are deliberately not reproduced. Its interrupt handler is
+absent, because mm.touch is polled and mm.mcu has no callback registration.
+Its gesture mode is absent, because gestures are events and mm.touch reports
+points; the controller is left in point mode. Its mirror transform is absent,
+because mm.touch reports the panel's own coordinates and mapping belongs to
+whoever knows how the panel is mounted.

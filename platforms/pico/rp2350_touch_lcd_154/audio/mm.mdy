@@ -1,0 +1,42 @@
+---
+mm: 1.2
+kind: module
+name: rp2350-touch-lcd-154-audio
+module: platform.rp2350_touch_lcd_154.audio
+use: mm.audio
+use: mm.audio.es8311
+use: mm.mcu
+file: audio.cppm
+option: buildable-host no
+---
+
+# platform.rp2350_touch_lcd_154.audio
+
+The Waveshare RP2350 LCD 1.54 family's Speaker and Microphone: the board's
+ES8311 codec, its DAC through an NS4150B amplifier to the speaker connector
+and its ADC from the analog microphone, over one mm.audio.es8311 Codec that
+both share. rp2350_lcd_154 binds it, and rp2350_touch_lcd_154 inherits the
+binding.
+
+The codec is at 0x18 on I2C1, SDA GP6 and SCL GP7, shared with the IMU and on
+the touch model the touch controller; configuring that bus is idempotent, so
+no provider depends on another having been initialised first. Its I2S link is
+data out GP1, data in GP2, bit clock GP4, and word clock GP5, the word clock on
+the GPIO after the bit clock as a PIO transmitter's side-set needs, with
+sixteen-bit slots.
+
+Waveshare's firmware runs the codec as the I2S master, clocked from a 6.144
+MHz MCLK the RP2350 generates on GP3. This provider runs it as the slave
+mm.mcu's I2S facility drives instead, with the codec's master clock taken
+from the bit clock, so GP3 is not a clock here: both devices hold it low
+before initialising the codec, rather than leave the MCLK input floating.
+
+The Speaker adds the amplifier to the ES8311 Output: GP0, NS_MODE, low until
+start, raised once the codec's port is unmuted, and lowered again before the
+codec mutes on stop or sleep, so neither edge of the amplifier hears a
+half-configured codec. The Microphone is the ES8311 Input, reading the left
+slot, where the codec's default ADCDAT selection puts the ADC in both slots,
+at the PGA's thirty decibels.
+
+The link runs over the Pico platform's PIO I2S. None of this is qualified on
+hardware.

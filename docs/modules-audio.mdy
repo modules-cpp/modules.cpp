@@ -1,0 +1,397 @@
+---
+mm: 1.0
+kind: doc
+name: modules.cpp audio interface
+status: official
+release: v1.2.4
+---
+
+# modules.cpp audio interface
+
+# Status and authority
+
+status: official gives the implemented portions of this document the same
+authority as the other v1.2.x specifications. This document specifies mm.audio,
+the portable audio interface: the In, Out, and Stream interfaces, the Ring
+stream, the sample arithmetic, and the selection pair, and mm.audio.es8311,
+the portable driver for the ES8311 codec's DAC and ADC. They and their host
+tests exist; the ES8311 driver is unqualified on hardware. The board providers
+that implement a Microphone and a Speaker -- on the bare Pico boards over paced
+ADC capture and a PWM-backed DAC, on the Waveshare RP2350-Touch-LCD-2.8 over
+I2S, on Linux over ALSA, under SDL over SDL's audio queue -- are specified in
+Board providers below as the contract they will be written to, and none exists
+yet.
+
+docs/modules-platform-mcu.mdy remains authoritative for the mm.mcu transports
+a provider uses, including paced ADC capture, the DAC, and I2S, and their
+shared lifecycle. docs/modules-execution.mdy remains authoritative for what a
+call may do with the caller's thread. docs/modules-c++20.mdy remains
+authoritative for what the code may say. docs/modules-mm.mdy remains
+authoritative for the closed v1.2 manifest schema.
+
+# Decision
+
+Audio is a device service with three interfaces and no pins. It is not a
+transport, not a group of virtual functions on mm::mcu::Platform, and not a
+mixer, a resampler, or an effect engine.
+
+Opening fence
+                        application
+                         |       ^
+                  write  |       |  read
+                         v       |
+    audio::In  -----> audio::Stream -----> audio::Out        mm.audio
+        ^                  ^                    ^
+        |                  |                    |
+    Microphone         audio::Ring           Speaker         board platform
+        |                                       |            provider
+        v                                       v
+   mm.mcu ADC or I2S                    mm.mcu DAC or I2S     mm.mcu
+Closing fence
+
+An application that plays or records sound declares:
+
+Opening fence
+use: mm.audio
+Closing fence
+
+It names no pin, transport, converter, or provider module. The selected board
+supplies those facts.
+
+Sound is continuous and each converter keeps its own clock: a DAC consumes at
+its rate whether or not the program is ready, and a microphone produces
+whether or not anyone reads. Every other device interface in the tree does one
+thing per call, and none of them could say this. The Stream is what absorbs
+the difference between the converter's clock and the program's. It has one
+producer and one consumer. An Out started on a Stream consumes from it, an In
+started on a Stream produces into it, and the application is on the other
+end. An In and an Out started on one Stream are connected directly, and the
+application only keeps them serviced.
+
+# Portable interface
+
+## Partitions
+
+Opening fence
+status.cppm     mm.audio:status     Status
+types.cppm      mm.audio:types      Format, Rate, Description, End, Counts
+sample.cppm     mm.audio:sample     to_sample, from_sample, and offset forms
+stream.cppm     mm.audio:stream     Stream, Ring
+platform.cppm   mm.audio:platform   In, Out, set_in, set_out, selected_*
+audio.cppm      mm.audio            re-exports the five
+Closing fence
+
+mm.audio carries the platform-interface marker and uses nothing but the
+standard library. It does not use mm.mcu: an application that only handles
+Streams, or a Linux lane whose devices are a sound card, does not reach mm.mcu
+through it.
+
+Status has mm.imu's enumerators, unchanged. Every output parameter changes only
+on Ok.
+
+## Samples
+
+A sample is a signed sixteen-bit integer, std::int16_t, the only sample type in
+this version, and this version is mono: a frame is one sample and every count
+is in samples. Floating point is refused for mm.imu's reason: it would be
+forced on bare-metal lanes that have no hardware for it, to serve callers that
+can convert for themselves. Stereo enters as a channel count in Format,
+interleaved frames, and counts in frames; nothing else here depends on there
+being one channel.
+
+The sample arithmetic is the only place a bit width appears, and it takes the
+width as an argument because which width a transport has is the board's fact.
+to_sample shifts a narrower signed value up and keeps a wider one's upper
+sixteen bits; to_sample_offset does the same for an offset-binary count, a SAR
+converter's, with half of full scale as zero. from_sample and
+from_sample_offset are the inverses: widening shifts, narrowing keeps the upper
+bits, and silence is zero or half scale. Values outside a width's range
+saturate, and a width outside one to thirty-two answers zero. A sample survives
+a round trip through any width of sixteen bits or more exactly.
+
+## Rates
+
+Format carries the nominal rate in hertz; Rate carries the exact one as a
+numerator and a denominator. A device is configured with the rate a caller asks
+for and answers with the Format it runs, the exact rate rounded to the nearest
+hertz, and reports the exact rate on request. Starting a device on a Stream
+whose Format differs is BadArgument, so an In and an Out at plainly different
+rates cannot be joined by accident.
+
+Equal nominal rates are not equal exact rates. On a Pico the ADC is paced from
+clk_adc and the DAC from clk_sys, two PLLs locked to one crystal and divided by
+dividers that round differently, so a Microphone and a Speaker asked for one
+rate generally run at two and the Stream between them slowly fills or empties.
+mm.audio reports the rates precisely enough for a caller to compute that slip
+and counts what it costs. Correcting it is policy above this module, with
+mixing, resampling, volume, and DC removal.
+
+## Stream and Ring
+
+Stream is an interface because a device needs only its contract -- how much
+there is, how much room, read, write, claim, and where to count what was lost
+-- never its storage. Every method has an honest default. A generator of a tone
+or of silence, a file, a test fixture's recorded samples, or a mixer above this
+module is a direct subclass, and no device changes for it.
+
+- read and write move up to the span's size and answer the count, which may be
+  zero; zero is an answer, not a failure.
+- A device claims one end when it starts and releases it when it stops, so two
+  devices cannot share an end; a second claim on a held end is Busy. A Stream
+  with one meaningful end refuses the other. Claims are made from the thread
+  that starts and stops devices.
+- underran and overran are written by the device at the end that met the loss,
+  and counts reads them.
+
+The execution model gives a program one thread, and no interrupt touches a
+Stream. An implementation must still be correct with its two ends in two
+contexts, a provider that moves one end inside itself or a hosted test's two
+threads, and Ring is.
+
+Ring is the Stream mm.audio ships: a single-producer, single-consumer ring over
+storage the caller owns, which must outlive every device started on it.
+
+- configure takes the storage and the Format, refuses empty storage, storage
+  too large for the indices, and a zero rate with BadArgument, and is Busy
+  while an end is held. The Ring starts empty with zero counts.
+- The two indices run from zero to twice the capacity and wrap there, which
+  tells full from empty without a wasted slot and without a power-of-two
+  capacity. Each is written by one side only, with plain atomic loads and
+  stores: no read-modify-write, so nothing needs a lock or runtime support,
+  Cortex-M0+ included. The producer publishes with release after copying in,
+  the consumer acquires before copying out, and the read index goes back the
+  same way.
+- write_region and read_region lend the contiguous run available now, up to
+  the wrap, for an application that synthesises or consumes in place.
+  commit_write and commit_read publish part or all of it; committing more than
+  the run now available, including across the wrap, is BadArgument and
+  commits nothing. The regions are Ring's rather than Stream's because a
+  generator or a socket has no contiguous storage to lend; a device calls
+  only read and write.
+- reset empties the Ring and zeroes its counts, and is Busy while an end is
+  held.
+- An unconfigured Ring holds nothing, lends empty regions, and answers
+  NotInitialized for every transfer, commit, and claim.
+- Ring never allocates, so a bare-metal application gives it a static array.
+
+The application's own read and write are not checked against the claims. An
+application that writes into a Ring an In is producing into has broken the
+one-producer rule and gets interleaved samples, not a diagnosis.
+
+## In and Out
+
+Opening fence
+class Out {
+public:
+    virtual ~Out() = default;
+    [[nodiscard]] virtual Description description() const;
+    [[nodiscard]] virtual Status initialize();
+    [[nodiscard]] virtual Status configure(const Format&, Format& actual);
+    [[nodiscard]] virtual Status rate(Rate&) const;
+    [[nodiscard]] virtual Status start(Stream&);
+    [[nodiscard]] virtual Status service();
+    [[nodiscard]] virtual Status position(std::uint64_t&) const;
+    [[nodiscard]] virtual Status pending(std::size_t&) const;
+    [[nodiscard]] virtual Status stop();
+    [[nodiscard]] virtual Status sleep();
+};
+Closing fence
+
+In has the same methods without pending. Every one answers Unsupported by
+default. They are two classes rather than one with a direction because a
+device is one or the other, and a caller holding an Out cannot start it as a
+source.
+
+A device's life is initialize, configure, start, service, stop, and start
+again:
+
+- configure claims the transport at the nearest rate it holds, writes the
+  actual Format on Ok, and is Busy while started. An Out's transport then
+  idles outputting silence, and an I2S interface's clocks run from here on.
+- Out::start claims the Stream's consumer end and starts playing, with
+  position at zero. The first sample plays at the first period after the
+  first accepted offer; the silence before it is not an underrun.
+- In::start claims the producer end, discards whatever the transport held,
+  and starts capture. Nothing converted before start reaches the Stream.
+- service moves what can be moved now between the Stream and the transport
+  and never waits. A portable application calls it at least once per
+  Description::depth_samples; a device that feeds itself answers Ok and does
+  nothing.
+- position is, for an Out, the samples from the Stream the transport has
+  finished outputting since start, excluding silence it inserted; for an In,
+  the samples converted since start, including those the transport dropped.
+- pending is the samples an Out has taken from the Stream and not yet output.
+  Draining is servicing until the Stream is empty and pending is zero.
+- stop discards everything below the Stream, returns the transport to idle,
+  and releases the end. The Stream keeps what it holds, so start resumes from
+  it. stop is immediate and is not a sample-exact pause: a caller that wants
+  a gapless pause stops writing, drains, and then stops.
+
+Nothing taken is lost. An Out keeps the run a transport did not accept, offers
+it first at the next service, and reads from the Stream again only when
+nothing is pending; an error leaves the run for the next call. An In takes
+from its transport no more than the Stream has room for, so it never holds a
+sample the Stream refused, and when the application falls behind the loss is
+the transport's, where it is counted.
+
+Underrun and overrun belong to the transport. A transmitter with nothing
+queued outputs silence by itself and counts the period; a receiver with a full
+buffer drops and counts. A device reports the growth of those counts to its
+Stream, a Speaker's as underrun and a Microphone's as overrun, and that is the
+only source of either. A Stream that is merely empty while the transport still
+has samples queued is not an underrun, because nothing audible happened.
+
+set_in, selected_in, set_out, and selected_out select the devices. A board's
+provider registers its two from a static initialiser. mm.audio's own fallback
+In and Out answer Unsupported; they are what a host lane links, and what a
+host test replaces with a stand-in.
+
+# Board providers
+
+A board that has audio has one provider module for mm.audio, named
+platform.<board>.audio and living under platforms/ with the platform it runs
+on, even when the board's manifest lives under boards/: a binding names a
+module, not a directory. It exports a Microphone, final, derived from In, and a
+Speaker, final, derived from Out, and registers one of each. The pins, the
+transport, the slot, the bit width, the rates the hardware holds, and the depth
+of its buffering are constants in the provider. A board with a speaker and no
+microphone registers a Microphone whose every call answers Unsupported, and
+the reverse, so a caller of selected_in or selected_out always gets its answer
+from the board.
+
+- Bare Pico boards -- pico, pico-w, pico2-arm, pico2-riscv, pico2-w-arm, and
+  pico2-w-riscv -- bind platform.pico.audio in their own manifests, not their
+  SDKs', so a board built on another layout does not receive these pins by
+  accident. Its Microphone paces ADC channel 0 on GP26 and converts with
+  to_sample_offset; its Speaker is the ten-bit PWM-backed DAC output on GP22,
+  converted with from_sample_offset, behind two RC stages of 1 kilohm and 10
+  nanofarads into a line-level input. A derived board inherits the binding and
+  either accepts the pins or rebinds; pad ownership turns a collision into
+  Busy at configure.
+- The Waveshare RP2350-Touch-LCD-2.8 rebinds mm.audio to
+  platform.rp2350_touch_lcd_28.audio, in platforms/pico. Its schematic shows a
+  PCM5101A DAC, strapped unmuted and for I2S framing with its system-clock pin
+  grounded, feeding an always-on APA2068 amplifier, with BCK on GP2, LRCK on
+  GP3, and DIN on GP4. Its Speaker is an Out straight over mm.mcu I2S, since
+  the DAC has no control port. It configures sixteen-bit slots at the
+  nearest of 32, 44.1, 48, 96, and 192 kHz -- the rates the PCM5101A
+  datasheet lists for its PLL from a bit clock of 32 times the rate -- writes
+  each sample to both slots, and keeps the clocks running across stop and
+  start so the DAC stays locked. Its Microphone answers Unsupported: there is
+  none, and GP26 and GP27 are the battery's.
+- The Waveshare RP2350 LCD 1.54 family binds
+  platform.rp2350_touch_lcd_154.audio, in platforms/pico: rp2350_lcd_154 binds
+  it and rp2350_touch_lcd_154 inherits it. Its ES8311 is a full-duplex codec
+  on I2S data out GP1, data in GP2, bit clock GP4, and word clock GP5,
+  controlled at 0x18 on I2C1, GP6 and GP7. Its
+  Speaker is an es8311 Output that also drives the NS4150B amplifier's enable,
+  GP0, high only between the codec's unmute and mute; its Microphone is an
+  es8311 Input on the analog microphone. Waveshare's firmware makes the codec
+  the I2S master from a 6.144 MHz MCLK on GP3; this provider makes it the slave
+  the mm.mcu I2S facility drives, with its master clock from the bit clock, and
+  holds GP3 low. apps/audio-smoke plays a tone while recording through
+  whichever devices a board registers, over the Pico platform's PIO I2S.
+- The Linux SDKs bind platform.linux.audio, a Microphone and a Speaker over the
+  ALSA kernel interface with no library, their device paths read from the
+  device map.
+- The SDL boards bind platform.linux.sdl.audio over SDL_QueueAudio and
+  SDL_DequeueAudio driven from service.
+
+drafts/plan-audio.mdy records the research, the schematic reading, and the
+staged plan these follow.
+
+# Codec drivers
+
+A converter with registers has a portable driver under modules/mm/audio, in
+the place mm.imu.qmi8658 holds for the IMU, so every board that carries the
+part shares one register sequence. The driver implements In or Out itself,
+over mm.mcu, and takes its wiring from the board's provider, which constructs
+it and registers it as the board's Microphone or Speaker.
+
+mm.audio.es8311 is the first. It drives the Everest ES8311 as three classes:
+Codec, the chip -- identified by its chip registers, 0x83 and 0x11 at 0xfd and
+0xfe, controlled at 0x18 or 0x19 over I2C, reset once, and fed over one I2S
+link as the platform's slave with its master clock taken from the bit clock
+and multiplied to 256 times the rate, so a board needs no MCLK line -- and
+Output and Input, its DAC and its ADC, each holding the Codec. They are two
+classes because a class cannot be an In and an Out under one level of
+dispatch. The link's one word clock is one rate for both: a configure at
+another rate moves it only while neither direction is started. Each direction
+powers up its own converter muted, unmutes its serial port on start, and mutes
+it on stop before discarding the transport's buffer, while the clocks keep
+running.
+
+Output keeps the Out contract: the pending run is offered before the Stream is
+read, zero and partial acceptance and a transmitter error lose nothing, each
+sample goes to both slots, transmitter silence is reported as underrun, and
+position and pending come from the transmitter's progress. Input keeps the In
+contract: it takes no more than the Stream has room for, reads the analog
+microphone's sample from the board's slot at the board's PGA gain, narrows
+thirty-two-bit words, and reports receiver drops as overrun. Each Description
+depth is the driver's own scratch of sixty-four frames, a lower bound on its
+buffering, because mm.mcu does not report the platform's I2S depth.
+
+An earlier version on the audio-work branch addressed the part at 0x06,
+programmed the ADC's serial port 0x0a for playback where the DAC's is 0x09,
+never enabled the clock manager, the analog section, or the DAC, allocated a
+byte vector on every play, sent each sample in one slot of a byte-span link,
+and had no input. The driver here corrects each of these.
+
+# Conformance
+
+- The sample arithmetic answers zero for widths outside one to thirty-two; maps
+  every width's most negative value to the most negative sample and zero to
+  silence; centres an offset count on half scale; shifts narrow values up and
+  keeps wide values' upper sixteen bits; saturates out-of-range values; and
+  round-trips a sample exactly through every width of sixteen bits or more.
+- An unconfigured Ring holds nothing and moves, lends, commits, and claims
+  nothing. configure refuses empty storage and a zero rate, and a held end
+  makes configure and reset Busy.
+- One device claims each end; a second claim is Busy; a released end can be
+  claimed again.
+- For every capacity from one to nine and every starting offset, every write
+  length that fits is accepted whole and read back in order.
+- A full Ring accepts nothing and an empty one gives nothing, each answering
+  Ok with a zero count.
+- The regions lend the run up to the wrap, and a commit past the run,
+  including one across the wrap with the whole Ring free, commits nothing.
+- The two loss counts accumulate separately and reset zeroes them.
+- A producer thread and a consumer thread pass three million samples through
+  a ring of sixty-one, the producer by copy and the consumer in place, and
+  every sample arrives once, in order, with nothing left over; a side that
+  stops making progress fails the case rather than hanging the run.
+- A bare Stream, In, and Out answer Unsupported and leave every output
+  parameter alone; a Stream that is not a Ring stands in for one through the
+  interface alone.
+- With no provider, the selection is the fallback; a registered device is the
+  one selected, and calls reach it.
+
+- The ES8311 driver identifies the part and refuses another; resets it once
+  however many directions initialise; writes the shared, DAC, and ADC
+  transcripts in order for both slot widths; refuses a rate outside eight to
+  ninety-six kilohertz, a direction with no data line for it, a gain past ten
+  steps, and a twenty-four-bit slot; runs both directions at one rate and
+  moves the link only while neither is started.
+- Its Output sends each sample in both slots, widened for thirty-two-bit
+  slots; keeps its pending run through zero acceptance, partial acceptance,
+  and a transmitter error, reading the Stream only when nothing is pending;
+  reports transmitter silence as underrun growth; and on stop mutes, discards
+  the queue, keeps the clocks, releases the end, and resumes on restart.
+- Its Input captures only after start, from the wired slot, narrowing
+  thirty-two-bit words; takes no more than the Stream holds, so every sample
+  arrives once and in order; reports receiver drops as overrun growth, with
+  position counting them; leaves the Stream alone on a receiver error; and on
+  stop mutes and keeps what the Stream holds, a restart discarding what the
+  receiver held.
+
+tests/mm/audio and tests/mm/audio/es8311 pin these. No hardware is involved.
+
+# What this does not settle
+
+Whether Ring's application-side read and write should refuse an end a device
+holds, which would turn silent corruption into a diagnosis for one atomic load
+per call. Whether a pause that keeps what is below the Stream is worth adding
+to the transports. Whether a paced ADC should permit interleaved single reads,
+which would let a board read its battery while capturing at the cost of a gap
+in the capture. The name Stream sits beside mm::sketch::Stream, which means
+something else; a sketch that imports both modules qualifies one.

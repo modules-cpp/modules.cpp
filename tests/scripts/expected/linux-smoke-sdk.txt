@@ -1,0 +1,22 @@
+build-linux: dry run
+  lane      aarch64-linux-gnu aarch64-linux-gnu-g++ linux-aarch64 none
+  configure ./configure --target aarch64-linux-gnu --target-host --compiler aarch64-linux-gnu-g++ --sdk linux-aarch64 --runner native --build debug
+  build     ./build --target platforms/linux/apps/linux-smoke/
+  image     out-target-aarch64-linux-gnu/platforms/linux/apps/linux-smoke/linux-smoke
+  provider platform.linux.defaults 1
+  provider platform.linux.display 1
+  provider platform.linux.imu 1
+  provider platform.linux.mcu 1
+  provider platform.linux.rtc 1
+  provider platform.linux.stdio 1
+  provider platform.linux.touch 1
+  control   ./build --target apps/target-smoke-any/
+  control provider platform.linux.defaults 0
+  control provider platform.linux.display 0
+  control provider platform.linux.imu 0
+  control provider platform.linux.mcu 0
+  control provider platform.linux.rtc 0
+  control provider platform.linux.stdio 0
+  control provider platform.linux.touch 0
+  run       ./out-target-aarch64-linux-gnu/platforms/linux/apps/linux-smoke/linux-smoke (must succeed: no)
+exit 0

@@ -79,6 +79,8 @@ MDYDocument Parser::parse_file(const std::filesystem::path& file_path) {
         return doc;
     }
 
+    // Opening a directory with ifstream is reported differently by platform
+    // libraries; macOS may not set badbit on the empty directory stream.
     if (std::filesystem::is_directory(file_path, ec)) {
         doc.status = ParseStatus::Unreadable;
         return doc;

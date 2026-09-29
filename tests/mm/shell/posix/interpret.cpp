@@ -256,6 +256,35 @@ void builtins_over_real_services() {
            "command -v names a resolved command");
 }
 
+void dot_runs_a_file_in_this_shell() {
+    Run run{"interpret_dot"};
+    write_file((run.tree.root() / "lib.sh").string(),
+               "count=1\n"
+               "greet() { echo \"greet $1 $count\"; }\n"
+               "echo \"lib sees $#: $1\"\n"
+               "return 3\n"
+               "echo never\n");
+    const std::string_view arguments[]{"outer"};
+    run.go(". ./lib.sh\n"
+           "echo \"status $? count $count args $1\"\n"
+           "greet one\n"
+           ". ./lib.sh inner\n"
+           "echo \"after $1\"\n"
+           ". ./missing.sh\n"
+           "echo unreachable\n",
+           arguments);
+    expect(run.output ==
+               "lib sees 1: outer\n"
+               "status 3 count 1 args outer\n"
+               "greet one 1\n"
+               "lib sees 1: inner\n"
+               "after outer\n"
+               ".: cannot open ./missing.sh\n",
+           "a sourced file shares variables and functions, return ends it, "
+           "and its operands are its positional parameters only while it runs");
+    expect(run.status == 2, "an unreadable file ends the script with status 2");
+}
+
 const mm::test::case_ cases[]{
     {"script end to end", &runs_a_script_end_to_end},
     {"redirections and here-documents", &redirections_and_here_documents},
@@ -265,6 +294,7 @@ const mm::test::case_ cases[]{
     {"functions subshells and flow", &functions_subshells_and_flow},
     {"errexit traps and exit", &errexit_traps_and_exit},
     {"builtins over real services", &builtins_over_real_services},
+    {"dot runs a file in this shell", &dot_runs_a_file_in_this_shell},
 };
 
 const mm::test::registrar reg{"mm.shell.full interpreter", cases};

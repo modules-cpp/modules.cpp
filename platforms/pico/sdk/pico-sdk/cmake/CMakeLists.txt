@@ -47,11 +47,15 @@ set_source_files_properties(${MM_ADAPTER} PROPERTIES
 target_compile_definitions(mm_external PRIVATE
   MM_SELECTED_BOARD="${MM_BOARD}"
   MM_ADC_REFERENCE_MV=${MM_ADC_REFERENCE_MV}
+  MM_BOARD_HAS_LED=${MM_BOARD_HAS_LED}
+  ${MM_BOARD_DEFINITIONS}
   PICO_STDIO_USB_CONNECTION_WITHOUT_DTR=1)
 target_link_libraries(mm_external
   pico_stdlib
   pico_stdio_usb
   hardware_adc
+  hardware_dma
+  hardware_pio
   hardware_pwm
   hardware_spi
   hardware_i2c

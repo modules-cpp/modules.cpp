@@ -12,8 +12,9 @@
 # the tree was already host-configured.
 #
 # --print writes "target compiler sdk" for the board and configures nothing.
-# It is how scripts/build-pico.sh learns the lane without repeating the table
-# below: one file owns which board means which target, compiler, and SDK.
+# It is how scripts/build-pico-project.sh learns the lane without repeating
+# the table below: one file owns which board means which target, compiler,
+# and SDK.
 #
 # Configuring is separate from building because the lane outlives one build:
 # out/bin/build, flash, debug, and run all read the configuration this wrote.

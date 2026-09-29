@@ -1,0 +1,22 @@
+---
+mm: 1.2
+kind: app
+name: audio-smoke
+option: buildable-host no
+use: mm.audio
+file: main.cpp
+---
+
+# audio-smoke
+
+A portable application for a board that plays and records. It names mm.audio
+and no board, codec, transport, or pin: whichever Speaker and Microphone the
+selected board registers are the ones it drives.
+
+It plays one second of a 500 Hz square wave through the selected Out while the
+selected In records into a second Ring, servicing both until the speaker's
+position reaches a second's worth of samples, then stops both. A board whose
+Microphone answers Unsupported has none, and the tone plays alone. Each step
+returns its own exit code, so a failure names the step. A board whose
+transport is not implemented yet fails at configure, which is itself the
+answer the application exists to get.

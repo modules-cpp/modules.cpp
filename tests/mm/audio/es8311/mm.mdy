@@ -1,0 +1,27 @@
+---
+mm: 1.0
+kind: test
+name: audio-es8311
+use: mm.test
+use: mm.mcu
+use: mm.audio
+use: mm.audio.es8311
+unit: tests/mm/audio/es8311/platform.cpp
+unit: tests/mm/audio/es8311/es8311.cpp
+unit: tests/main.cpp
+---
+
+# ES8311 codec driver tests
+
+Exercises the ES8311 driver against a recording MCU platform that answers as
+the codec and a full-duplex I2S link do. For the Output: identification, the
+reset and power-up transcript, the clock program for both slot widths,
+configure's refusals and reconfiguration, a pending run kept through zero and
+partial acceptance and through an error, the Stream read only when nothing is
+pending, each sample in both slots, silence reported as underrun, position,
+pending, stop, restart, and sleep. For the Input: the microphone's transcript
+and gain, capture only after start, either slot, thirty-two-bit words
+narrowed, never taking more than the Stream holds, receiver drops reported as
+overrun, errors, stop and restart. And one chip shared by both: one reset, one
+link, one rate. The transmitter sends a frame only when a case ticks it and the
+receiver receives one only when a case feeds it. No hardware is involved.

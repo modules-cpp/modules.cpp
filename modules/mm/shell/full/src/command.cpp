@@ -525,8 +525,11 @@ Interpreter::Step Interpreter::call(const FullScript& body,
     }
     std::vector<PositionalSlot> saved(64);
     PositionalFrame frame;
+    // $0 stays the script's name inside a function, as POSIX has it; only
+    // $1 onwards are the call's operands.
+    const std::string name0{state_.core().positional(0).value};
     if (!state_.core()
-             .push_positionals(command.arguments[0], arguments, saved, frame)
+             .push_positionals(name0, arguments, saved, frame)
              .ok()) {
         step.status = 1;
         step.diagnostic = {ParseStatus::Malformed, 0,
@@ -554,6 +557,144 @@ Interpreter::Step Interpreter::call(const FullScript& body,
     return step;
 }
 
+// The whole of a readable file, through the same I/O service a redirection
+// uses. False when it cannot be opened or read.
+bool Interpreter::read_script(const std::string& path, std::string& text) {
+    if (services_.io.open == nullptr || services_.io.read == nullptr) {
+        return false;
+    }
+    Handle handle = invalid_handle;
+    if (services_.io.open(services_.io.context, path, OpenMode::Read,
+                          handle) != ServiceStatus::Ok) {
+        return false;
+    }
+    text.clear();
+    std::byte buffer[4096];
+    auto ok = true;
+    for (;;) {
+        std::size_t moved = 0;
+        const auto status = services_.io.read(services_.io.context, handle,
+                                              std::span<std::byte>{buffer}, moved);
+        if (status == ServiceStatus::Interrupted) continue;
+        if (status != ServiceStatus::Ok) {
+            ok = false;
+            break;
+        }
+        if (moved == 0) break;
+        text.append(reinterpret_cast<const char*>(buffer), moved);
+    }
+    if (services_.io.close != nullptr) {
+        (void)services_.io.close(services_.io.context, handle);
+    }
+    return ok;
+}
+
+// . FILE runs FILE's commands in this shell, so its assignments, function
+// definitions, and traps remain afterwards, as dash's do. A FILE without a
+// slash is looked for on PATH, and a relative one is taken from the shell's
+// directory. return ends the file rather than its caller. Operands after FILE
+// become the positional parameters while it runs. A file that cannot be read
+// or parsed ends the shell with status 2, which is what dash does for a
+// special builtin's failure in a script.
+Interpreter::Step Interpreter::dot(const Command& command) {
+    Step step;
+    if (command.arguments.size() < 2) {
+        (void)emit(command.streams.error, ".: filename argument required\n");
+        step.status = 2;
+        step.flow = Flow::Exit;
+        return step;
+    }
+    const auto& operand = command.arguments[1];
+    const auto absolute = [this](const std::string& path) {
+        if (!path.empty() && path.front() == '/') return path;
+        std::string resolved{state_.directory()};
+        if (!resolved.empty() && resolved.back() != '/') resolved.push_back('/');
+        resolved.append(path);
+        return resolved;
+    };
+    std::vector<std::string> candidates;
+    if (operand.find('/') != std::string::npos) {
+        candidates.push_back(absolute(operand));
+    } else {
+        const std::string_view path = state_.core().lookup("PATH").value;
+        std::size_t at = 0;
+        for (;;) {
+            const auto colon = path.find(':', at);
+            auto directory = std::string{path.substr(
+                at, colon == std::string_view::npos ? std::string_view::npos
+                                                    : colon - at)};
+            if (directory.empty()) directory = ".";
+            candidates.push_back(absolute(directory + "/" + operand));
+            if (colon == std::string_view::npos) break;
+            at = colon + 1;
+        }
+    }
+    std::string text;
+    auto found = false;
+    for (const auto& candidate : candidates) {
+        if (read_script(candidate, text)) {
+            found = true;
+            break;
+        }
+    }
+    if (!found) {
+        (void)emit(command.streams.error, ".: cannot open " + operand + "\n");
+        step.status = 2;
+        step.flow = Flow::Exit;
+        return step;
+    }
+    auto parsed = parse_full(text);
+    if (!parsed.ok()) {
+        step.status = 2;
+        step.flow = Flow::Exit;
+        step.diagnostic = parsed.diagnostic;
+        return step;
+    }
+    if (depth_ >= 64) {
+        step.status = 2;
+        step.diagnostic = {ParseStatus::Malformed, 0, "call depth"};
+        return step;
+    }
+    const auto replace = command.arguments.size() > 2;
+    std::vector<PositionalSlot> saved(64);
+    PositionalFrame frame;
+    if (replace) {
+        std::vector<std::string_view> arguments;
+        for (std::size_t i = 2; i < command.arguments.size(); ++i) {
+            arguments.push_back(command.arguments[i]);
+        }
+        const std::string name0{state_.core().positional(0).value};
+        if (!state_.core()
+                 .push_positionals(name0, arguments, saved, frame)
+                 .ok()) {
+            step.status = 1;
+            step.diagnostic = {ParseStatus::Malformed, 0,
+                               "positional capacity"};
+            return step;
+        }
+    }
+    const auto saved_streams = streams_;
+    const auto was_in_function = in_function_;
+    streams_ = command.streams;
+    in_function_ = true;
+    ++depth_;
+    const auto& script = parsed.script;
+    const auto& program = script.nodes[script.root];
+    for (const auto& child : program.children) {
+        step = run_node(script, child.node);
+        if (step.flow == Flow::Return) {
+            step.flow = Flow::Normal;
+            break;
+        }
+        if (step.flow != Flow::Normal || !step.ok()) break;
+    }
+    --depth_;
+    in_function_ = was_in_function;
+    streams_ = saved_streams;
+    if (replace) (void)state_.core().pop_positionals(saved, frame);
+    return step;
+}
+
 Interpreter::Step Interpreter::builtin(const Command& command,
                                        bool& handled) {
     handled = true;
@@ -563,6 +704,7 @@ Interpreter::Step Interpreter::builtin(const Command& command,
         command.arguments.data() + 1, command.arguments.size() - 1};
 
     if (name == ":" || name == "true") return step;
+    if (name == ".") return dot(command);
     if (name == "false") {
         step.status = 1;
         return step;

@@ -1,0 +1,15 @@
+0 the glow, tunnel, and porthole were drawn in four orientations
+1 1 is display.initialize: on DRM a compositor holds DRM master; under SDL a
+1 headless session or an SDL_VIDEODRIVER override; on the emulated e-paper the
+1 controller's reset or busy handshake with the emulated chip failed
+2 2 is the geometry check: the panel is neither one nor sixteen bits deep, or
+2 reported no size
+3 3 is the frame budget: a panel side exceeds 480 pixels
+4 4 is display.clear
+5 5 is gfx drawing or rotation
+6 6 is gfx.write: expansion or display.write failed, or an e-paper controller
+6 refused the packed frame
+7 7 is display.refresh; on the emulated e-paper, the refresh did not complete
+7 or the window could not be shown
+8 8 is mcu.delay_ms: the hold did not complete
+9 9 is display.sleep

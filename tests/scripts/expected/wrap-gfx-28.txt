@@ -1,0 +1,16 @@
+build-pico: dry run
+  lane      arm-none-eabi arm-none-eabi-gcc pico-arm rp2350_touch_lcd_28
+  configure ./configure --target arm-none-eabi --compiler arm-none-eabi-gcc --sdk pico-arm --board rp2350_touch_lcd_28 --build debug
+  build     ./build --target apps/gfx-demo/
+  image     out-target-arm-none-eabi/apps/gfx-demo/gfx-demo
+  provider platform.pico.mcu 1
+  provider platform.pico.stdio 0
+  provider platform.rp2350_touch_lcd_28.audio 0
+  provider platform.rp2350_touch_lcd_28.display 1
+  provider platform.rp2350_touch_lcd_28.imu 0
+  provider platform.rp2350_touch_lcd_28.rtc 0
+  provider platform.rp2350_touch_lcd_28.touch 0
+  driver mm::lcd::st7789
+  no-symbol mm::fonts
+  uf2 rp2350
+exit 0

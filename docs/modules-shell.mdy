@@ -434,10 +434,21 @@ command does.
 
 ### Builtins
 
-`:`, true, false, echo, printf, test, `[`, pwd, cd, exit, return, break,
+`:`, `.`, true, false, echo, printf, test, `[`, pwd, cd, exit, return, break,
 continue, shift, set, export, trap, read, command, and exec. These are the ones
-the tracked corpus uses; `local`, `eval`, `until`, `getopts`, and `type` are
-absent because no tracked script uses them.
+the tracked corpus uses; `local`, `eval`, `source`, `until`, `getopts`, and
+`type` are absent because no tracked script uses them.
+
+`.` runs a file's commands in the current shell, which is how the build
+scripts under scripts/ share scripts/lib. A name without a slash is looked for
+on PATH and a relative path is taken from the shell's directory. Its
+assignments, function definitions, and traps remain afterwards; return ends the
+file rather than its caller; operands after the file are the positional
+parameters only while it runs. A file that cannot be read or parsed ends the
+shell with status 2, as dash does.
+
+Inside a function `$0` remains the script's name, as POSIX specifies; only `$1`
+onwards are the call's operands.
 
 Two behaviours are deliberate deviations, both documented rather than hidden:
 

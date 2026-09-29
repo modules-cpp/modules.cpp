@@ -4,6 +4,7 @@ kind: dir
 name: apps
 folder: ino
 folder: analog-smoke
+folder: audio-smoke
 folder: board-smoke
 folder: display-demo
 folder: font-demo

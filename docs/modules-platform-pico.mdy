@@ -3,7 +3,7 @@ mm: 1.0
 kind: doc
 name: modules.cpp Pico platform specification
 status: official
-release: v1.2.3
+release: v1.2.4
 ---
 
 # modules.cpp Pico platform specification
@@ -162,6 +162,27 @@ pico, and the bridge selects PICO_BOARD=pico from that chain. The derived boards
 add only their matching mm.display providers for the monochrome and
 black/white/red Waveshare Pico-ePaper-2.66 variants.
 
+boards/rp2350_touch_lcd_154 holds the Waveshare RP2350 LCD 1.54 family as two
+composite boards for its four SKUs. rp2350_lcd_154 derives from pico2-arm and
+binds the panel, the IMU, and the ES8311 audio; rp2350_touch_lcd_154 derives
+from it and adds the touch controller, so its chain is three boards long and
+the bridge still finds pico2-arm at its end. The -EN SKUs differ only in the
+battery bundled with them and use the same two boards.
+
+The bridge's board table in resolve-board.cmake also carries what a child
+board's own wiring makes of its vendor ancestor's defaults, keyed on the
+selected board as the ADC reference row is. For both 1.54 boards it sets the
+reference to 3,300 millivolts, because their schematic ties ADC_AVDD to the
+3V3 rail; reports no LED, passing MM_BOARD_HAS_LED=0 to the adapter, because
+pico2's LED pin GP25 is the volume button there; and redefines
+PICO_DEFAULT_UART as UART1 on GP26 and GP27, the exposed pins, because pico2's
+UART0 on GP0 and GP1 would drive the amplifier enable and the codec's playback
+data. The definitions reach every source the bridge compiles, the SDK's
+included, and pico2.h defines each default only when it is not already set.
+The RP2350-Touch-LCD-2.8 has a row of its own on the same grounds: a 3,300
+millivolt reference, and no LED, its GP25 being the battery key; its GP0 and
+GP1 are its exposed UART, so pico2's default UART stands.
+
 pico2-arm and pico2-w-arm declare security-domain: secure and select the Arm
 Secure processor row. rp2350-ram omits the key, keeps the non-secure default,
 and therefore keeps its three-argument commands unchanged.
@@ -191,6 +212,33 @@ family:
   assignments.
 - delay_ms and ticks_ms use Pico SDK's monotonic timer. The timer's epoch remains
   platform-defined, as required by mm.mcu.
+- interrupts_disable and interrupts_enable are the SDK's
+  save_and_disable_interrupts and restore_interrupts on the calling core,
+  crossing the private ABI as the core's mask word.
+- I2S instance zero is the adapter's PIO link, the Pico being its master. A
+  clock state machine drives the bit clock and the word clock by side-set --
+  so the word clock must be the GPIO after the bit clock, and pins stop at
+  GP31 -- and shifts the transmit line out at two PIO cycles a bit, from
+  configure to release, with the SDK's fractional clock divider setting the
+  rate; i2s_rate reports clk_sys times 256 over the divider in 256ths times
+  the cycles a frame takes. When the link has a receive line, a receive state
+  machine aligns to the word clock's falling edge, skips the right slot's
+  delayed last bit, and samples on every bit clock rising edge. Each state
+  machine is fed by two DMA channels chained in ping-pong over two blocks of
+  thirty-two frames the adapter owns, so the transmitter never runs dry and
+  the clocks never stop. Between the blocks and the calls sit two rings of
+  256 frames. The DMA interrupt, shared on DMA_IRQ_0, counts each finished
+  block, refills a transmit block from its ring with zeros for any frame the
+  ring lacks -- missed while the direction is started -- or empties a receive
+  block into its ring, dropping and counting what does not fit, and re-arms
+  the channel: the bounded work docs/modules-execution.mdy's model 3 allows.
+  The calls touch a ring only with interrupts masked. Frames cross the
+  private ABI as PIO words, one a frame with sixteen-bit slots, left high,
+  and two with thirty-two-bit slots; twenty-four-bit slots are refused. A
+  transmit stop empties the ring, and the at most two blocks already given
+  to the DMA still go out before the zeros. Release disables and unchains
+  both channel pairs before aborting them, then frees the state machines,
+  the programs, and the pads.
 - The ADC inventory is the SDK's: NUM_ADC_CHANNELS channels from ADC_BASE_PIN,
   the last of them the temperature sensor with no pin -- channels 0 to 3 on
   GP26 to GP29 and channel 4 the sensor on the RP2040 and RP2350A, 0 to 7 on
@@ -556,6 +604,51 @@ system name, the processor arguments, the ABI projection, the board, the output
 name, and the build type. A mismatch clears and reconfigures; nothing stale is
 reused.
 
+# Build scripts
+
+scripts/build-pico.sh builds one application for one Pico board and verifies
+the image. Any of the six SDK-backed boards or any composite board under
+boards/ is accepted; a composite board takes its vendor ancestor's lane.
+
+Opening fence
+scripts/build-pico.sh --board rp2350_touch_lcd_28 --app gfx-demo --flash
+Closing fence
+
+What the image must contain is read from the manifests, not from the script.
+scripts/lib/manifest.sh walks the application's closure through the board's
+bindings, its bases' bindings, and the SDK's, to a fixed point, as the build
+does. The image must then carry:
+
+- one initializer of every provider in that closure;
+- no initializer of any other provider the lane binds;
+- the symbols of every driver module a reached provider uses.
+
+An application reaching an interface the lane does not bind is reported
+unavailable with exit 77. --symbol, --no-symbol, and --abi add checks, and
+--control builds a second application against its own closure. --dry-run
+prints the lane, the commands, and every check without touching the tree or
+needing the Pico tools. --keep leaves the lane configured; otherwise the
+configuration record found at the start is restored on every exit.
+
+The feature wrappers are short declarations over this script and its Linux
+counterpart. Each one names an application, a default board, and its extra
+checks. --board picks the platform script from the board's chain, and every
+other option passes through.
+
+- build-gfx.sh: apps/gfx-demo, which must carry no font tables.
+- build-font.sh: apps/font-demo, with both font tables.
+- build-epaper.sh: --app gfx or font on a Pico e-paper board; --panel bw, bwr,
+  or b selects the panel.
+- build-board.sh: apps/board-smoke, with target-smoke-any as control.
+- build-audio.sh: apps/audio-smoke, with the I2S adapter symbols.
+- build-analog.sh: apps/analog-smoke, with the ADC and PWM adapter symbols.
+- build-gpio-edge.sh: apps/gpio-edge-smoke, with the edge-latch adapter
+  symbols.
+- build-stdio.sh: apps/stdio-smoke, with target-smoke-any as control.
+
+tests/scripts, run by test.sh, compares every wrapper's dry run against a
+recorded expectation.
+
 # Operational notes
 
 Three behaviours surprise people and are recorded here rather than rediscovered.
@@ -606,8 +699,8 @@ Three behaviours surprise people and are recorded here rather than rediscovered.
 - The adapter for each board compiles GPIO, both hardware SPI instances, the
   default hardware UART, monotonic timer, ADC, and PWM support. W-board builds
   report no GPIO-backed LED.
-- scripts/build-analog-smoke-pico.sh builds apps/analog-smoke for a named board,
-  checks the ADC and PWM adapter symbols and the UF2, and prints the fixture:
+- scripts/build-analog.sh builds apps/analog-smoke for a named board, checks
+  the ADC and PWM adapter symbols and the UF2, and prints the fixture:
   GP16 through 10 kOhm to GP26 with 1 uF to ground. The image's own verdict --
   the filtered level at a quarter, a half, and three quarters duty within a
   tenth of full scale, the sibling and alias rules, and GPIO refusal on both

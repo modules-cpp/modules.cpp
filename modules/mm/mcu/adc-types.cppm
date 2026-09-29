@@ -2,6 +2,7 @@
 // 32bitmicro LLC (C) 2026
 module;
 
+#include <cstddef>
 #include <optional>
 #include <span>
 #include <string_view>
@@ -18,12 +19,18 @@ export namespace mm::mcu {
 // leaves the raw count readable. Each channel carries its own, because a
 // Linux IIO device may scale its channels differently and one converter-wide
 // value would lie about some of them.
+//
+// maximum_pace_hz is the fastest rate paced capture holds on this channel,
+// zero where the platform cannot pace it, and pace_depth the number of counts
+// the platform buffers for a paced channel between two takes.
 struct AdcChannel {
     unsigned int number = 0;
     std::string_view name;
     std::optional<unsigned int> gpio;
     unsigned int bits = 0;
     unsigned int reference_millivolts = 0;
+    unsigned long maximum_pace_hz = 0;
+    std::size_t pace_depth = 0;
 };
 
 // The inventory, viewing provider-owned static storage as Board::gpios does.

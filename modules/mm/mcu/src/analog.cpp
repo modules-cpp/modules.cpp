@@ -1,7 +1,7 @@
 // Pawel Wodnicki (C) 2026
 // 32bitmicro LLC (C) 2026
 //
-// The analog facilities' code: the two lookups, the millivolt conversion, and
+// The analog facilities' code: the three lookups, the millivolt conversion, and
 // the counter planner. All of it is arithmetic over the descriptions, none of
 // it touches hardware, and all of it runs on the host under test.
 module;
@@ -60,6 +60,16 @@ Status adc_channel_for_gpio(unsigned int gpio, unsigned int& channel) {
     for (const auto& entry : platform().adc_description().channels) {
         if (entry.gpio && *entry.gpio == gpio) {
             channel = entry.number;
+            return Status::Ok;
+        }
+    }
+    return Status::BadArgument;
+}
+
+Status dac_output_for_gpio(unsigned int gpio, unsigned int& output) {
+    for (const auto& entry : platform().dac_description().outputs) {
+        if (entry.gpio && *entry.gpio == gpio) {
+            output = entry.number;
             return Status::Ok;
         }
     }

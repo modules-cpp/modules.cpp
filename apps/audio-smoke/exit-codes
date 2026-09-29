@@ -1,0 +1,14 @@
+0 a second of tone played, and was recorded where the board has a microphone
+2 2 is speaker.initialize: the codec did not answer, or the board has no speaker
+3 3 is microphone.initialize, which answered neither Ok nor Unsupported
+4 4 is speaker.configure: the transport or the rate was refused
+5 5 is microphone.configure
+6 6 is the speaker's Ring
+7 7 is the microphone's Ring
+8 8 is microphone.start
+9 9 is speaker.start
+10 10 is speaker.service
+11 11 is microphone.service
+12 12 is speaker.position
+13 13 is speaker.stop
+14 14 is microphone.stop

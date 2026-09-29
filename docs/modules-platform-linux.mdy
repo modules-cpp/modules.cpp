@@ -3,7 +3,7 @@ mm: 1.0
 kind: doc
 name: modules.cpp Linux platform specification
 status: official
-release: v1.2.3
+release: v1.2.4
 ---
 
 # modules.cpp Linux platform specification
@@ -270,6 +270,10 @@ pad is GPIO 3 so that pwm_output_for_gpio(3) finds output 0.
 - platform.linux.imu obtains all six axes from one IIO buffered record. It
   derives layout from scan types and scale from realbits plus the IIO scale.
 
+The MCU provider installs no handler in the process, so a critical section
+has nothing to exclude: interrupts_disable and interrupts_enable answer Ok
+and mask nothing.
+
 The MCU provider watches GPIO edges on its existing line request, changing
 configuration in place, or requests a new line when none exists. A watched
 descriptor is nonblocking. Watch discards queued setup events before it
@@ -330,5 +334,33 @@ a present facility fails.
 
 The SDL lane inverts that expectation and is the only one that does: a window
 needs nothing of the session, so an application there is expected to succeed on
-an ordinary desktop and a failure is a failure. scripts/build-linux-sdl.sh gates
-its --run accordingly, while the three DRM-backed scripts report and do not.
+an ordinary desktop and a failure is a failure. On the sdl and epaper boards a
+wrapper's --run must therefore succeed, and scripts/build-sdl.sh gates its own
+run the same way. On the generic board and the SDK alone, --run reports the
+exit and does not fail on it.
+
+scripts/build-linux.sh builds one application for a native Linux lane and
+verifies the image. The lane is the target lane aimed at this machine's triple,
+run by the native runner. --board generic, sdl, or epaper names the board
+family for the architecture, sdk names the SDK alone, and any other name is a
+Linux board.
+
+Opening fence
+scripts/build-linux.sh --board sdl --app gfx-demo --run-must-succeed
+Closing fence
+
+Its checks are read from the manifests exactly as scripts/build-pico.sh reads
+them, and it adds a NEEDED entry for every link input a library in the closure
+declares. --run explains a non-zero exit through the exit-codes file beside the
+application, one line per code. --arch, --compiler, --no-library, --dry-run,
+and --keep complete the options.
+
+The feature wrappers serve both platforms. build-display.sh, build-gfx.sh,
+build-font.sh, build-epaper.sh, and build-board.sh take --board generic, sdl,
+or epaper to build on this machine. Two wrappers build more than once to assert
+a difference:
+
+- build-sdl.sh proves display-demo links no SDL2 on the SDK alone and SDL2 on
+  the sdl board, and that one module there serves two interfaces.
+- build-linux-smoke.sh builds linux-smoke on the SDK alone and on the generic
+  board, and proves the map provider is swapped between them.

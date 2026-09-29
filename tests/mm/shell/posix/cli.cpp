@@ -384,25 +384,32 @@ void safe_script_dash_differential() {
     const mm::test::scoped_tree tree{"shell_dash_help"};
     tree.manifest("", "kind: project\nname: dash_help\n");
     std::filesystem::create_directories(tree.root() / "scripts");
+    std::filesystem::copy(repository / "scripts/lib", tree.root() / "scripts/lib",
+                          std::filesystem::copy_options::recursive);
     constexpr std::string_view names[]{
-        "build-analog-smoke-pico.sh",
+        "build-aarch64-linux-gnu.sh",
+        "build-analog.sh",
+        "build-arm-linux-gnueabihf.sh",
+        "build-arm-none-eabi.sh",
+        "build-audio.sh",
         "build-blink-linux.sh",
         "build-blink-pico.sh",
-        "build-font-demo-pico-epaper.sh",
-        "build-font-demo-rp2350_touch_lcd_28.sh",
-        "build-gfx-demo-pico-epaper.sh",
-        "build-gfx-demo-rp2350_touch_lcd_28.sh",
-        "build-gpio-edge-smoke-pico.sh",
-        "build-linux-board-smoke.sh",
-        "build-linux-display-demo.sh",
-        "build-linux-epaper-font-demo.sh",
-        "build-linux-epaper-gfx-demo.sh",
-        "build-linux-sdl-font-demo.sh",
-        "build-linux-sdl-gfx-demo.sh",
-        "build-linux-sdl.sh",
+        "build-board.sh",
+        "build-display.sh",
+        "build-epaper.sh",
+        "build-font.sh",
+        "build-gfx.sh",
+        "build-gpio-edge.sh",
         "build-linux-smoke.sh",
+        "build-linux.sh",
+        "build-m68k-linux-external.sh",
+        "build-m68k-linux-gnu.sh",
+        "build-pico-project.sh",
         "build-pico.sh",
-        "build-stdio-smoke-pico-sdk.sh",
+        "build-sdl.sh",
+        "build-stdio.sh",
+        "build-target.sh",
+        "build-x86_64-linux-gnu.sh",
         "configure-pico.sh",
         "release.sh",
     };
@@ -453,7 +460,7 @@ void fixture_script_dash_differential() {
         {"run.sh", ""},
         {"sketch.sh", ""},
         {"test.sh", "--not-supported"},
-        {"scripts/build-board-smoke-rp2350_touch_lcd_28.sh", ""},
+        {"scripts/build-board.sh", ""},
         {"platforms/pico/install-sdk-tools.sh", ""},
         {"platforms/pico/sdk/pico-sdk/vendor.sh", ""},
     };
@@ -469,6 +476,11 @@ void fixture_script_dash_differential() {
             (tree.root() / relative).parent_path());
         std::filesystem::copy_file(repository / relative,
                                    tree.root() / relative);
+        if (relative.parent_path() == "scripts") {
+            std::filesystem::copy(repository / "scripts/lib",
+                                  tree.root() / "scripts/lib",
+                                  std::filesystem::copy_options::recursive);
+        }
         std::filesystem::create_directories(tree.root() / "out/bin");
         std::filesystem::create_directories(tree.root() / "bin");
         for (const auto tool : {"build", "check", "configure", "debug",

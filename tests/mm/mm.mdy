@@ -4,6 +4,8 @@ kind: dir
 name: mm
 option: buildable-target no
 folder: mcu
+folder: audio
+folder: audio/es8311
 folder: mdy
 folder: parse
 folder: build
@@ -22,6 +24,7 @@ folder: stdio
 folder: model
 folder: run
 folder: touch
+folder: touch/cst816
 folder: imu
 folder: ino
 folder: json

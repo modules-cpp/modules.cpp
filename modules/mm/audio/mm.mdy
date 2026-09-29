@@ -1,0 +1,48 @@
+---
+mm: 1.2
+kind: module
+name: audio
+module: mm.audio
+platform-interface:
+file: status.cppm mm.audio:status
+file: types.cppm mm.audio:types
+file: sample.cppm mm.audio:sample
+file: stream.cppm mm.audio:stream
+file: platform.cppm mm.audio:platform
+file: audio.cppm mm.audio
+file: src/ring.cpp
+file: src/sample.cpp
+file: src/audio.cpp
+---
+
+# mm.audio
+
+A portable audio interface of three interface classes: In, a source of sampled
+sound; Out, a sink for it; and Stream, the connection that carries samples from
+one to the other, or between either one and an application. It knows nothing
+about pins, transports, or boards. The concrete devices are a board's: its
+platform provider derives a Microphone from In and a Speaker from Out over
+whatever mm.mcu transport the board has -- paced ADC, DAC, or I2S -- and
+registers one of each.
+
+Sound is continuous and every converter keeps its own clock, so the Stream is
+what absorbs the difference between the converter's clock and the program's.
+It has one producer and one consumer, and every implementation is correct with
+its two ends in two contexts. Ring is the implementation shipped here: a ring over
+storage the caller owns, which never allocates, with two indices each written
+by one side through plain atomic loads and stores.
+
+A sample is a signed sixteen-bit integer and this version is mono, so every
+count is in samples. Floating point is refused for mm.imu's reason. The sample
+arithmetic converts to and from the widths transports carry, taking the width
+as an argument because which width a transport has is the board's fact.
+
+Nothing here calls back into the application and no interrupt touches a
+Stream: a device's service moves samples between its Stream and a buffer the
+platform owns, on the caller's thread. Rates are nominal in Format and exact in
+Rate, because two devices asked for one rate generally run at two; correcting
+the difference is policy above this module.
+
+The platform-interface marker makes a board's audio provider part of an
+executable only when its closure reaches mm.audio. mm.audio uses nothing but
+the standard library.

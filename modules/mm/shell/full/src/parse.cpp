@@ -128,7 +128,7 @@ struct Parser {
                     std::string_view::npos) {
                     saw_command = true;
                     if (!script.tokens[at].quoted &&
-                        (spelling == "eval" || spelling == "." ||
+                        (spelling == "eval" ||
                          spelling == "alias" || spelling == "jobs" ||
                          spelling == "source" ||
                          spelling == "function")) {

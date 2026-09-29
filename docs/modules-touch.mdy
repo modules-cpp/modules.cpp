@@ -3,7 +3,7 @@ mm: 1.0
 kind: doc
 name: modules.cpp touch input interface
 status: official
-release: v1.2.3
+release: v1.2.4
 ---
 
 # modules.cpp touch input interface
@@ -12,9 +12,9 @@ release: v1.2.3
 
 status: official gives the implemented portions of this document the same
 authority as the other v1.2.1 specifications. This document specifies the
-implemented portable touch input interface and its CST328 controller driver.
-mm.touch, the CST328 driver, the rp2350_touch_lcd_28 board provider, and the
-board-smoke application exist. Touch behavior on hardware remains a
+implemented portable touch input interface and its CST328 and CST816
+controller drivers. mm.touch, both drivers, the rp2350_touch_lcd_28 and
+rp2350_touch_lcd_154 board providers, and the board-smoke application exist. Touch behavior on hardware remains a
 hardware-qualification requirement rather than a completed claim.
 
 docs/modules-platform-mcu.mdy remains authoritative for the implemented mm.mcu
@@ -157,6 +157,30 @@ mm.touch is polled and mm.mcu has no callback registration. Its rotation
 transform is absent, because mm.touch reports the panel's own coordinates and
 rotation belongs to whoever knows how the panel is mounted.
 
+## The CST816 driver
+
+mm.touch.cst816 implements the Goodtek CST816 capacitive touch controller over
+the same mm.mcu I2C and GPIO. It takes the same Wiring and Panel shapes; the
+defaults differ, because they are panel timings: the address is 0x15, reset is
+held low for 100ms and released after 100ms, and the panel reports one point,
+which is the extent of Waveshare's reference driver for the
+RP2350-Touch-LCD-1.54.
+
+Its register map is eight-bit, one byte on the wire. The chip identifier
+register answers a fixed byte that initialization requires. The finger-count
+register's low nibble says how many contacts are on the panel, and the
+coordinate registers hold one point in four bytes: the high nibbles of the two
+coordinates, then the low bytes. Read polls the finger count first and reads
+the coordinates only while a contact is reported.
+
+The reference driver's three behaviours are not reproduced, for the same
+reasons the CST328 ones are not: the interrupt handler is absent because
+mm.touch is polled, gesture mode is absent because gestures are events and
+mm.touch reports points (the controller is left in point mode), and the mirror
+transform is absent because mapping belongs to whoever knows how the panel is
+mounted. Sleep enables the controller's auto-sleep register; a subsequent read
+requires reinitialization.
+
 # Provider binding
 
 mm.touch carries the existing platform-interface marker. A concrete hardware
@@ -221,8 +245,9 @@ MCU provider registration object. It then flashes through flash.sh.
 
 # What this does not settle
 
-- CST328 is the first implemented controller. Its interrupt-driven mode,
-  pen/stylus support, and palm rejection are absent.
+- CST328 and CST816 are the implemented controllers. Their interrupt-driven
+  modes, pen/stylus support, and palm rejection are absent, and the CST816
+  driver decodes the one point its reference driver reports.
 - Gesture recognition, event queues, pointer state, and rotation are policy
   above this module.
 - Multi-touch beyond the panel's reported point count is not promised.

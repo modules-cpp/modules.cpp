@@ -1,0 +1,20 @@
+---
+mm: 1.0
+kind: test
+name: touch-cst816
+use: mm.test
+use: mm.mcu
+use: mm.touch
+use: mm.touch.cst816
+unit: tests/mm/touch/cst816/platform.cpp
+unit: tests/mm/touch/cst816/cst816.cpp
+unit: tests/main.cpp
+---
+
+# CST816 controller tests
+
+Exercises the register transcript, the identification handshake, the single
+point the controller decodes from the nibble-paired coordinate registers, the
+finger-count poll that skips the coordinate read while the panel is bare, span
+clamping, auto-sleep, and the lifecycle, against a recording MCU platform that
+answers as the controller does. No hardware is involved.

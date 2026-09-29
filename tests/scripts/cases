@@ -1,0 +1,45 @@
+# name | script | arguments | expected exit
+pico-gfx-28|build-pico.sh|--board rp2350_touch_lcd_28 --app gfx-demo --no-symbol mm::fonts --flash --dry-run|0
+pico-board-28|build-pico.sh|--board rp2350_touch_lcd_28 --app board-smoke --dry-run|0
+pico-audio-154|build-pico.sh|--board rp2350_touch_lcd_154 --app audio-smoke --abi mm_pico_mcu_i2s_write --dry-run|0
+pico-gfx-lcd-154|build-pico.sh|--board rp2350_lcd_154 --app apps/gfx-demo --keep --dry-run|0
+pico-board-lcd-154|build-pico.sh|--board rp2350_lcd_154 --app board-smoke --dry-run|77
+pico-font-epaper-b|build-pico.sh|--board pico_epaper_b --app font-demo --symbol mm::fonts::kMono12Data --dry-run|0
+pico-analog-riscv|build-pico.sh|--board pico2-riscv --app analog-smoke --abi mm_pico_mcu_adc_read --control target-smoke-any --dry-run|0
+pico-unknown-board|build-pico.sh|--board nosuch --app gfx-demo --dry-run|64
+pico-no-app|build-pico.sh|--board pico --dry-run|64
+pico-unknown-app|build-pico.sh|--board pico --app nosuch --dry-run|64
+linux-smoke-sdk|build-linux.sh|--board sdk --arch aarch64 --app platforms/linux/apps/linux-smoke --control target-smoke-any --run --dry-run|0
+linux-board-generic|build-linux.sh|--board generic --arch x86_64 --app board-smoke --dry-run|0
+linux-board-sdl|build-linux.sh|--board sdl --arch x86_64 --app board-smoke --dry-run|0
+linux-gfx-sdl|build-linux.sh|--board sdl --arch aarch64 --app gfx-demo --no-symbol mm::fonts --run-must-succeed --dry-run|0
+linux-font-epaper|build-linux.sh|--board epaper --arch aarch64 --app font-demo --dry-run|0
+linux-display-sdk|build-linux.sh|--board sdk --arch x86_64 --app display-demo --no-library SDL2 --dry-run|0
+linux-unknown-arch|build-linux.sh|--board generic --arch sparc --app gfx-demo --dry-run|64
+wrap-gfx-28|build-gfx.sh|--dry-run|0
+wrap-gfx-sdl|build-gfx.sh|--board sdl --arch aarch64 --run --dry-run|0
+wrap-font-154|build-font.sh|--board rp2350_touch_lcd_154 --flash --dry-run|0
+wrap-display-generic|build-display.sh|--arch x86_64 --run --dry-run|0
+wrap-epaper-font-bwr|build-epaper.sh|--app font --panel bwr --dry-run|0
+wrap-epaper-gfx-linux|build-epaper.sh|--app gfx --board epaper --arch aarch64 --dry-run|0
+wrap-epaper-bad-app|build-epaper.sh|--app clock --dry-run|64
+wrap-analog-riscv|build-analog.sh|-b pico2-riscv --dry-run|0
+wrap-gpio-edge|build-gpio-edge.sh|--dry-run|0
+wrap-stdio|build-stdio.sh|--board pico2-arm --dry-run|0
+wrap-board-generic|build-board.sh|--board generic --arch aarch64 --dry-run|0
+wrap-audio-28|build-audio.sh|--board rp2350_touch_lcd_28 --dry-run|0
+wrap-audio-lcd-154|build-audio.sh|--board rp2350_lcd_154 --dry-run|0
+wrap-unknown-board|build-gfx.sh|--board nosuch --dry-run|64
+wrap-sdl|build-sdl.sh|--arch x86_64 --dry-run|0
+wrap-linux-smoke|build-linux-smoke.sh|--arch aarch64 --dry-run|0
+target-aarch64|build-aarch64-linux-gnu.sh|--compiler aarch64-linux-gnu-g++ --run --dry-run|0
+target-aarch64-sdl|build-aarch64-linux-gnu.sh|--compiler aarch64-linux-gnu-g++ --board sdl-linux-aarch64 --app gfx-demo --dry-run|0
+target-x86_64|build-x86_64-linux-gnu.sh|--compiler x86_64-linux-gnu-g++ --keep --dry-run|0
+target-armhf|build-arm-linux-gnueabihf.sh|--compiler arm-linux-gnueabihf-g++ --app main --control target-smoke-any --run --dry-run|0
+target-armhf-unbound|build-arm-linux-gnueabihf.sh|--compiler arm-linux-gnueabihf-g++ --app gfx-demo --dry-run|77
+target-arm-none-eabi|build-arm-none-eabi.sh|--compiler arm-none-eabi-g++ --run --dry-run|0
+target-m68k|build-m68k-linux-gnu.sh|--compiler m68k-linux-gnu-g++-16 --run --dry-run|0
+target-m68k-external|build-m68k-linux-external.sh|--compiler m68k-linux-gnu-g++-16 --dry-run|0
+target-sdk-mismatch|build-target.sh|--target m68k-linux-gnu --sdk linux-x86_64 --app main --dry-run|64
+target-missing-lane|build-target.sh|--target m68k-linux-gnu --app main --dry-run|64
+target-unknown-machine|build-target.sh|--target riscv64-linux-gnu --sdk linux-x86_64 --app main --dry-run|64

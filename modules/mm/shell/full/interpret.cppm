@@ -121,6 +121,8 @@ private:
     [[nodiscard]] Step builtin(const Command& command, bool& handled);
     [[nodiscard]] Step external(const Command& command);
     [[nodiscard]] Step call(const FullScript& body, const Command& command);
+    [[nodiscard]] Step dot(const Command& command);
+    [[nodiscard]] bool read_script(const std::string& path, std::string& text);
 
     [[nodiscard]] bool expand_fields(const FullScript& script,
                                      std::size_t token, bool split,

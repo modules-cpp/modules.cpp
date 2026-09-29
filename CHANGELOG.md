@@ -2,17 +2,27 @@
 
 All notable changes to modules.cpp. Versions follow [semantic versioning](https://semver.org/).
 
-## [v1.2.4] — 2026-09-27
+## [Unreleased]
 
-A shared parsing core and numeric/time extraction. v1.2.3 added external
-sketches, `mm.json`, ADC/PWM, and the GPIO edge latch. v1.2.4 extracts the
-character-level shell scanner from `mm.shell` and `mm.shell.full` into a new
-`mm.parse` module, adds numeric and date/time parsing to `mm.parse`, and
-migrates five existing call sites to use it.
-
-16 commits since v1.2.3; 39 files changed, 3732 insertions, 717 deletions.
+Development on `main` since the release branch diverged, not yet in a
+release: external sketches through `project:`, and `mm.parse`, which takes
+the character-level shell scanner out of `mm.shell` and `mm.shell.full`,
+adds numeric and date/time parsing, and replaces five existing call sites'
+own parsing.
 
 ### Added
+
+- **External sketches through `project:`.** External sketches and
+  application trees located outside the project repository checkout build, run,
+  flash, debug, and check using the project's toolchain and modules via the
+  `project:` key (introduced in `mm: 1.3`). The loader grafts the external
+  application tree under an allowlist admitting only `dir` and `app` with
+  `sketch:`. The artifact context scopes compilation and output into the
+  external root's `out-<lane>` directory, compiling project modules and board
+  objects under `graft/project/` without modifying the project's checkout or
+  `out/bin` tools. The `sketch` preprocessor provides 4-case tree detection,
+  atomic file generation through `write_guarded` using POSIX `openat` and
+  `renameat`, and build-time regeneration when `main.cpp` is missing or stale.
 
 - **`mm.parse`.** A dependency-free module owning the character-level shell
   scanning shared by `mm.shell` (level-1 embedded) and `mm.shell.full`
@@ -77,6 +87,16 @@ migrates five existing call sites to use it.
   sources in the fixed file list that builds `build1` before any manifest
   can be walked. The `mm.parse` file entries in `mm.mdy` are ordered so
   partitions compile before the primary interface.
+- **`.` in the full-profile shell.** `out/bin/shell --run` runs `. FILE`
+  in the current shell, so the build scripts under `scripts/`, which share
+  `scripts/lib` that way, parse and run in the project shell as in dash: a
+  name without a slash is looked for on `PATH`, return ends the file, operands
+  after it are its positional parameters while it runs, and an unreadable file
+  ends the shell with status 2. `source` stays excluded. Inside a function
+  `$0` is now the script's name rather than the function's, as POSIX has it.
+- `scripts/build-pico.sh` is the Pico platform script from the release
+  branch; the external-project builder it replaced on `main` is now
+  `scripts/build-pico-project.sh`.
 
 ### Compatibility
 
@@ -93,22 +113,212 @@ migrates five existing call sites to use it.
   the fixed file list in `tools/build/main.cpp` and the shell fallback in
   `bootstrap.sh` are updated accordingly.
 
-## [v1.2.3] — 2026-09-27
+## [v1.2.4] — 2026-09-28
+
+Something to listen with. v1.2.3 gave a program the analog world; v1.2.4
+gives it sound: a portable audio interface of sources, sinks, and the stream
+between them, I2S in `mm.mcu` as a continuous transport over PIO and DMA on
+every Pico SDK lane, an ES8311 codec driver for both directions, and audio
+providers for the RP2350 LCD 1.54 family and the RP2350-Touch-LCD-2.8. It
+adds critical sections to `mm.mcu` and the transport model to the execution
+model, and rebuilds the build scripts around two platform scripts whose
+checks are read from the manifests.
 
 ### Added
 
-- **External sketches through `project:`.** External sketches and
-  application trees located outside the project repository checkout build, run,
-  flash, debug, and check using the project's toolchain and modules via the
-  `project:` key (introduced in `mm: 1.3`). The loader grafts the external
-  application tree under an allowlist admitting only `dir` and `app` with
-  `sketch:`. The artifact context scopes compilation and output into the
-  external root's `out-<lane>` directory, compiling project modules and board
-  objects under `graft/project/` without modifying the project's checkout or
-  `out/bin` tools. The `sketch` preprocessor provides 4-case tree detection,
-  atomic file generation through `write_guarded` using POSIX `openat` and
-  `renameat`, and build-time regeneration when `main.cpp` is missing or stale.
+- **`mm.audio`.** A portable audio interface of three interface classes:
+  `In`, a source of sampled sound; `Out`, a sink; and `Stream`, the
+  connection with one producer and one consumer that carries samples between
+  either one and an application, or between the two directly. It knows no
+  pin, transport, or board: a board's platform provider derives a
+  `Microphone` from `In` and a `Speaker` from `Out` and registers one of each.
+  `Ring` is the shipped `Stream`, a ring over caller-owned storage that never
+  allocates, with two indices each written by one side through plain atomic
+  loads and stores, zero-copy regions bounded by the wrap, device claims per
+  end, and underrun and overrun counts. Samples are sixteen-bit and mono;
+  `to_sample`, `to_sample_offset`, and their inverses convert to and from any
+  width from one to thirty-two bits. `Format` carries the nominal rate and
+  `Rate` the exact one, because two devices asked for one rate generally run
+  at two. `Out` adds `pending` for draining; `service` never waits, a device
+  keeps what its transport did not accept, and silence on underrun is the
+  transport's. The fallbacks answer `Unsupported`. `tests/mm/audio` pins the
+  arithmetic at every width, the ring at every offset of capacities one
+  through nine, and three million samples through a ring of sixty-one on two
+  threads. docs/modules-audio.mdy specifies it, and drafts/plan-audio.mdy
+  records the research and the board providers still to come.
+- **`mm.audio.es8311`.** A portable driver for the Everest ES8311 codec over
+  `mm.mcu` I2C and I2S, brought over from the audio-work branch and reworked
+  for this design: `Codec` is the chip, shared by `Output`, its DAC as an
+  `mm.audio::Out`, and `Input`, its ADC recording the analog microphone as an
+  `mm.audio::In`. The chip is identified by its ID registers, reset once, and
+  runs as the I2S slave with its master clock taken from the bit clock; both
+  directions share the link's one rate. `Output` keeps a pending run through
+  zero and partial acceptance and errors, sends each sample in both slots,
+  and reports transmitter silence as underrun; `Input` takes no more than its
+  Stream holds, reads the board's slot at the board's PGA gain, and reports
+  receiver drops as overrun. The review corrected the earlier version's I2C
+  address (0x06 to 0x18), its serial-port register (the ADC's 0x0a to the
+  DAC's 0x09 for playback), and its missing clock and power-up programming.
+  `tests/mm/audio/es8311` pins the transcripts and both contracts against a
+  recording full-duplex platform. Unqualified on hardware.
+- **RP2350 LCD 1.54 family.** `rp2350_lcd_154`, the non-touch RP2350-LCD-1.54
+  and its -EN option, derives from pico2-arm and binds the ST7789 panel, the
+  QMI8658, and the ES8311 audio; `rp2350_touch_lcd_154`, the touch model and
+  its -EN option, now derives from it and adds only the CST816. The audio
+  provider, `platform.rp2350_touch_lcd_154.audio` in `platforms/pico`,
+  registers an ES8311 `Output` that also drives the NS4150B amplifier enable
+  on GP0 as the Speaker and an ES8311 `Input` as the Microphone, running the
+  codec as the I2S slave on GP1, GP2, GP4, and GP5 with its MCLK input GP3
+  held low. The Pico bridge's board table gives both boards a 3.3 V ADC
+  reference, no LED -- pico2's GP25 is their volume button -- and a default
+  UART of UART1 on GP26 and GP27, because pico2's GP0 and GP1 are the
+  amplifier enable and the codec's playback data. `apps/audio-smoke` plays a
+  tone while recording through whichever devices a board registers. The
+  touch board's IMU provider now registers its sensor, which it never did,
+  and its panel is clocked at the ST7789V2's 62.5 MHz limit rather than a
+  requested 230 MHz. Wiring and register values were checked against the
+  family's schematic and the ES8311 datasheet; none of it is qualified on
+  hardware.
+- **I2S on the Pico SDK lanes.** `platform.pico.mcu` implements `mm.mcu` I2S
+  instance zero over PIO and DMA in the bridge's adapter, on RP2040 and on
+  RP2350 Arm and RISC-V. A clock state machine drives the bit and word clocks
+  by side-set and shifts the transmit line from configure to release; a
+  receive state machine samples the receive line in step with them. Each is
+  fed by two DMA channels in ping-pong over blocks the adapter owns, and the
+  DMA interrupt refills or empties those blocks from two 256-frame rings,
+  sending zeros and counting missed frames when the transmit ring runs dry
+  and dropping and counting frames the receive ring cannot hold. The rate is
+  reported exactly from the PIO clock divider. The execution model's model 3
+  now names that block copy among a transport handler's bounded work. Built
+  for every Pico SDK lane; unqualified on hardware.
+- **RP2350-Touch-LCD-2.8 audio.** `platform.rp2350_touch_lcd_28.audio`, in
+  `platforms/pico`, which the board now binds: a Speaker straight over `mm.mcu`
+  I2S on GP2, GP3, and GP4 for the board's PCM5101A, which has no control port,
+  and a Microphone that answers `Unsupported`, the board having none. The
+  Speaker keeps the `Out` contract, sends each sample in both slots, and
+  configures the nearest of the rates the PCM5101A's datasheet lists for its
+  PLL from a bit clock of 32 times the rate, keeping the clocks running across
+  stop and start. The Pico bridge's board table gives the board a 3.3 V ADC
+  reference and no LED, its GP25 being the battery key, and the board's pin
+  maps were checked against Waveshare's schematic. `apps/audio-smoke` now
+  plays alone on a board whose Microphone answers `Unsupported`.
+- **Paced ADC capture and a DAC in `mm.mcu`.** `adc_pace`, `adc_pace_rate`,
+  `adc_pace_start`, `adc_take`, `adc_pace_progress`, and `adc_pace_stop`
+  capture a channel continuously into a buffer the platform owns;
+  `AdcChannel` gains `maximum_pace_hz` and `pace_depth`. A paced channel owns
+  the whole converter, so every `adc_read` and every other channel's
+  configure or pace answers `Busy` until release. The new DAC facility,
+  `dac_description` through `dac_release` over a `DacOutput` inventory,
+  queues levels at a rate and holds half scale -- not its last level -- when
+  starved. Both report exact rates as a `Frequency` and what they have done
+  as a `Progress`. Every provider inherits `Unsupported`, and paced
+  capture's limits are zero, until its implementation lands.
 
+- **Critical sections in `mm.mcu`.** `interrupts_disable` and
+  `interrupts_enable` over an `InterruptState`, and `InterruptGuard` for a
+  scope: between the two no handler of the selected platform runs on the
+  calling core. Enable restores what its disable saved, so sections nest; a
+  held state cannot begin a second section and an enable without a disable
+  is refused before the platform is asked. The Pico provider uses the SDK's
+  `save_and_disable_interrupts` and `restore_interrupts`; the Linux,
+  rp2040-ram, and widget-rp2040 providers install no handler and answer Ok
+  without masking. `tests/mm/mcu/interrupt.cpp` pins nesting, order, and the
+  guard.
+
+### Changed
+
+- **Build scripts.** Two platform scripts, three families of wrapper, and
+  checks read from the manifests replace the seventeen hand-written
+  `scripts/build-*.sh`. `scripts/build-pico.sh` builds one application for
+  any Pico board, a composite board taking its vendor ancestor's lane, and
+  `scripts/build-linux.sh` for any native Linux lane. What the image must
+  contain is no longer written in the scripts: `scripts/lib/manifest.sh`
+  walks the application's closure through the lane's bindings -- the board,
+  its bases, and its SDK -- to a fixed point, as the build does, and the
+  image must carry one initializer of every provider in that closure, none
+  of every other provider the lane binds, the symbols of every driver a
+  reached provider uses, and a NEEDED entry for every library link input. An
+  application reaching an interface the lane does not bind is reported
+  unavailable with exit 77.
+  - Feature wrappers, each a short declaration that works on every board of
+    either platform, `--board` picking the platform from the board's chain:
+    `build-display.sh`, `build-gfx.sh`, `build-font.sh`, `build-epaper.sh`
+    (`--app gfx|font`, `--panel bw|bwr|b`), `build-analog.sh`,
+    `build-gpio-edge.sh`, `build-stdio.sh`, `build-board.sh`,
+    `build-audio.sh`, and the two that build twice to assert a difference,
+    `build-sdl.sh` and `build-linux-smoke.sh`. On the SDL and e-paper Linux
+    boards `--run` must succeed.
+  - Target wrappers over `scripts/build-target.sh`, which builds for any
+    target lane configure accepts and checks the image's ELF machine as well:
+    `build-aarch64-linux-gnu.sh`, `build-x86_64-linux-gnu.sh`,
+    `build-arm-linux-gnueabihf.sh`, `build-arm-none-eabi.sh` (mps2-an385
+    under qemu-system), `build-m68k-linux-gnu.sh`, and
+    `build-m68k-linux-external.sh` (cmake-demo-smoke). `--run` goes through
+    `./run` when the lane has a runner, and otherwise runs a hosted image
+    directly or under qemu user mode with the SDK's runtime prefix.
+  - Every script takes `--dry-run`, which prints the lane, the commands, and
+    every check without touching the tree or needing a toolchain;
+    `tests/scripts/run.sh`, run by `test.sh`, pins forty-four of them. Every
+    script restores the configuration record it found, a cross target or a
+    board included, rather than resetting to the host lane, unless given
+    `--keep`. Exit-code explanations live beside their applications as
+    `exit-codes` files.
+  - The per-board and per-lane scripts are removed: `build-gfx-demo-*`,
+    `build-font-demo-*`, `build-board-smoke-rp2350_touch_lcd_28`,
+    `build-analog-smoke-pico`, `build-gpio-edge-smoke-pico`,
+    `build-stdio-smoke-pico-sdk`, and the `build-linux-*` scripts but
+    `build-linux-smoke.sh`. Each maps to a wrapper and a board, as
+    `build-linux-epaper-font-demo.sh` does to
+    `build-epaper.sh --app font --board epaper`. The Pico, Linux, stdio, and
+    platforms specifications name the new scripts.
+- `tests/mm/touch-cst816` moved to `tests/mm/touch/cst816`, beside the CST328
+  tests it shares an interface with, as `tests/mm/audio/es8311` sits under
+  `tests/mm/audio`. The suite keeps its name, touch-cst816, and `test.sh` now
+  runs it.
+- **Execution model, model 3.** docs/modules-execution.mdy adds the
+  transport: a continuous transport's handler may acknowledge, count, re-arm
+  a DMA channel on the provider's buffer, switch to a buffer of silence, and
+  drop a sample it has no room for, and nothing more; no handler touches
+  memory above the seam. It also states what a critical section may contain,
+  and records masking as the one exception to general interrupt access.
+- **I2S in `mm.mcu` is a continuous transport.** Its clock runs from
+  configure to release, so the byte-span `i2s_write` and `i2s_read` became
+  queueing calls over a buffer the platform owns, with `i2s_rate`,
+  `i2s_start`, `i2s_progress`, `i2s_stop`, and `i2s_release` beside them.
+  `I2sConfiguration` names bit and word clock GPIOs, optional transmit and
+  receive GPIOs, `rate_hz`, and `slot_bits` in place of the data, clock,
+  word-select GPIOs and baud; sixteen-bit slots move `std::int16_t` words and
+  wider ones `std::int32_t`, a starved transmitter sends zeros by itself, and
+  a link claims its pads. Paced ADC capture, the DAC, and I2S share one
+  lifecycle, specified once in docs/modules-platform-mcu.mdy. No provider
+  implemented the earlier form.
+
+## [v1.2.3] — 2026-09-27
+
+Something to measure with. v1.2.2 put pictures on the panels; v1.2.3 gives a
+program the analog world and the wire beneath it: an ADC and a PWM in
+`mm.mcu` beside GPIO, SPI, and I2C, implemented on the Pico SDK lanes and on
+Linux; a GPIO edge latch that reports what happened on a pin without ever
+running application code in a handler; the execution model that says why it
+is a latch, written down once for every interface; and a core JSON module
+that the build itself is the first consumer of. It also fixes the Clang link
+failure the Linux tests met on a Raspberry Pi, and documents the Linux
+device map in full.
+
+11 commits since v1.2.2; 460 files changed, 8110 insertions, 277 deletions,
+352 of those files the vendored JSON Parsing Test Suite.
+
+### Added
+
+- **Execution model.** docs/modules-execution.mdy specifies how a modules.cpp
+  program executes: one thread of control from main to return, every call
+  returning, no callback or handler running application code, and hardware
+  that acts on its own recorded in a latch the program asks when it chooses.
+  It states once the rules the interface documents apply one at a time, and
+  the Linux console and device map were brought to it: a console write is
+  bounded on a pipe, FIFO, terminal, or socket and plain on a regular file,
+  and the map override is read through a nonblocking descriptor checked to
+  be a regular file and capped at 64 KiB, so the first board query returns.
 - **`mm.json`.** A core module reading and writing RFC 8259 JSON without
   exceptions, templates, or, in its scanner, allocation. The `:status`
   partition names the faults and where they are; the `:scan` partition is a
@@ -154,12 +364,36 @@ migrates five existing call sites to use it.
   event read and monotonic poll, while Pico uses its GPIO callback and an
   event-assisted wait. `gpio-edge-smoke` builds for Pico ARM and RISC-V and
   provides a wired fixture for physical verification.
+- **`mm.touch.cst816`.** The Goodtek CST816 capacitive touch controller over
+  portable mm.mcu I2C and GPIO, beside `mm.touch.cst328`. Eight-bit register
+  map; the chip identifier register is checked at initialization; the
+  finger-count poll is followed by the coordinate read only while a contact is
+  on the panel; the four-byte point decodes the high nibbles and the low
+  bytes. The reference driver's interrupt handler, gesture mode, and mirror
+  transform are absent for the same reasons the CST328 ones are: mm.touch is
+  polled, reports points in the panel's own coordinates, and mm.mcu has no
+  callbacks. `tests/mm/touch-cst816` pins the transcript against a recording
+  platform.
+- **`rp2350_touch_lcd_154` board.** The Waveshare RP2350-Touch-LCD-1.54
+  composite board. It derives from pico2-arm and binds three platform
+  providers: an ST7789 panel (240 by 240, RGB565, SPI1, backlight on GP13) on
+  `mm.display`, a CST816 touch controller at address 0x15 (reset on GP16,
+  interrupt on GP15) on `mm.touch`, and a QMI8658 inertial sensor on
+  `mm.imu`. The panel's porch, power, and gamma settings and the three pin
+  maps come from Waveshare's public firmware repository for this product,
+  which is the same source the vendor's examples run; the wiki remains
+  unreachable to automated requests. Its panel settings live with the board,
+  not the driver, exactly as the 2.8 board's do.
 
 ### Changed
 
 - `mm.build` reads a bridge's `compile_commands.json` through `mm.json`; the
   private reader it carried is gone, and the bootstrap compiles `mm.json`
   before `mm.build`.
+- docs/modules-platform-linux.mdy documents the device map in full: its two
+  layers, the override grammar, every key of every facility with its default
+  and meaning, the validation rules, and a complete example for a Raspberry
+  Pi.
 - A watched GPIO is owned by its provider: another watch or configuration
   answers Busy, and unwatch leaves the pin unconfigured. Linux maps ENXIO and
   EOPNOTSUPP to Unsupported for edge requests while retaining the existing
@@ -716,7 +950,10 @@ framework or documentation generator. 77 commits from the initial commit on
   `xfail`, and `xpass` failing the run when a known defect starts passing.
 - GCC and Clang backends, selected per build.
 
+[Unreleased]: https://github.com/modules-cpp/modules.cpp/compare/v1.2.4...HEAD
 [v1.2.4]: https://github.com/modules-cpp/modules.cpp/releases/tag/v1.2.4
+[v1.2.3]: https://github.com/modules-cpp/modules.cpp/releases/tag/v1.2.3
+[v1.2.2]: https://github.com/modules-cpp/modules.cpp/releases/tag/v1.2.2
 [v1.2.1]: https://github.com/modules-cpp/modules.cpp/releases/tag/v1.2.1
 [v1.2.0]: https://github.com/modules-cpp/modules.cpp/releases/tag/v1.2.0
 [v1.1.0]: https://github.com/modules-cpp/modules.cpp/releases/tag/v1.1.0

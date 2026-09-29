@@ -1,0 +1,24 @@
+---
+mm: 1.2
+kind: board
+name: rp2350_touch_lcd_154
+derives-from: rp2350_lcd_154
+platform-provider: mm.touch platform.rp2350_touch_lcd_154.touch
+---
+
+# rp2350_touch_lcd_154
+
+A Waveshare RP2350-Touch-LCD-1.54, SKU 34333, or RP2350-Touch-LCD-1.54-EN, SKU
+34332: rp2350_lcd_154 with a CST816 capacitive touch controller at 0x15 on the
+shared I2C1, its interrupt on GP15 and its reset on GP16. The -EN option names
+the battery bundle, not the board.
+
+It derives from rp2350_lcd_154, which carries the panel, the IMU, the codec,
+and every pico2 default the family replaces, and adds only the touch binding.
+The chip, the SDK, and the ABI come from pico2-arm at the end of the chain.
+
+The wiring is Waveshare's schematic for this model. The touch controller's
+suffix is unresolved -- the resources name a CST816T and the datasheets and
+driver a CST816S -- and none of this is qualified on hardware.
+
+https://docs.waveshare.com/RP2350-Touch-LCD-1.54
