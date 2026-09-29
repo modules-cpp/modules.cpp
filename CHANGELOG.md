@@ -107,6 +107,18 @@ All notable changes to modules.cpp. Versions follow [semantic versioning](https:
 
 ### Changed
 
+- The seventeen `scripts/build-*.sh` share `scripts/lib/common.sh`,
+  `scripts/lib/pico.sh`, and `scripts/lib/linux.sh` for what each used to
+  carry a copy of: tool discovery, the host restore, the lane tables, image
+  and UF2 checks, provider counting, and the native run. The Pico lane of a
+  composite board is found by walking its derives-from chain to a vendor
+  board. `scripts/boards/` holds a profile per composite board -- the
+  provider and driver behind each interface it binds -- and the board
+  scripts check every bound interface against what the application reaches,
+  so the 2.8's audio binding is now asserted absent from its demos. Every
+  script's output is byte-identical to before on a successful run; the
+  scripts shrink from 4,739 lines to about 2,000, beside about 600 of
+  library and profiles. Step 1 of drafts/plan-build-scripts.mdy.
 - `tests/mm/touch-cst816` moved to `tests/mm/touch/cst816`, beside the CST328
   tests it shares an interface with, as `tests/mm/audio/es8311` sits under
   `tests/mm/audio`. The suite keeps its name, touch-cst816, and `test.sh` now

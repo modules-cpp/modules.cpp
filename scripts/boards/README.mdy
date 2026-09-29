@@ -1,0 +1,23 @@
+---
+mm: 1.0
+kind: doc
+name: scripts-boards
+---
+
+# Board profiles for the build scripts
+
+One file per composite board: the provider each platform interface is bound
+to, and the driver whose symbols stand behind it. The build scripts source a
+profile through mm_load_board and check an image against it, so a board's
+facts are written once instead of in every script that builds for it.
+
+The lane -- target, compiler, SDK -- is not here. scripts/lib/pico.sh finds it
+by walking the board's derives-from chain in the manifests to one of the six
+boards the Pico SDK bridge recognises. A profile carries only what no manifest
+states: which driver's symbols prove an interface reached real hardware code.
+
+Each profile sets board_interfaces, the interfaces the board binds, and for
+each one provider_<interface> and, where a driver stands behind it,
+driver_<interface>. The values are checked by the scripts that use them, not
+generated; the model already knows every board's bindings, and generating
+these from it is a later step.

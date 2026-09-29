@@ -2,7 +2,7 @@
 # Build apps/gfx-demo for the Waveshare RP2350-Touch-LCD-1.54 through the Pico
 # SDK bridge, and verify what came out.
 #
-# The board binds three platform interfaces, but gfx-demo names only
+# The board binds four platform interfaces, but gfx-demo names only
 # mm.display and mm.mcu, so this build proves provider injection follows the
 # application's closure and not the board's: exactly one display provider and
 # one MCU provider, no touch, IMU or RTC object, and the ST7789 driver behind
@@ -16,8 +16,9 @@
 set -eu
 
 test_name=build-gfx-demo-rp2350_touch_lcd_154
-script_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-cd "$script_dir"
+. "$(dirname -- "$0")/lib/common.sh"
+. "$(dirname -- "$0")/lib/pico.sh"
+mm_enter_root
 
 board=rp2350_touch_lcd_154
 app=gfx-demo
@@ -36,187 +37,42 @@ while [ "$#" -gt 0 ]; do
             exit 0
             ;;
         *)
-            echo "$test_name: unknown argument: $1" >&2
-            exit 64
+            mm_unknown_argument "$1"
             ;;
     esac
 done
 
-mm_pico_tools=${MM_PICO_TOOLS:-"$script_dir/platforms/pico/pico-sdk"}
-if [ ! -d "$mm_pico_tools" ]; then
-    echo "$test_name: Pico tools directory not found: $mm_pico_tools" >&2
-    echo "  run platforms/pico/install-sdk-tools.sh to install them" >&2
-    exit 65
-fi
-mm_pico_tools=$(CDPATH= cd -- "$mm_pico_tools" && pwd)
+mm_load_board "$board"
+mm_pico_lane "$board"
+mm_pico_prepare
+mm_trap_restore_host
 
-mm_picotool_dir=${picotool_DIR:-"$mm_pico_tools/picotool"}
-if [ ! -d "$mm_picotool_dir" ]; then
-    echo "$test_name: picotool package directory not found: $mm_picotool_dir" >&2
-    exit 65
-fi
-mm_picotool_dir=$(CDPATH= cd -- "$mm_picotool_dir" && pwd)
-mm_picotool="$mm_picotool_dir/picotool"
-
-if [ ! -x "$mm_picotool" ]; then
-    echo "$test_name: picotool executable not found: $mm_picotool" >&2
-    exit 65
-fi
-if [ ! -f "$mm_picotool_dir/picotoolConfig.cmake" ] && \
-   [ ! -f "$mm_picotool_dir/picotool-config.cmake" ]; then
-    echo "$test_name: picotool CMake package not found in $mm_picotool_dir" >&2
-    exit 65
-fi
-if [ ! -f platforms/pico/sdk/pico-sdk/upstream/README.md ]; then
-    echo "$test_name: Pico SDK checkout is absent; run platforms/pico/sdk/pico-sdk/vendor.sh" >&2
-    exit 65
-fi
-
-PATH="$mm_pico_tools/bin:$PATH"
-export PATH
-
-for command_name in \
-    arm-none-eabi-gcc \
-    arm-none-eabi-g++ \
-    arm-none-eabi-nm \
-    arm-none-eabi-readelf \
-    cmake; do
-    if ! command -v "$command_name" >/dev/null 2>&1; then
-        echo "$test_name: required command not found: $command_name" >&2
-        exit 65
-    fi
-done
-
-if [ ! -x out/bin/configure ] || [ ! -x out/bin/build ]; then
-    echo "$test_name: host tools not found; run ./bootstrap.sh && ./build.sh first" >&2
-    exit 65
-fi
-
-restore_host() {
-    status=$?
-    trap - 0
-    if ! ./configure >/dev/null 2>&1; then
-        echo "$test_name: failed to restore the host configuration" >&2
-        [ "$status" -ne 0 ] || status=1
-    fi
-    exit "$status"
-}
-trap restore_host 0
-
-echo "Pico SDK tools"
-echo "  bundle $mm_pico_tools"
-echo "  $($mm_picotool version)"
+mm_pico_banner
 echo "  board  $board"
 echo "  app    $app"
 
-./configure \
-    --target arm-none-eabi \
-    --compiler arm-none-eabi-gcc \
-    --sdk pico-arm \
-    --board "$board" \
-    --build debug
+mm_pico_configure
+mm_pico_build "$app_path/"
 
-picotool_DIR="$mm_picotool_dir" \
-    ./build --target "$app_path/"
+binary="out-target-$target/$app_path/$app"
+mm_pico_verify_image "$binary"
 
-binary="out-target-arm-none-eabi/$app_path/$app"
-for artifact in \
-    "$binary" \
-    "$binary.bin" \
-    "$binary.hex" \
-    "$binary.elf.map" \
-    "$binary.uf2"; do
-    if [ ! -f "$artifact" ]; then
-        echo "$test_name: missing artifact: $artifact" >&2
-        exit 1
-    fi
-done
+# The interfaces the application reaches, each served once with its driver
+# behind it, and every other interface the board binds, absent.
+mm_verify_board_providers "$binary" "display"
+mm_verify_provider "$binary" platform.pico.mcu 1
 
-undefined=$(arm-none-eabi-nm -u "$binary")
-if [ -n "$undefined" ]; then
-    echo "$test_name: unexpected undefined symbols in $binary:" >&2
-    echo "$undefined" >&2
-    exit 1
-fi
+mm_verify_no_symbol "$binary" mm::fonts
 
-if ! arm-none-eabi-readelf -h "$binary" | awk -F: '
-    $1 ~ /Type/ && $2 ~ /EXEC/ { executable = 1 }
-    $1 ~ /Machine/ && $2 ~ /ARM/ { arm = 1 }
-    END { exit !(executable && arm) }
-'; then
-    echo "$test_name: $binary is not an ARM executable" >&2
-    exit 1
-fi
-
-# One initializer each. More than one would mean a provider object was linked
-# twice; none would mean the interface resolved to nothing and the application
-# is talking to an unserved fallback.
-verify_provider() {
-    provider=$1
-    expected=$2
-    count=$(arm-none-eabi-nm -C "$binary" | awk -v provider="$provider" '
-        index($0, "initializer for module " provider) { ++count }
-        END { print count + 0 }
-    ')
-    if [ "$count" -ne "$expected" ]; then
-        echo "$test_name: expected $expected $provider initializer(s) in $binary, got $count" >&2
-        exit 1
-    fi
-}
-
-# The two interfaces the demo reaches, and the two the board binds but the
-# demo never mentions, beside the clock the board does not carry. The
-# absences are the assertion.
-verify_provider "platform.$board.display" 1
-verify_provider platform.pico.mcu 1
-verify_provider "platform.$board.touch" 0
-verify_provider "platform.$board.imu" 0
-verify_provider "platform.$board.rtc" 0
-
-# The controller behind the display provider, which is what catches a board
-# wired to the interface but not to its driver.
-if ! arm-none-eabi-nm -C "$binary" | grep -q mm::lcd::st7789; then
-    echo "$test_name: no mm::lcd::st7789 symbols in $binary" >&2
-    exit 1
-fi
-if arm-none-eabi-nm -C "$binary" | grep -q 'mm::fonts'; then
-    echo "$test_name: unexpected mm::fonts symbols in $binary" >&2
-    exit 1
-fi
-
-cmake \
-    "-DMM_UF2=$binary.uf2" \
-    -P platforms/pico/sdk/pico-sdk/cmake/validate-uf2.cmake
-
-if ! picotool_info=$($mm_picotool info "$binary.uf2" 2>&1); then
-    echo "$test_name: picotool rejected $binary.uf2:" >&2
-    echo "$picotool_info" >&2
-    exit 1
-fi
-# This board is an RP2350A in its secure ARM profile, which is what deriving
-# from pico2-arm selects.
-case "$picotool_info" in
-    *rp2350*) ;;
-    *)
-        echo "$test_name: expected rp2350 identity in $binary.uf2:" >&2
-        echo "$picotool_info" >&2
-        exit 1
-        ;;
-esac
+mm_pico_verify_uf2 "$binary"
 
 echo "  display and mcu providers, st7789 driver, nothing else"
 
-# Flashing happens while the lane is still configured for the board: ./flash.sh
-# reads out/config.mdy to find the image, and restore_host would point it back
-# at the host lane.
 if [ "$flash_app" = yes ]; then
-    echo
-    echo "Flash"
-    picotool_DIR="$mm_picotool_dir" ./flash.sh "$app_path/"
+    mm_pico_flash "$app_path/"
 fi
 
-./configure
-trap - 0
+mm_leave_host
 
 echo "PASS: $test_name"
 echo "To see it: hold BOOTSEL, plug the board in, then"

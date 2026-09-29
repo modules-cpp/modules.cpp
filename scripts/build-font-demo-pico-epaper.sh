@@ -20,8 +20,9 @@
 set -eu
 
 test_name=build-font-demo-pico-epaper
-script_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-cd "$script_dir"
+. "$(dirname -- "$0")/lib/common.sh"
+. "$(dirname -- "$0")/lib/pico.sh"
+mm_enter_root
 
 app=font-demo
 app_path=apps/font-demo
@@ -31,10 +32,7 @@ flash_app=no
 while [ "$#" -gt 0 ]; do
     case "$1" in
         --panel)
-            if [ "$#" -lt 2 ]; then
-                echo "$test_name: --panel requires bw, bwr, or b" >&2
-                exit 64
-            fi
+            mm_option_value "$#" "$1" "bw, bwr, or b"
             panel=$2
             shift 2
             ;;
@@ -49,8 +47,7 @@ while [ "$#" -gt 0 ]; do
             exit 0
             ;;
         *)
-            echo "$test_name: unknown argument: $1" >&2
-            exit 64
+            mm_unknown_argument "$1"
             ;;
     esac
 done
@@ -58,9 +55,11 @@ done
 case "$panel" in
     bw)
         board=pico_epaper
+        other_board=pico_epaper_b
         ;;
     bwr|b)
         board=pico_epaper_b
+        other_board=pico_epaper
         ;;
     *)
         echo "$test_name: unknown panel: $panel (expected bw, bwr, or b)" >&2
@@ -68,183 +67,43 @@ case "$panel" in
         ;;
 esac
 
-mm_pico_tools=${MM_PICO_TOOLS:-"$script_dir/platforms/pico/pico-sdk"}
-if [ ! -d "$mm_pico_tools" ]; then
-    echo "$test_name: Pico tools directory not found: $mm_pico_tools" >&2
-    echo "  run platforms/pico/install-sdk-tools.sh to install them" >&2
-    exit 65
-fi
-mm_pico_tools=$(CDPATH= cd -- "$mm_pico_tools" && pwd)
+mm_load_board "$board"
+mm_pico_lane "$board"
+mm_pico_prepare
+mm_trap_restore_host
 
-mm_picotool_dir=${picotool_DIR:-"$mm_pico_tools/picotool"}
-if [ ! -d "$mm_picotool_dir" ]; then
-    echo "$test_name: picotool package directory not found: $mm_picotool_dir" >&2
-    exit 65
-fi
-mm_picotool_dir=$(CDPATH= cd -- "$mm_picotool_dir" && pwd)
-mm_picotool="$mm_picotool_dir/picotool"
-
-if [ ! -x "$mm_picotool" ]; then
-    echo "$test_name: picotool executable not found: $mm_picotool" >&2
-    exit 65
-fi
-if [ ! -f "$mm_picotool_dir/picotoolConfig.cmake" ] && \
-   [ ! -f "$mm_picotool_dir/picotool-config.cmake" ]; then
-    echo "$test_name: picotool CMake package not found in $mm_picotool_dir" >&2
-    exit 65
-fi
-if [ ! -f platforms/pico/sdk/pico-sdk/upstream/README.md ]; then
-    echo "$test_name: Pico SDK checkout is absent; run platforms/pico/sdk/pico-sdk/vendor.sh" >&2
-    exit 65
-fi
-
-PATH="$mm_pico_tools/bin:$PATH"
-export PATH
-
-for command_name in \
-    arm-none-eabi-gcc \
-    arm-none-eabi-g++ \
-    arm-none-eabi-nm \
-    arm-none-eabi-readelf \
-    cmake; do
-    if ! command -v "$command_name" >/dev/null 2>&1; then
-        echo "$test_name: required command not found: $command_name" >&2
-        exit 65
-    fi
-done
-
-if [ ! -x out/bin/configure ] || [ ! -x out/bin/build ]; then
-    echo "$test_name: host tools not found; run ./bootstrap.sh && ./build.sh first" >&2
-    exit 65
-fi
-
-restore_host() {
-    status=$?
-    trap - 0
-    if ! ./configure >/dev/null 2>&1; then
-        echo "$test_name: failed to restore the host configuration" >&2
-        [ "$status" -ne 0 ] || status=1
-    fi
-    exit "$status"
-}
-trap restore_host 0
-
-echo "Pico SDK tools"
-echo "  bundle $mm_pico_tools"
-echo "  $($mm_picotool version)"
+mm_pico_banner
 echo "  panel  $panel"
 echo "  board  $board"
 echo "  app    $app"
 
-./configure \
-    --target arm-none-eabi \
-    --compiler arm-none-eabi-gcc \
-    --sdk pico-arm \
-    --board "$board" \
-    --build debug
+mm_pico_configure
+mm_pico_build "$app_path/"
 
-picotool_DIR="$mm_picotool_dir" \
-    ./build --target "$app_path/"
+binary="out-target-$target/$app_path/$app"
+mm_pico_verify_image "$binary"
 
-binary="out-target-arm-none-eabi/$app_path/$app"
-for artifact in \
-    "$binary" \
-    "$binary.bin" \
-    "$binary.hex" \
-    "$binary.elf.map" \
-    "$binary.uf2"; do
-    if [ ! -f "$artifact" ]; then
-        echo "$test_name: missing artifact: $artifact" >&2
-        exit 1
-    fi
-done
+# The two interfaces the demo reaches with the SSD1680 driver behind the
+# display, and the other panel's provider, which must not be here: two boards
+# share one driver, and only the selected one may register.
+mm_verify_board_providers "$binary" "display"
+mm_verify_provider "$binary" platform.pico.mcu 1
+mm_verify_provider "$binary" "platform.$other_board.display" 0
+# Both font tables: the demo draws two lines in each, so neither may be
+# garbage-collected out.
+mm_verify_symbol "$binary" mm::fonts::kMono12Data
+mm_verify_symbol "$binary" mm::fonts::kMono16Data
 
-undefined=$(arm-none-eabi-nm -u "$binary")
-if [ -n "$undefined" ]; then
-    echo "$test_name: unexpected undefined symbols in $binary:" >&2
-    echo "$undefined" >&2
-    exit 1
-fi
-
-if ! arm-none-eabi-readelf -h "$binary" | awk -F: '
-    $1 ~ /Type/ && $2 ~ /EXEC/ { executable = 1 }
-    $1 ~ /Machine/ && $2 ~ /ARM/ { arm = 1 }
-    END { exit !(executable && arm) }
-'; then
-    echo "$test_name: $binary is not an ARM executable" >&2
-    exit 1
-fi
-
-# One initializer each. More than one would mean a provider object was linked
-# twice; none would mean the interface resolved to nothing and the application
-# is talking to an unserved fallback.
-verify_provider() {
-    provider=$1
-    expected=$2
-    count=$(arm-none-eabi-nm -C "$binary" | awk -v provider="$provider" '
-        index($0, "initializer for module " provider) { ++count }
-        END { print count + 0 }
-    ')
-    if [ "$count" -ne "$expected" ]; then
-        echo "$test_name: expected $expected $provider initializer(s) in $binary, got $count" >&2
-        exit 1
-    fi
-}
-
-# The two interfaces the demo reaches, and the other panel's provider, which
-# must not be here: two boards share one driver, and only the selected one
-# may register.
-verify_provider "platform.$board.display" 1
-verify_provider platform.pico.mcu 1
-case "$board" in
-    pico_epaper)   verify_provider platform.pico_epaper_b.display 0 ;;
-    pico_epaper_b) verify_provider platform.pico_epaper.display 0 ;;
-esac
-
-# The controller behind the display provider, and both font tables: the demo
-# draws two lines in each, so neither may be garbage-collected out.
-for symbol in \
-    mm::epaper::ssd1680 \
-    mm::fonts::kMono12Data \
-    mm::fonts::kMono16Data; do
-    if ! arm-none-eabi-nm -C "$binary" | grep -q "$symbol"; then
-        echo "$test_name: no $symbol symbols in $binary" >&2
-        exit 1
-    fi
-done
-
-cmake \
-    "-DMM_UF2=$binary.uf2" \
-    -P platforms/pico/sdk/pico-sdk/cmake/validate-uf2.cmake
-
-if ! picotool_info=$($mm_picotool info "$binary.uf2" 2>&1); then
-    echo "$test_name: picotool rejected $binary.uf2:" >&2
-    echo "$picotool_info" >&2
-    exit 1
-fi
 # Both e-paper boards sit on the original Pico.
-case "$picotool_info" in
-    *rp2040*) ;;
-    *)
-        echo "$test_name: expected rp2040 identity in $binary.uf2:" >&2
-        echo "$picotool_info" >&2
-        exit 1
-        ;;
-esac
+mm_pico_verify_uf2 "$binary"
 
 echo "  display and mcu providers, ssd1680 driver, both font tables, nothing else"
 
-# Flashing happens while the lane is still configured for the board: ./flash.sh
-# reads out/config.mdy to find the image, and restore_host would point it back
-# at the host lane.
 if [ "$flash_app" = yes ]; then
-    echo
-    echo "Flash"
-    picotool_DIR="$mm_picotool_dir" ./flash.sh "$app_path/"
+    mm_pico_flash "$app_path/"
 fi
 
-./configure
-trap - 0
+mm_leave_host
 
 echo "PASS: $test_name"
 echo "To see it: hold BOOTSEL, plug the Pico in, then"
