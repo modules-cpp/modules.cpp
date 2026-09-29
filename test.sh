@@ -201,6 +201,7 @@ echo
 echo test build scripts
 echo
 sh tests/scripts/run.sh || exit $?
+sh tests/scripts/release-fetch.sh || exit $?
 
 echo
 echo test test

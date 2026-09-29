@@ -3,7 +3,9 @@
 // tree.
 
 #include <cstddef>
+#include <filesystem>
 #include <fstream>
+#include <iostream>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -246,6 +248,45 @@ void bootstrap_fallback_matches_the_real_bootstrap_sh() {
                      "expected bootstrap's fallback branch to stage build and configure");
 }
 
+// Whether a manifest's front matter, between its first two --- lines, says
+// kind: test.
+bool declares_test(const std::filesystem::path& manifest) {
+    std::ifstream input(manifest);
+    std::string line;
+    if (!std::getline(input, line) || line != "---") return false;
+    while (std::getline(input, line)) {
+        if (line == "---") return false;
+        if (line == "kind: test") return true;
+    }
+    return false;
+}
+
+// Every kind: test manifest under tests/ and libraries/ is a suite test.sh
+// must run: a suite the script does not name is never run by anyone, which
+// is how four suites, one of them failing, went unrun until v1.3.0.
+void every_test_manifest_runs_in_test_sh() {
+    std::ifstream script("test.sh");
+    const std::string content((std::istreambuf_iterator<char>(script)),
+                              std::istreambuf_iterator<char>());
+    std::size_t manifests = 0;
+    for (const std::string_view top : {"tests", "libraries"}) {
+        std::error_code ec;
+        for (std::filesystem::recursive_directory_iterator it(top, ec), end;
+             !ec && it != end; it.increment(ec)) {
+            if (!it->is_regular_file() || it->path().filename() != "mm.mdy") continue;
+            if (!declares_test(it->path())) continue;
+            ++manifests;
+            const auto invocation =
+                "run_test_target " + it->path().parent_path().generic_string() + "/ ";
+            const bool listed = content.find(invocation) != std::string::npos;
+            if (!listed) std::cerr << "not run by test.sh: " << it->path().generic_string() << "\n";
+            mm::test::expect(listed, "expected test.sh to run every kind: test manifest");
+        }
+    }
+    mm::test::expect(manifests == count_occurrences(content, "run_test_target "),
+                     "expected test.sh to run only suites that exist");
+}
+
 void recommended_sequence_matches_the_documented_order() {
     bool ok = false;
     auto loaded = mm::model::Loaded::load(".", ok);
@@ -271,6 +312,7 @@ const mm::test::case_ cases[] = {
     { "clean is UserInitiated and invokes nothing",  &clean_is_user_initiated_and_invokes_nothing },
     { "check and model are Optional",                &check_and_model_are_optional },
     { "test invocations match the real test.sh",     &test_invocations_match_the_real_test_sh },
+    { "every test manifest runs in test.sh",         &every_test_manifest_runs_in_test_sh },
     { "recommended sequence matches documented order", &recommended_sequence_matches_the_documented_order },
 };
 

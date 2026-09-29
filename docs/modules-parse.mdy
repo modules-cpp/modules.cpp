@@ -136,7 +136,8 @@ parse_time_at(text, at) and parse_time(text) read one time value after any
 leading blanks, trying in order:
 
 - a Duration: decimal digits followed by exactly one of s, m, h, d, or w and
-  nothing else;
+  nothing else; a count past the largest unsigned 64-bit value sets overflow
+  and saturates there;
 - an Epoch: ten to twelve decimal digits followed by the end or a blank, also
   converted to a DateTime in UTC; one after the year 9999, the last a
   DateTime here carries, sets overflow and leaves the date unset;

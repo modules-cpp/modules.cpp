@@ -2,6 +2,27 @@
 
 All notable changes to modules.cpp. Versions follow [semantic versioning](https://semver.org/).
 
+## [v1.3.1] — Unreleased
+
+### Fixed
+
+- `mm.parse` read a duration's count into a signed 64-bit value without a
+  bound, so `parse_time("99999999999999999999s")` overflowed, which is
+  undefined behaviour. The count is read unsigned and checked; one past
+  18446744073709551615 sets `overflow` and saturates there.
+- `scripts/release.sh` reported "cannot reach origin" whenever fetching
+  origin's tags failed, including when a local tag pointed elsewhere than
+  origin's tag of the same name. It now names each such tag, says the two
+  differ, and gives the commands to keep the local one and adopt origin's;
+  any other fetch failure prints git's own message.
+  `tests/scripts/release-fetch.sh`, run by `test.sh`, builds a throwaway
+  origin and clone to prove it.
+- Nothing checked that `test.sh` runs every test suite, which is how four
+  suites, one of them with 19 failures, went unrun until v1.3.0. The model
+  workflow tests now require a `run_test_target` line for every `kind: test`
+  manifest under `tests/` and `libraries/`, and no line for a suite that does
+  not exist.
+
 ## [v1.3.0] — 2026-09-29
 
 Something to run sketches with. v1.2.4 gave a program sound; v1.3.0 gives the
