@@ -109,6 +109,8 @@ Because full C++ parsing is avoided, function definitions are recognized using a
 
 Brace depth is tracked accurately outside string literals, character literals, and comments (both single-line // and block /* ... */).
 
+A generated prototype carries each parameter without its default argument. A default belongs to the one declaration that gives it, and the sketch's definition gives it, so a prototype repeating it would make C++ refuse the definition as a redefinition. The default is dropped from its top-level = to the next top-level comma or the closing parenthesis, so one that is a call, a braced list, a template argument list, or a string or character literal containing a comma goes whole. A call placed above the definition therefore passes every argument, which is also what compiles when the sketch declares the function itself without defaults. The definition line is still matched by counting parentheses without regard to literals, so a default string containing a closing parenthesis ends the parameter list early; such a definition needs its own declaration.
+
 Definitions that span multiple lines before the function name, template functions, and operator overloads are not matched by the heuristic. Sketches utilizing these constructs must provide their own explicit forward declarations; the preprocessor preserves existing declarations without duplicating them. If an explicit declaration is seen after a definition, the generated prototype at the top of the file is kept so earlier callers retain their forward declaration.
 
 If a line at brace depth zero resembles a function definition but begins with leading whitespace, the preprocessor emits a diagnostic warning:

@@ -77,6 +77,73 @@ std::vector<std::string> split_lines(std::string_view content) {
 }
 
 // Parses a line at brace depth 0:
+// A parameter list without its default arguments: "(float &c, bool r = false)"
+// becomes "(float &c, bool r)". A default belongs to the one declaration that
+// gives it; the sketch's definition gives it, so the generated prototype must
+// not, or C++ refuses the definition as a redefinition. A default runs from its
+// top-level = to the next top-level comma or the closing parenthesis, so a
+// default that is itself a call, a braced list, a template argument list, or
+// a string or character literal containing a comma or a parenthesis is
+// dropped whole.
+std::string drop_default_arguments(std::string_view params) {
+    std::string out;
+    out.reserve(params.size());
+    int depth = 0;             // (, [, and { nesting, the outer ( included
+    int angle = 0;             // < nesting inside a default
+    bool in_default = false;
+    char quote = 0;
+    for (std::size_t i = 0; i < params.size(); ++i) {
+        const char c = params[i];
+        if (quote != 0) {
+            if (c == '\\' && i + 1 < params.size()) {
+                ++i;
+            } else if (c == quote) {
+                quote = 0;
+            }
+            continue;
+        }
+        if (in_default) {
+            if (c == '"' || c == '\'') {
+                quote = c;
+                continue;
+            }
+            if (c == '(' || c == '[' || c == '{') {
+                ++depth;
+                continue;
+            }
+            if (c == '<') {
+                ++angle;
+                continue;
+            }
+            if (c == '>' && angle > 0) {
+                --angle;
+                continue;
+            }
+            const bool closes = c == ')' || c == ']' || c == '}';
+            if (closes && depth > 1) {
+                --depth;
+                continue;
+            }
+            if ((c == ',' && depth == 1 && angle == 0) || (c == ')' && depth == 1)) {
+                in_default = false;
+                angle = 0;
+                if (c == ')') depth = 0;
+                out += c;
+            }
+            continue;
+        }
+        if (c == '(' || c == '[' || c == '{') ++depth;
+        if (c == ')' || c == ']' || c == '}') --depth;
+        if (c == '=' && depth == 1) {
+            while (!out.empty() && (out.back() == ' ' || out.back() == '\t')) out.pop_back();
+            in_default = true;
+            continue;
+        }
+        out += c;
+    }
+    return out;
+}
+
 // Returns true if recognized as a prototype or definition.
 // sets is_definition, is_column_zero, fn_name, prototype_str
 bool parse_fn_decl(std::string_view line,
@@ -196,7 +263,7 @@ bool parse_fn_decl(std::string_view line,
 
     // Build prototype string: trimmed_ret + " " + fn_name + "(" + params + ");"
     std::string_view params = line.substr(open_paren, close_paren - open_paren + 1);
-    prototype_str = std::string(trimmed_ret) + " " + fn_name + std::string(params) + ";";
+    prototype_str = std::string(trimmed_ret) + " " + fn_name + drop_default_arguments(params) + ";";
     return true;
 }
 

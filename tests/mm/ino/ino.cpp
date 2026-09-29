@@ -23,6 +23,28 @@ void function_used_before_definition() {
            "expected prototype for helper() to be generated");
 }
 
+// A default argument belongs to the definition the sketch wrote; repeating it
+// in the generated prototype is a redefinition C++ refuses. The prototype
+// carries each parameter without its default, whatever the default contains.
+void prototype_drops_default_arguments() {
+    const std::vector<mm::ino::SourceFile> sources = {
+        {"test.ino",
+         "void loop() {\n    estimate(c, true);\n}\n\n"
+         "uint16_t estimate(float &confidence, bool reset = false)\n{\n    return 0;\n}\n\n"
+         "int pick(int a = f(1, 2), const char* s = \"a,b\", char c = ',') {\n"
+         "    return a;\n}\n"}
+    };
+    const auto result = mm::ino::transform(sources);
+    expect(result.ok, "transformation should succeed");
+    expect(result.output.find("uint16_t estimate(float &confidence, bool reset);") !=
+               std::string::npos,
+           "the prototype drops a default argument");
+    expect(result.output.find("int pick(int a, const char* s, char c);") != std::string::npos,
+           "defaults containing calls, commas, and literals are dropped whole");
+    expect(result.output.find("bool reset = false)\n{") != std::string::npos,
+           "the definition keeps its default argument");
+}
+
 void prototype_already_written() {
     const std::vector<mm::ino::SourceFile> sources = {
         {"test.ino", "void helper();\n\nvoid loop() {\n    helper();\n}\n\nvoid helper() {\n}\n"}
@@ -815,6 +837,7 @@ void library_metadata_compatibility_failures() {
 const mm::test::case_ cases[] = {
     {"function used before definition", &function_used_before_definition},
     {"prototype already written", &prototype_already_written},
+    {"prototype drops default arguments", &prototype_drops_default_arguments},
     {"standard include in middle", &standard_include_in_middle},
     {"sketch with main is rejected", &sketch_with_main_is_rejected},
     {"quoted include is hoisted", &quoted_include_is_hoisted},
