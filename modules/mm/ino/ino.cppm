@@ -72,6 +72,9 @@ inline constexpr std::string_view legacy_profile_name = "legacy";
 // reaching for Print.h, Wire.h, or the name its whole ecosystem writes finds
 // the same declarations under the name it wrote.
 [[nodiscard]] std::span<const std::string_view> sketch_alias_headers();
+// The legacy profile's names: the core ones and avr/pgmspace.h, which an
+// Arduino core for a board other than AVR ships for code written for AVR.
+[[nodiscard]] std::span<const std::string_view> sketch_alias_headers(bool legacy);
 [[nodiscard]] std::string sketch_alias_header(std::string_view name);
 
 [[nodiscard]] bool check_application(const std::filesystem::path& app_dir,

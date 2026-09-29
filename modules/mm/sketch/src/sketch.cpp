@@ -3451,6 +3451,9 @@ bool HardwareSerial::setRX(unsigned int pin) {
     return true;
 }
 
+HardwareSerial::HardwareSerial() = default;
+HardwareSerial::HardwareSerial(unsigned int port) : port_(port) {}
+
 std::size_t HardwareSerial::write(byte b) { return write(&b, 1); }
 
 // Queues all of buffer, waiting for room up to the stream's timeout. What was

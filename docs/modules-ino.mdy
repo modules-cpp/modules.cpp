@@ -390,6 +390,34 @@ comes after the import, the arrangement the core profile avoids, which is the
 same arrangement a library header reaches when it includes Arduino.h before a
 standard header of its own.
 
+The build compiles a legacy application with ARDUINO defined as 10819, the
+value the Arduino IDE 1.8.19 passes, on the command line of every file it
+compiles for it: main.cpp and the sources of its sketch libraries alike, since
+a library's own source tests ARDUINO before it includes Arduino.h. A library
+that chooses its platform by that macro, as RF24 does, otherwise takes a
+branch written for a native toolchain rather than the Arduino API. No board or
+architecture macro, ARDUINO_ARCH_RP2040 or ARDUINO_AVR_UNO for instance, is
+defined: those select board-specific code, which is what mm.sketch replaces. A
+core application is compiled with no definition.
+
+With ARDUINO defined and no architecture named, a library written for the
+Arduino cores often takes this host for an AVR, since it knows no other
+Arduino without __arm__. The legacy profile therefore also supplies what an
+AVR core's Arduino.h brings in and an Arduino core for another architecture
+ships for AVR code:
+
+- a sixth forwarder, avr/pgmspace.h, one directory down, written, checked, and
+  committed like the other five, whose declarations Sketch.h already has;
+- in Sketch.h, <cctype> and its character routines, toupper among them;
+  _BV(bit); SPI_HAS_TRANSACTION, the promise SPI.h makes that SPISettings and
+  beginTransaction exist, without which a library falls back to
+  setClockDivider and the calls it replaced; and printf_P, sprintf_P, and
+  snprintf_P, each its counterpart without _P, given the format with AVR's %S,
+  a string in flash, read as %s, since nothing is placed in flash here.
+
+RF24 builds its current examples on the host and the Pico with these, in
+the legacy profile.
+
 The manifest, not the command line, is the record. A later run without
 --legacy regenerates a legacy application as legacy, the build's regeneration
 does the same, and --check compares each application with the profile its

@@ -29,6 +29,8 @@ The optional manifest is an mm.mdy file or a directory containing one. With no m
 
 The regular configured build workflow accepts no command-line compiler, compiler version, target triple, build type, compiler flag, linker flag, or output-directory override; those values come from configure. Bootstrap's internal stage-1 invocation supplies compiler and family overrides explicitly so it can create that configuration on a fresh checkout.
 
+Nor does a manifest supply a preprocessor definition. The one definition build adds itself is ARDUINO=10819, on every source of an application whose manifest selects sketch-profile: legacy, for the reason docs/modules-ino.mdy, "The legacy profile", gives.
+
 # macOS bootstrap
 
 On macOS, bootstrap detects the native Clang C++ driver and passes the compiler and module flags explicitly between its stages. Clang module interfaces are emitted as PCM files in `out/bootstrap-bmi`; implementation units use that directory to resolve imports. The normal build tool is not configured by bootstrap, so configure the host lane before running the full build:

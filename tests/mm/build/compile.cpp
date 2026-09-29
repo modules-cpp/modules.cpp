@@ -250,6 +250,28 @@ void install_copies_the_binary_into_the_bin_directory() {
            "the replacement reached the bin directory");
 }
 
+// A legacy sketch application is compiled with ARDUINO defined, as a sketch
+// toolchain compiles it; a core one, and anything that is not a sketch, is not.
+void a_legacy_sketch_is_compiled_with_arduino_defined() {
+    mm::build::BuildableNode core;
+    core.kind = "app";
+    core.sketches = {"a.ino"};
+    expect(mm::build::compile_definitions(core).empty(),
+           "a core sketch application gets no definition");
+
+    mm::build::BuildableNode legacy = core;
+    legacy.sketch_legacy = true;
+    expect(mm::build::compile_definitions(legacy) == " -DARDUINO=10819",
+           "a legacy sketch application gets ARDUINO");
+    expect(mm::build::compile_definitions(legacy).find("ARDUINO_") == std::string::npos,
+           "no board or architecture macro is defined");
+
+    mm::build::BuildableNode module;
+    module.kind = "module";
+    expect(mm::build::compile_definitions(module).empty(),
+           "a module gets no definition");
+}
+
 void run_returns_the_exit_code_of_the_command() {
     const auto toolchain = mm::build::default_toolchain();
     expect(mm::build::run(toolchain, "true") == 0, "a passing command reports zero");
@@ -262,6 +284,7 @@ const mm::test::case_ cases[] = {
     {"a translation unit compiles and appends objects", &a_translation_unit_compiles_and_appends_objects},
     {"link produces an executable", &link_produces_an_executable},
     {"install copies the binary into the bin directory", &install_copies_the_binary_into_the_bin_directory},
+    {"a legacy sketch is compiled with ARDUINO defined", &a_legacy_sketch_is_compiled_with_arduino_defined},
     {"run returns the exit code of the command", &run_returns_the_exit_code_of_the_command},
 };
 

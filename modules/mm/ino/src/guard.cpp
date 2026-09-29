@@ -3,6 +3,7 @@
 module;
 
 #include <fcntl.h>
+#include <sys/stat.h>
 #include <unistd.h>
 #include <cerrno>
 #include <cstring>
@@ -20,17 +21,51 @@ bool write_guarded(const std::filesystem::path& app_dir,
                    std::string& error,
                    std::string_view temp_filename) {
     error.clear();
-    const std::string target_str(target_filename);
-    const std::string temp_str = temp_filename.empty()
+    // A name may sit one directory down, as avr/pgmspace.h does. That
+    // directory is created when missing and opened without following a
+    // symbolic link, so the write stays inside the application; the file and
+    // its temporary are then named relative to it.
+    std::string subdir;
+    std::string target_str(target_filename);
+    std::string temp_str = temp_filename.empty()
         ? (target_str + ".tmp")
         : std::string(temp_filename);
+    if (const auto slash = target_str.find('/'); slash != std::string::npos) {
+        subdir = target_str.substr(0, slash);
+        target_str = target_str.substr(slash + 1);
+        if (subdir.empty() || subdir == "." || subdir == ".." ||
+            target_str.empty() || target_str.find('/') != std::string::npos) {
+            error = "cannot write " + std::string(target_filename) +
+                    ": only one plain directory level is allowed";
+            return false;
+        }
+        if (temp_str.compare(0, subdir.size() + 1, subdir + "/") == 0)
+            temp_str = temp_str.substr(subdir.size() + 1);
+    }
 
-    const int dir_fd =
+    int dir_fd =
         ::open(app_dir.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
     if (dir_fd < 0) {
         error = "cannot open directory " + app_dir.string() + ": " +
                 std::strerror(errno);
         return false;
+    }
+    if (!subdir.empty()) {
+        if (::mkdirat(dir_fd, subdir.c_str(), 0777) < 0 && errno != EEXIST) {
+            const int err = errno;
+            ::close(dir_fd);
+            error = "cannot create directory " + subdir + ": " + std::strerror(err);
+            return false;
+        }
+        const int sub_fd = ::openat(dir_fd, subdir.c_str(),
+                                    O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+        const int err = errno;
+        ::close(dir_fd);
+        if (sub_fd < 0) {
+            error = "cannot open directory " + subdir + ": " + std::strerror(err);
+            return false;
+        }
+        dir_fd = sub_fd;
     }
 
     const int file_fd = ::openat(dir_fd, temp_str.c_str(),

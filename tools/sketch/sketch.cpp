@@ -411,7 +411,7 @@ int main(int argc, char** argv) {
                         check_failed = true;
                     }
                 }
-                for (const auto& alias : mm::ino::sketch_alias_headers()) {
+                for (const auto& alias : mm::ino::sketch_alias_headers(app_node.legacy)) {
                     const std::string name(alias);
                     const auto alias_path = app_node.dir / name;
                     if (!std::filesystem::exists(alias_path, ec)) {
@@ -533,7 +533,7 @@ int main(int argc, char** argv) {
                           << app_node.dir.string() << ": " << err << "\n";
                 return 65;
             }
-            for (const auto& alias : mm::ino::sketch_alias_headers()) {
+            for (const auto& alias : mm::ino::sketch_alias_headers(app_node.legacy)) {
                 const std::string name(alias);
                 if (!mm::ino::write_guarded(
                         app_node.dir, name,
@@ -796,7 +796,7 @@ int main(int argc, char** argv) {
         std::cerr << "sketch: wrote " << canonical_header << " to "
                   << abs_dir.string() << "/" << canonical_header << "\n";
     }
-    for (const auto& alias : mm::ino::sketch_alias_headers()) {
+    for (const auto& alias : mm::ino::sketch_alias_headers(legacy)) {
         const std::string name(alias);
         if (!mm::ino::write_guarded(abs_dir, name,
                                     mm::ino::sketch_alias_header(alias),

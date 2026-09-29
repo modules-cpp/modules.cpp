@@ -26,7 +26,15 @@ All notable changes to modules.cpp. Versions follow [semantic versioning](https:
   `using namespace mm::sketch::legacy`, and its `main.cpp` includes `Sketch.h`
   ahead of the sketch's own includes, where a sketch toolchain puts
   `Arduino.h`, so a library header that includes nothing itself (RobTillaart's
-  `Kurtosis.h`) compiles. The core vocabulary is unchanged, so
+  `Kurtosis.h`) compiles. The build compiles a legacy application, and the
+  sources of its sketch libraries, with `ARDUINO=10819` defined, as a sketch
+  toolchain does, so a library that selects its platform by that macro (RF24)
+  takes its Arduino branch; no board macro is defined. A legacy application
+  also gets `avr/pgmspace.h` as a sixth forwarder and, in its `Sketch.h`,
+  `<cctype>`, `_BV`, `SPI_HAS_TRANSACTION`, and `printf_P`, `sprintf_P`, and
+  `snprintf_P` with AVR's `%S` read as `%s`, which is what RF24 needs to build
+  its examples on the host and the Pico. The core vocabulary is
+  unchanged, so
   `digitalWrite(pin, 1)` is still refused without it, and a call the core
   already accepts keeps the core overload with it. The build reports every
   legacy application and the sketch libraries compiled into it. RobTillaart's

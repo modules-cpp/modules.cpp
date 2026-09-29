@@ -1,5 +1,6 @@
 // Pawel Wodnicki (C) 2026
 // 32bitmicro LLC (C) 2026
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -442,8 +443,44 @@ void legacy_profile_generation() {
            "legacy output under a core manifest does not match");
     doc.metadata["sketch-profile"] = {"legacy"};
     expect(mm::ino::is_legacy_application(doc), "the manifest selects the legacy profile");
+    expect(!mm::ino::check_application(dir, doc, error) &&
+               error.find("avr/pgmspace.h") != std::string::npos,
+           "a legacy application without avr/pgmspace.h is reported");
+    for (const auto& alias : mm::ino::sketch_alias_headers(true))
+        expect(mm::ino::write_guarded(dir, alias, mm::ino::sketch_alias_header(alias), error),
+               "each legacy forwarder is written, one directory down included");
     expect(mm::ino::check_application(dir, doc, error),
            "legacy output under a legacy manifest matches");
+}
+
+// The legacy profile's forwarders and the AVR spellings its Sketch.h adds,
+// none of which the core profile has.
+void legacy_profile_avr_spellings() {
+    const auto core = mm::ino::sketch_alias_headers();
+    const auto legacy = mm::ino::sketch_alias_headers(true);
+    expect(legacy.size() == core.size() + 1 && legacy.back() == "avr/pgmspace.h",
+           "the legacy profile adds avr/pgmspace.h to the forwarders");
+    expect(std::find(core.begin(), core.end(), "avr/pgmspace.h") == core.end(),
+           "the core profile has no avr/pgmspace.h");
+
+    const auto core_header = mm::ino::sketch_header(false);
+    const auto legacy_header = mm::ino::sketch_header(true);
+    for (const std::string_view spelling :
+         {"#define SPI_HAS_TRANSACTION 1", "#define _BV(bit)", "inline int printf_P(",
+          "inline int sprintf_P(", "inline int snprintf_P(", "using std::toupper;",
+          "#include <cctype>"}) {
+        expect(legacy_header.find(spelling) != std::string::npos,
+               "the legacy Sketch.h has each AVR spelling");
+        expect(core_header.find(spelling) == std::string::npos,
+               "the core Sketch.h has none of them");
+    }
+
+    const mm::test::scoped_tree tree{"ino_guarded_subdir"};
+    std::string error;
+    expect(!mm::ino::write_guarded(tree.root(), "../escape.h", "x", error),
+           "a forwarder above the application is refused");
+    expect(!mm::ino::write_guarded(tree.root(), "a/b/c.h", "x", error),
+           "a forwarder two directories down is refused");
 }
 
 void sketch_header_is_checked() {
@@ -903,6 +940,7 @@ const mm::test::case_ cases[] = {
     {"prototype already written", &prototype_already_written},
     {"prototype drops default arguments", &prototype_drops_default_arguments},
     {"legacy profile generation", &legacy_profile_generation},
+    {"legacy profile avr spellings", &legacy_profile_avr_spellings},
     {"standard include in middle", &standard_include_in_middle},
     {"sketch with main is rejected", &sketch_with_main_is_rejected},
     {"quoted include is hoisted", &quoted_include_is_hoisted},

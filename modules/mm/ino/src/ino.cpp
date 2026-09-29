@@ -550,6 +550,10 @@ std::string sketch_header(bool legacy) {
     out += "#include <cstdio>\n";
     out += "#include <cstdlib>\n";
     out += "#include <cstring>\n";
+    if (legacy) {
+        out += "#include <cctype>\n";
+        out += "#include <cstdarg>\n";
+    }
     out += "\n";
     out += "import mm.sketch;\n";
     out += "\n";
@@ -584,6 +588,88 @@ std::string sketch_header(bool legacy) {
     out += "using std::atoi;      using std::atol;\n";
     out += "using std::atof;      using std::strtol;\n";
     out += "using std::strtoul;   using std::strtod;\n";
+    if (legacy) {
+        out += "\n";
+        out += "// The C character routines, which an Arduino core's\n";
+        out += "// Arduino.h brings in through <ctype.h> and a sketch calls\n";
+        out += "// beside mm.sketch's isAlpha and toUpperCase spellings.\n";
+        out += "using std::isalnum;   using std::isalpha;\n";
+        out += "using std::isdigit;   using std::isxdigit;\n";
+        out += "using std::islower;   using std::isupper;\n";
+        out += "using std::isspace;   using std::ispunct;\n";
+        out += "using std::isprint;   using std::iscntrl;\n";
+        out += "using std::tolower;   using std::toupper;\n";
+        out += "\n";
+        out += "// SPI.h's promise that SPISettings and beginTransaction exist,\n";
+        out += "// which mm.sketch's SPIClass keeps; a library without it falls\n";
+        out += "// back to setClockDivider and the other calls it replaced.\n";
+        out += "#ifndef SPI_HAS_TRANSACTION\n";
+        out += "#define SPI_HAS_TRANSACTION 1\n";
+        out += "#endif\n";
+        out += "\n";
+        out += "// AVR's bit value macro, which its Arduino.h brings in and a\n";
+        out += "// library written for AVR uses without defining it.\n";
+        out += "#ifndef _BV\n";
+        out += "#define _BV(bit) (1 << (bit))\n";
+        out += "#endif\n";
+        out += "\n";
+        out += "// AVR's printf_P family reads its format from flash and takes\n";
+        out += "// %S for a string in flash. Nothing is placed in flash here,\n";
+        out += "// so each is its counterpart without _P, given the format with\n";
+        out += "// %S read as %s; a format too long to rewrite is passed as it\n";
+        out += "// is.\n";
+        out += "inline const char* sketch_flash_format(const char* format, char* buffer,\n";
+        out += "                                       std::size_t size) {\n";
+        out += "    std::size_t n = 0;\n";
+        out += "    for (const char* p = format; *p != '\\0'; ++p) {\n";
+        out += "        if (n + 2 >= size) return format;\n";
+        out += "        buffer[n++] = *p;\n";
+        out += "        if (*p != '%') continue;\n";
+        out += "        ++p;\n";
+        out += "        while (*p != '\\0' && std::strchr(\"-+ #0123456789.*hlLjzt\", *p) != nullptr) {\n";
+        out += "            if (n + 2 >= size) return format;\n";
+        out += "            buffer[n++] = *p++;\n";
+        out += "        }\n";
+        out += "        if (*p == '\\0') break;\n";
+        out += "        buffer[n++] = *p == 'S' ? 's' : *p;\n";
+        out += "    }\n";
+        out += "    buffer[n] = '\\0';\n";
+        out += "    return buffer;\n";
+        out += "}\n";
+        out += "#ifndef printf_P\n";
+        out += "inline int printf_P(const char* format, ...) {\n";
+        out += "    char buffer[256];\n";
+        out += "    std::va_list args;\n";
+        out += "    va_start(args, format);\n";
+        out += "    const int result =\n";
+        out += "        std::vprintf(sketch_flash_format(format, buffer, sizeof buffer), args);\n";
+        out += "    va_end(args);\n";
+        out += "    return result;\n";
+        out += "}\n";
+        out += "#endif\n";
+        out += "#ifndef sprintf_P\n";
+        out += "inline int sprintf_P(char* s, const char* format, ...) {\n";
+        out += "    char buffer[256];\n";
+        out += "    std::va_list args;\n";
+        out += "    va_start(args, format);\n";
+        out += "    const int result =\n";
+        out += "        std::vsprintf(s, sketch_flash_format(format, buffer, sizeof buffer), args);\n";
+        out += "    va_end(args);\n";
+        out += "    return result;\n";
+        out += "}\n";
+        out += "#endif\n";
+        out += "#ifndef snprintf_P\n";
+        out += "inline int snprintf_P(char* s, std::size_t size, const char* format, ...) {\n";
+        out += "    char buffer[256];\n";
+        out += "    std::va_list args;\n";
+        out += "    va_start(args, format);\n";
+        out += "    const int result = std::vsnprintf(\n";
+        out += "        s, size, sketch_flash_format(format, buffer, sizeof buffer), args);\n";
+        out += "    va_end(args);\n";
+        out += "    return result;\n";
+        out += "}\n";
+        out += "#endif\n";
+    }
     out += "\n";
     out += "// Flash-string spellings. docs/modules-sketch.mdy declines the\n";
     out += "// behaviour, not the spelling: placement is the linker's\n";
@@ -738,10 +824,19 @@ std::span<const std::string_view> sketch_alias_headers() {
     // from the SPI one. A name with nothing behind it is not listed, because
     // a header that resolves and then fails to declare what was wanted is a
     // worse diagnostic than one that does not resolve.
+    return sketch_alias_headers(false);
+}
+
+std::span<const std::string_view> sketch_alias_headers(bool legacy) {
+    // avr/pgmspace.h is the one the legacy profile adds. The Arduino cores
+    // for boards other than AVR ship it for code written for AVR, and a
+    // library that takes every non-ARM Arduino for an AVR includes it on
+    // this host; Sketch.h already has the flash readers it declares.
     static constexpr std::string_view names[] = {
         "Arduino.h", "Print.h", "Printable.h", "Wire.h", "SPI.h",
+        "avr/pgmspace.h",
     };
-    return names;
+    return std::span<const std::string_view>(names).first(legacy ? 6 : 5);
 }
 
 std::string sketch_alias_header(std::string_view name) {
@@ -844,7 +939,7 @@ bool check_application(const std::filesystem::path& app_dir,
         return false;
     }
 
-    for (const auto& name : sketch_alias_headers()) {
+    for (const auto& name : sketch_alias_headers(legacy)) {
         const std::filesystem::path alias = app_dir / std::string(name);
         std::ifstream in_alias(alias);
         if (!in_alias) {

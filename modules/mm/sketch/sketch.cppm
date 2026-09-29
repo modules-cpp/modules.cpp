@@ -645,8 +645,11 @@ extern SerialPort Serial;
 // mm.mcu reports only what it accepted.
 class HardwareSerial : public Stream {
 public:
-    constexpr HardwareSerial() = default;
-    constexpr explicit HardwareSerial(unsigned int port) : port_(port) {}
+    // Defined out of line: arm-none-eabi-g++ 14 fails with an internal
+    // compiler error compiling mm.sketch when a class derived from Print has
+    // a constructor written in this interface.
+    HardwareSerial();
+    explicit HardwareSerial(unsigned int port);
 
     using Print::write;
 
