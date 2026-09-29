@@ -137,6 +137,20 @@ and only for the entries listed here.
   accepted on the same grounds. Removing it means vendored transport libraries
   stop compiling, so it goes when they do. No module MAY add a third level on
   the strength of this entry.
+- mm.sketch's Arduino-compatibility surface in modules/mm/sketch/sketch.cppm
+  declares three unscoped enumerations, Mode, Level, and BitOrder, and four
+  templates, the SketchNumber concept and the sq, constrain, and map function
+  templates it constrains. The enumerations are unscoped because a sketch and
+  a vendored library write INPUT, HIGH, and LSBFIRST as bare names and store
+  them as integers; each has a fixed underlying type and nothing converts into
+  it, so digitalWrite(pin, 1) is still refused. The templates exist because a
+  sketch writes constrain(i, 0, 9) with an int, which the long and double
+  overloads alone make ambiguous; each evaluates its arguments once and
+  forwards to one of those overloads. docs/modules-sketch.mdy gives the same
+  reasons. Removing them means .ino sources that compile under Arduino stop
+  compiling here. tools/check excepts exactly these names in exactly that
+  file, so another template or unscoped enumeration there is still reported,
+  and no other module MAY add either on the strength of this entry.
 - modules/mm/ino/src/guard.cpp includes POSIX <fcntl.h> and <unistd.h> and
   invokes openat, write, close, renameat, and unlinkat. This narrow exception
   to standard-library-only includes is required for the source guard: ISO C++20

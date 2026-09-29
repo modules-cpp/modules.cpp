@@ -1,0 +1,165 @@
+---
+mm: 1.0
+kind: doc
+name: modules.cpp parse module specification
+status: official
+release: v1.3.0
+---
+
+# Parse module specification
+
+# Status and authority
+
+This document specifies the implemented mm.parse module: the shared shell
+scanner both shell profiles drive, and the number and time readers other
+modules delegate to. docs/modules-shell.mdy owns the shell grammars and what
+each profile does with a token; docs/modules-json.mdy owns what JSON accepts
+as a number; this document owns what mm.parse reads and reports.
+
+mm.parse has no use: edge. Its interfaces need only the standard library's
+cstddef, cstdint, and string_view; its number reader also uses charconv,
+cmath, and a std::string for the digits it hands to strtod. It is core, and
+bootstrap.sh and tools/build/main.cpp compile it before mm.json and
+mm.configure, which depend on it.
+
+# Partitions
+
+- mm.parse:dialect declares Dialect, the TokenKind superset, FragmentKind,
+  SourceSpan, the Sink seam, and the shared character predicates.
+- mm.parse:cursor declares ScanOutcome and Cursor.
+- mm.parse:number declares NumberKind, NumberValue, parse_number_at, and
+  parse_number.
+- mm.parse:time declares DateTime, Duration, TimeKind, TimeValue,
+  parse_time_at, and parse_time.
+- mm.parse re-exports all four.
+
+# Dialects and tokens
+
+Dialect selects one of two shell lexical rules. Embedded is mm.shell's level
+1: a line ends at \n, at \r\n, or at a bare \r, only space and tab are
+blank, and a word is reported as a sequence of fragments. Full is
+mm.shell.full's level 3: a line ends at \n, \r is blank, and no fragments are
+produced.
+
+TokenKind is the union of both dialects' token kinds: End, Newline, and Word;
+the embedded operators AndIf, OrIf, Semicolon, DoubleSemicolon, LeftParen,
+RightParen, LeftBrace, RightBrace, Bang, and CaseBar; and the full operators
+Pipe, Input, Output, Append, HereDocument, DuplicateInput, DuplicateOutput,
+and IoNumber. mm.shell's TokenKind is an alias of this one; mm.shell.full
+translates it to its own.
+
+FragmentKind names the parts of an embedded word: Literal, SingleQuoted,
+DoubleQuoted, Escaped, Parameter, Arithmetic, and CommandSubstitution. A
+fragment inside double quotes is marked quoted.
+
+SourceSpan is a byte offset and length into the text being scanned. It is the
+span type of both shell profiles too: mm.shell's SourceSpan is an alias of it.
+
+# The cursor
+
+Cursor(text, at, dialect) scans text from byte offset at. It owns nothing and
+allocates nothing. scan(sink) skips blanks, comments, and line continuations,
+then reads one token and returns a ScanOutcome:
+
+- complete is false when the token cannot be read; message then names why;
+- at_end is true at the end of the text, with kind End;
+- kind and span are the token and its bytes;
+- next_offset is where the following scan starts.
+
+The cursor reports a token through sink.emit_token and each embedded fragment
+through sink.emit_fragment, passing sink.context back unchanged. It never
+reports Newline through the sink: a dialect that needs newline tokens, as the
+full profile does, emits them itself from the outcome. A caller that consumes
+text on its own, as the full profile does for a here-document body, starts a
+new Cursor at the offset after it.
+
+Refusals carry these messages, which the shell profiles map to their own
+statuses:
+
+- "unclosed quote", "unclosed parameter expansion", "unclosed command or
+  arithmetic substitution", and "trailing escape" are incomplete: more text
+  could finish them;
+- "backtick substitution is not supported", "here-document variant is not
+  supported", "asynchronous execution is not supported", and "excluded shell
+  construct" are unsupported;
+- "NUL in script" and a refusal without a message are malformed.
+
+The embedded dialect refuses NUL anywhere, a comment included, and refuses
+&, <, >, and a backtick outside a word as operators it does not have. The full
+dialect reads an IoNumber as a word of digits alone ended by < or >, and
+refuses [[, ]], ((, <(, and >(.
+
+In the embedded dialect every expansion is a fragment, inside double quotes
+as well as outside, and a backslash-newline inside double quotes is a line
+continuation that ends the current fragment. A parameter name starts with a
+letter of either case or an underscore.
+
+# Numbers
+
+parse_number_at(text, at) reads one number starting at at, after any leading
+space, tab, \r, or \n. parse_number(text) is parse_number_at(text, 0). Neither
+requires the number to end the text: length and consumed say how much was
+read, and a caller that needs the whole text to be a number compares them.
+
+A number has an optional sign, then either a radix prefix 0x, 0o, or 0b with
+digits of that radix, or decimal digits with an optional fraction and an
+optional exponent. An underscore may appear among the digits and is ignored. A
+trailing point without fraction digits is accepted; an exponent without
+digits is not.
+
+NumberValue reports:
+
+- kind: Invalid, Integer (a prefixed radix, or decimal digits alone), Float
+  (a fraction), or Scientific (an exponent);
+- integer, for an Integer: the value as a signed 64-bit number. A decimal
+  magnitude is read unsigned, so -9223372036854775808 is in range;
+- real: for a Float or Scientific, the nearest double; for a decimal Integer,
+  its nearest double too, so a reader wanting a real number of any width takes
+  it;
+- overflow: for a decimal Integer beyond the signed 64-bit range, integer is
+  clamped to that range's end; for a Float or Scientific out of double's
+  range, real is signed zero on underflow, subnormal results included, and
+  signed infinity on overflow.
+
+A caller keeps its own grammar on top: mm.shell's arithmetic accepts decimal
+digits alone and checks them before asking mm.parse for the value, and
+mm.json refuses a number whose real is infinite.
+
+# Times
+
+parse_time_at(text, at) and parse_time(text) read one time value after any
+leading blanks, trying in order:
+
+- a Duration: decimal digits followed by exactly one of s, m, h, d, or w and
+  nothing else;
+- an Epoch: ten to twelve decimal digits followed by the end or a blank, also
+  converted to a DateTime in UTC unless it overflows;
+- a Time: HH:MM or HH:MM:SS, with hours below 24 and minutes and seconds
+  below 60;
+- a Date: YYYY-MM-DD or YYYY/MM/DD, optionally followed by T or a space and a
+  time, which makes it a DateTime; or MM/DD/YYYY. The day must exist in that
+  month of that year, leap years included.
+
+TimeValue reports kind, the span read, the date or duration or epoch, and
+overflow. DateTime mirrors mm.rtc's so a module that does not import mm.rtc
+can still read dates; weekday is zero, unspecified, for anything parsed.
+
+# Consumers
+
+- mm.shell's embedded scanner drives the cursor with the Embedded dialect and
+  counts fragments through its own writer.
+- mm.shell.full's scanner drives it with the Full dialect, emits Newline
+  tokens, and handles here-document bodies itself.
+- mm.shell's arithmetic, mm.shell.full's redirections, mm.sketch's String
+  conversions, mm.configure's compiler version digits, and mm.json's integer
+  and number all read numbers through parse_number.
+- mm.json's extract_time and extract_number expose parse_time and
+  parse_number to JSON callers.
+
+# Conformance
+
+- tests/mm/parse pins both dialects' cursors, the sink callbacks and error
+  recovery, every number form including radix prefixes, underscores, and
+  edge values, and every time form including leap days and invalid dates.
+- tests/mm/shell and tests/mm/shell/full pin what each profile builds on the
+  cursor, and tests/mm/json pins JSON's number policy over parse_number.
