@@ -2,7 +2,16 @@
 
 All notable changes to modules.cpp. Versions follow [semantic versioning](https://semver.org/).
 
-## [v1.2.4] — Unreleased
+## [v1.2.4] — 2026-09-28
+
+Something to listen with. v1.2.3 gave a program the analog world; v1.2.4
+gives it sound: a portable audio interface of sources, sinks, and the stream
+between them, I2S in `mm.mcu` as a continuous transport over PIO and DMA on
+every Pico SDK lane, an ES8311 codec driver for both directions, and audio
+providers for the RP2350 LCD 1.54 family and the RP2350-Touch-LCD-2.8. It
+adds critical sections to `mm.mcu` and the transport model to the execution
+model, and rebuilds the build scripts around two platform scripts whose
+checks are read from the manifests.
 
 ### Added
 
@@ -107,66 +116,50 @@ All notable changes to modules.cpp. Versions follow [semantic versioning](https:
 
 ### Changed
 
-- The seventeen `scripts/build-*.sh` share `scripts/lib/common.sh`,
-  `scripts/lib/pico.sh`, and `scripts/lib/linux.sh` for what each used to
-  carry a copy of: tool discovery, the host restore, the lane tables, image
-  and UF2 checks, provider counting, and the native run. The Pico lane of a
-  composite board is found by walking its derives-from chain to a vendor
-  board. `scripts/boards/` holds a profile per composite board -- the
-  provider and driver behind each interface it binds -- and the board
-  scripts check every bound interface against what the application reaches,
-  so the 2.8's audio binding is now asserted absent from its demos. Every
-  script's output is byte-identical to before on a successful run; the
-  scripts shrink from 4,739 lines to about 2,000, beside about 600 of
-  library and profiles. Step 1 of drafts/plan-build-scripts.mdy.
-- `scripts/build-pico.sh` and `scripts/build-linux.sh` build one application
-  for any board of their platform and verify it against checks read from the
-  manifests rather than written by hand: `scripts/lib/manifest.sh` walks the
-  application's closure through the lane's bindings -- the board, its bases,
-  and its SDK -- to a fixed point, as the build does, and the image must carry
-  one initializer of every provider in that closure, none of every other
-  provider the lane binds, the symbols of every driver a reached provider
-  uses, and a NEEDED entry for every library link input. An application that
-  reaches an interface the lane does not bind is reported unavailable with
-  exit 77. `--dry-run` prints the lane, the commands, and every check without
-  touching the tree or needing a toolchain, and `tests/scripts/run.sh`, run by
-  `test.sh`, pins seventeen dry runs. Every build script now restores the
-  configuration record it found, a cross target or a board included, rather
-  than resetting to the host lane. Step 2 of drafts/plan-build-scripts.mdy.
-- Feature wrappers over the two platform scripts, each a short declaration
-  that works on every board of either platform: `build-display.sh`,
-  `build-gfx.sh`, `build-font.sh`, `build-epaper.sh` (`--app gfx|font`,
-  `--panel bw|bwr`), `build-analog.sh`, `build-gpio-edge.sh`,
-  `build-stdio.sh`, `build-board.sh`, `build-audio.sh`, and the two that build
-  more than once, `build-sdl.sh` and `build-linux-smoke.sh`. `--board` picks
-  the platform from the board's chain, and every platform option passes
-  through; on the SDL and e-paper Linux boards `--run` must succeed. Exit-code
-  explanations moved beside their applications as `exit-codes` files. The
-  step-1 board profiles are gone, and `tests/scripts` pins sixteen more dry
-  runs, one or more for every wrapper. Step 3 of drafts/plan-build-scripts.mdy.
-- The sixteen per-board and per-lane build scripts are removed in favour of
-  the wrappers: `build-gfx-demo-*`, `build-font-demo-*`,
-  `build-board-smoke-rp2350_touch_lcd_28`, `build-analog-smoke-pico`,
-  `build-gpio-edge-smoke-pico`, `build-stdio-smoke-pico-sdk`, and the
-  `build-linux-*` scripts but `build-linux-smoke.sh`. Each old name maps to a
-  wrapper and a board, as `build-linux-epaper-font-demo.sh` does to
-  `build-epaper.sh --app font --board epaper`. docs/modules-platform-pico.mdy
-  and docs/modules-platform-linux.mdy gain a section on the platform scripts
-  and the wrappers, and docs/modules-stdio.mdy names `build-stdio.sh`. Step 4
-  of drafts/plan-build-scripts.mdy.
-- `scripts/build-target.sh` builds one application for any target lane
-  configure accepts -- `--target`, `--sdk` or `--board`, `--compiler`,
-  `--target-host`, `--runner` -- and verifies the image's ELF machine and its
-  providers, drivers, and libraries from the manifests, as the Pico and Linux
-  scripts do. `--run` goes through `./run` when the lane has a runner, and
-  otherwise runs a hosted image directly or under qemu user mode with the
-  SDK's runtime prefix. One wrapper per platform names the lane and a default
-  application: `build-aarch64-linux-gnu.sh`, `build-x86_64-linux-gnu.sh`,
-  `build-arm-linux-gnueabihf.sh`, `build-arm-none-eabi.sh` (mps2-an385 under
-  qemu-system), `build-m68k-linux-gnu.sh`, and `build-m68k-linux-external.sh`
-  (cmake-demo-smoke). A missing cross toolchain or SDK runtime prefix is
-  reported with exit 65 before the configuration is touched, and
-  `tests/scripts` pins eleven more dry runs.
+- **Build scripts.** Two platform scripts, three families of wrapper, and
+  checks read from the manifests replace the seventeen hand-written
+  `scripts/build-*.sh`. `scripts/build-pico.sh` builds one application for
+  any Pico board, a composite board taking its vendor ancestor's lane, and
+  `scripts/build-linux.sh` for any native Linux lane. What the image must
+  contain is no longer written in the scripts: `scripts/lib/manifest.sh`
+  walks the application's closure through the lane's bindings -- the board,
+  its bases, and its SDK -- to a fixed point, as the build does, and the
+  image must carry one initializer of every provider in that closure, none
+  of every other provider the lane binds, the symbols of every driver a
+  reached provider uses, and a NEEDED entry for every library link input. An
+  application reaching an interface the lane does not bind is reported
+  unavailable with exit 77.
+  - Feature wrappers, each a short declaration that works on every board of
+    either platform, `--board` picking the platform from the board's chain:
+    `build-display.sh`, `build-gfx.sh`, `build-font.sh`, `build-epaper.sh`
+    (`--app gfx|font`, `--panel bw|bwr|b`), `build-analog.sh`,
+    `build-gpio-edge.sh`, `build-stdio.sh`, `build-board.sh`,
+    `build-audio.sh`, and the two that build twice to assert a difference,
+    `build-sdl.sh` and `build-linux-smoke.sh`. On the SDL and e-paper Linux
+    boards `--run` must succeed.
+  - Target wrappers over `scripts/build-target.sh`, which builds for any
+    target lane configure accepts and checks the image's ELF machine as well:
+    `build-aarch64-linux-gnu.sh`, `build-x86_64-linux-gnu.sh`,
+    `build-arm-linux-gnueabihf.sh`, `build-arm-none-eabi.sh` (mps2-an385
+    under qemu-system), `build-m68k-linux-gnu.sh`, and
+    `build-m68k-linux-external.sh` (cmake-demo-smoke). `--run` goes through
+    `./run` when the lane has a runner, and otherwise runs a hosted image
+    directly or under qemu user mode with the SDK's runtime prefix.
+  - Every script takes `--dry-run`, which prints the lane, the commands, and
+    every check without touching the tree or needing a toolchain;
+    `tests/scripts/run.sh`, run by `test.sh`, pins forty-four of them. Every
+    script restores the configuration record it found, a cross target or a
+    board included, rather than resetting to the host lane, unless given
+    `--keep`. Exit-code explanations live beside their applications as
+    `exit-codes` files.
+  - The per-board and per-lane scripts are removed: `build-gfx-demo-*`,
+    `build-font-demo-*`, `build-board-smoke-rp2350_touch_lcd_28`,
+    `build-analog-smoke-pico`, `build-gpio-edge-smoke-pico`,
+    `build-stdio-smoke-pico-sdk`, and the `build-linux-*` scripts but
+    `build-linux-smoke.sh`. Each maps to a wrapper and a board, as
+    `build-linux-epaper-font-demo.sh` does to
+    `build-epaper.sh --app font --board epaper`. The Pico, Linux, stdio, and
+    platforms specifications name the new scripts.
 - `tests/mm/touch-cst816` moved to `tests/mm/touch/cst816`, beside the CST328
   tests it shares an interface with, as `tests/mm/audio/es8311` sits under
   `tests/mm/audio`. The suite keeps its name, touch-cst816, and `test.sh` now
@@ -189,7 +182,7 @@ All notable changes to modules.cpp. Versions follow [semantic versioning](https:
   lifecycle, specified once in docs/modules-platform-mcu.mdy. No provider
   implemented the earlier form.
 
-## [v1.2.3] — 2026-09-18
+## [v1.2.3] — 2026-09-27
 
 Something to measure with. v1.2.2 put pictures on the panels; v1.2.3 gives a
 program the analog world and the wire beneath it: an ADC and a PWM in
@@ -846,6 +839,9 @@ framework or documentation generator. 77 commits from the initial commit on
   `xfail`, and `xpass` failing the run when a known defect starts passing.
 - GCC and Clang backends, selected per build.
 
+[v1.2.4]: https://github.com/modules-cpp/modules.cpp/releases/tag/v1.2.4
+[v1.2.3]: https://github.com/modules-cpp/modules.cpp/releases/tag/v1.2.3
+[v1.2.2]: https://github.com/modules-cpp/modules.cpp/releases/tag/v1.2.2
 [v1.2.1]: https://github.com/modules-cpp/modules.cpp/releases/tag/v1.2.1
 [v1.2.0]: https://github.com/modules-cpp/modules.cpp/releases/tag/v1.2.0
 [v1.1.0]: https://github.com/modules-cpp/modules.cpp/releases/tag/v1.1.0

@@ -157,12 +157,12 @@ manifest format, every core module and tool in detail, and the TDD workflow
 for making changes. This README only covers getting the project running for
 the first time.
 
-[Configure specification for release v1.2.3](docs/modules-configure.mdy) defines
+[Configure specification for release v1.2.4](docs/modules-configure.mdy) defines
 the official manifest-option, reset, and read-only requirements. Its Current
 boundaries section describes the implemented structural-property scope;
 build, test, run, and debug consume lane capability and core declarations,
 while warning about tuning declarations whose values they do not apply yet.
 
-[Platforms specification for release v1.2.3](docs/modules-platforms.mdy) defines
+[Platforms specification for release v1.2.4](docs/modules-platforms.mdy) defines
 SDK and board manifests, target platform selection, responsibility ownership,
 and the strict configuration-2 record.
