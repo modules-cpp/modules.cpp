@@ -368,6 +368,8 @@ bool detachInterrupt(int pin);
 bool detachInterrupt(unsigned int pin);
 [[nodiscard]] int digitalPinToInterrupt(int pin);
 [[nodiscard]] unsigned int digitalPinToInterrupt(unsigned int pin);
+void noInterrupts();
+void interrupts();
 Closing fence
 
 attachInterrupt registers a handler function for GPIO edge events on the specified pin, configuring the pin for edge detection via mm.mcu. Trigger modes are RISING, FALLING, and CHANGE (mapped to mm::mcu::Edge::Rising, mm::mcu::Edge::Falling, and mm::mcu::Edge::Both). LOW and HIGH level interrupts are declined because level detection cannot be latched. The module maintains a fixed table of eight interrupt entries; attempting to attach a ninth returns false with Status::Busy. Re-attaching an already attached pin updates its handler and trigger, reusing the slot.
@@ -376,7 +378,7 @@ detachInterrupt clears the interrupt registration and unwatches the pin via mm.m
 
 digitalPinToInterrupt is the identity mapping: every GPIO pin that the latch supports serves directly as its own interrupt identifier.
 
-The legacy interrupts and noInterrupts functions are declined. The modules.cpp execution model runs sketch handlers in thread context without preemption; disabling global interrupts is neither necessary nor supported.
+noInterrupts and interrupts hold off and resume the attached handlers. Sketch handlers run in thread context, from dispatch, without preemption, so the handlers are the only interrupts a sketch can observe: between noInterrupts and interrupts dispatch runs none of them, including the dispatch inside delay, and an edge that arrives in between stays latched in mm.mcu and its handler runs at the first dispatch after interrupts. A variable a handler shares with loop can therefore be read and reset between the two calls, as on an Arduino core. The calls do not nest: interrupts resumes however many noInterrupts came before it, and calling either twice is harmless. run begins with handlers resumed. They do not call mm.mcu's interrupts_disable or interrupts_enable. The platform's own handlers keep running, so a delay, bus transfer, or Serial write between the two calls behaves as it does outside them. docs/modules-execution.mdy forbids a waiting call inside an mm.mcu critical section, and an Arduino sketch commonly makes one there.
 
 ## Communication
 

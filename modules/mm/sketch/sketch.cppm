@@ -304,6 +304,12 @@ bool detachInterrupt(int pin);
 bool detachInterrupt(unsigned int pin);
 [[nodiscard]] int digitalPinToInterrupt(int pin);
 [[nodiscard]] unsigned int digitalPinToInterrupt(unsigned int pin);
+// Hold off and resume the handlers attachInterrupt registered. An edge that
+// arrives in between stays latched and its handler runs at the first dispatch
+// after interrupts. The calls do not nest: interrupts resumes however many
+// noInterrupts came before it.
+void noInterrupts();
+void interrupts();
 
 enum class Base {
     Dec = 10,

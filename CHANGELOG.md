@@ -48,6 +48,12 @@ All notable changes to modules.cpp. Versions follow [semantic versioning](https:
 - **`Wire.begin(sda, scl)`.** `TwoWire::begin(int sda, int scl)` and
   `begin(int sda, int scl, unsigned long frequency)` choose a bus's pins,
   and optionally its clock, at begin.
+- **`noInterrupts()` and `interrupts()` in `mm.sketch`.** They hold off and
+  resume the handlers `attachInterrupt` registered: an edge that arrives in
+  between stays latched, and its handler runs at the first dispatch after
+  `interrupts()`. They do not mask the platform's interrupts. That spec
+  previously declined them; RobTillaart's `PCF8574_interrupt_advanced`
+  example uses them.
 
 With `Wire1` and, for `ADS_pointerToFunction`, the legacy profile, all 27
 examples of RobTillaart's ADS1X15 build; `ADS_RP2040_WIRE1` and

@@ -148,6 +148,9 @@ bool fill_ring() {
 }
 
 static bool dispatching_ = false;
+// Set between noInterrupts and interrupts: dispatch leaves the attached
+// handlers' edges latched until it is cleared.
+static bool interrupts_held_ = false;
 
 static std::minstd_rand random_engine_{1};
 
@@ -470,7 +473,7 @@ void dispatch() {
     }
 
     for (std::size_t i = 0; i < max_interrupts; ++i) {
-        if (exit_requested_) break;
+        if (exit_requested_ || interrupts_held_) break;
         if (!interrupt_table_[i].active) {
             continue;
         }
@@ -513,6 +516,7 @@ int run(Setup setup, Loop loop) {
     serial_callback_ = nullptr;
     Serial.setTimeout(1000);
     dispatching_ = false;
+    interrupts_held_ = false;
     spi_begun_ = false;
     for (auto& state : wire_states_) {
         reset_wire(state);
@@ -1579,6 +1583,14 @@ bool detachInterrupt(int pin) {
         return false;
     }
     return detachInterrupt(static_cast<unsigned int>(pin));
+}
+
+void noInterrupts() {
+    interrupts_held_ = true;
+}
+
+void interrupts() {
+    interrupts_held_ = false;
 }
 
 int digitalPinToInterrupt(int pin) {

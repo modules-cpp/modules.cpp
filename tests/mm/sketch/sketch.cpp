@@ -1421,6 +1421,50 @@ void interrupt_edge_latched_during_handler() {
     clearError();
 }
 
+static int held_calls = 0;
+void held_handler() {
+    ++held_calls;
+}
+
+void interrupts_held_between_no_interrupts_and_interrupts() {
+    test_gpio_clear_all_edges();
+    clearError();
+    held_calls = 0;
+
+    expect(attachInterrupt(2, &held_handler, RISING), "attach handler");
+
+    noInterrupts();
+    test_gpio_set_edge(2, true);
+    dispatch();
+    expect(held_calls == 0, "no handler runs after noInterrupts");
+    expect(delay(0), "delay succeeds while interrupts are held");
+    expect(held_calls == 0, "delay does not run a held handler");
+
+    noInterrupts();
+    interrupts();
+    dispatch();
+    expect(held_calls == 1, "the latched edge runs once after interrupts");
+
+    dispatch();
+    expect(held_calls == 1, "the edge is taken once");
+
+    interrupts();
+    test_gpio_set_edge(2, true);
+    dispatch();
+    expect(held_calls == 2, "interrupts without noInterrupts changes nothing");
+
+    noInterrupts();
+    run(&setup_nop, &loop_completes);
+    test_gpio_set_edge(2, true);
+    dispatch();
+    expect(held_calls == 3, "run starts with interrupts resumed");
+    expect(lastError() == Status::Ok, "no error recorded");
+
+    detachInterrupt(2);
+    test_gpio_clear_all_edges();
+    clearError();
+}
+
 static int int_exit_h1_calls = 0;
 static int int_exit_h2_calls = 0;
 
@@ -2388,6 +2432,7 @@ const mm::test::case_ cases[] = {
     {"interrupt table mutation during dispatch", &interrupt_table_mutation_during_dispatch},
     {"interrupt edge latched during handler", &interrupt_edge_latched_during_handler},
     {"interrupt dispatch request exit", &interrupt_dispatch_request_exit},
+    {"interrupts held between noInterrupts and interrupts", &interrupts_held_between_no_interrupts_and_interrupts},
     {"interrupt preserved across runs", &interrupt_preserved_across_runs},
     {"spi communication", &spi_communication},
     {"wire communication", &wire_communication},
