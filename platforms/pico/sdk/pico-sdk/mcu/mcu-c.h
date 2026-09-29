@@ -50,6 +50,16 @@ int mm_pico_mcu_i2c_write_read(unsigned int instance, unsigned int address,
                                const unsigned char* command, size_t command_size,
                                unsigned char* data, size_t size);
 int mm_pico_mcu_uart_write(unsigned int instance, const char* text);
+int mm_pico_mcu_uart_configure(unsigned int instance, unsigned int transmit_pin,
+                               unsigned int receive_pin, unsigned long baud);
+int mm_pico_mcu_uart_send(unsigned int instance, const unsigned char* data, size_t size,
+                          size_t* accepted);
+int mm_pico_mcu_uart_receive(unsigned int instance, unsigned char* data, size_t size,
+                             size_t* count);
+int mm_pico_mcu_uart_release(unsigned int instance);
+int mm_pico_mcu_default_uart(unsigned int* instance, unsigned int* transmit_pin,
+                             unsigned int* receive_pin);
+int mm_pico_mcu_has_second_uart(void);
 int mm_pico_mcu_delay_ms(unsigned long milliseconds);
 int mm_pico_mcu_ticks_ms(unsigned long* ticks);
 int mm_pico_mcu_delay_us(unsigned long microseconds);

@@ -49,6 +49,12 @@ if(MM_BOARD STREQUAL "pico" OR
    MM_BOARD STREQUAL "pico2-w-riscv")
   set(MM_BOARD_HAS_SECOND_I2C 1)
 endif()
+
+# A second UART, instance 1 on GP8 and GP9, the pins the Arduino cores for
+# RP2040 and RP2350 give Serial2. The same six vendor boards, for the same
+# reason: a composite board's default UART may already be UART1, as the LCD
+# 1.54 family's is.
+set(MM_BOARD_HAS_SECOND_UART ${MM_BOARD_HAS_SECOND_I2C})
 if(MM_BOARD STREQUAL "rp2350_lcd_154" OR
    MM_BOARD STREQUAL "rp2350_touch_lcd_154")
   set(MM_ADC_REFERENCE_MV 3300)

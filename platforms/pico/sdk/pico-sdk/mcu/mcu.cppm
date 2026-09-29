@@ -163,8 +163,17 @@ public:
         }
         std::optional<mm::mcu::I2cWiring> second_i2c;
         if (mm_pico_mcu_has_second_i2c()) second_i2c = mm::mcu::I2cWiring{1, 26, 27};
+        std::optional<mm::mcu::UartWiring> uart;
+        unsigned int uart_instance = 0;
+        unsigned int uart_tx = 0;
+        unsigned int uart_rx = 0;
+        if (mm_pico_mcu_default_uart(&uart_instance, &uart_tx, &uart_rx))
+            uart = mm::mcu::UartWiring{uart_instance, uart_tx, uart_rx};
+        std::optional<mm::mcu::UartWiring> second_uart;
+        if (mm_pico_mcu_has_second_uart()) second_uart = mm::mcu::UartWiring{1, 8, 9};
         return {mm_pico_mcu_board_name(), std::span<const mm::mcu::Gpio>{gpios, count}, led,
-                mm::mcu::SpiWiring{0, 18, 19, 16}, mm::mcu::I2cWiring{0, 4, 5}, second_i2c};
+                mm::mcu::SpiWiring{0, 18, 19, 16}, mm::mcu::I2cWiring{0, 4, 5}, second_i2c,
+                uart, second_uart};
     }
 
     [[nodiscard]] mm::mcu::Status gpio_configure(unsigned int pin, mm::mcu::Direction direction,
@@ -265,6 +274,36 @@ public:
 
     [[nodiscard]] mm::mcu::Status uart_write(unsigned int instance, const char* text) override {
         return from(mm_pico_mcu_uart_write(instance, text));
+    }
+
+    [[nodiscard]] mm::mcu::Status uart_configure(
+        const mm::mcu::UartConfiguration& configuration) override {
+        return from(mm_pico_mcu_uart_configure(configuration.instance,
+                                               configuration.transmit_gpio,
+                                               configuration.receive_gpio, configuration.baud));
+    }
+
+    [[nodiscard]] mm::mcu::Status uart_write(unsigned int instance,
+                                             std::span<const std::byte> data,
+                                             std::size_t& accepted) override {
+        std::size_t sent = 0;
+        const auto status = from(mm_pico_mcu_uart_send(
+            instance, reinterpret_cast<const unsigned char*>(data.data()), data.size(), &sent));
+        if (status == mm::mcu::Status::Ok) accepted = sent;
+        return status;
+    }
+
+    [[nodiscard]] mm::mcu::Status uart_read(unsigned int instance, std::span<std::byte> data,
+                                            std::size_t& count) override {
+        std::size_t taken = 0;
+        const auto status = from(mm_pico_mcu_uart_receive(
+            instance, reinterpret_cast<unsigned char*>(data.data()), data.size(), &taken));
+        if (status == mm::mcu::Status::Ok) count = taken;
+        return status;
+    }
+
+    [[nodiscard]] mm::mcu::Status uart_release(unsigned int instance) override {
+        return from(mm_pico_mcu_uart_release(instance));
     }
 
     [[nodiscard]] mm::mcu::Status delay_ms(unsigned long milliseconds) override {

@@ -48,6 +48,13 @@ extern unsigned char test_get_i2c_written_byte(std::size_t idx);
 extern unsigned int test_get_i2c_written_address();
 extern void test_reset_i2c();
 extern void test_set_second_i2c_present(bool present);
+extern void test_reset_uart();
+extern void test_set_uart_present(bool present);
+extern std::string test_uart_sent(unsigned int instance);
+extern void test_uart_feed(unsigned int instance, std::string_view text);
+extern bool test_uart_ready(unsigned int instance);
+extern unsigned long test_uart_baud(unsigned int instance);
+extern unsigned int test_uart_tx(unsigned int instance);
 extern unsigned int test_get_i2c_written_instance();
 extern unsigned int test_get_i2c_config_instance();
 extern unsigned int test_get_i2c_config_data();
@@ -1586,6 +1593,65 @@ void spi_communication() {
     test_reset_spi();
 }
 
+void hardware_serial_ports() {
+    clearError();
+    test_reset_uart();
+
+    // Serial1 and Serial2 are the board's UARTs 0 and 1, with their own state.
+    run([]{
+        clearError();
+        expect(Serial1.begin(115200) && Serial2.begin(9600), "both ports begin");
+        expect(test_uart_ready(0) && test_uart_baud(0) == 115200 &&
+                   test_uart_ready(1) && test_uart_baud(1) == 9600 && test_uart_tx(1) == 8,
+               "Serial1 is instance 0 and Serial2 instance 1 on its pins at its rate");
+        expect(static_cast<bool>(Serial2), "a begun port is true");
+        expect(Serial2.print("hello, world") == 12, "a write longer than the FIFO completes");
+        expect(Serial2.println(42) == 4, "print reaches the port through Print");
+        expect(test_uart_sent(1) == "hello, world42\r\n", "Serial2's bytes reach instance 1");
+        expect(test_uart_sent(0).empty(), "and nothing reaches Serial1");
+
+        expect(Serial2.available() == 0 && Serial2.read() == -1,
+               "nothing arrived, nothing to read, and no wait");
+        test_uart_feed(1, "ok\n");
+        expect(Serial2.available() == 3 && Serial2.peek() == 'o' && Serial2.read() == 'o',
+               "arrived bytes are available, peeked, and read");
+        expect(Serial2.readStringUntil('\n') == "k", "Stream's parsing works on the port");
+        expect(Serial1.end() && !static_cast<bool>(Serial1) && !test_uart_ready(0),
+               "end releases the port");
+        requestExit(0);
+    }, nullptr);
+    expect(!test_uart_ready(1), "run releases a port the sketch left begun");
+    clearError();
+
+    // A board without UARTs: a port needs pins named first.
+    test_reset_uart();
+    test_set_uart_present(false);
+    run([]{
+        clearError();
+        expect(!Serial2.begin(9600) && lastError() == Status::Unsupported,
+               "Serial2 without a board UART is Unsupported");
+        clearError();
+        expect(Serial2.setTX(4) && Serial2.setRX(5) && Serial2.begin(9600),
+               "setTX and setRX before begin choose the pins");
+        expect(test_uart_ready(1) && test_uart_tx(1) == 4, "Serial2 begins on instance 1 there");
+        expect(Serial2.setTX(4) && !Serial2.setTX(8), "a running port keeps its pins");
+        requestExit(0);
+    }, nullptr);
+    clearError();
+    test_reset_uart();
+
+    // A write to a port never begun fails and marks the sink.
+    run([]{
+        clearError();
+        expect(Serial1.write(static_cast<byte>('x')) == 0 &&
+                   lastError() == Status::NotInitialized && Serial1.getWriteError() != 0,
+               "writing an unbegun port fails");
+        requestExit(0);
+    }, nullptr);
+    clearError();
+    test_reset_uart();
+}
+
 void second_wire_bus() {
     clearError();
     test_reset_i2c();
@@ -1651,6 +1717,11 @@ void second_wire_bus() {
     test_reset_i2c();
     run([]{
         clearError();
+        expect(!Wire2.begin() && lastError() == Status::Unsupported,
+               "Wire2 has no board wiring to begin on");
+        clearError();
+        expect(Wire2.begin(10, 11) && test_get_i2c_config_instance() == 2,
+               "Wire2 begins on instance 2 on named pins");
         expect(Wire1.begin(21, 22, 400000UL), "Wire1.begin with pins and a clock");
         expect(test_get_i2c_config_instance() == 1 && test_get_i2c_config_data() == 21 &&
                    test_get_i2c_config_clock() == 22,
@@ -2322,6 +2393,7 @@ const mm::test::case_ cases[] = {
     {"wire communication", &wire_communication},
     {"legacy profile", &legacy_profile},
     {"second wire bus", &second_wire_bus},
+    {"hardware serial ports", &hardware_serial_ports},
     {"analog read operations", &analog_read_operations},
     {"analog write operations", &analog_write_operations},
     {"tone and no tone operations", &tone_and_no_tone_operations},

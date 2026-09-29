@@ -451,23 +451,117 @@ int mm_pico_mcu_i2c_write_read(unsigned int instance, unsigned int address,
     return read < 0 ? MM_PICO_MCU_UNSUPPORTED : MM_PICO_MCU_BUSY;
 }
 
-// Portable instance zero means the selected SDK board's default hardware UART.
-// Every Raspberry Pi Pico board definition supplies its UART number and TX/RX
-// pins. A second portable instance would need its own board description and is
-// Unsupported rather than silently aliasing the default.
+// The byte calls below address a hardware UART by its number, 0 or 1, and
+// each must be configured first. mm_pico_uart_ready records which are.
+static uart_inst_t* mm_pico_uart(unsigned int instance) {
+    if (instance == 0) return uart0;
+    if (instance == 1) return uart1;
+    return NULL;
+}
+
+static int mm_pico_uart_ready[2];
+
+// On RP2040 and RP2350 a UART's TX is where pin % 4 is 0 and its RX where it
+// is 1, and the instance alternates in runs of eight offset by four: GP0-3
+// UART0, GP4-11 UART1, GP12-19 UART0, GP20-27 UART1, GP28-29 UART0, which
+// is ((pin + 4) / 8) % 2.
+static int mm_pico_uart_pin_matches(unsigned int instance, unsigned int pin,
+                                    unsigned int signal) {
+    return ((pin + 4u) / 8u) % 2u == instance && pin % 4u == signal;
+}
+
+// Portable text instance zero means the selected SDK board's default hardware
+// UART. Every Raspberry Pi Pico board definition supplies its UART number and
+// TX/RX pins. A second portable instance would need its own board description
+// and is Unsupported rather than silently aliasing the default. A default UART
+// already configured through mm_pico_mcu_uart_configure keeps its rate.
 int mm_pico_mcu_uart_write(unsigned int instance, const char* text) {
-    static int initialized = 0;
     if (text == NULL) return MM_PICO_MCU_BAD_ARGUMENT;
     if (instance != 0) return MM_PICO_MCU_UNSUPPORTED;
 
-    if (!initialized) {
+    if (!mm_pico_uart_ready[PICO_DEFAULT_UART]) {
         uart_init(uart_default, PICO_DEFAULT_UART_BAUD_RATE);
         gpio_set_function(PICO_DEFAULT_UART_TX_PIN, GPIO_FUNC_UART);
         gpio_set_function(PICO_DEFAULT_UART_RX_PIN, GPIO_FUNC_UART);
-        initialized = 1;
+        mm_pico_uart_ready[PICO_DEFAULT_UART] = 1;
     }
     uart_puts(uart_default, text);
     return MM_PICO_MCU_OK;
+}
+
+int mm_pico_mcu_uart_configure(unsigned int instance, unsigned int transmit_pin,
+                               unsigned int receive_pin, unsigned long baud) {
+    uart_inst_t* uart = mm_pico_uart(instance);
+    if (uart == NULL || baud == 0 || !mm_pico_pin_valid(transmit_pin) ||
+        !mm_pico_pin_valid(receive_pin) ||
+        !mm_pico_uart_pin_matches(instance, transmit_pin, 0u) ||
+        !mm_pico_uart_pin_matches(instance, receive_pin, 1u))
+        return MM_PICO_MCU_BAD_ARGUMENT;
+
+    uart_init(uart, (uint)baud);
+    gpio_set_function(transmit_pin, GPIO_FUNC_UART);
+    gpio_set_function(receive_pin, GPIO_FUNC_UART);
+    mm_pico_uart_ready[instance] = 1;
+    return MM_PICO_MCU_OK;
+}
+
+// Neither call waits: the FIFOs take or give what they have.
+int mm_pico_mcu_uart_send(unsigned int instance, const unsigned char* data, size_t size,
+                          size_t* accepted) {
+    uart_inst_t* uart = mm_pico_uart(instance);
+    if (uart == NULL || !mm_pico_uart_ready[instance] || accepted == NULL ||
+        (data == NULL && size != 0))
+        return MM_PICO_MCU_BAD_ARGUMENT;
+    size_t sent = 0;
+    while (sent < size && uart_is_writable(uart)) uart_putc_raw(uart, (char)data[sent++]);
+    *accepted = sent;
+    return MM_PICO_MCU_OK;
+}
+
+int mm_pico_mcu_uart_receive(unsigned int instance, unsigned char* data, size_t size,
+                             size_t* count) {
+    uart_inst_t* uart = mm_pico_uart(instance);
+    if (uart == NULL || !mm_pico_uart_ready[instance] || count == NULL ||
+        (data == NULL && size != 0))
+        return MM_PICO_MCU_BAD_ARGUMENT;
+    size_t taken = 0;
+    while (taken < size && uart_is_readable(uart)) data[taken++] = (unsigned char)uart_getc(uart);
+    *count = taken;
+    return MM_PICO_MCU_OK;
+}
+
+int mm_pico_mcu_uart_release(unsigned int instance) {
+    uart_inst_t* uart = mm_pico_uart(instance);
+    if (uart == NULL || !mm_pico_uart_ready[instance]) return MM_PICO_MCU_BAD_ARGUMENT;
+    uart_deinit(uart);
+    mm_pico_uart_ready[instance] = 0;
+    return MM_PICO_MCU_OK;
+}
+
+// The board's default UART, from its SDK board header, and whether it has a
+// second one the bridge's board table vouches for.
+int mm_pico_mcu_default_uart(unsigned int* instance, unsigned int* transmit_pin,
+                             unsigned int* receive_pin) {
+#if defined(PICO_DEFAULT_UART) && defined(PICO_DEFAULT_UART_TX_PIN) && \
+    defined(PICO_DEFAULT_UART_RX_PIN)
+    *instance = (unsigned int)PICO_DEFAULT_UART;
+    *transmit_pin = (unsigned int)PICO_DEFAULT_UART_TX_PIN;
+    *receive_pin = (unsigned int)PICO_DEFAULT_UART_RX_PIN;
+    return 1;
+#else
+    (void)instance;
+    (void)transmit_pin;
+    (void)receive_pin;
+    return 0;
+#endif
+}
+
+int mm_pico_mcu_has_second_uart(void) {
+#if MM_BOARD_HAS_SECOND_UART
+    return 1;
+#else
+    return 0;
+#endif
 }
 
 int mm_pico_mcu_delay_ms(unsigned long milliseconds) {

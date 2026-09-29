@@ -472,6 +472,51 @@ find and findUntil perform streaming Knuth-Morris-Pratt pattern matching, suppor
 
 onSerial registers a callback invoked from dispatch once per pass whenever unread bytes remain in the receive ring buffer.
 
+### Serial1 and Serial2
+
+Opening fence
+class HardwareSerial : public Stream {
+public:
+    constexpr HardwareSerial() = default;
+    constexpr explicit HardwareSerial(unsigned int port);
+
+    bool begin(unsigned long baud = 9600);
+    bool end();
+    bool setTX(unsigned int pin);
+    bool setRX(unsigned int pin);
+
+    std::size_t write(byte b) override;
+    std::size_t write(const byte* buffer, std::size_t size) override;
+    [[nodiscard]] int available() override;
+    int read() override;
+    int peek() override;
+    void flush() override;
+    explicit operator bool() const;
+};
+
+extern HardwareSerial Serial1;
+extern HardwareSerial Serial2;
+Closing fence
+
+Serial1 and Serial2 are hardware UARTs over mm.mcu's byte UART calls, each a
+Stream, so everything Print and Stream offer -- print, println, readBytes,
+parseInt, readStringUntil -- works on them. Serial is the console, which may be
+USB, and is a different object. Serial1 is the board's default UART,
+Board::uart, and Serial2 its second, Board::second_uart; a port whose board
+declares no UART fails begin with Status::Unsupported unless setTX and setRX,
+the RP2040 and RP2350 cores' spelling, named both pins first, in which case it
+begins on its own instance (Serial1 on 0, Serial2 on 1). After begin a running
+port keeps its pins, and setTX and setRX return true only for the pin in use.
+
+write queues what the UART takes and waits, up to the stream's timeout, for
+room for the rest; a timeout records Status::Timeout, sets the port's write
+error, and returns what was queued. read, peek, and available never wait: they
+take what has arrived into a sixty-four-byte buffer. flush returns at once,
+because mm.mcu reports what it accepted, not what has left the wire. end
+releases the port, and run releases any port a sketch left begun. On the Pico
+SDK vendor boards Serial1 is UART0 on GP0 and GP1 and Serial2 UART1 on GP8 and
+GP9; on Linux they are the device map's uart.0 and uart.1.
+
 ### SPI
 
 Opening fence
@@ -551,9 +596,12 @@ public:
 
 extern TwoWire Wire;
 extern TwoWire Wire1;
+extern TwoWire Wire2;
 Closing fence
 
 Wire provides I2C master communication over mm.mcu's i2c_configure, i2c_write, i2c_read, and i2c_write_read.
+
+Wire2 is a third bus, instance 2. No board declares a default wiring for it, so Wire2.begin() fails with Status::Unsupported until setSDA and setSCL, or begin(sda, scl), name its pins, and a platform with two I2C controllers, such as the Pico, refuses instance 2 when it is configured.
 
 Wire and Wire1 are two buses with separate state: transmit and receive buffers, pending write, clock, and pins. Wire is bus 0, on the board's I2C wiring; Wire1 is bus 1, on the board's second I2C wiring, Board::second_i2c in mm.mcu, which the Pico SDK vendor boards give as instance 1 on GP26 and GP27, the Arduino cores' Wire1 pins. A board without a second wiring leaves Wire1.begin() failing with Status::Unsupported. Diagnostics name the bus: Wire.begin, Wire1.begin.
 

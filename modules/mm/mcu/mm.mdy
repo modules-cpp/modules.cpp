@@ -8,6 +8,7 @@ file: status.cppm mm.mcu:status
 file: board.cppm mm.mcu:board
 file: spi-types.cppm mm.mcu:spi_types
 file: i2c-types.cppm mm.mcu:i2c_types
+file: uart-types.cppm mm.mcu:uart_types
 file: i2s-types.cppm mm.mcu:i2s_types
 file: transport-types.cppm mm.mcu:transport_types
 file: interrupt-types.cppm mm.mcu:interrupt_types

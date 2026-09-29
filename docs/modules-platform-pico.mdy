@@ -204,12 +204,21 @@ family:
   clock, transmit, and optional receive GPIOs. Configuration validates the
   board inventory, distinct signals, and each RP chip's SPI signal-to-GPIO mux;
   chip select remains device-driver GPIO policy.
-- portable UART instance zero is the board header's PICO_DEFAULT_UART, using its
-  PICO_DEFAULT_UART_TX_PIN, PICO_DEFAULT_UART_RX_PIN, and
-  PICO_DEFAULT_UART_BAUD_RATE. It is initialized on first use and writes through
-  hardware_uart rather than through semihosted stdio. Other portable UART
-  instances answer Unsupported until the Board description can name their pin
-  assignments.
+- text UART instance zero, uart_write with a C string, is the board header's
+  PICO_DEFAULT_UART, using its PICO_DEFAULT_UART_TX_PIN,
+  PICO_DEFAULT_UART_RX_PIN, and PICO_DEFAULT_UART_BAUD_RATE. It is initialized
+  on first use, unless the byte calls already configured that UART, and writes
+  through hardware_uart rather than through semihosted stdio. Other text
+  instances answer Unsupported.
+- the byte UART calls address hardware UART0 and UART1 by number. Configure
+  validates that the transmit pin is one where GPIO % 4 is 0 and the receive pin
+  one where it is 1, on the instance whose runs of GPIOs they fall in (GP0-3
+  UART0, GP4-11 UART1, GP12-19 UART0, GP20-27 UART1, GP28-29 UART0). Send and
+  receive move bytes through the FIFOs without waiting. Board describes the
+  header's default UART, and on the six vendor boards a second, UART1 on GP8
+  and GP9, the Arduino cores' Serial2 pins; a composite board has a second only
+  when the bridge's board table sets MM_BOARD_HAS_SECOND_UART. The adapter does
+  not record UART pads in its pad-owner table, as it does not for I2C.
 - delay_ms and ticks_ms use Pico SDK's monotonic timer. The timer's epoch remains
   platform-defined, as required by mm.mcu.
 - interrupts_disable and interrupts_enable are the SDK's

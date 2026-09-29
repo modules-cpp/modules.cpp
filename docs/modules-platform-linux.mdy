@@ -130,6 +130,7 @@ uart.N.parity = none|even|odd
 uart.N.data-bits = 5..8            # default 8
 uart.N.stop-bits = 1|2             # default 1
 uart.N.write-deadline-ms = MS      # default 500; a write gives up after it
+                                   # (text writes only)
 
 rtc.path = "/dev/rtcK"             # empty: CLOCK_REALTIME stands in
 rtc.convention = utc|local         # what the RTC keeps; default utc
@@ -164,6 +165,16 @@ pwm.N.gpio = G                     # optional; a declared GPIO, once
 pwm.N.name = "..."                 # optional; default pwm.N; unique
 pwm.N.group = Q                    # optional; a known shared counter
 Closing fence
+
+A UART entry serves both of mm.mcu's UART forms. A text write opens the device,
+sets the entry's line settings, writes within write-deadline-ms, and closes it.
+uart_configure opens the device read-write and keeps it open until
+uart_release, at the caller's baud and the entry's frame, so bytes that arrive
+between reads wait in the kernel's buffer; the byte write and read are
+nonblocking and report what they moved, zero included. The GPIOs a caller
+passes are not used, because the entry names the device. Board describes
+uart.0 as its default UART and uart.1 as its second, which mm.sketch serves as
+Serial1 and Serial2.
 
 Validation, after every line has applied: every GPIO has a chip and a name
 unique among GPIOs; the LED, and any analog entry's pad, names a declared

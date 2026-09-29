@@ -425,6 +425,22 @@ A provider that implements the operation must hold the bus across it. The Pico
 provider does so through the SDK's nostop argument, which makes the read a
 repeated start rather than a second transaction.
 
+A UART is the third point-to-point facility, and the simplest. uart_write with
+a C string writes text to a platform's default UART and needs no configure; it
+is the facility's original call and is kept. The byte calls address an
+instance by number and need it configured first: uart_configure carries the
+instance, the transmit and receive GPIOs, and baud, 115200 when unsaid, and the
+frame is eight data bits, no parity, one stop bit, except that a platform
+whose own configuration names another frame, as Linux's device map does, keeps
+it. uart_write with a span queues what the transmitter has room for and
+reports it; uart_read takes what has arrived, up to the span's size. Neither
+waits, so either may report zero; a zero byte is data like any other. On
+failure the count is unchanged. uart_release returns the pads and discards
+what was neither sent nor read. Board describes a default UART and a second
+one where the board has them, which is what mm.sketch's Serial1 and Serial2
+use. A platform that routes UARTs by name rather than pin, as Linux does,
+ignores the GPIOs.
+
 I2S is a serial audio link carried beside them, and it is the facility that is
 neither addressed nor mode-encoded. There is no address, because the link is
 point-to-point and there is nothing to select on it. There is no mode or bit

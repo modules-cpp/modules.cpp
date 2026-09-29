@@ -12,6 +12,7 @@ import :status;
 import :board;
 import :spi_types;
 import :i2c_types;
+import :uart_types;
 import :i2s_types;
 import :transport_types;
 import :adc_types;
@@ -124,6 +125,18 @@ public:
     [[nodiscard]] virtual Status uart_write(unsigned int, const char*) {
         return Status::Unsupported;
     }
+    [[nodiscard]] virtual Status uart_configure(const UartConfiguration&) {
+        return Status::Unsupported;
+    }
+    [[nodiscard]] virtual Status uart_write(unsigned int, std::span<const std::byte>,
+                                            std::size_t&) {
+        return Status::Unsupported;
+    }
+    [[nodiscard]] virtual Status uart_read(unsigned int, std::span<std::byte>,
+                                           std::size_t&) {
+        return Status::Unsupported;
+    }
+    [[nodiscard]] virtual Status uart_release(unsigned int) { return Status::Unsupported; }
 
     [[nodiscard]] virtual Status delay_ms(unsigned long) { return Status::Unsupported; }
 

@@ -147,6 +147,37 @@ speed_t baud_rate(unsigned long baud) {
     }
 }
 
+// The line settings a map entry names, at the rate given. The frame is the
+// entry's; only the rate may come from a caller.
+[[nodiscard]] Status set_up_tty(int fd, const platform::linux::UartEntry& entry, speed_t baud) {
+    termios tty{};
+    if (::tcgetattr(fd, &tty) < 0) return error_status(errno);
+    ::cfmakeraw(&tty);
+    ::cfsetispeed(&tty, baud);
+    ::cfsetospeed(&tty, baud);
+    tty.c_cflag = (tty.c_cflag & ~CSIZE) |
+                  (entry.data_bits == 5   ? CS5
+                   : entry.data_bits == 6 ? CS6
+                   : entry.data_bits == 7 ? CS7
+                                          : CS8);
+    if (entry.parity == 0) {
+        tty.c_cflag &= ~PARENB;
+    } else {
+        tty.c_cflag |= PARENB;
+        if (entry.parity == 2)
+            tty.c_cflag |= PARODD;
+        else
+            tty.c_cflag &= ~PARODD;
+    }
+    if (entry.stop_bits == 2)
+        tty.c_cflag |= CSTOPB;
+    else
+        tty.c_cflag &= ~CSTOPB;
+    if (::tcsetattr(fd, TCSANOW, &tty) < 0)
+        return error_status(errno, true, true);
+    return Status::Ok;
+}
+
 class LinuxPlatform final : public mm::mcu::Platform {
 public:
     ~LinuxPlatform() override {
@@ -188,7 +219,12 @@ public:
             led = mm::mcu::Led{configured->led_name.value_or("LED"),
                                *configured->led_gpio,
                                configured->led_active_high};
-        return {configured->board_name, gpio_inventory_, led};
+        mm::mcu::Board board{configured->board_name, gpio_inventory_, led};
+        // A sketch's Serial1 and Serial2 are the map's uart.0 and uart.1. The
+        // map names each by device path, so the GPIOs are not used.
+        if (!configured->uarts.empty()) board.uart = mm::mcu::UartWiring{0, 0, 0};
+        if (configured->uarts.size() > 1) board.second_uart = mm::mcu::UartWiring{1, 0, 0};
+        return board;
     }
 
     [[nodiscard]] Status gpio_configure(unsigned int pin,
@@ -471,31 +507,7 @@ public:
         Descriptor fd(::open(entry.path.c_str(),
                              O_WRONLY | O_NOCTTY | O_NONBLOCK | O_CLOEXEC));
         if (fd.get() < 0) return error_status(errno);
-        termios tty{};
-        if (::tcgetattr(fd.get(), &tty) < 0) return error_status(errno);
-        ::cfmakeraw(&tty);
-        ::cfsetispeed(&tty, baud);
-        ::cfsetospeed(&tty, baud);
-        tty.c_cflag = (tty.c_cflag & ~CSIZE) |
-                      (entry.data_bits == 5   ? CS5
-                       : entry.data_bits == 6 ? CS6
-                       : entry.data_bits == 7 ? CS7
-                                              : CS8);
-        if (entry.parity == 0) {
-            tty.c_cflag &= ~PARENB;
-        } else {
-            tty.c_cflag |= PARENB;
-            if (entry.parity == 2)
-                tty.c_cflag |= PARODD;
-            else
-                tty.c_cflag &= ~PARODD;
-        }
-        if (entry.stop_bits == 2)
-            tty.c_cflag |= CSTOPB;
-        else
-            tty.c_cflag &= ~CSTOPB;
-        if (::tcsetattr(fd.get(), TCSANOW, &tty) < 0)
-            return error_status(errno, true, true);
+        if (const auto set = set_up_tty(fd.get(), entry, baud); set != Status::Ok) return set;
         const auto size = std::strlen(text);
         std::size_t done = 0;
         const auto deadline =
@@ -525,6 +537,73 @@ public:
             }
             return error_status(errno);
         }
+        return Status::Ok;
+    }
+
+    // A configured instance keeps its device open, so nothing that arrives
+    // between calls is lost to a close. Neither transfer waits.
+    [[nodiscard]] Status uart_configure(const mm::mcu::UartConfiguration& configuration) override {
+        Status status;
+        const auto* configured = map(status);
+        if (!configured) return status;
+        if (configuration.instance >= configured->uarts.size()) return Status::Unsupported;
+        const auto baud = baud_rate(configuration.baud);
+        if (baud == 0) return Status::BadArgument;
+        const auto& entry = configured->uarts[configuration.instance];
+        Descriptor fd(::open(entry.path.c_str(),
+                             O_RDWR | O_NOCTTY | O_NONBLOCK | O_CLOEXEC));
+        if (fd.get() < 0) return error_status(errno);
+        if (const auto set = set_up_tty(fd.get(), entry, baud); set != Status::Ok) return set;
+        if (uart_ports_.size() <= configuration.instance)
+            uart_ports_.resize(configuration.instance + 1);
+        uart_ports_[configuration.instance] = std::move(fd);
+        return Status::Ok;
+    }
+
+    [[nodiscard]] Status uart_write(unsigned int instance, std::span<const std::byte> data,
+                                    std::size_t& accepted) override {
+        if (instance >= uart_ports_.size() || uart_ports_[instance].get() < 0)
+            return Status::BadArgument;
+        if (data.empty()) {
+            accepted = 0;
+            return Status::Ok;
+        }
+        ssize_t count = 0;
+        do {
+            count = ::write(uart_ports_[instance].get(), data.data(), data.size());
+        } while (count < 0 && errno == EINTR);
+        if (count < 0) {
+            if (errno != EAGAIN && errno != EWOULDBLOCK) return error_status(errno);
+            count = 0;
+        }
+        accepted = static_cast<std::size_t>(count);
+        return Status::Ok;
+    }
+
+    [[nodiscard]] Status uart_read(unsigned int instance, std::span<std::byte> data,
+                                   std::size_t& count) override {
+        if (instance >= uart_ports_.size() || uart_ports_[instance].get() < 0)
+            return Status::BadArgument;
+        if (data.empty()) {
+            count = 0;
+            return Status::Ok;
+        }
+        ssize_t taken = 0;
+        do {
+            taken = ::read(uart_ports_[instance].get(), data.data(), data.size());
+        } while (taken < 0 && errno == EINTR);
+        if (taken < 0) {
+            if (errno != EAGAIN && errno != EWOULDBLOCK) return error_status(errno);
+            taken = 0;
+        }
+        count = static_cast<std::size_t>(taken);
+        return Status::Ok;
+    }
+
+    [[nodiscard]] Status uart_release(unsigned int instance) override {
+        if (instance >= uart_ports_.size() || uart_ports_[instance].get() < 0)
+            return Status::BadArgument;
+        uart_ports_[instance] = Descriptor{};
         return Status::Ok;
     }
 
@@ -825,6 +904,7 @@ public:
     }
 
 private:
+    std::vector<Descriptor> uart_ports_;
     using Owner = platform::linux::mcu_detail::PadOwner;
     using PwmState = platform::linux::mcu_detail::PwmState;
     static constexpr unsigned int own_group = 0x10000;

@@ -766,6 +766,49 @@ public:
         return mm::mcu::Status::Ok;
     }
 
+    // Two instances. The transmitter takes at most uart_room bytes a call, so
+    // a caller sees partial acceptance; received bytes wait in uart_incoming.
+    [[nodiscard]] mm::mcu::Status uart_configure(
+        const mm::mcu::UartConfiguration& configuration) override {
+        if (forced != mm::mcu::Status::Ok) return forced;
+        if (configuration.instance >= 2 || configuration.baud == 0 ||
+            configuration.transmit_gpio == configuration.receive_gpio)
+            return mm::mcu::Status::BadArgument;
+        uart_lanes[configuration.instance] = {true, configuration.baud, {}, {}};
+        return mm::mcu::Status::Ok;
+    }
+
+    [[nodiscard]] mm::mcu::Status uart_write(unsigned int instance,
+                                             std::span<const std::byte> data,
+                                             std::size_t& accepted) override {
+        if (forced != mm::mcu::Status::Ok) return forced;
+        if (instance >= 2 || !uart_lanes[instance].ready) return mm::mcu::Status::BadArgument;
+        const auto count = std::min(data.size(), uart_room);
+        auto& sent = uart_lanes[instance].sent;
+        sent.insert(sent.end(), data.begin(), data.begin() + static_cast<std::ptrdiff_t>(count));
+        accepted = count;
+        return mm::mcu::Status::Ok;
+    }
+
+    [[nodiscard]] mm::mcu::Status uart_read(unsigned int instance, std::span<std::byte> data,
+                                            std::size_t& count) override {
+        if (forced != mm::mcu::Status::Ok) return forced;
+        if (instance >= 2 || !uart_lanes[instance].ready) return mm::mcu::Status::BadArgument;
+        auto& incoming = uart_lanes[instance].incoming;
+        const auto taken = std::min(data.size(), incoming.size());
+        std::copy_n(incoming.begin(), taken, data.begin());
+        incoming.erase(incoming.begin(), incoming.begin() + static_cast<std::ptrdiff_t>(taken));
+        count = taken;
+        return mm::mcu::Status::Ok;
+    }
+
+    [[nodiscard]] mm::mcu::Status uart_release(unsigned int instance) override {
+        if (forced != mm::mcu::Status::Ok) return forced;
+        if (instance >= 2 || !uart_lanes[instance].ready) return mm::mcu::Status::BadArgument;
+        uart_lanes[instance] = {};
+        return mm::mcu::Status::Ok;
+    }
+
     [[nodiscard]] mm::mcu::Status delay_ms(unsigned long milliseconds) override {
         if (forced != mm::mcu::Status::Ok) return forced;
         ticks += milliseconds;
@@ -829,6 +872,8 @@ public:
         interrupt_depth = 0;
         uart_instance = 0;
         uart_text = nullptr;
+        for (auto& lane : uart_lanes) lane = {};
+        uart_room = 4;
         spi_ready = false;
         spi_configuration = {};
         spi_written.clear();
@@ -976,6 +1021,14 @@ public:
     std::uint32_t interrupt_depth = 0;
     unsigned int uart_instance = 0;
     const char* uart_text = nullptr;
+    struct UartLane {
+        bool ready = false;
+        unsigned long baud = 0;
+        std::vector<std::byte> sent;
+        std::vector<std::byte> incoming;
+    };
+    UartLane uart_lanes[2];
+    std::size_t uart_room = 4;
     bool spi_ready = false;
     mm::mcu::SpiConfiguration spi_configuration;
     std::vector<std::byte> spi_written;
@@ -1030,6 +1083,13 @@ unsigned long mm_test_ticks() { return stand.ticks; }
 unsigned int mm_test_interrupt_depth() { return stand.interrupt_depth; }
 unsigned int mm_test_uart_instance() { return stand.uart_instance; }
 bool mm_test_uart_written() { return stand.uart_text != nullptr; }
+unsigned long mm_test_uart_baud(unsigned int instance) { return stand.uart_lanes[instance].baud; }
+std::size_t mm_test_uart_sent_size(unsigned int instance) {
+    return stand.uart_lanes[instance].sent.size();
+}
+void mm_test_uart_feed(unsigned int instance, std::byte value) {
+    stand.uart_lanes[instance].incoming.push_back(value);
+}
 bool mm_test_spi_ready() { return stand.spi_ready; }
 unsigned long mm_test_spi_baud() { return stand.spi_configuration.baud; }
 std::size_t mm_test_spi_size() { return stand.spi_written.size(); }

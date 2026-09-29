@@ -10,6 +10,7 @@ export import :status;
 export import :board;
 export import :spi_types;
 export import :i2c_types;
+export import :uart_types;
 export import :i2s_types;
 export import :transport_types;
 export import :interrupt_types;

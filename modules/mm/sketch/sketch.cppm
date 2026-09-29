@@ -627,6 +627,44 @@ public:
 
 extern SerialPort Serial;
 
+// A hardware UART, as a stream. Serial1 is the board's default UART and Serial2
+// its second, where the board has them; Serial is the console, which may be
+// USB and is a different object. setTX and setRX, the RP2040 and RP2350 cores'
+// spelling, choose pins before begin, and with both a port begins on its own
+// instance where the board declares no wiring for it.
+//
+// write queues what the UART takes and waits, up to the stream's timeout, for
+// room for the rest; read, peek, and available never wait. flush returns when
+// everything written has been queued, not when it has left the wire, because
+// mm.mcu reports only what it accepted.
+class HardwareSerial : public Stream {
+public:
+    constexpr HardwareSerial() = default;
+    constexpr explicit HardwareSerial(unsigned int port) : port_(port) {}
+
+    using Print::write;
+
+    bool begin(unsigned long baud = 9600);
+    bool end();
+    bool setTX(unsigned int pin);
+    bool setRX(unsigned int pin);
+
+    std::size_t write(byte b) override;
+    std::size_t write(const byte* buffer, std::size_t size) override;
+
+    [[nodiscard]] int available() override;
+    int read() override;
+    int peek() override;
+    void flush() override;
+    explicit operator bool() const;
+
+private:
+    unsigned int port_ = 1;
+};
+
+extern HardwareSerial Serial1;
+extern HardwareSerial Serial2;
+
 void onSerial(void (*fn)());
 
 enum class SpiMode { Mode0, Mode1, Mode2, Mode3 };
@@ -701,6 +739,10 @@ private:
 
 extern TwoWire Wire;
 extern TwoWire Wire1;
+// A third bus, instance 2. No board declares a default wiring for it, so it
+// begins only on pins named by setSDA and setSCL or begin(sda, scl), and on a
+// platform with two I2C controllers, such as the Pico, i2c_configure refuses it.
+extern TwoWire Wire2;
 
 } // namespace mm::sketch
 

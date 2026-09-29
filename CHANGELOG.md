@@ -29,6 +29,22 @@ All notable changes to modules.cpp. Versions follow [semantic versioning](https:
   legacy application and the sketch libraries compiled into it. RobTillaart's
   AS5600, which passes a `uint8_t` level, builds all 27 of its examples in the
   legacy profile.
+- **Byte UART in `mm.mcu`.** `uart_configure` (instance, transmit and receive
+  GPIOs, baud), a nonblocking `uart_write` of a byte span that reports what the
+  transmitter took, a nonblocking `uart_read`, and `uart_release`, beside the
+  original text `uart_write`. `Board` gains `uart` and `second_uart` wirings.
+  The Pico provider serves UART0 and UART1 through the FIFOs, validating the
+  pins against the RP2040 and RP2350 UART mux, and describes the board header's
+  default UART and, on the six vendor boards, a second, UART1 on GP8 and GP9.
+  The Linux provider serves the device map's `uart.N` entries, keeping a
+  configured device open so nothing that arrives between reads is lost, and
+  describes `uart.0` and `uart.1`.
+- **`Serial1`, `Serial2`, and `Wire2` in `mm.sketch`.** `HardwareSerial`, a
+  `Stream` over the byte UART: `Serial1` on the board's default UART and
+  `Serial2` on its second, with `setTX` and `setRX` for pins, a write that waits
+  up to the stream's timeout for room, and reads that never wait. `Wire2` is a
+  third I2C bus, instance 2, with no board wiring, so it begins only on named
+  pins.
 - **`Wire.begin(sda, scl)`.** `TwoWire::begin(int sda, int scl)` and
   `begin(int sda, int scl, unsigned long frequency)`, the ESP32 and ESP8266
   cores' spelling for choosing a bus's pins at begin.

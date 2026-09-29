@@ -28,6 +28,12 @@ void default_map_capabilities() {
     expect(!available.gpio && !available.spi && !available.i2c &&
                !available.uart && !available.adc && !available.pwm,
            "empty default map does not advertise resource families");
+    std::size_t moved = 5;
+    std::array<std::byte, 1> one{};
+    expect(mm::mcu::uart_configure({0, 0, 0, 115200}) == Status::Unsupported &&
+               mm::mcu::uart_read(0, one, moved) == Status::BadArgument && moved == 5 &&
+               !mm::mcu::board().uart && !mm::mcu::board().second_uart,
+           "a map without uart entries configures none and describes no board UART");
 }
 
 void errno_mapping() {

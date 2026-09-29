@@ -189,7 +189,7 @@ static bool spi_begun_ = false;
 static SPISettings spi_current_settings_{};
 
 constexpr std::size_t wire_buffer_capacity = 32;
-constexpr unsigned int wire_bus_count = 2;
+constexpr unsigned int wire_bus_count = 3;
 
 // One I2C bus as a sketch sees it: Wire is bus 0 on the board's I2C wiring,
 // Wire1 bus 1 on its second. setSDA and setSCL replace a wiring's pins before
@@ -237,12 +237,76 @@ constexpr WireNames wire_names_[wire_bus_count] = {
     {"Wire1.begin", "Wire1.end", "Wire1.setClock", "Wire1.setSDA", "Wire1.setSCL",
      "Wire1.beginTransmission", "Wire1.write", "Wire1.endTransmission",
      "Wire1.requestFrom", "Wire1.available", "Wire1.read", "Wire1.peek", "Wire1.flush"},
+    {"Wire2.begin", "Wire2.end", "Wire2.setClock", "Wire2.setSDA", "Wire2.setSCL",
+     "Wire2.beginTransmission", "Wire2.write", "Wire2.endTransmission",
+     "Wire2.requestFrom", "Wire2.available", "Wire2.read", "Wire2.peek", "Wire2.flush"},
 };
 
-// The board's default wiring for a bus, if it has one.
+// The board's default wiring for a bus, if it has one. No board has one for
+// Wire2.
 std::optional<mm::mcu::I2cWiring> board_wiring(unsigned int bus) {
     const auto board = mm::mcu::board();
-    return bus == 0 ? board.i2c : board.second_i2c;
+    if (bus == 0) return board.i2c;
+    if (bus == 1) return board.second_i2c;
+    return std::nullopt;
+}
+
+// Serial1 and Serial2: a hardware UART each, with pins chosen by setTX and
+// setRX before begin, and a receive buffer that available fills.
+constexpr unsigned int serial_port_count = 3;  // index 0 unused: ports are 1 and 2
+constexpr std::size_t serial_buffer_capacity = 64;
+
+struct SerialState {
+    bool begun = false;
+    std::optional<unsigned int> tx;
+    std::optional<unsigned int> rx;
+    std::optional<mm::mcu::UartWiring> wiring;
+    std::byte buffer[serial_buffer_capacity]{};
+    std::size_t head = 0;
+    std::size_t length = 0;
+};
+
+static SerialState serial_states_[serial_port_count];
+
+struct SerialNames {
+    const char* begin;
+    const char* end;
+    const char* write;
+    const char* read;
+};
+
+constexpr SerialNames serial_names_[serial_port_count] = {
+    {"Serial.begin", "Serial.end", "Serial.write", "Serial.read"},
+    {"Serial1.begin", "Serial1.end", "Serial1.write", "Serial1.read"},
+    {"Serial2.begin", "Serial2.end", "Serial2.write", "Serial2.read"},
+};
+
+std::optional<mm::mcu::UartWiring> board_uart(unsigned int port) {
+    const auto board = mm::mcu::board();
+    if (port == 1) return board.uart;
+    if (port == 2) return board.second_uart;
+    return std::nullopt;
+}
+
+// Moves what has arrived into the port's buffer, keeping what is unread.
+void fill_serial(unsigned int port) {
+    auto& state = serial_states_[port];
+    if (!state.begun || !state.wiring) return;
+    if (state.head > 0) {
+        for (std::size_t i = 0; i < state.length; ++i)
+            state.buffer[i] = state.buffer[state.head + i];
+        state.head = 0;
+    }
+    const std::span<std::byte> room{state.buffer + state.length,
+                                    serial_buffer_capacity - state.length};
+    if (room.empty()) return;
+    std::size_t count = 0;
+    const auto st = mm::mcu::uart_read(state.wiring->instance, room, count);
+    if (st != mm::mcu::Status::Ok) {
+        record_failure(from(st), serial_names_[port].read);
+        return;
+    }
+    state.length += count;
 }
 
 void reset_wire(WireState& state) {
@@ -456,6 +520,7 @@ int run(Setup setup, Loop loop) {
         state.scl.reset();
         state.wiring.reset();
     }
+    for (auto& state : serial_states_) state = {};
     analog_read_resolution_ = 10;
     analog_write_resolution_ = 8;
 
@@ -510,6 +575,14 @@ int run(Setup setup, Loop loop) {
     }
 
     flush_pending_wire_writes();
+    for (unsigned int port = 1; port < serial_port_count; ++port) {
+        auto& state = serial_states_[port];
+        if (state.begun && state.wiring) {
+            const auto st = mm::mcu::uart_release(state.wiring->instance);
+            if (st != mm::mcu::Status::Ok) record_failure(from(st), "run");
+        }
+        state.begun = false;
+    }
     for (std::size_t i = 0; i < max_pwm_outputs; ++i) {
         if (pwm_states_[i].configured) {
             const auto st = mm::mcu::pwm_release(i);
@@ -3305,6 +3378,138 @@ void TwoWire::flush() {
 
 TwoWire Wire{0};
 TwoWire Wire1{1};
+TwoWire Wire2{2};
+
+// HardwareSerial implementation. Each object is one port; its state lives in
+// serial_states_[port_].
+bool HardwareSerial::begin(unsigned long baud) {
+    const auto& names = serial_names_[port_];
+    auto& state = serial_states_[port_];
+    CallScope scope{names.begin};
+    auto wiring = board_uart(port_);
+    if (!wiring && state.tx && state.rx) wiring = mm::mcu::UartWiring{port_ - 1, 0, 0};
+    if (!wiring) {
+        record_failure(Status::Unsupported, names.begin);
+        return false;
+    }
+    if (state.tx) wiring->transmit_gpio = *state.tx;
+    if (state.rx) wiring->receive_gpio = *state.rx;
+    if (state.begun && state.wiring) (void)mm::mcu::uart_release(state.wiring->instance);
+    const mm::mcu::UartConfiguration config{wiring->instance, wiring->transmit_gpio,
+                                            wiring->receive_gpio, baud};
+    const auto st = mm::mcu::uart_configure(config);
+    if (st != mm::mcu::Status::Ok) {
+        state.begun = false;
+        record_failure(from(st), names.begin);
+        return false;
+    }
+    state.wiring = wiring;
+    state.begun = true;
+    state.head = 0;
+    state.length = 0;
+    return true;
+}
+
+bool HardwareSerial::end() {
+    auto& state = serial_states_[port_];
+    CallScope scope{serial_names_[port_].end};
+    if (!state.begun || !state.wiring) return true;
+    const auto st = mm::mcu::uart_release(state.wiring->instance);
+    state.begun = false;
+    state.head = 0;
+    state.length = 0;
+    if (st != mm::mcu::Status::Ok) {
+        record_failure(from(st), serial_names_[port_].end);
+        return false;
+    }
+    return true;
+}
+
+bool HardwareSerial::setTX(unsigned int pin) {
+    auto& state = serial_states_[port_];
+    if (state.begun) return state.wiring && state.wiring->transmit_gpio == pin;
+    state.tx = pin;
+    return true;
+}
+
+bool HardwareSerial::setRX(unsigned int pin) {
+    auto& state = serial_states_[port_];
+    if (state.begun) return state.wiring && state.wiring->receive_gpio == pin;
+    state.rx = pin;
+    return true;
+}
+
+std::size_t HardwareSerial::write(byte b) { return write(&b, 1); }
+
+// Queues all of buffer, waiting for room up to the stream's timeout. What was
+// queued is returned; a timeout or a failure records the error.
+std::size_t HardwareSerial::write(const byte* buffer, std::size_t size) {
+    const auto& names = serial_names_[port_];
+    auto& state = serial_states_[port_];
+    CallScope scope{names.write};
+    if (!state.begun || !state.wiring) {
+        record_failure(Status::NotInitialized, names.write);
+        setWriteError();
+        return 0;
+    }
+    if (buffer == nullptr || size == 0) return 0;
+    std::size_t done = 0;
+    const auto start = millis();
+    while (done < size) {
+        std::size_t accepted = 0;
+        const auto st = mm::mcu::uart_write(
+            state.wiring->instance,
+            std::span<const std::byte>(reinterpret_cast<const std::byte*>(buffer) + done,
+                                       size - done),
+            accepted);
+        if (st != mm::mcu::Status::Ok) {
+            record_failure(from(st), names.write);
+            setWriteError();
+            return done;
+        }
+        done += accepted;
+        if (done == size) break;
+        if (exit_requested_) break;
+        if (accepted == 0) {
+            if (millis() - start >= getTimeout()) {
+                record_failure(Status::Timeout, names.write);
+                setWriteError();
+                break;
+            }
+            (void)mm::mcu::delay_us(100);
+        }
+    }
+    return done;
+}
+
+int HardwareSerial::available() {
+    fill_serial(port_);
+    return static_cast<int>(serial_states_[port_].length);
+}
+
+int HardwareSerial::read() {
+    auto& state = serial_states_[port_];
+    if (state.length == 0) fill_serial(port_);
+    if (state.length == 0) return -1;
+    const auto value = static_cast<int>(static_cast<byte>(state.buffer[state.head]));
+    ++state.head;
+    --state.length;
+    return value;
+}
+
+int HardwareSerial::peek() {
+    auto& state = serial_states_[port_];
+    if (state.length == 0) fill_serial(port_);
+    if (state.length == 0) return -1;
+    return static_cast<int>(static_cast<byte>(state.buffer[state.head]));
+}
+
+void HardwareSerial::flush() {}
+
+HardwareSerial::operator bool() const { return serial_states_[port_].begun; }
+
+HardwareSerial Serial1{1};
+HardwareSerial Serial2{2};
 
 // The legacy profile. Each forwards to the core function it loosens; a value
 // the core has no spelling for is refused here with BadArgument, under the
