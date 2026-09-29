@@ -25,7 +25,8 @@ struct NumberValue {
     std::size_t length = 0;      // length of the number token
     std::size_t consumed = 0;    // bytes consumed (may include leading ws)
     std::int64_t integer = 0;    // valid when kind is Integer
-    double real = 0.0;           // valid when kind is Float or Scientific
+    double real = 0.0;           // valid when kind is Float or Scientific,
+                                 // and the nearest double of a decimal Integer
     bool overflow = false;
 };
 

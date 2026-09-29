@@ -27,7 +27,7 @@ namespace mm::parse {
 namespace {
 
 [[nodiscard]] bool name_first(char c) {
-    return (c >= 'A' && c <= 'Z') || (c == '_');
+    return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c == '_';
 }
 
 [[nodiscard]] bool name_rest(char c) {
@@ -51,8 +51,16 @@ void Cursor::skip_insignificant() {
         } else if (mm::parse::is_continuation(text_, at_)) {
             skip_continuation();
         } else if (c == '#') {
-            while (at_ < text_.size() && !cursor_line_end(text_[at_], dialect_))
+            while (at_ < text_.size() && !cursor_line_end(text_[at_], dialect_)) {
+                // The embedded dialect refuses NUL anywhere, comments included.
+                if (text_[at_] == '\0' && dialect_ == Dialect::Embedded) {
+                    error_ = true;
+                    error_at_ = at_;
+                    error_message = "NUL in script";
+                    return;
+                }
                 ++at_;
+            }
         } else {
             break;
         }
@@ -142,7 +150,11 @@ void Cursor::skip_quote(char delimiter, Sink& sink) {
                                        span, true);
                 emitted = true;
             }
-            if (text_[at_ + 1] == '(') {
+            // The embedded dialect keeps every expansion as a fragment; the
+            // full dialect only needs to step over it.
+            if (dialect_ == Dialect::Embedded) {
+                expansion(true, sink);
+            } else if (text_[at_ + 1] == '(') {
                 skip_dollar_parentheses();
             } else if (text_[at_ + 1] == '{') {
                 skip_dollar_braces();
@@ -151,6 +163,18 @@ void Cursor::skip_quote(char delimiter, Sink& sink) {
             }
             if (error_) return;
             emitted = true;
+            literal = at_;
+            continue;
+        }
+        if (delimiter == '"' && c == '\\' && is_continuation()) {
+            if (at_ > literal) {
+                SourceSpan span{literal, at_ - literal};
+                if (sink.emit_fragment)
+                    sink.emit_fragment(sink.context, FragmentKind::DoubleQuoted,
+                                       span, true);
+                emitted = true;
+            }
+            skip_continuation();
             literal = at_;
             continue;
         }
@@ -372,6 +396,12 @@ void Cursor::scan_word(Sink& sink) {
 
 ScanOutcome Cursor::scan(Sink& sink) {
     skip_insignificant();
+    if (error_) {
+        return {.complete = false,
+                .span = {error_at_, 0},
+                .next_offset = at_,
+                .message = error_message};
+    }
     const auto start = at_;
     if (start == text_.size()) {
         return {.complete = true,
@@ -389,6 +419,7 @@ ScanOutcome Cursor::scan(Sink& sink) {
         error_ = true;
         error_at_ = start;
         result.complete = false;
+        result.message = error_message;
         return result;
     }
 
@@ -400,6 +431,7 @@ ScanOutcome Cursor::scan(Sink& sink) {
                 error_ = true;
                 error_at_ = start;
                 result.complete = false;
+                result.message = error_message;
                 return result;
             }
             at_ += c == '\r' && start + 1 < text_.size() &&
@@ -452,6 +484,7 @@ ScanOutcome Cursor::scan(Sink& sink) {
                 error_at_ = start;
                 error_message = "here-document variant is not supported";
                 result.complete = false;
+                result.message = error_message;
                 return result;
             }
             at_ += 2;
@@ -467,6 +500,7 @@ ScanOutcome Cursor::scan(Sink& sink) {
             error_at_ = start;
             error_message = "excluded shell construct";
             result.complete = false;
+            result.message = error_message;
             return result;
         } else if (c == ';') {
             at_ += 1;
@@ -488,6 +522,7 @@ ScanOutcome Cursor::scan(Sink& sink) {
             error_at_ = start;
             error_message = "asynchronous execution is not supported";
             result.complete = false;
+            result.message = error_message;
             return result;
         } else {
             // Not an operator: fall through to word scanning.
@@ -532,6 +567,7 @@ ScanOutcome Cursor::scan(Sink& sink) {
             error_ = true;
             error_at_ = start;
             result.complete = false;
+            result.message = error_message;
             return result;
         } else {
             goto word_scan;
@@ -552,10 +588,9 @@ word_scan:
             while (pos < text_.size() && (text_[pos] >= '0' &&
                                           text_[pos] <= '9'))
                 ++pos;
+            // A word of digits alone, ended by a redirection operator.
             if (pos > start && pos < text_.size() &&
-                (text_[pos] == '<' || text_[pos] == '>') &&
-                (pos == start ||
-                 cursor_blank(text_[pos - 1], dialect_))) {
+                (text_[pos] == '<' || text_[pos] == '>')) {
                 is_io_number = true;
             }
         }

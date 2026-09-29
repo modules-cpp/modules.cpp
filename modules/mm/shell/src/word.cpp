@@ -91,10 +91,14 @@ static void sink_emit_token(void* ctx, mm::parse::TokenKind kind,
     result.token.kind = outcome.kind;
     result.token.source = outcome.span;
     result.token.next_offset = outcome.next_offset;
-    result.token.fragments_required = outcome.fragment_count;
+    result.token.fragments_required = writer.count;
     result.token.has_unquoted_glob = writer.has_unquoted_glob;
     if (!outcome.complete) {
-        result.status = ScanStatus::Malformed;
+        // An unclosed construct could still be finished by more text.
+        result.status = outcome.message.starts_with("unclosed") ||
+                                outcome.message == "trailing escape"
+                            ? ScanStatus::Incomplete
+                            : ScanStatus::Malformed;
         result.issue = location(text, cursor.offset());
     }
     return result;

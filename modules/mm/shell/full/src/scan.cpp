@@ -25,12 +25,24 @@ struct PendingDocument {
 
 // Sink context: the Scanner's output and state, driven by mm.parse::Cursor.
 struct SinkContext {
-    FullScript& output;
+    FullScript* output = nullptr;
     std::vector<PendingDocument>* pending;
     std::size_t* waiting;
     bool* wants_delimiter;
     bool* has_unquoted_glob;
 };
+
+// The status a scanner refusal carries, from the cursor's message: an
+// unclosed construct could still be completed by more text, an excluded one
+// is refused as unsupported, and anything else is malformed.
+[[nodiscard]] ParseStatus refusal_status(std::string_view message) {
+    if (message.starts_with("unclosed") || message == "trailing escape")
+        return ParseStatus::Incomplete;
+    if (message.ends_with("not supported") ||
+        message == "excluded shell construct")
+        return ParseStatus::Unsupported;
+    return ParseStatus::Malformed;
+}
 
 // Translate mm.parse superset token kinds to full-profile kinds.
 [[nodiscard]] TokenKind to_full_token(mm::parse::TokenKind kind) {
@@ -64,7 +76,7 @@ static void sink_emit_token(void* ctx, mm::parse::TokenKind kind,
                               mm::parse::SourceSpan span, bool quoted) {
     auto* sink = static_cast<SinkContext*>(ctx);
     TokenKind full_kind = to_full_token(kind);
-    sink->output.tokens.push_back({full_kind, {span.offset, span.length},
+    sink->output->tokens.push_back({full_kind, {span.offset, span.length},
                                     quoted});
 }
 
@@ -166,7 +178,7 @@ struct Scanner {
     mm::parse::Sink sink_;
 
     void run() {
-        sink_ctx_ = {output, &pending, &waiting, &wants_delimiter,
+        sink_ctx_ = {&output, &pending, &waiting, &wants_delimiter,
                       nullptr};
         sink_ = {&sink_ctx_, sink_emit_token, sink_emit_fragment, false};
         mm::parse::Cursor cursor{source, 0, mm::parse::Dialect::Full};
@@ -177,6 +189,11 @@ struct Scanner {
             at = outcome.next_offset;
 
             if (outcome.kind == mm::parse::TokenKind::Newline) {
+                // The cursor leaves newlines to the dialect: the full
+                // grammar needs them as tokens, so emit one here.
+                output.tokens.push_back(
+                    {TokenKind::Newline,
+                     {outcome.span.offset, outcome.span.length}, false});
                 if (wants_delimiter) {
                     fail(ParseStatus::Malformed, outcome.span.offset,
                          "missing here-document delimiter");
@@ -185,6 +202,9 @@ struct Scanner {
                 if (!pending.empty()) {
                     documents();
                     if (diagnostic.status != ParseStatus::Complete) return;
+                    // The bodies are text, not tokens: resume after them.
+                    cursor = mm::parse::Cursor{source, at,
+                                               mm::parse::Dialect::Full};
                 }
                 continue;
             }
@@ -201,7 +221,7 @@ struct Scanner {
                 continue;
             }
             if (!outcome.complete) {
-                fail(ParseStatus::Malformed, outcome.span.offset,
+                fail(refusal_status(outcome.message), outcome.span.offset,
                      outcome.message);
                 return;
             }

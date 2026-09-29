@@ -4,6 +4,7 @@ module;
 
 #include <charconv>
 #include <cerrno>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
@@ -526,16 +527,16 @@ Status integer(std::string_view digits, long long& value) {
     return Status::Ok;
 }
 
+// Any JSON number as the nearest double. A value too small for a double is
+// zero of its sign; one too large is BadNumber, and value is left unchanged.
 Status number(std::string_view digits, double& value) {
     const auto num = mm::parse::parse_number(digits);
-    if (num.kind != mm::parse::NumberKind::Float &&
+    if (num.kind != mm::parse::NumberKind::Integer &&
+        num.kind != mm::parse::NumberKind::Float &&
         num.kind != mm::parse::NumberKind::Scientific) {
         return Status::BadNumber;
     }
-    if (num.overflow) {
-        value = num.real;
-        return Status::Ok;
-    }
+    if (std::isinf(num.real)) return Status::BadNumber;
     value = num.real;
     return Status::Ok;
 }

@@ -242,20 +242,39 @@ constexpr auto int64_min = std::numeric_limits<std::int64_t>::min();
         // The cleaned string may start with '-' or '+' if the sign was
         // included in the digit_span. But we stripped the sign above, so
         // cleaned is digits only.
-        std::int64_t value = 0;
+        // A decimal integer also carries its nearest double, which a
+        // reader wanting a real number of any width takes, overflow or not.
+        {
+            std::string input;
+            input.reserve(cleaned.size() + 1);
+            if (negative) input += '-';
+            input += cleaned;
+            errno = 0;
+            result.real = std::strtod(input.c_str(), nullptr);
+        }
+        // The magnitude is read unsigned, so the most negative value,
+        // whose magnitude is one past the largest positive one, is in range.
+        std::uint64_t value = 0;
         const auto* first = cleaned.data();
         const auto* last = cleaned.data() + cleaned.size();
         const auto res = std::from_chars(first, last, value);
-        if (res.ec == std::errc::result_out_of_range) {
+        if (res.ec != std::errc{} && res.ec != std::errc::result_out_of_range) {
+            return result;
+        }
+        if (res.ptr != last) return result;
+        const auto limit = negative
+                               ? static_cast<std::uint64_t>(int64_max) + 1
+                               : static_cast<std::uint64_t>(int64_max);
+        if (res.ec == std::errc::result_out_of_range || value > limit) {
             result.overflow = true;
             result.integer = negative ? int64_min : int64_max;
             result.kind = NumberKind::Integer;
             return result;
         }
-        if (res.ec != std::errc{} || res.ptr != last) {
-            return result;
-        }
-        result.integer = negative ? -value : value;
+        result.integer = value == static_cast<std::uint64_t>(int64_max) + 1
+                             ? int64_min
+                             : (negative ? -static_cast<std::int64_t>(value)
+                                         : static_cast<std::int64_t>(value));
         result.kind = NumberKind::Integer;
         return result;
     }
@@ -275,8 +294,9 @@ constexpr auto int64_min = std::numeric_limits<std::int64_t>::min();
     }
     if (errno == ERANGE) {
         result.overflow = true;
-        // Underflow: clamp to 0.0 or -0.0. Overflow: clamp to inf.
-        if (std::fabs(parsed) == 0.0) {
+        // Underflow: clamp to 0.0 or -0.0, subnormal results included.
+        // Overflow: clamp to inf.
+        if (std::fabs(parsed) < 1.0) {
             result.real = negative ? -0.0 : 0.0;
         } else {
             result.real = negative ? -HUGE_VAL : HUGE_VAL;

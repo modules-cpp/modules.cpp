@@ -31,14 +31,26 @@ constexpr auto negative_limit =
     return name_first(c) || digit(c);
 }
 
+// A shell decimal is digits alone: mm.parse also reads prefixes, blanks, and
+// fractions, which the shell grammar refuses, so the digits are checked here
+// and only the conversion is mm.parse's. The sign arrives separately, so the
+// one magnitude only a negative value holds, 2^63, is recognised here.
 [[nodiscard]] ArithmeticResult magnitude(std::string_view text,
                                           bool negative) {
     if (text.empty()) return {ArithmeticStatus::Syntax, 0, 0};
+    for (std::size_t i = 0; i < text.size(); ++i) {
+        if (!digit(text[i])) return {ArithmeticStatus::Syntax, 0, i};
+    }
     const auto num = mm::parse::parse_number(text);
     if (num.kind != mm::parse::NumberKind::Integer) {
         return {ArithmeticStatus::Syntax, 0, 0};
     }
     if (num.overflow) {
+        auto digits = text;
+        while (digits.size() > 1 && digits.front() == '0') digits.remove_prefix(1);
+        if (negative && digits == "9223372036854775808") {
+            return {ArithmeticStatus::Ok, signed_min, 0};
+        }
         return {ArithmeticStatus::Range, 0, 0};
     }
     const auto value = static_cast<std::int64_t>(num.integer);

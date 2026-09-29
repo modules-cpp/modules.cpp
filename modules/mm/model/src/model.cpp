@@ -1008,7 +1008,7 @@ std::vector<std::unique_ptr<models::Operation>> build_operations(
 
     // bootstrap.sh: compile build0, then either build0 builds build1
     // (branch 0) or, only if that leaves no executable build1, the same
-    // fixed steps run by hand instead (branch 1): 25 -c compiles in the
+    // fixed steps run by hand instead (branch 1): 33 -c compiles in the
     // documented partition/interface order plus one link, all driven
     // directly by the host c++ compiler. Both paths then invoke build1
     // twice to stage only build and configure with their closures.
@@ -1019,7 +1019,7 @@ std::vector<std::unique_ptr<models::Operation>> build_operations(
             models::ArtifactKind::InstalledBinary,
         };
         std::vector<const models::Tool*> fallback = {cxx, build0};
-        fallback.insert(fallback.end(), 26, cxx);
+        fallback.insert(fallback.end(), 34, cxx);
         fallback.push_back(build1);
         fallback.push_back(build1);
         result.push_back(std::make_unique<RealOperation>(

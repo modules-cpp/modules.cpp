@@ -7,6 +7,8 @@ module;
 
 export module mm.shell:source;
 
+import mm.parse;
+
 export namespace mm::shell {
 
 struct SourceLocation {
@@ -15,10 +17,9 @@ struct SourceLocation {
     unsigned int column = 1;
 };
 
-struct SourceSpan {
-    std::size_t offset = 0;
-    std::size_t length = 0;
-};
+// The scanner in mm.parse produces the spans, so they are its type: tokens,
+// fragments, and syntax nodes all carry one without a conversion.
+using SourceSpan = mm::parse::SourceSpan;
 
 class SourceView {
 public:

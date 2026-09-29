@@ -40,6 +40,16 @@ void owns_tokens_and_operators() {
            "only adjacent numeric redirection prefixes are IO numbers");
 }
 
+void newlines_are_tokens() {
+    const auto parsed = full::parse_full("echo one\nif true\nthen\n echo two\nfi\n");
+    expect(parsed.ok() && parsed.script.tokens.size() == 14 &&
+               parsed.script.tokens[2].kind == full::TokenKind::Newline &&
+               parsed.script.tokens[5].kind == full::TokenKind::Newline &&
+               parsed.script.tokens[7].kind == full::TokenKind::Newline &&
+               parsed.script.tokens[10].kind == full::TokenKind::Newline,
+           "each newline separating commands is a token");
+}
+
 void here_documents() {
     constexpr std::string_view source =
         "cat <<PLAN\nhello $name\nPLAN\n"
@@ -273,6 +283,7 @@ void tracked_script_corpus() {
 
 const mm::test::case_ cases[]{
     {"owns tokens and operators", &owns_tokens_and_operators},
+    {"newlines are tokens", &newlines_are_tokens},
     {"here-documents", &here_documents},
     {"redirection planning", &redirection_planning},
     {"refusals", &refusals},

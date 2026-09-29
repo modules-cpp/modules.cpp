@@ -232,8 +232,8 @@ void bootstrap_fallback_matches_the_real_bootstrap_sh() {
     // The fallback drives the host compiler once per -c compile plus one
     // link of build1.tmp, on top of the initial build0 compile.
     const std::size_t compiles = count_occurrences(content, " -c ");
-    mm::test::expect(compiles == 25,
-                     "expected bootstrap.sh's fallback to compile 25 units; "
+    mm::test::expect(compiles == 33,
+                     "expected bootstrap.sh's fallback to compile 33 units; "
                      "update the model's fallback branch if this changed");
     mm::test::expect(content.find("build1.tmp") != std::string::npos,
                      "expected bootstrap.sh's fallback to link build1.tmp");
