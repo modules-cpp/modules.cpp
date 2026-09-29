@@ -69,7 +69,15 @@ bool ledOn();
 bool ledOff();
 [[nodiscard]] bool hasBuiltinLed();
 
+// One overload per integer type a pin arrives as, so a sketch that takes
+// analogRead's address as int (*)(uint8_t), the Arduino core's signature, or
+// as int (*)(int) gets an exact match, and a call with any of them is never
+// ambiguous. All read the same channel.
 [[nodiscard]] int analogRead(unsigned int pin);
+[[nodiscard]] int analogRead(unsigned char pin);
+[[nodiscard]] int analogRead(int pin);
+[[nodiscard]] int analogRead(long pin);
+[[nodiscard]] int analogRead(unsigned long pin);
 void analogReadResolution(int bits);
 
 void analogWrite(unsigned int pin, int value);
@@ -662,11 +670,19 @@ public:
 
 extern SPIClass SPI;
 
+// One I2C bus. Wire is the board's I2C wiring and Wire1 its second, where the
+// board has one; Wire1.begin() on a board without one fails Unsupported unless
+// setSDA and setSCL named its pins first.
 class TwoWire {
 public:
+    constexpr TwoWire() = default;
+    constexpr explicit TwoWire(unsigned int bus) : bus_(bus) {}
+
     bool begin();
     bool end();
     void setClock(unsigned long clock_speed);
+    bool setSDA(unsigned int pin);
+    bool setSCL(unsigned int pin);
 
     void beginTransmission(byte address);
     void beginTransmission(int address);
@@ -682,8 +698,12 @@ public:
     int read();
     int peek();
     void flush();
+
+private:
+    unsigned int bus_ = 0;
 };
 
 extern TwoWire Wire;
+extern TwoWire Wire1;
 
 } // namespace mm::sketch

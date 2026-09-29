@@ -105,5 +105,6 @@ int mm_pico_mcu_pwm_release(unsigned int pin);
 const char* mm_pico_mcu_board_name(void);
 unsigned int mm_pico_mcu_gpio_count(void);
 int mm_pico_mcu_has_led(void);
+int mm_pico_mcu_has_second_i2c(void);
 unsigned int mm_pico_mcu_led_gpio(void);
 int mm_pico_mcu_led_active_high(void);

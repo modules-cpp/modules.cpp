@@ -35,6 +35,20 @@ endif()
 # playback data, so the default UART is UART1 on the exposed GP26 and GP27.
 set(MM_BOARD_HAS_LED 1)
 set(MM_BOARD_DEFINITIONS "")
+
+# A second I2C wiring, instance 1 on GP26 and GP27, the pins the Arduino cores
+# for RP2040 and RP2350 give Wire1. The six vendor boards leave both free; a
+# composite board has one only once its schematic says so, because those pins
+# are often something else on it -- the LCD 1.54 family's UART, below.
+set(MM_BOARD_HAS_SECOND_I2C 0)
+if(MM_BOARD STREQUAL "pico" OR
+   MM_BOARD STREQUAL "pico-w" OR
+   MM_BOARD STREQUAL "pico2-arm" OR
+   MM_BOARD STREQUAL "pico2-riscv" OR
+   MM_BOARD STREQUAL "pico2-w-arm" OR
+   MM_BOARD STREQUAL "pico2-w-riscv")
+  set(MM_BOARD_HAS_SECOND_I2C 1)
+endif()
 if(MM_BOARD STREQUAL "rp2350_lcd_154" OR
    MM_BOARD STREQUAL "rp2350_touch_lcd_154")
   set(MM_ADC_REFERENCE_MV 3300)

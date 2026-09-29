@@ -163,6 +163,10 @@ The other enumerations of this module -- Status, Base, Trigger, SpiMode -- remai
 
 Opening fence
 [[nodiscard]] int analogRead(unsigned int pin);
+[[nodiscard]] int analogRead(unsigned char pin);
+[[nodiscard]] int analogRead(int pin);
+[[nodiscard]] int analogRead(long pin);
+[[nodiscard]] int analogRead(unsigned long pin);
 void analogReadResolution(int bits);
 
 void analogWrite(unsigned int pin, int value);
@@ -171,6 +175,8 @@ void analogWriteResolution(int bits);
 Closing fence
 
 analogRead samples the analog voltage on pin via mm.mcu adc_read. If pin corresponds to an attached ADC channel via adc_channel_for_gpio or matches an ADC channel number directly, the channel is claimed and sampled. The reading is scaled to the resolution configured by analogReadResolution (defaulting to 10 bits, range [0, 1023]). On failure or unsupported platforms, analogRead returns 0 and records the error status.
+
+analogRead has one overload per integer type a pin arrives as. A sketch or library that stores analogRead's address as int (*)(uint8_t), the signature the Arduino core declares, or as int (*)(int), finds an exact match, and a call with a long or an unsigned long is not ambiguous; a narrower type promotes to int. Every overload reads the same channel. A pin no channel can have, negative or wider than unsigned int, is passed on as one that names no channel, so it fails with Status::BadArgument rather than wrapping onto a real pin.
 
 analogReadResolution sets the resolution of values returned by analogRead in bits (range [1, 31], default 10). Invalid bit values record Status::BadArgument and leave the resolution unchanged.
 
@@ -522,9 +528,14 @@ SPISettings bundles clock speed, bit order, and SPI mode. The three SPI mode con
 Opening fence
 class TwoWire {
 public:
+    constexpr TwoWire() = default;
+    constexpr explicit TwoWire(unsigned int bus);
+
     bool begin();
     bool end();
     void setClock(unsigned long clock_speed);
+    bool setSDA(unsigned int pin);
+    bool setSCL(unsigned int pin);
 
     void beginTransmission(byte address);
     void beginTransmission(int address);
@@ -543,9 +554,14 @@ public:
 };
 
 extern TwoWire Wire;
+extern TwoWire Wire1;
 Closing fence
 
 Wire provides I2C master communication over mm.mcu's i2c_configure, i2c_write, i2c_read, and i2c_write_read.
+
+Wire and Wire1 are two buses with separate state: transmit and receive buffers, pending write, clock, and pins. Wire is bus 0, on the board's I2C wiring; Wire1 is bus 1, on the board's second I2C wiring, Board::second_i2c in mm.mcu, which the Pico SDK vendor boards give as instance 1 on GP26 and GP27, the Arduino cores' Wire1 pins. A board without a second wiring leaves Wire1.begin() failing with Status::Unsupported. Diagnostics name the bus: Wire.begin, Wire1.begin.
+
+setSDA and setSCL are the RP2040 and RP2350 cores' spelling for choosing a bus's pins. Before begin they record the pin and return true, and begin then uses them in place of the board's; with both named, a bus begins on its own instance even where the board declares no wiring for it. After begin a running bus keeps its pins, so each returns true only for the pin already in use.
 
 begin initializes the I2C bus using the board's default I2C wiring (data and clock GPIOs) at 100 kHz. If the board declares no I2C wiring, begin returns false and latches Status::Unsupported. Wire.begin(addr) and the slave callbacks onReceive/onRequest are declined: mm.mcu is a master-only interface. end resets the sketch Wire state without deconfiguring the underlying peripheral hardware; the object may be re-initialized with begin.
 

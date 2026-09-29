@@ -1191,6 +1191,16 @@ int mm_pico_mcu_has_led(void) {
 #endif
 }
 
+// A board with a second I2C wiring says so through MM_BOARD_HAS_SECOND_I2C,
+// from the bridge's board table.
+int mm_pico_mcu_has_second_i2c(void) {
+#if MM_BOARD_HAS_SECOND_I2C
+    return 1;
+#else
+    return 0;
+#endif
+}
+
 unsigned int mm_pico_mcu_led_gpio(void) {
 #if defined(PICO_DEFAULT_LED_PIN) && MM_BOARD_HAS_LED
     return (unsigned int)PICO_DEFAULT_LED_PIN;

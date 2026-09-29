@@ -51,6 +51,10 @@ struct Board {
     std::optional<Led> led;
     std::optional<SpiWiring> spi;
     std::optional<I2cWiring> i2c;
+    // A second default I2C wiring, on another instance, where the board has
+    // pins free for one. Absent otherwise: it is never the first wiring
+    // again, and a board whose candidate pins do something else has none.
+    std::optional<I2cWiring> second_i2c;
 };
 
 // The selected platform's board description, or an empty description from the

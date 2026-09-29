@@ -74,6 +74,7 @@ public:
     unsigned int feed_bit_index = 0;
     bool spi_present = true;
     bool i2c_present = true;
+    bool second_i2c_present = false;
 
     [[nodiscard]] mm::mcu::Board board() const override {
         std::optional<mm::mcu::SpiWiring> spi_wiring;
@@ -84,8 +85,10 @@ public:
         if (i2c_present) {
             i2c_wiring = mm::mcu::I2cWiring{0, 4, 5};
         }
+        std::optional<mm::mcu::I2cWiring> second_i2c_wiring;
+        if (second_i2c_present) second_i2c_wiring = mm::mcu::I2cWiring{1, 26, 27};
         return {"test-board", gpios, mm::mcu::Led{"status", 25, true},
-                spi_wiring, i2c_wiring};
+                spi_wiring, i2c_wiring, second_i2c_wiring};
     }
 
     [[nodiscard]] mm::mcu::Status gpio_configure(unsigned int pin, mm::mcu::Direction direction,
@@ -224,6 +227,7 @@ public:
     bool i2c_fail = false;
     std::vector<std::byte> i2c_written;
     unsigned int i2c_written_address = 0;
+    unsigned int i2c_written_instance = 0;
     std::vector<std::byte> i2c_read_data;
     mm::mcu::I2cConfiguration last_i2c_config{};
 
@@ -234,11 +238,12 @@ public:
         return mm::mcu::Status::Ok;
     }
 
-    [[nodiscard]] mm::mcu::Status i2c_write(unsigned int /*instance*/, unsigned int address,
+    [[nodiscard]] mm::mcu::Status i2c_write(unsigned int instance, unsigned int address,
                                             std::span<const std::byte> data) override {
         if (i2c_fail) return mm::mcu::Status::TransportError;
         if (!i2c_configured) return mm::mcu::Status::BadArgument;
         i2c_written_address = address;
+        i2c_written_instance = instance;
         i2c_written.assign(data.begin(), data.end());
         return mm::mcu::Status::Ok;
     }
@@ -639,10 +644,32 @@ unsigned int test_get_i2c_written_address() {
     return platform_instance.i2c_written_address;
 }
 
+void test_set_second_i2c_present(bool present) {
+    platform_instance.second_i2c_present = present;
+}
+
+unsigned int test_get_i2c_written_instance() {
+    return platform_instance.i2c_written_instance;
+}
+
+unsigned int test_get_i2c_config_instance() {
+    return platform_instance.last_i2c_config.instance;
+}
+
+unsigned int test_get_i2c_config_data() {
+    return platform_instance.last_i2c_config.data_gpio;
+}
+
+unsigned int test_get_i2c_config_clock() {
+    return platform_instance.last_i2c_config.clock_gpio;
+}
+
 void test_reset_i2c() {
     platform_instance.i2c_configured = false;
     platform_instance.i2c_fail = false;
     platform_instance.i2c_present = true;
+    platform_instance.second_i2c_present = false;
+    platform_instance.i2c_written_instance = 0;
     platform_instance.i2c_written.clear();
     platform_instance.i2c_written_address = 0;
     platform_instance.i2c_read_data.clear();

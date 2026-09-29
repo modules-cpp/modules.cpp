@@ -4,6 +4,25 @@ All notable changes to modules.cpp. Versions follow [semantic versioning](https:
 
 ## [v1.3.1] — Unreleased
 
+### Added
+
+- **`Wire1` in `mm.sketch`.** A second I2C bus beside `Wire`, each with its
+  own buffers, pending write, clock, and pins, so a library handed `&Wire1`
+  talks to the second bus. `Wire1` runs on `mm.mcu`'s new `Board::second_i2c`,
+  which the Pico SDK vendor boards give as instance 1 on GP26 and GP27, the
+  Arduino cores' `Wire1` pins; a composite board has one only when the bridge's
+  board table says so. `setSDA` and `setSCL`, the RP2040 and RP2350 cores'
+  spelling, choose a bus's pins before `begin`. Diagnostics name the bus
+  (`Wire1.begin`).
+- **`analogRead` overloads.** `analogRead` takes `unsigned char`, `int`,
+  `long`, and `unsigned long` pins as well as `unsigned int`, so a sketch that
+  stores its address as `int (*)(uint8_t)`, the Arduino core's signature,
+  compiles; a pin no channel can have fails with `BadArgument` rather than
+  wrapping onto a real one.
+
+With both, all 27 examples of RobTillaart's ADS1X15 build; `ADS_RP2040_WIRE1`
+and `ADS_pointerToFunction` did not.
+
 ### Fixed
 
 - `mm.parse` read a duration's count into a signed 64-bit value without a

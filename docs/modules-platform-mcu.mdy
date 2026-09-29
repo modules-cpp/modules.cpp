@@ -354,7 +354,12 @@ name, the number of the GPIO to which it is electrically attached, and whether
 that signal is active high. Board carries the board name, a read-only
 std::span<const Gpio> that enumerates every GPIO the board exposes exactly once,
 and an optional Led. When an LED is present, its GPIO number must identify one
-entry in that sequence.
+entry in that sequence. Board also carries the board's default SPI and I2C
+wirings, each optional, and an optional second I2C wiring, second_i2c, on
+another instance where the board has pins free for one; mm.sketch serves Wire1
+from it. The Pico SDK vendor boards give it as instance 1 on GP26 and GP27; a
+composite board has one only when its own table entry says so, because those
+pins are often something else on it.
 
 board() returns the registered provider's description by value, while its span
 views a provider-owned static GPIO table. A std::vector was tested first but its

@@ -47,6 +47,11 @@ extern std::size_t test_get_i2c_written_size();
 extern unsigned char test_get_i2c_written_byte(std::size_t idx);
 extern unsigned int test_get_i2c_written_address();
 extern void test_reset_i2c();
+extern void test_set_second_i2c_present(bool present);
+extern unsigned int test_get_i2c_written_instance();
+extern unsigned int test_get_i2c_config_instance();
+extern unsigned int test_get_i2c_config_data();
+extern unsigned int test_get_i2c_config_clock();
 
 extern void test_adc_set_count(unsigned int channel, unsigned int count);
 extern bool test_adc_is_configured(unsigned int channel);
@@ -1517,6 +1522,69 @@ void spi_communication() {
     test_reset_spi();
 }
 
+void second_wire_bus() {
+    clearError();
+    test_reset_i2c();
+
+    // A board without a second wiring: Wire1 has nothing to begin on.
+    run([]{
+        clearError();
+        expect(!Wire1.begin(), "Wire1.begin fails without a second wiring");
+        expect(lastError() == Status::Unsupported, "Wire1.begin latches Unsupported");
+        requestExit(0);
+    }, nullptr);
+    clearError();
+
+    // With one, Wire1 is instance 1 on the board's second pins, and its
+    // traffic goes there while Wire keeps instance 0.
+    test_reset_i2c();
+    test_set_second_i2c_present(true);
+    run([]{
+        clearError();
+        expect(Wire1.begin(), "Wire1.begin on the second wiring");
+        expect(test_get_i2c_config_instance() == 1 && test_get_i2c_config_data() == 26 &&
+                   test_get_i2c_config_clock() == 27,
+               "Wire1 configures instance 1 on GP26 and GP27");
+        Wire1.beginTransmission(0x48);
+        expect(Wire1.write(static_cast<byte>(0x01)) == 1, "Wire1.write");
+        expect(Wire1.endTransmission() == 0, "Wire1.endTransmission");
+        requestExit(0);
+    }, nullptr);
+    expect(test_get_i2c_written_instance() == 1, "Wire1 writes on instance 1");
+    expect(test_get_i2c_written_address() == 0x48, "Wire1 writes to its address");
+
+    test_reset_i2c();
+    test_set_second_i2c_present(true);
+    run([]{
+        clearError();
+        expect(Wire.begin(), "Wire.begin beside Wire1");
+        Wire.beginTransmission(0x50);
+        Wire.write(static_cast<byte>(0x02));
+        expect(Wire.endTransmission() == 0, "Wire.endTransmission");
+        expect(test_get_i2c_written_instance() == 0, "Wire still writes on instance 0");
+        expect(Wire1.endTransmission() == 4, "Wire1 not begun is its own state");
+        requestExit(0);
+    }, nullptr);
+    clearError();
+
+    // setSDA and setSCL choose pins before begin, even with no board wiring;
+    // after begin a running bus keeps its pins.
+    test_reset_i2c();
+    run([]{
+        clearError();
+        expect(Wire1.setSDA(12) && Wire1.setSCL(13), "pins set before begin");
+        expect(Wire1.begin(), "Wire1.begin on chosen pins");
+        expect(test_get_i2c_config_instance() == 1 && test_get_i2c_config_data() == 12 &&
+                   test_get_i2c_config_clock() == 13,
+               "Wire1 uses the chosen pins on instance 1");
+        expect(Wire1.setSDA(12), "setSDA after begin to the pin in use");
+        expect(!Wire1.setSDA(26), "setSDA after begin to another pin is refused");
+        requestExit(0);
+    }, nullptr);
+    clearError();
+    test_reset_i2c();
+}
+
 void wire_communication() {
     clearError();
     test_reset_i2c();
@@ -1751,6 +1819,26 @@ void analog_read_operations() {
     test_adc_set_count(0, 0);
     val = analogRead(26);
     expect(val == 0, "default 10-bit resolution scales 0 to 0");
+
+    // Every pin type reads the same channel, and analogRead's address converts
+    // to the Arduino core's int (*)(uint8_t) as well as to int (*)(int).
+    test_adc_set_count(0, 4095);
+    int (*read_byte)(std::uint8_t) = analogRead;
+    int (*read_int)(int) = analogRead;
+    expect(read_byte(26) == 1023 && read_int(26) == 1023,
+           "analogRead through int (*)(uint8_t) and int (*)(int)");
+    expect(analogRead(static_cast<long>(26)) == 1023 &&
+               analogRead(static_cast<unsigned long>(26)) == 1023 &&
+               analogRead(static_cast<short>(26)) == 1023,
+           "analogRead takes long, unsigned long, and promoted short pins");
+    clearError();
+    expect(analogRead(-1) == 0 && lastError() == Status::BadArgument,
+           "a negative pin names no channel");
+    clearError();
+    expect(analogRead(static_cast<unsigned long>(26) + (1ul << 32)) == 0 &&
+               lastError() == Status::BadArgument,
+           "a pin wider than unsigned int does not wrap onto a channel");
+    clearError();
 
     // Reading by channel number directly (channel 1 on GPIO 27, 10 bits)
     test_adc_set_count(1, 1023);
@@ -2176,6 +2264,7 @@ const mm::test::case_ cases[] = {
     {"interrupt preserved across runs", &interrupt_preserved_across_runs},
     {"spi communication", &spi_communication},
     {"wire communication", &wire_communication},
+    {"second wire bus", &second_wire_bus},
     {"analog read operations", &analog_read_operations},
     {"analog write operations", &analog_write_operations},
     {"tone and no tone operations", &tone_and_no_tone_operations},
