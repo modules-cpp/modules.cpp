@@ -17,6 +17,7 @@
 #     ./check.sh                    the whole tree
 #     ./check.sh modules/mm.mdy     a subtree
 #     ./check.sh -v                 verbose, passed through to the tool
+#     ./check.sh --strict           documented exceptions fail as violations
 #
 # Known limitation: a subtree that contains a kind:test manifest cannot be
 # checked on its own, so ./check.sh tests/mm.mdy fails with "could not find

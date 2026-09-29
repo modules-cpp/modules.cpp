@@ -152,7 +152,8 @@ and only for the entries listed here.
   file and lists each as an exception rather than a violation, so they stay
   visible on every run; another template or unscoped enumeration there, or
   anywhere else, is still an error, and no other module MAY add either on the
-  strength of this entry.
+  strength of this entry. ./check.sh --strict reports them as violations and
+  fails, which is what the tree would face with this entry removed.
 - modules/mm/ino/src/guard.cpp includes POSIX <fcntl.h> and <unistd.h> and
   invokes openat, write, close, renameat, and unlinkat. This narrow exception
   to standard-library-only includes is required for the source guard: ISO C++20

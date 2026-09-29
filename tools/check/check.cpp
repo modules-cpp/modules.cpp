@@ -1,7 +1,12 @@
 // modules.cpp check tool
 //
-// Usage: check [-v|--verbose] [-h|--help] [<path to mm.mdy>]
+// Usage: check [-v|--verbose] [-h|--help] [--strict] [<path to mm.mdy>]
 //        (default: mm.mdy in the current dir)
+//
+// A use that docs/modules-c++20.mdy's "Known non-conformance" list permits
+// is listed as an exception and does not fail the check. --strict withdraws
+// that permission: every such use is reported as a violation and the check
+// fails, which shows what the tree would need to conform with no exceptions.
 //
 // Wraps the installed cppcheck tool to run a selected subset of
 // docs/modules-c++20.mdy's rules (see that document's "Enforcement" section
@@ -85,12 +90,14 @@ void collect(const mm::build::Project& project, std::size_t scope,
 
 int main(int argc, char** argv) {
     mm::app::Options options("check");
-    options.help("check [-v|--verbose] [-h|--help] [manifest]");
+    options.flag("--strict");
+    options.help("check [-v|--verbose] [-h|--help] [--strict] [manifest]");
     const auto cli = options.parse(argc, argv);
     if (cli == mm::app::Cli::help) return mm::build::exit_ok;
     if (cli != mm::app::Cli::ok) return mm::build::exit_usage;
 
     const bool verbose = options.verbose();
+    const bool strict = options.seen("--strict");
     auto manifest_path = options.positional().empty()
                              ? std::filesystem::path("mm.mdy")
                              : std::filesystem::path(options.positional().front());
@@ -206,12 +213,31 @@ int main(int argc, char** argv) {
             if (!line.empty() && printed.insert(line).second) exceptions.push_back(line);
     }
     std::filesystem::remove(exceptions_path, ec);
+    // Under --strict an exception is a violation: printed as an error, on
+    // standard error beside cppcheck's own, and failing the check.
+    constexpr std::string_view exception_tag = ": exception: ";
     if (!exceptions.empty()) {
         std::cout << "\n";
-        for (const auto& line : exceptions) std::cout << line << "\n";
+        for (const auto& line : exceptions) {
+            if (!strict) {
+                std::cout << line << "\n";
+                continue;
+            }
+            auto text = line;
+            const auto at = text.find(exception_tag);
+            if (at != std::string::npos)
+                text.replace(at, exception_tag.size(), ": error: ");
+            std::cerr << text << " (--strict)\n";
+        }
     }
 
     if (status != mm::build::exit_ok) return status;
+    if (strict && !exceptions.empty()) {
+        std::cerr << "\ncheck: " << exceptions.size()
+                  << " violation(s) under --strict, each permitted without it by"
+                     " docs/modules-c++20.mdy \"Known non-conformance\"\n";
+        return exit_violations;
+    }
 
     bool sketch_error = false;
     for (std::size_t i = 0; i < project.nodes.size(); ++i) {
