@@ -137,9 +137,9 @@ an accepted prefix, and flushes. The bound guarantees termination but is not a
 wall-clock duration; adding mm.mcu only to measure this smoke test would defeat
 the proof that an application naming only mm.stdio receives its provider.
 
-scripts/build-stdio-smoke-pico-sdk.sh builds one selected Pico SDK board,
-checks its ELF and UF2, verifies exactly one platform.pico.stdio initializer,
-and builds target-smoke-any to prove an unrelated executable contains none. It
+scripts/build-stdio.sh builds one selected Pico SDK board, checks its ELF and
+UF2, verifies exactly one platform.pico.stdio initializer, and builds
+target-smoke-any to prove an unrelated executable contains none. It
 does not claim that a person saw bytes. Hardware qualification flashes the UF2,
 opens its CDC terminal, resets the board, and observes:
 

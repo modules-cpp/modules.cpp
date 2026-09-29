@@ -32,7 +32,3 @@ wrap-audio-lcd-154|build-audio.sh|--board rp2350_lcd_154 --dry-run|0
 wrap-unknown-board|build-gfx.sh|--board nosuch --dry-run|64
 wrap-sdl|build-sdl.sh|--arch x86_64 --dry-run|0
 wrap-linux-smoke|build-linux-smoke.sh|--arch aarch64 --dry-run|0
-shim-gfx-28|build-gfx-demo-rp2350_touch_lcd_28.sh|--flash --dry-run|0
-shim-epaper-panel|build-gfx-demo-pico-epaper.sh|--panel b --dry-run|0
-shim-linux-epaper-font|build-linux-epaper-font-demo.sh|-a x86_64 --dry-run|0
-shim-linux-board|build-linux-board-smoke.sh|-a aarch64 --run --dry-run|0

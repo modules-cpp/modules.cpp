@@ -142,9 +142,18 @@ All notable changes to modules.cpp. Versions follow [semantic versioning](https:
   the platform from the board's chain, and every platform option passes
   through; on the SDL and e-paper Linux boards `--run` must succeed. Exit-code
   explanations moved beside their applications as `exit-codes` files. The
-  sixteen other old script names are one-line shims for one release, the
-  step-1 board profiles are gone, and `tests/scripts` pins twenty more dry
-  runs, wrappers and shims included. Step 3 of drafts/plan-build-scripts.mdy.
+  step-1 board profiles are gone, and `tests/scripts` pins sixteen more dry
+  runs, one or more for every wrapper. Step 3 of drafts/plan-build-scripts.mdy.
+- The sixteen per-board and per-lane build scripts are removed in favour of
+  the wrappers: `build-gfx-demo-*`, `build-font-demo-*`,
+  `build-board-smoke-rp2350_touch_lcd_28`, `build-analog-smoke-pico`,
+  `build-gpio-edge-smoke-pico`, `build-stdio-smoke-pico-sdk`, and the
+  `build-linux-*` scripts but `build-linux-smoke.sh`. Each old name maps to a
+  wrapper and a board, as `build-linux-epaper-font-demo.sh` does to
+  `build-epaper.sh --app font --board epaper`. docs/modules-platform-pico.mdy
+  and docs/modules-platform-linux.mdy gain a section on the platform scripts
+  and the wrappers, and docs/modules-stdio.mdy names `build-stdio.sh`. Step 4
+  of drafts/plan-build-scripts.mdy.
 - `tests/mm/touch-cst816` moved to `tests/mm/touch/cst816`, beside the CST328
   tests it shares an interface with, as `tests/mm/audio/es8311` sits under
   `tests/mm/audio`. The suite keeps its name, touch-cst816, and `test.sh` now

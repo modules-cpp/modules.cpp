@@ -604,6 +604,51 @@ system name, the processor arguments, the ABI projection, the board, the output
 name, and the build type. A mismatch clears and reconfigures; nothing stale is
 reused.
 
+# Build scripts
+
+scripts/build-pico.sh builds one application for one Pico board and verifies
+the image. Any of the six SDK-backed boards or any composite board under
+boards/ is accepted; a composite board takes its vendor ancestor's lane.
+
+Opening fence
+scripts/build-pico.sh --board rp2350_touch_lcd_28 --app gfx-demo --flash
+Closing fence
+
+What the image must contain is read from the manifests, not from the script.
+scripts/lib/manifest.sh walks the application's closure through the board's
+bindings, its bases' bindings, and the SDK's, to a fixed point, as the build
+does. The image must then carry:
+
+- one initializer of every provider in that closure;
+- no initializer of any other provider the lane binds;
+- the symbols of every driver module a reached provider uses.
+
+An application reaching an interface the lane does not bind is reported
+unavailable with exit 77. --symbol, --no-symbol, and --abi add checks, and
+--control builds a second application against its own closure. --dry-run
+prints the lane, the commands, and every check without touching the tree or
+needing the Pico tools. --keep leaves the lane configured; otherwise the
+configuration record found at the start is restored on every exit.
+
+The feature wrappers are short declarations over this script and its Linux
+counterpart. Each one names an application, a default board, and its extra
+checks. --board picks the platform script from the board's chain, and every
+other option passes through.
+
+- build-gfx.sh: apps/gfx-demo, which must carry no font tables.
+- build-font.sh: apps/font-demo, with both font tables.
+- build-epaper.sh: --app gfx or font on a Pico e-paper board; --panel bw, bwr,
+  or b selects the panel.
+- build-board.sh: apps/board-smoke, with target-smoke-any as control.
+- build-audio.sh: apps/audio-smoke, with the I2S adapter symbols.
+- build-analog.sh: apps/analog-smoke, with the ADC and PWM adapter symbols.
+- build-gpio-edge.sh: apps/gpio-edge-smoke, with the edge-latch adapter
+  symbols.
+- build-stdio.sh: apps/stdio-smoke, with target-smoke-any as control.
+
+tests/scripts, run by test.sh, compares every wrapper's dry run against a
+recorded expectation.
+
 # Operational notes
 
 Three behaviours surprise people and are recorded here rather than rediscovered.
@@ -654,8 +699,8 @@ Three behaviours surprise people and are recorded here rather than rediscovered.
 - The adapter for each board compiles GPIO, both hardware SPI instances, the
   default hardware UART, monotonic timer, ADC, and PWM support. W-board builds
   report no GPIO-backed LED.
-- scripts/build-analog-smoke-pico.sh builds apps/analog-smoke for a named board,
-  checks the ADC and PWM adapter symbols and the UF2, and prints the fixture:
+- scripts/build-analog.sh builds apps/analog-smoke for a named board, checks
+  the ADC and PWM adapter symbols and the UF2, and prints the fixture:
   GP16 through 10 kOhm to GP26 with 1 uF to ground. The image's own verdict --
   the filtered level at a quarter, a half, and three quarters duty within a
   tenth of full scale, the sibling and alias rules, and GPIO refusal on both
