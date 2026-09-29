@@ -28,6 +28,7 @@
 # Pawel Wodnicki (C) 2026
 # 32bitmicro LLC (C) 2026
 
+import os
 import sys
 
 import cppcheckdata
@@ -46,6 +47,16 @@ EXCEPT_TEMPLATES = {
     'modules/mm/test/src/test.cpp',
 }
 
+# mm.sketch's Arduino-compatibility surface, excepted by name rather than by
+# file, so a new template or unscoped enum in the same file is still reported.
+SKETCH_INTERFACE = 'modules/mm/sketch/sketch.cppm'
+EXCEPT_TEMPLATE_NAMES = {
+    SKETCH_INTERFACE: {'SketchNumber', 'sq', 'constrain', 'map'},
+}
+EXCEPT_ENUM_NAMES = {
+    SKETCH_INTERFACE: {'Mode', 'Level', 'BitOrder'},
+}
+
 
 def matches_known_path(tok, known_paths):
     # Dump file paths are whatever form cppcheck was invoked with (relative
@@ -57,8 +68,32 @@ def matches_known_path(tok, known_paths):
     return any(path == known or path.endswith('/' + known) for known in known_paths)
 
 
+def excepted_name(tok, name, known_names):
+    return any(matches_known_path(tok, {path}) and name in names
+               for path, names in known_names.items())
+
+
 def report(tok, message, error_id):
     cppcheckdata.reportError(tok, 'error', message, ADDON, error_id)
+
+
+# A use the Known non-conformance list permits is not an error, but it is not
+# silent either: each excepted use is appended as one line to
+# out/check-exceptions.txt under the project root this addon lives in, or to
+# the file MM_CHECK_EXCEPTIONS names, and tools/check prints them after
+# cppcheck finishes. The default path does not depend on cppcheck passing the
+# environment through to its addon.
+PROJECT_ROOT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '..'))
+EXCEPTIONS_FILE = os.path.join(PROJECT_ROOT, 'out', 'check-exceptions.txt')
+
+
+def report_exception(tok, message, error_id):
+    path = os.environ.get('MM_CHECK_EXCEPTIONS') or EXCEPTIONS_FILE
+    if not os.path.isdir(os.path.dirname(path)):
+        return
+    with open(path, 'a', encoding='utf-8') as out:
+        out.write('%s:%s:%s: exception: %s [%s-%s]\n' % (
+            tok.file, tok.linenr, tok.column, message, ADDON, error_id))
 
 
 # Raw tokens carry none of cfg.tokenlist's semantic attributes: a real
@@ -134,10 +169,47 @@ def check_catch(tok):
     )
 
 
+def template_declared_name(tok):
+    # The name a template header introduces: past the balanced <...> after
+    # `template`, the identifier after `concept`, or else the last identifier
+    # before the declaration's first '(', ';' or '{'.
+    at = tok.next
+    if at is None or at.str != '<':
+        return None
+    depth = 0
+    while at is not None:
+        if at.str == '<':
+            depth += 1
+        elif at.str == '>':
+            depth -= 1
+        elif at.str == '>>':
+            depth -= 2
+        at = at.next
+        if depth <= 0:
+            break
+    if at is not None and at.str == 'concept':
+        return at.next.str if at.next is not None else None
+    name = None
+    while at is not None and at.str not in ('(', ';', '{'):
+        if looks_like_identifier(at):
+            name = at.str
+        at = at.next
+    return name
+
+
 def check_template(tok):
     if tok.str != 'template':
         return
     if matches_known_path(tok, EXCEPT_TEMPLATES):
+        return
+    name = template_declared_name(tok)
+    if name is not None and excepted_name(tok, name, EXCEPT_TEMPLATE_NAMES):
+        report_exception(
+            tok,
+            'template %s is mm.sketch\'s Arduino-compatibility surface, permitted '
+            'by docs/modules-c++20.mdy, "Known non-conformance".' % name,
+            'noNewTemplate',
+        )
         return
     report(
         tok,
@@ -211,6 +283,15 @@ def check_enum(tok):
     if tok.str != 'enum':
         return
     if tok.next is not None and tok.next.str == 'class':
+        return
+    if tok.next is not None and excepted_name(tok, tok.next.str, EXCEPT_ENUM_NAMES):
+        report_exception(
+            tok,
+            'unscoped enum %s is mm.sketch\'s Arduino-compatibility surface, '
+            'permitted by docs/modules-c++20.mdy, "Known non-conformance".'
+            % tok.next.str,
+            'enumMustBeScoped',
+        )
         return
     report(
         tok,

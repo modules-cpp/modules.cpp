@@ -26,6 +26,7 @@
 // 32bitmicro LLC (C) 2026
 #include <cstddef>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <set>
 #include <string>
@@ -166,8 +167,14 @@ int main(int argc, char** argv) {
     // would make --error-exitcode fire on file after file for reasons that
     // have nothing to do with docs/modules-c++20.mdy.
     constexpr int exit_violations = 1;
+    // The addon appends each use docs/modules-c++20.mdy's Known
+    // non-conformance list permits to this file, one line each, and they are
+    // printed below: an excepted use is not a violation, but it is reported.
+    const auto exceptions_path = resolved_roots.project_root / "out/check-exceptions.txt";
+    std::filesystem::remove(exceptions_path, ec);
     std::string command =
-        "cppcheck --std=c++20 --language=c++ --quiet"
+        "MM_CHECK_EXCEPTIONS=" + mm::build::shell_quote(exceptions_path) +
+        " cppcheck --std=c++20 --language=c++ --quiet"
         " --suppress=syntaxError --suppress=missingIncludeSystem"
         " --error-exitcode=" + std::to_string(exit_violations) +
         " --addon=" + mm::build::shell_quote(addon);
@@ -189,6 +196,21 @@ int main(int argc, char** argv) {
         return mm::build::exit_run;
     }
 
+    // In the order the addon met them, which is source order within a file;
+    // a line repeated by a second cppcheck configuration is printed once.
+    std::vector<std::string> exceptions;
+    {
+        std::set<std::string> printed;
+        std::ifstream input(exceptions_path);
+        for (std::string line; std::getline(input, line);)
+            if (!line.empty() && printed.insert(line).second) exceptions.push_back(line);
+    }
+    std::filesystem::remove(exceptions_path, ec);
+    if (!exceptions.empty()) {
+        std::cout << "\n";
+        for (const auto& line : exceptions) std::cout << line << "\n";
+    }
+
     if (status != mm::build::exit_ok) return status;
 
     bool sketch_error = false;
@@ -208,6 +230,10 @@ int main(int argc, char** argv) {
 
     if (sketch_error) return exit_violations;
 
-    std::cout << "\ncheck: no violations found in " << files.size() << " file(s)\n";
+    std::cout << "\ncheck: no violations found in " << files.size() << " file(s)";
+    if (!exceptions.empty())
+        std::cout << "; " << exceptions.size()
+                  << " documented exception(s), see docs/modules-c++20.mdy \"Known non-conformance\"";
+    std::cout << "\n";
     return mm::build::exit_ok;
 }
