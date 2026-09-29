@@ -459,6 +459,12 @@ The walk distinguishes application, category, and leaf directories:
   subdirectories is skipped without generating a manifest.
 - Ambiguous sketch container: if a directory contains multiple `.ino` files
   but none matches `<dirname>.ino`, the directory is skipped as ambiguous.
+- Own main.cpp: an application directory that already holds a main.cpp whose
+  first line is not the header sketch writes is the example's own source,
+  which another toolchain compiles beside the .ino (RF24's pingpair_maple
+  ships one for the Maple IDE). The tool never overwrites it: library mode
+  reports the example as skipped and writes nothing in it, and a single
+  application is refused with exit 65.
 
 If the walk yields no valid applications, library mode fails and exits 65
 without writing manifests.

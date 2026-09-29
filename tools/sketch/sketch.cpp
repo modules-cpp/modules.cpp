@@ -471,6 +471,11 @@ int main(int argc, char** argv) {
             }
         }
         for (const auto& app_node : plan.app_nodes) {
+            if (!mm::ino::is_absent_or_generated(app_node.dir / "main.cpp")) {
+                std::cerr << "sketch: " << (app_node.dir / "main.cpp").string()
+                          << " is the example's own, not generated; example skipped\n";
+                continue;
+            }
             const auto mpath = app_node.dir / "mm.mdy";
             if (std::filesystem::exists(mpath, ec) && app_node.legacy &&
                 !mm::ino::is_legacy_application(mm::mdy::Parser::parse_file(mpath))) {
@@ -768,6 +773,11 @@ int main(int argc, char** argv) {
     }
 
     std::string main_err;
+    if (!mm::ino::is_absent_or_generated(abs_dir / "main.cpp")) {
+        std::cerr << "sketch: " << (abs_dir / "main.cpp").string()
+                  << " is the sketch's own, not generated; refusing to overwrite it\n";
+        return 65;
+    }
     if (!mm::ino::write_guarded(abs_dir, "main.cpp", result.output,
                                 main_err, "main.cpp.tmp")) {
         std::cerr << "sketch: cannot write main.cpp: " << main_err << "\n";

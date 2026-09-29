@@ -72,6 +72,10 @@ examples of RobTillaart's ADS1X15 build; `ADS_RP2040_WIRE1` and
 
 ### Fixed
 
+- **`sketch` no longer overwrites a sketch folder's own `main.cpp`.** A
+  `main.cpp` whose first line is not sketch's generated header is left alone:
+  library mode skips that example, and a single application is refused. It
+  had replaced RF24's `pingpair_maple/main.cpp`.
 - `mm.ino` copied a function's default arguments into the prototype it
   generates, so a sketch defining `uint16_t f(float &c, bool reset = false)`
   failed with "default argument given for parameter 2": C++ allows a default
