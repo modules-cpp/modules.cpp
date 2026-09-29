@@ -1,0 +1,2 @@
+build-linux: unsupported architecture: sparc
+exit 64

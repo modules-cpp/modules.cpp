@@ -51,13 +51,33 @@ mm_require_host_tools() {
     fi
 }
 
-# Restore the host configuration on any exit, keeping the exit status, or
-# failing when the restore itself fails. mm_leave_host is the success path's
-# counterpart: restore, and stop the trap from doing it again.
+# Restore the configuration the script found on any exit, keeping the exit
+# status, or failing when the restore itself fails. The record is saved before
+# the first configure and copied back, so a lane configured before the script
+# ran -- a cross target, a board -- is what the tree has afterwards, not a
+# host-only reset. A tree with no record is restored by ./configure, which is
+# the host lane. mm_leave_host is the success path's counterpart: restore, and
+# stop the trap from doing it again.
+mm_save_host() {
+    mm_saved_config=
+    if [ -f out/config.mdy ]; then
+        mm_saved_config=$(mktemp "${TMPDIR:-/tmp}/mm-config.XXXXXX")
+        cp out/config.mdy "$mm_saved_config"
+    fi
+}
+
+mm_put_back_host() {
+    if [ -n "${mm_saved_config:-}" ] && [ -f "$mm_saved_config" ]; then
+        cp "$mm_saved_config" out/config.mdy && rm -f "$mm_saved_config"
+    else
+        ./configure >/dev/null 2>&1
+    fi
+}
+
 mm_restore_host() {
     status=$?
     trap - 0
-    if ! ./configure >/dev/null 2>&1; then
+    if ! mm_put_back_host; then
         echo "$test_name: failed to restore the host configuration" >&2
         [ "$status" -ne 0 ] || status=1
     fi
@@ -65,11 +85,12 @@ mm_restore_host() {
 }
 
 mm_trap_restore_host() {
+    mm_save_host
     trap mm_restore_host 0
 }
 
 mm_leave_host() {
-    ./configure
+    mm_put_back_host
     trap - 0
 }
 
@@ -190,4 +211,41 @@ mm_verify_board_providers() {
                 ;;
         esac
     done
+}
+
+# The application directory an argument names: a directory with a manifest, or
+# the directory of that name under apps/. Sets app_path and app.
+mm_resolve_app() {
+    if [ -f "$1/mm.mdy" ]; then
+        app_path=${1%/}
+    elif [ -f "apps/$1/mm.mdy" ]; then
+        app_path=apps/${1%/}
+    else
+        echo "$test_name: no application at $1 or apps/$1" >&2
+        exit 64
+    fi
+    app=$(basename "$app_path")
+}
+
+# Every "provider NAME COUNT" and "driver NAMESPACE" line of an expectation
+# list, checked against an image.
+mm_verify_expectations() {
+    image=$1
+    printf '%s\n' "$2" | while read -r kind name count; do
+        case "$kind" in
+            provider) mm_verify_provider "$image" "$name" "$count" ;;
+            driver) mm_verify_symbol "$image" "$name" ;;
+        esac
+    done
+}
+
+# The lines of an application's exit-codes file that explain a status, or a
+# pointer to its source when it has none or does not explain that status.
+mm_explain_exit() {
+    table="$1/exit-codes"
+    if [ -f "$table" ] && grep -q "^$2 " "$table"; then
+        sed -n "s/^$2 /  /p" "$table"
+    else
+        echo "  see $1/main.cpp for that step"
+    fi
 }

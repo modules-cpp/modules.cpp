@@ -135,6 +135,22 @@ mm_linux_verify_image() {
 # reached the link line, or that an image which names no SDL provider did not
 # pay for it. expected is yes or no; an optional third argument explains a
 # missing entry further.
+# A NEEDED entry for lib<name>, or none, in general.
+mm_linux_verify_library() {
+    image=$1
+    name=$2
+    expected=$3
+    count=$("$readelf_command" -d "$image" | grep -c "Shared library: \\[lib$name" || true)
+    if [ "$expected" = yes ] && [ "$count" -eq 0 ]; then
+        echo "$test_name: $image does not link $name" >&2
+        exit 1
+    fi
+    if [ "$expected" = no ] && [ "$count" -ne 0 ]; then
+        echo "$test_name: $image links $name and should not" >&2
+        exit 1
+    fi
+}
+
 mm_linux_verify_sdl2() {
     image=$1
     expected=$2

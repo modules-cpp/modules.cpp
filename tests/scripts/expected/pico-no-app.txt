@@ -1,0 +1,2 @@
+build-pico: --board and --app are required; see --help
+exit 64

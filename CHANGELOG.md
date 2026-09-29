@@ -119,6 +119,20 @@ All notable changes to modules.cpp. Versions follow [semantic versioning](https:
   script's output is byte-identical to before on a successful run; the
   scripts shrink from 4,739 lines to about 2,000, beside about 600 of
   library and profiles. Step 1 of drafts/plan-build-scripts.mdy.
+- `scripts/build-pico.sh` and `scripts/build-linux.sh` build one application
+  for any board of their platform and verify it against checks read from the
+  manifests rather than written by hand: `scripts/lib/manifest.sh` walks the
+  application's closure through the lane's bindings -- the board, its bases,
+  and its SDK -- to a fixed point, as the build does, and the image must carry
+  one initializer of every provider in that closure, none of every other
+  provider the lane binds, the symbols of every driver a reached provider
+  uses, and a NEEDED entry for every library link input. An application that
+  reaches an interface the lane does not bind is reported unavailable with
+  exit 77. `--dry-run` prints the lane, the commands, and every check without
+  touching the tree or needing a toolchain, and `tests/scripts/run.sh`, run by
+  `test.sh`, pins seventeen dry runs. Every build script now restores the
+  configuration record it found, a cross target or a board included, rather
+  than resetting to the host lane. Step 2 of drafts/plan-build-scripts.mdy.
 - `tests/mm/touch-cst816` moved to `tests/mm/touch/cst816`, beside the CST328
   tests it shares an interface with, as `tests/mm/audio/es8311` sits under
   `tests/mm/audio`. The suite keeps its name, touch-cst816, and `test.sh` now

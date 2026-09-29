@@ -198,6 +198,11 @@ actual=$(./out/bin/mdy -s 2>&1) || status=$?
 check "app mdy output" "$expected_status" "$status" "$expected" "$actual"
 
 echo
+echo test build scripts
+echo
+sh tests/scripts/run.sh || exit $?
+
+echo
 echo test test
 echo
 run_test_target tests/mm/build/ || exit $?
