@@ -22,6 +22,15 @@ All notable changes to modules.cpp. Versions follow [semantic versioning](https:
   workflow tests now require a `run_test_target` line for every `kind: test`
   manifest under `tests/` and `libraries/`, and no line for a suite that does
   not exist.
+- A fresh checkout of v1.3.0 failed `./check.sh` and `sketch --check` on
+  every sketch application with `missing generated Arduino.h`. Both checks
+  require the five forwarders the sketch tool writes beside `Sketch.h` --
+  `Arduino.h`, `Print.h`, `Printable.h`, `Wire.h`, and `SPI.h` -- but
+  `.gitignore` excluded them, a rule left from when the compatibility header
+  itself was named `Arduino.h`. The rule is gone, the forwarders of
+  `apps/ino/blink`, `button`, and `echo` are committed, and
+  docs/modules-ino.mdy says every sketch application commits all six
+  generated headers and what the check compares.
 
 ## [v1.3.0] — 2026-09-29
 
