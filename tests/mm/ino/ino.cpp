@@ -478,6 +478,9 @@ void sibling_library_resolution() {
     write("libs/Extra/library.json", "{}\n");
     write("libs/Extra/Extra.h", "#pragma once\n");
     write("libs/Unused/library.properties", "name=Unused\n");
+    write("libs/SdFat/library.properties", "name=SdFat\n");
+    write("libs/SdFat/src/SdFat.h", "#pragma once\n");
+    write("libs/Lib/examples/Demo/Card.h", "#include <SD.h>\n");
     write("libs/Unused/Unused.h", "#pragma once\n");
     write("libs/NotALibrary/Display.h", "#pragma once\n");
     // A second folder, named by the variable, with another Display.
@@ -495,7 +498,7 @@ void sibling_library_resolution() {
            "the library's own folder comes first, then each variable entry once");
 
     const auto index = mm::ino::index_sketch_libraries(search);
-    expect(index.size() == 6, "every declared library is indexed, NotALibrary is not");
+    expect(index.size() == 7, "every declared library is indexed, NotALibrary is not");
     mm::ino::SketchLibraryEntry lib;
     expect(mm::ino::read_sketch_library(root / "libs/Lib", lib) &&
                lib.depends == std::vector<std::string>{"Bus Library", "Missing"},
@@ -508,10 +511,11 @@ void sibling_library_resolution() {
     const auto found =
         mm::ino::resolve_sibling_libraries(root / "libs/Lib/examples/Demo", lib, index);
     const std::vector<std::filesystem::path> expected{
-        canonical(root / "libs/Display"), canonical(root / "libs/Extra"),
-        canonical(root / "libs/Bus_Library")};
+        canonical(root / "libs/SdFat"), canonical(root / "libs/Display"),
+        canonical(root / "libs/Extra"), canonical(root / "libs/Bus_Library")};
     expect(found.libraries == expected,
-           "headers of the example's own files, then depends= transitively, each once");
+           "headers of the example's own files, SD.h as SdFat, then depends= "
+           "transitively, each once");
     expect(found.unresolved == std::vector<std::string>{"Missing"},
            "a depends= name no library declares is reported");
 
@@ -573,9 +577,33 @@ void own_main_cpp_is_not_overwritable() {
 void legacy_profile_avr_spellings() {
     const auto core = mm::ino::sketch_alias_headers();
     const auto legacy = mm::ino::sketch_alias_headers(true);
-    expect(legacy.size() == core.size() + 3 && legacy[core.size()] == "avr/pgmspace.h" &&
-               legacy.back() == "wiring_private.h",
-           "the legacy profile adds avr/pgmspace.h, pins_arduino.h, and wiring_private.h");
+    expect(legacy.size() == core.size() + 4 && legacy[core.size()] == "avr/pgmspace.h" &&
+               legacy.back() == "SD.h",
+           "the legacy profile adds avr/pgmspace.h, pins_arduino.h, wiring_private.h, "
+           "and SD.h");
+    const auto sd = mm::ino::sketch_alias_header("SD.h");
+    expect(sd.find("#include \"SdFat.h\"\ninline SdFat SD;\n") != std::string::npos,
+           "SD.h redirects to SdFat and defines SD");
+    expect(mm::ino::sketch_alias_header("Wire.h").find("SdFat") == std::string::npos,
+           "the other forwarders only include Sketch.h");
+
+    // An include inside a conditional stays where it is in the legacy profile
+    // and is hoisted in the core one.
+    const std::vector<mm::ino::SourceFile> conditional = {
+        {"app.ino", "#define USE_SD_H 0\n#if USE_SD_H\n#include <SD.h>\n#else\n"
+                    "#include \"SdFat.h\"\n#endif\n#include <Wire.h>\n"
+                    "void setup() {}\nvoid loop() {}\n"}};
+    const auto kept = mm::ino::transform(conditional, true);
+    const auto hoisted = mm::ino::transform(conditional, false);
+    const auto import_at = kept.output.find("import mm.sketch;");
+    expect(kept.ok && kept.output.find("#include <Wire.h>") < import_at &&
+               kept.output.find("#include <SD.h>") > import_at &&
+               kept.output.find("#if USE_SD_H\n#include <SD.h>\n#else\n#include \"SdFat.h\"\n") !=
+                   std::string::npos,
+           "the legacy profile hoists the unconditional include and keeps the conditional ones");
+    expect(hoisted.ok && hoisted.output.find("#include <SD.h>") <
+                             hoisted.output.find("import mm.sketch;"),
+           "the core profile still hoists every include");
     expect(std::find(core.begin(), core.end(), "avr/pgmspace.h") == core.end(),
            "the core profile has no avr/pgmspace.h");
 

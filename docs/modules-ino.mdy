@@ -471,10 +471,17 @@ Arduino without __arm__. The legacy profile therefore also supplies what an
 AVR core's Arduino.h brings in and an Arduino core for another architecture
 ships for AVR code:
 
-- three more forwarders, written, checked, and committed like the other five:
-  avr/pgmspace.h, one directory down, whose declarations Sketch.h already has,
-  and pins_arduino.h and wiring_private.h, which every Arduino core ships and
-  display libraries include unconditionally;
+- four more forwarders, written, checked, and committed like the other five:
+  avr/pgmspace.h, one directory down, whose declarations Sketch.h already has;
+  pins_arduino.h and wiring_private.h, which every Arduino core ships and
+  display libraries include unconditionally; and SD.h, Arduino's SD library,
+  redirected to SdFat, which serves its calls better: the forwarder includes
+  SdFat.h and defines SD as an SdFat, and library mode adds the SdFat library
+  to any example whose own files include SD.h;
+- an include inside #if, #ifdef, or #ifndef stays where it is in main.cpp
+  rather than being hoisted, as a sketch toolchain leaves it, so a sketch that
+  chooses a header by a condition (SdFat's USE_SD_H) includes only the one it
+  chose;
 - in Sketch.h, <cctype> and its character routines, toupper among them;
   _BV(bit); SPI_HAS_TRANSACTION, the promise SPI.h makes that SPISettings and
   beginTransaction exist, without which a library falls back to

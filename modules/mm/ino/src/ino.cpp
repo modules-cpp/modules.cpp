@@ -301,6 +301,8 @@ TransformResult transform(std::span<const SourceFile> sources, bool legacy) {
         bool in_block_comment = false;
         int brace_depth = 0;
         bool in_template = false;
+        // How many #if, #ifdef, or #ifndef blocks enclose the line.
+        int conditional_depth = 0;
 
         for (std::size_t line_idx = 0; line_idx < pf.lines.size(); ++line_idx) {
             const std::string& line = pf.lines[line_idx];
@@ -313,8 +315,21 @@ TransformResult transform(std::span<const SourceFile> sources, bool legacy) {
                 in_template = true;
             }
 
-            // Check if this line is an include directive (must be at top level outside block comment)
-            if (!in_block_comment && trimmed.starts_with("#include")) {
+            if (!in_block_comment && trimmed.starts_with("#")) {
+                const std::string_view directive = trim_leading(trimmed.substr(1));
+                if (directive.starts_with("if")) {
+                    ++conditional_depth;
+                } else if (directive.starts_with("endif") && conditional_depth > 0) {
+                    --conditional_depth;
+                }
+            }
+
+            // Check if this line is an include directive (must be at top level
+            // outside block comment). In the legacy profile an include inside
+            // a conditional stays where it is, as a sketch toolchain leaves it:
+            // hoisted, it would be included whatever the condition said.
+            if (!in_block_comment && trimmed.starts_with("#include") &&
+                !(legacy && conditional_depth > 0)) {
                 std::string_view inc_rest = trim_leading(trimmed.substr(8));
                 const char closing = inc_rest.starts_with("<")    ? '>'
                                      : inc_rest.starts_with("\"") ? '"'
@@ -861,11 +876,16 @@ std::span<const std::string_view> sketch_alias_headers(bool legacy) {
     // wiring_private.h: every Arduino core ships them, a board's pin table
     // and the core's internals, and display libraries include them
     // unconditionally for pin macros they use only on boards they name.
+    //
+    // SD.h is Arduino's SD library, redirected to SdFat, which serves the same
+    // calls better: its forwarder includes SdFat and defines SD as an SdFat,
+    // and the sketch tool adds the SdFat library to any example that
+    // includes SD.h.
     static constexpr std::string_view names[] = {
         "Arduino.h", "Print.h", "Printable.h", "Wire.h", "SPI.h",
-        "avr/pgmspace.h", "pins_arduino.h", "wiring_private.h",
+        "avr/pgmspace.h", "pins_arduino.h", "wiring_private.h", "SD.h",
     };
-    return std::span<const std::string_view>(names).first(legacy ? 8 : 5);
+    return std::span<const std::string_view>(names).first(legacy ? 9 : 5);
 }
 
 std::string sketch_alias_header(std::string_view name) {
@@ -882,6 +902,14 @@ std::string sketch_alias_header(std::string_view name) {
     out += "#pragma once\n";
     out += "\n";
     out += "#include \"" + std::string(sketch_header_name()) + "\"\n";
+    if (name == sd_library_header) {
+        out += "\n";
+        out += "// Arduino's SD library is SdFat here, which serves its calls\n";
+        out += "// better: SD is an SdFat, File SdFat's file, and FILE_READ and\n";
+        out += "// FILE_WRITE are SdFat's.\n";
+        out += "#include \"SdFat.h\"\n";
+        out += "inline SdFat SD;\n";
+    }
     return out;
 }
 

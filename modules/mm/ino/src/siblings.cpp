@@ -233,6 +233,15 @@ SiblingResolution resolve_sibling_libraries(
         while (std::getline(in, line)) {
             const auto header = included_header(line);
             if (header.empty() || header == sketch_header_name()) continue;
+            // SD.h is redirected to SdFat: its forwarder includes SdFat's
+            // header, so the example needs that library.
+            if (header == sd_library_header) {
+                const auto it = std::find_if(index.begin(), index.end(), [](const auto& entry) {
+                    return names_library(entry, sd_library_substitute);
+                });
+                if (it != index.end() && !chosen_roots.contains(it->root)) choose(*it);
+                continue;
+            }
             if (std::find(forwarders.begin(), forwarders.end(), header) != forwarders.end())
                 continue;
             if (provides(app_dir, header)) continue;

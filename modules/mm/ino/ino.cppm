@@ -73,9 +73,14 @@ inline constexpr std::string_view legacy_profile_name = "legacy";
 // the same declarations under the name it wrote.
 [[nodiscard]] std::span<const std::string_view> sketch_alias_headers();
 // The legacy profile's names: the core ones, avr/pgmspace.h, which an
-// Arduino core for a board other than AVR ships for code written for AVR, and
-// pins_arduino.h and wiring_private.h, which every Arduino core ships.
+// Arduino core for a board other than AVR ships for code written for AVR,
+// pins_arduino.h and wiring_private.h, which every Arduino core ships, and
+// SD.h, Arduino's SD library, redirected to SdFat.
 [[nodiscard]] std::span<const std::string_view> sketch_alias_headers(bool legacy);
+// Arduino's SD library header, which the legacy profile redirects to the
+// SdFat library of this name.
+inline constexpr std::string_view sd_library_header = "SD.h";
+inline constexpr std::string_view sd_library_substitute = "SdFat";
 [[nodiscard]] std::string sketch_alias_header(std::string_view name);
 
 [[nodiscard]] bool check_application(const std::filesystem::path& app_dir,

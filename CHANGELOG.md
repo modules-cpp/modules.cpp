@@ -88,12 +88,18 @@ All notable changes to modules.cpp. Versions follow [semantic versioning](https:
   ILI9341 examples use, is the `ili9341-linux-x86_64` and
   `ili9341-linux-aarch64` boards (`--board ili9341`), so Adafruit GFX's
   `mock_ili9341` draws in a window too.
+- **SD.h in the legacy profile is SdFat.** A legacy application gets an
+  `SD.h` forwarder that includes SdFat and defines `SD` as an `SdFat`, and
+  library mode adds the SdFat library to any example including `SD.h`. An
+  include inside `#if`, `#ifdef`, or `#ifndef` is no longer hoisted in the
+  legacy profile, so SdFat's `USE_SD_H` examples include only what they chose.
 - **SPI pin names.** `mm.sketch` exports `SS`, `MOSI`, `MISO`, and `SCK`,
   read from the board's default SPI wiring when used, and `mm.mcu`'s
   `SpiWiring` gains an optional `chip_select_gpio`, the board's default chip
   select. The Pico SDK boards name GP15, DAT3 in SdFat's SDIO wiring for the
   Pico, so on a Pico `SS` is GP15 beside SCK GP18, MOSI GP19, and MISO GP16.
-  With them 16 of SdFat's 27 portable examples build for the Pico.
+  With them, the SD.h redirect, and RTClib, 18 of SdFat's portable examples
+  build for the Pico.
 - **More of the Arduino core in the legacy profile.** Integer `SPI_MODE0` to
   `SPI_MODE3` with an `SPISettings` that takes them, `radians` and `degrees`,
   `__FlashStringHelper`, and `pins_arduino.h` and `wiring_private.h`
