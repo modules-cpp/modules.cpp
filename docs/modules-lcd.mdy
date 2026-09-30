@@ -221,9 +221,14 @@ draw in an SDL2 window. scripts/build-linux.sh --board lcd selects the board.
   line held low. Reads return zeros. It has no window and no clock and is
   tested on its own, in tests/mm/linux/lcd.cpp, with this module's controller
   driving it through the seam.
-- The glass is an emulation option: mounted a half turn round, as Adafruit's
-  modules are, needing INVON for true colours, and showing the whole frame.
-- platform.linux.lcd.device is the board's whole mm.mcu platform: pins 5
+- The glass is an emulation option: which way it mirrors the frame, whether
+  it needs INVON for true colours (IPS), whether its subpixels are blue first,
+  and which part of the frame it shows.
+- platform.linux.lcd.panel is the whole mm.mcu platform over the chip, with
+  the window; it registers nothing. Each emulated board's provider module
+  constructs one with its pins, SPI wiring, and glass.
+- platform.linux.lcd.device is the ST7789 board's: an Adafruit ST7789
+  module's glass, mounted a half turn round, IPS, red first; pins 5
   RST, 6 DC, 9 CS, SPI instance 0 on 10, 11, and 12, and free lines 7 and 8,
   the ones RF24's scannerGraphic gives its radio. Every line latches what is
   written; SPI bytes reach the chip, which ignores them while deselected.
@@ -239,6 +244,15 @@ draw in an SDL2 window. scripts/build-linux.sh --board lcd selects the board.
   with it set a machine without a display runs windowless.
 - platform.linux.lcd.display is this module's controller with those pins, a
   240 by 320 panel, MADCTL MX|MY, and inversion on.
+- platform.linux.lcd.ili9341.device, on the ili9341-linux-x86_64 and
+  ili9341-linux-aarch64 boards, is the same controller behind an ILI9341
+  module's glass: the ILI9341 takes every command modelled here as the ST7789
+  does, and Adafruit's ILI9341 library drives it unmodified. The glass mirrors
+  the columns only (Adafruit's rotation 0 is MX|BGR), has its subpixels blue
+  first, and is not IPS. The pins are the Arduino Uno's its examples use: RST
+  8, DC 9, CS 10, and SPI on 13, 11, and 12. The board binds mm.mcu only;
+  modules.cpp has no ILI9341 driver for mm.display. scripts/build-linux.sh
+  --board ili9341 selects it.
 
 drafts/plan-linux-lcd.mdy records the design.
 

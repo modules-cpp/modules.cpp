@@ -174,7 +174,8 @@ void memory_access_orientation() {
 
 void rendering() {
     EmulationOptions options{};
-    options.rotated_180 = true;
+    options.mirror_columns = true;
+    options.mirror_rows = true;
     options.inverted = true;
     EmulatedSt7789 chip{options};
     adafruit_init(chip);
@@ -203,7 +204,8 @@ void rendering() {
     expect(image[0] == 0, "display off shows black");
 
     EmulationOptions cropped{};
-    cropped.rotated_180 = false;
+    cropped.mirror_columns = false;
+    cropped.mirror_rows = false;
     cropped.inverted = false;
     cropped.visible_x = 52;
     cropped.visible_y = 40;
@@ -222,6 +224,72 @@ void rendering() {
     expect(small.changed(), "a change is reported");
     small.presented();
     expect(!small.changed(), "and cleared once presented");
+}
+
+// The ILI9341 board's glass: columns mirrored, subpixels blue first, not IPS,
+// on the Uno pins. Adafruit_ILI9341's begin, without a reset line, sends
+// SWRESET and then its initcmd list, and its rotation 0 is MX|BGR.
+void ili9341_glass() {
+    EmulationOptions options{};
+    options.chip_select_gpio = 10;
+    options.data_command_gpio = 9;
+    options.reset_gpio = 8;
+    options.mirror_columns = true;
+    options.mirror_rows = false;
+    options.inverted = false;
+    options.bgr = true;
+    EmulatedSt7789 chip{options};
+
+    const auto command = [&](unsigned int value, std::initializer_list<unsigned int> data) {
+        chip.gpio_write(10, false);
+        chip.gpio_write(9, false);
+        const std::array command_byte{b(value)};
+        chip.spi_write(command_byte);
+        chip.gpio_write(9, true);
+        std::vector<std::byte> bytes;
+        for (const auto item : data) bytes.push_back(b(item));
+        chip.spi_write(bytes);
+        chip.gpio_write(10, true);
+    };
+    command(0x01, {});
+    command(0xef, {0x03, 0x80, 0x02});
+    command(0xcf, {0x00, 0xc1, 0x30});
+    command(0xed, {0x64, 0x03, 0x12, 0x81});
+    command(0xe8, {0x85, 0x00, 0x78});
+    command(0xcb, {0x39, 0x2c, 0x00, 0x34, 0x02});
+    command(0xf7, {0x20});
+    command(0xea, {0x00, 0x00});
+    command(0xc0, {0x23});
+    command(0xc1, {0x10});
+    command(0xc5, {0x3e, 0x28});
+    command(0xc7, {0x86});
+    command(0x36, {0x48});
+    command(0x37, {0x00});
+    command(0x3a, {0x55});
+    command(0xb1, {0x00, 0x18});
+    command(0xb6, {0x08, 0x82, 0x27});
+    command(0xf2, {0x00});
+    command(0x26, {0x01});
+    command(0xe0, {0x0f, 0x31, 0x2b, 0x0c, 0x0e, 0x08, 0x4e, 0xf1, 0x37, 0x07, 0x10, 0x03,
+                   0x0e, 0x09, 0x00});
+    command(0xe1, {0x00, 0x0e, 0x14, 0x03, 0x11, 0x07, 0x31, 0xc1, 0x48, 0x08, 0x0f, 0x0c,
+                   0x31, 0x36, 0x0f});
+    command(0x11, {});
+    command(0x29, {});
+    expect(!chip.sleeping() && chip.display_on() && chip.memory_access() == b(0x48) &&
+               chip.pixel_format() == b(0x55),
+           "Adafruit's ILI9341 initialisation wakes the chip, the vendor commands ignored");
+
+    // setRotation(0), then one red pixel at (0, 0) and one blue at (0, 1).
+    command(0x36, {0x48});
+    command(0x2a, {0x00, 0x00, 0x00, 0x00});
+    command(0x2b, {0x00, 0x00, 0x00, 0x01});
+    command(0x2c, {0xf8, 0x00, 0x00, 0x1f});
+    std::vector<std::uint16_t> image(frame_width * frame_height);
+    chip.render(image);
+    expect(image[0] == 0xf800 && image[frame_width] == 0x001f,
+           "rotation 0 draws at the glass's top left in true colour");
+    expect(at(chip, frame_width - 1, 0) == 0xf800, "MX puts it in the frame's last column");
 }
 
 // The real controller runs against the emulated chip through the same seam it
@@ -325,6 +393,7 @@ const mm::test::case_ cases[]{
     {"platform.linux.lcd.chip memory access orientation", memory_access_orientation},
     {"platform.linux.lcd.chip rendering", rendering},
     {"platform.linux.lcd.chip controller through the seam", controller_through_the_seam},
+    {"platform.linux.lcd.chip ILI9341 glass", ili9341_glass},
 };
 const mm::test::registrar registrar{"platform.linux.lcd.chip", cases};
 

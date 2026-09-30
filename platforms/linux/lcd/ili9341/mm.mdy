@@ -1,0 +1,13 @@
+---
+mm: 1.2
+kind: dir
+name: ili9341
+folder: device
+folder: board
+folder: board-aarch64
+---
+
+# Linux ILI9341 boards
+
+The emulated controller of platforms/linux/lcd behind an ILI9341 module's
+glass and pins, for Adafruit's ILI9341 library and its examples.

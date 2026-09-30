@@ -1,10 +1,12 @@
 // Pawel Wodnicki (C) 2026
 // 32bitmicro LLC (C) 2026
 //
-// A virtual ST7789. It is not a display provider and it owns no window: it is
-// the controller the SPI bytes land in, so mm.lcd.st7789::Controller and
-// Adafruit's ST7789 library both run unmodified against it through the
-// mm.mcu seam. It keeps the controller's frame memory and the few registers
+// A virtual ST7789, which serves for an ILI9341 as well: the two take the same
+// commands for everything modelled here, over the same 240 by 320 frame, and
+// differ in the glass a module mounts, which is an option. It is not a
+// display provider and it owns no window: it is the controller the SPI bytes
+// land in, so mm.lcd.st7789::Controller and Adafruit's ST7789 and ILI9341
+// libraries all run unmodified against it through the mm.mcu seam. It keeps the controller's frame memory and the few registers
 // that decide what the glass shows, and render turns them into that image.
 //
 // Nothing here reads a clock or sleeps: the controller has no busy line, and
@@ -29,10 +31,15 @@ struct EmulationOptions {
     unsigned int data_command_gpio = 6;
     unsigned int reset_gpio = 5;
     // How the glass shows the frame, which belongs to the module rather than
-    // the controller. rotated_180 is the half turn Adafruit's modules are
-    // mounted with; inverted says true colours need INVON, as on IPS panels.
-    bool rotated_180 = true;
+    // the controller. Mirroring both is the half turn Adafruit's ST7789
+    // modules are mounted with; its ILI9341 modules mirror the columns only.
+    // inverted says true colours need INVON, as on IPS panels. bgr says the
+    // glass's subpixels are blue first, so true colours need MADCTL's BGR bit,
+    // as on the ILI9341 modules.
+    bool mirror_columns = true;
+    bool mirror_rows = true;
     bool inverted = true;
+    bool bgr = false;
     // The part of the frame the glass covers, in frame coordinates before
     // the panel's rotation.
     unsigned int visible_x = 0;
@@ -290,15 +297,13 @@ void EmulatedSt7789::render(std::span<std::uint16_t> out) const {
         return;
     }
     const bool invert = inversion_on_ != options_.inverted;
-    const bool swap_red_blue = has(memory_access_, blue_first);
+    const bool swap_red_blue = has(memory_access_, blue_first) != options_.bgr;
     for (unsigned int y = 0; y < height; ++y) {
         for (unsigned int x = 0; x < width; ++x) {
-            unsigned int column = options_.visible_x + x;
-            unsigned int row = options_.visible_y + y;
-            if (options_.rotated_180) {
-                column = options_.visible_x + (width - 1 - x);
-                row = options_.visible_y + (height - 1 - y);
-            }
+            const unsigned int column =
+                options_.visible_x + (options_.mirror_columns ? width - 1 - x : x);
+            const unsigned int row =
+                options_.visible_y + (options_.mirror_rows ? height - 1 - y : y);
             auto pixel = frame_[static_cast<std::size_t>(row) * frame_width + column];
             if (invert) pixel = static_cast<std::uint16_t>(~pixel);
             if (swap_red_blue) {

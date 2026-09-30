@@ -83,7 +83,11 @@ All notable changes to modules.cpp. Versions follow [semantic versioning](https:
   e-paper boards do for the SSD1680. `mm.lcd.st7789` and Adafruit's ST7789
   library both drive it unmodified, so `apps/gfx-demo` and RF24's
   `scannerGraphic` draw on a desktop. `scripts/build-linux.sh --board lcd`
-  selects it; `MM_LCD_SNAPSHOT` writes each shown image to a PPM file.
+  selects it; `MM_LCD_SNAPSHOT` writes each shown image to a PPM file. The
+  same controller behind an ILI9341 module's glass, on the Uno pins Adafruit's
+  ILI9341 examples use, is the `ili9341-linux-x86_64` and
+  `ili9341-linux-aarch64` boards (`--board ili9341`), so Adafruit GFX's
+  `mock_ili9341` draws in a window too.
 - **More of the Arduino core in the legacy profile.** Integer `SPI_MODE0` to
   `SPI_MODE3` with an `SPISettings` that takes them, `radians` and `degrees`,
   `__FlashStringHelper`, and `pins_arduino.h` and `wiring_private.h`

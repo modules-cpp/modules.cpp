@@ -195,7 +195,7 @@ mm_expectations() {
 # other board is whatever its chain's SDK is.
 mm_board_platform() {
     case "$1" in
-        generic|sdl|epaper|lcd|sdk) echo linux; return 0 ;;
+        generic|sdl|epaper|lcd|ili9341|sdk) echo linux; return 0 ;;
     esac
     name=$1
     while [ -n "$name" ]; do

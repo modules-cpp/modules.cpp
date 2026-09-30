@@ -1,0 +1,11 @@
+---
+mm: 1.2
+kind: module
+name: linux-lcd-panel
+module: platform.linux.lcd.panel
+file: panel.cppm
+use: mm.mcu
+use: platform.linux.lcd.chip
+library: sdl2
+option: buildable-host no
+---
