@@ -72,8 +72,9 @@ inline constexpr std::string_view legacy_profile_name = "legacy";
 // reaching for Print.h, Wire.h, or the name its whole ecosystem writes finds
 // the same declarations under the name it wrote.
 [[nodiscard]] std::span<const std::string_view> sketch_alias_headers();
-// The legacy profile's names: the core ones and avr/pgmspace.h, which an
-// Arduino core for a board other than AVR ships for code written for AVR.
+// The legacy profile's names: the core ones, avr/pgmspace.h, which an
+// Arduino core for a board other than AVR ships for code written for AVR, and
+// pins_arduino.h and wiring_private.h, which every Arduino core ships.
 [[nodiscard]] std::span<const std::string_view> sketch_alias_headers(bool legacy);
 [[nodiscard]] std::string sketch_alias_header(std::string_view name);
 
@@ -102,6 +103,9 @@ struct LibraryAppNode {
     // The other sketch libraries the example uses, as paths relative to its
     // directory, written as further sketch-library: entries after the first.
     std::vector<std::string> sibling_library_rels;
+    // The C and C++ sources beside the sketch, which the Arduino tools compile
+    // with it, written as further file: entries after main.cpp.
+    std::vector<std::string> extra_sources;
     bool legacy = false;   // written as sketch-profile: legacy
 };
 
@@ -128,9 +132,10 @@ struct LibraryPlan {
 inline constexpr std::string_view sketch_libraries_path_variable =
     "MM_SKETCH_LIBRARIES_PATH";
 
-// The folders searched, in order: each entry of value (the variable's text),
-// then the folder holding library_root, whose siblings are the libraries a
-// user installed beside it. Each folder holds libraries as subdirectories; an
+// The folders searched, in order: the folder holding library_root, whose
+// other libraries were installed beside it and so come first, as a
+// sketchbook's libraries come first to the Arduino tools; then each entry of
+// value (the variable's text). Each folder holds libraries as subdirectories; an
 // entry that is itself a sketch library stands for that one library. Empty
 // and repeated entries are dropped.
 [[nodiscard]] std::vector<std::filesystem::path> sketch_library_search_path(
@@ -183,6 +188,15 @@ struct SiblingResolution {
 // text has no front matter or no sketch-library: line.
 [[nodiscard]] std::string with_sketch_libraries(
     std::string_view manifest, std::span<const std::string> entries);
+// The same for file: lines, after the last file: line.
+[[nodiscard]] std::string with_files(
+    std::string_view manifest, std::span<const std::string> entries);
+
+// The C and C++ sources in a sketch folder other than main.cpp and anything
+// sketch generated, sorted: the files the Arduino tools compile beside the
+// sketch.
+[[nodiscard]] std::vector<std::string> sketch_folder_sources(
+    const std::filesystem::path& app_dir);
 
 [[nodiscard]] LibraryPlan discover_library(
     const std::filesystem::path& library_root);

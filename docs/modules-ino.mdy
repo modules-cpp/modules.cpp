@@ -212,7 +212,8 @@ Closing fence
 
 sketch-library names the library root relative to the application manifest. It
 requires sketch: on the same manifest, must resolve to an existing directory
-inside the owning tree, and may climb to reach it; docs/modules-mm.mdy owns the
+inside the owning tree, and may climb to reach it (further entries, for other
+libraries, follow the rule in Other libraries an example uses below); docs/modules-mm.mdy owns the
 key and states why climbing is permitted here.
 
 The declaration contributes two things to the application, and nothing to any
@@ -230,6 +231,70 @@ other target:
 Library objects are placed under the application's own output prefix, so two
 examples of one library each compile the library they were built against rather
 than sharing an object.
+
+## Other libraries an example uses
+
+An example may include a header from a library other than the one it
+exercises, and a library may need another to compile at all: Adafruit's GFX
+library includes Adafruit BusIO's headers from its own. The Arduino tools find
+such a library by the header's name among every library installed; a
+modules.cpp application instead declares every input, so the sketch tool finds
+the libraries once, in library mode, and records each as a further
+sketch-library: entry after the first:
+
+Opening fence
+sketch-library: ../..
+sketch-library: ../../../Adafruit_ILI9341
+sketch-library: ../../../Adafruit_BusIO
+Closing fence
+
+Each further entry contributes an include directory and its sources exactly as
+the first does, after it. It may lie outside the owning tree, where libraries
+are installed, but must hold a library.properties or library.json, so a stray
+path compiles nothing; its objects are placed under the application's prefix
+in sketch-libraries/NAME/, so two libraries with a source of the same name do
+not collide.
+
+The search path is the folder holding the library, whose other libraries were
+installed beside it and so come first, then each folder MM_SKETCH_LIBRARIES_PATH
+names, separated by colons as PATH is. A folder holds libraries as
+subdirectories; an entry that is itself a sketch library stands for that
+library alone. A library is a directory holding a library.properties or
+library.json; its name is library.properties' name=, else the directory's, and
+its include directory is src/ when it has one.
+
+Two things choose a library:
+
+1. The example's own files: its sketches and any header or source beside them,
+   generated files excepted. Each header one of them includes, and that neither
+   the example, a library already chosen, nor the compatibility headers
+   provide, is looked up in the search path: the library whose include
+   directory holds it, one named after the header's stem first, and otherwise
+   the first in search order. A header nothing provides is left alone, since
+   it may be the compiler's.
+2. depends= in library.properties, the exercised library's first and then each
+   chosen library's, transitively. A name matches a library's name= or its
+   directory, spaces read as underscores or hyphens, ignoring case; a version
+   constraint after the name is ignored. A name nothing in the search path
+   declares is reported as a warning naming the folders searched, and the
+   example is generated without it.
+
+A library's own sources are never scanned for includes. They choose a header
+by preprocessor conditions the sketch tool does not evaluate, and a header a
+library includes only for another board would otherwise bring in whatever
+library happens to provide it. depends= is how a library says what it needs.
+
+The sketch folder's own C and C++ sources, other than main.cpp and anything
+sketch generated, are compiled with it, as the Arduino tools compile every
+source in a sketch folder: library mode writes each as a further file: entry
+after main.cpp (Adafruit GFX's GFXcanvas example ships
+GFXcanvasSerialDemo.cpp beside its sketch).
+
+The manifests are the record. A later run adds any library or source it finds
+that a manifest lacks, after its last sketch-library: line, and removes nothing;
+sketch --check and the build's regeneration read the entries back and search
+nothing, so a build does not depend on the variable. To drop a library, delete
+its line.
 
 # The synthesised compatibility header
 
@@ -406,17 +471,31 @@ Arduino without __arm__. The legacy profile therefore also supplies what an
 AVR core's Arduino.h brings in and an Arduino core for another architecture
 ships for AVR code:
 
-- a sixth forwarder, avr/pgmspace.h, one directory down, written, checked, and
-  committed like the other five, whose declarations Sketch.h already has;
+- three more forwarders, written, checked, and committed like the other five:
+  avr/pgmspace.h, one directory down, whose declarations Sketch.h already has,
+  and pins_arduino.h and wiring_private.h, which every Arduino core ships and
+  display libraries include unconditionally;
 - in Sketch.h, <cctype> and its character routines, toupper among them;
   _BV(bit); SPI_HAS_TRANSACTION, the promise SPI.h makes that SPISettings and
   beginTransaction exist, without which a library falls back to
   setClockDivider and the calls it replaced; and printf_P, sprintf_P, and
   snprintf_P, each its counterpart without _P, given the format with AVR's %S,
-  a string in flash, read as %s, since nothing is placed in flash here.
+  a string in flash, read as %s, since nothing is placed in flash here;
+- in Sketch.h, SPI.h's integer modes: SPI_MODE0 to SPI_MODE3 are 0 to 3, and
+  SPISettings names mm::sketch::legacy::SPISettings, the core class with one
+  more constructor taking the mode as an integer, so a library that keeps a
+  mode in a uint8_t and hands it back compiles (Adafruit BusIO does). Both
+  are macros, as in SPI.h, so mm::sketch::SPISettings spelled out in a legacy
+  sketch is rewritten too; write SPISettings;
+- in Sketch.h, radians and degrees, and a declaration of __FlashStringHelper,
+  the type of an F() string, which a library names in overloads of its own;
+- the flash readers' names parenthesised where Sketch.h defines them, so a
+  library that defined pgm_read_byte as a macro before including Arduino.h,
+  as Adafruit_SSD1306 does off AVR, keeps its macro and the definition
+  stands.
 
 RF24 builds its current examples on the host and the Pico with these, in
-the legacy profile.
+the legacy profile, and Adafruit GFX builds its examples on the host.
 
 The manifest, not the command line, is the record. A later run without
 --legacy regenerates a legacy application as legacy, the build's regeneration

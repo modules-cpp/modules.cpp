@@ -162,7 +162,13 @@ than accidental.
   permitted to climb, because a library's own example sketches live beneath
   the library root and must point back up at it; the resolved directory must
   still lie inside the owning tree, so the library root, not the example
-  directory, is what carries project: for such a tree.
+  directory, is what carries project: for such a tree. It may repeat: the
+  first names the library the sketch exercises, under the rule above, and each
+  further one names another sketch library the sketch uses, which may lie
+  outside the owning tree but must hold a library.properties or library.json.
+  docs/modules-ino.mdy, "Other libraries an example uses", specifies how the
+  sketch tool finds them. Repeating the key is within mm: 1.3, whose build has
+  always read every sketch-library: line.
 - sketch-profile is valid on app, requires mm: 1.3, and requires sketch: on the
   same manifest. Its one value, legacy, selects mm.sketch's legacy profile,
   which docs/modules-sketch.mdy specifies; without it an application is in the

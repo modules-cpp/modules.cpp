@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <set>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -335,6 +336,51 @@ int main(int argc, char** argv) {
             }
         }
 
+        // The other sketch libraries each example uses, searched for in
+        // MM_SKETCH_LIBRARIES_PATH and beside the library. The result is
+        // recorded in the manifests; --check reads it back and searches
+        // nothing.
+        if (!check_mode) {
+            const auto search_path = mm::ino::sketch_library_search_path(abs_dir);
+            const auto index = mm::ino::index_sketch_libraries(search_path);
+            mm::ino::SketchLibraryEntry library;
+            if (!mm::ino::read_sketch_library(abs_dir, library)) {
+                library.root = abs_dir;
+                library.name = abs_dir.filename().string();
+                library.include_dir = std::filesystem::is_directory(abs_dir / "src", ec)
+                                          ? abs_dir / "src" : abs_dir;
+            }
+            if (verbose) {
+                for (const auto& folder : search_path)
+                    std::cerr << "sketch: searching " << folder.string()
+                              << " for sketch libraries\n";
+            }
+            std::set<std::string> reported;
+            for (auto& app_node : plan.app_nodes) {
+                app_node.extra_sources = mm::ino::sketch_folder_sources(app_node.dir);
+                const auto found =
+                    mm::ino::resolve_sibling_libraries(app_node.dir, library, index);
+                const auto app_physical = std::filesystem::weakly_canonical(app_node.dir, ec);
+                for (const auto& root : found.libraries) {
+                    app_node.sibling_library_rels.push_back(
+                        root.lexically_relative(app_physical).generic_string());
+                    if (verbose) {
+                        std::cerr << "sketch: " << app_node.name << " uses "
+                                  << root.string() << "\n";
+                    }
+                }
+                for (const auto& name : found.unresolved) {
+                    if (!reported.insert(name).second) continue;
+                    std::cerr << "sketch: warning: no sketch library named \"" << name
+                              << "\" in";
+                    for (const auto& folder : search_path)
+                        std::cerr << " " << folder.string();
+                    std::cerr << "; set " << mm::ino::sketch_libraries_path_variable
+                              << " to the folder holding it\n";
+                }
+            }
+        }
+
         if (check_mode) {
             bool check_failed = false;
             if (!std::filesystem::exists(abs_dir / "mm.mdy", ec)) {
@@ -488,6 +534,31 @@ int main(int argc, char** argv) {
                                             "mm.mdy.tmp")) {
                     std::cerr << "sketch: cannot add the legacy profile to "
                               << mpath.string() << "\n";
+                    return 65;
+                }
+            }
+            if (std::filesystem::exists(mpath, ec) &&
+                (!app_node.sibling_library_rels.empty() ||
+                 !app_node.extra_sources.empty())) {
+                std::ifstream in_manifest(mpath);
+                std::ostringstream text;
+                text << in_manifest.rdbuf();
+                auto updated = app_node.sibling_library_rels.empty()
+                    ? text.str()
+                    : mm::ino::with_sketch_libraries(text.str(),
+                                                     app_node.sibling_library_rels);
+                if (!updated.empty() && !app_node.extra_sources.empty())
+                    updated = mm::ino::with_files(updated, app_node.extra_sources);
+                if (updated.empty()) {
+                    std::cerr << "sketch: cannot add sketch libraries to "
+                              << mpath.string() << "\n";
+                    return 65;
+                }
+                if (updated != text.str() &&
+                    !mm::ino::write_guarded(app_node.dir, "mm.mdy", updated, err,
+                                            "mm.mdy.tmp")) {
+                    std::cerr << "sketch: cannot write " << mpath.string()
+                              << ": " << err << "\n";
                     return 65;
                 }
             }

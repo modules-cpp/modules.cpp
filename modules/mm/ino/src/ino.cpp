@@ -603,6 +603,25 @@ std::string sketch_header(bool legacy) {
         out += "// SPI.h's promise that SPISettings and beginTransaction exist,\n";
         out += "// which mm.sketch's SPIClass keeps; a library without it falls\n";
         out += "// back to setClockDivider and the other calls it replaced.\n";
+        out += "// SPI.h's modes are integers, which a library keeps in a\n";
+        out += "// uint8_t and hands back to SPISettings; the legacy\n";
+        out += "// SPISettings takes them.\n";
+        out += "#define SPISettings ::mm::sketch::legacy::SPISettings\n";
+        out += "#define SPI_MODE0 0\n";
+        out += "#define SPI_MODE1 1\n";
+        out += "#define SPI_MODE2 2\n";
+        out += "#define SPI_MODE3 3\n";
+        out += "\n";
+        out += "// Arduino.h's angle conversions, macros there, functions\n";
+        out += "// here, over the constants above.\n";
+        out += "inline double radians(double degrees) { return degrees * 0.017453292519943295; }\n";
+        out += "inline double degrees(double radians) { return radians * 57.295779513082320876; }\n";
+        out += "\n";
+        out += "// The type of an F() string. F() yields a plain string here,\n";
+        out += "// so the type is only ever named, by overloads a library\n";
+        out += "// declares for it.\n";
+        out += "class __FlashStringHelper;\n";
+        out += "\n";
         out += "#ifndef SPI_HAS_TRANSACTION\n";
         out += "#define SPI_HAS_TRANSACTION 1\n";
         out += "#endif\n";
@@ -695,54 +714,61 @@ std::string sketch_header(bool legacy) {
     out += "#define INFINITY (__builtin_inff())\n";
     out += "#endif\n";
     out += "\n";
+    // In the legacy profile each name is parenthesised, so a library that
+    // defined it as a function-like macro before including this header, as
+    // one written for a board without these readers does, leaves the
+    // definition alone rather than rewriting it.
+    const auto declarator = [legacy](std::string_view name) {
+        return legacy ? "(" + std::string(name) + ")" : std::string(name);
+    };
     out += "// The AVR flash readers. Nothing was placed in a separate\n";
     out += "// address space, so each one reads the object it is given the\n";
     out += "// address of. _near and _far are the same read here.\n";
-    out += "inline std::uint8_t pgm_read_byte(const void* address) {\n";
+    out += "inline std::uint8_t " + declarator("pgm_read_byte") + "(const void* address) {\n";
     out += "    return *static_cast<const std::uint8_t*>(address);\n";
     out += "}\n";
-    out += "inline std::uint16_t pgm_read_word(const void* address) {\n";
+    out += "inline std::uint16_t " + declarator("pgm_read_word") + "(const void* address) {\n";
     out += "    return *static_cast<const std::uint16_t*>(address);\n";
     out += "}\n";
-    out += "inline std::uint32_t pgm_read_dword(const void* address) {\n";
+    out += "inline std::uint32_t " + declarator("pgm_read_dword") + "(const void* address) {\n";
     out += "    return *static_cast<const std::uint32_t*>(address);\n";
     out += "}\n";
-    out += "inline float pgm_read_float(const void* address) {\n";
+    out += "inline float " + declarator("pgm_read_float") + "(const void* address) {\n";
     out += "    return *static_cast<const float*>(address);\n";
     out += "}\n";
-    out += "inline void* pgm_read_ptr(const void* address) {\n";
+    out += "inline void* " + declarator("pgm_read_ptr") + "(const void* address) {\n";
     out += "    return *static_cast<void* const*>(address);\n";
     out += "}\n";
-    out += "inline std::uint8_t pgm_read_byte_near(const void* a)"
+    out += "inline std::uint8_t " + declarator("pgm_read_byte_near") + "(const void* a)"
            " { return pgm_read_byte(a); }\n";
-    out += "inline std::uint8_t pgm_read_byte_far(const void* a)"
+    out += "inline std::uint8_t " + declarator("pgm_read_byte_far") + "(const void* a)"
            " { return pgm_read_byte(a); }\n";
-    out += "inline std::uint16_t pgm_read_word_near(const void* a)"
+    out += "inline std::uint16_t " + declarator("pgm_read_word_near") + "(const void* a)"
            " { return pgm_read_word(a); }\n";
-    out += "inline std::uint16_t pgm_read_word_far(const void* a)"
+    out += "inline std::uint16_t " + declarator("pgm_read_word_far") + "(const void* a)"
            " { return pgm_read_word(a); }\n";
-    out += "inline std::uint32_t pgm_read_dword_near(const void* a)"
+    out += "inline std::uint32_t " + declarator("pgm_read_dword_near") + "(const void* a)"
            " { return pgm_read_dword(a); }\n";
-    out += "inline std::uint32_t pgm_read_dword_far(const void* a)"
+    out += "inline std::uint32_t " + declarator("pgm_read_dword_far") + "(const void* a)"
            " { return pgm_read_dword(a); }\n";
-    out += "inline float pgm_read_float_near(const void* a)"
+    out += "inline float " + declarator("pgm_read_float_near") + "(const void* a)"
            " { return pgm_read_float(a); }\n";
-    out += "inline float pgm_read_float_far(const void* a)"
+    out += "inline float " + declarator("pgm_read_float_far") + "(const void* a)"
            " { return pgm_read_float(a); }\n";
-    out += "inline void* pgm_read_ptr_near(const void* a)"
+    out += "inline void* " + declarator("pgm_read_ptr_near") + "(const void* a)"
            " { return pgm_read_ptr(a); }\n";
-    out += "inline void* pgm_read_ptr_far(const void* a)"
+    out += "inline void* " + declarator("pgm_read_ptr_far") + "(const void* a)"
            " { return pgm_read_ptr(a); }\n";
     out += "\n";
     out += "// The flash counterparts of the string routines, which read\n";
     out += "// from the same memory for the same reason.\n";
-    out += "inline void* memcpy_P(void* d, const void* s, std::size_t n)"
+    out += "inline void* " + declarator("memcpy_P") + "(void* d, const void* s, std::size_t n)"
            " { return std::memcpy(d, s, n); }\n";
-    out += "inline char* strcpy_P(char* d, const char* s)"
+    out += "inline char* " + declarator("strcpy_P") + "(char* d, const char* s)"
            " { return std::strcpy(d, s); }\n";
-    out += "inline std::size_t strlen_P(const char* s)"
+    out += "inline std::size_t " + declarator("strlen_P") + "(const char* s)"
            " { return std::strlen(s); }\n";
-    out += "inline int strcmp_P(const char* a, const char* b)"
+    out += "inline int " + declarator("strcmp_P") + "(const char* a, const char* b)"
            " { return std::strcmp(a, b); }\n";
     out += "\n";
     out += "// Analog channel names, numbered in declaration order. A board's\n";
@@ -828,15 +854,18 @@ std::span<const std::string_view> sketch_alias_headers() {
 }
 
 std::span<const std::string_view> sketch_alias_headers(bool legacy) {
-    // avr/pgmspace.h is the one the legacy profile adds. The Arduino cores
-    // for boards other than AVR ship it for code written for AVR, and a
-    // library that takes every non-ARM Arduino for an AVR includes it on
-    // this host; Sketch.h already has the flash readers it declares.
+    // The legacy profile adds three. avr/pgmspace.h: the Arduino cores for
+    // boards other than AVR ship it for code written for AVR, and a library
+    // that takes every non-ARM Arduino for an AVR includes it on this host;
+    // Sketch.h already has the flash readers it declares. pins_arduino.h and
+    // wiring_private.h: every Arduino core ships them, a board's pin table
+    // and the core's internals, and display libraries include them
+    // unconditionally for pin macros they use only on boards they name.
     static constexpr std::string_view names[] = {
         "Arduino.h", "Print.h", "Printable.h", "Wire.h", "SPI.h",
-        "avr/pgmspace.h",
+        "avr/pgmspace.h", "pins_arduino.h", "wiring_private.h",
     };
-    return std::span<const std::string_view>(names).first(legacy ? 6 : 5);
+    return std::span<const std::string_view>(names).first(legacy ? 8 : 5);
 }
 
 std::string sketch_alias_header(std::string_view name) {
@@ -1252,11 +1281,21 @@ std::string render_app_manifest(const LibraryAppNode& node) {
     std::string out = "---\nmm: 1.3\nkind: app\nname: " + node.name + "\n";
     out += "use: mm.sketch\n";
     out += "file: main.cpp\n";
+    for (const auto& source : node.extra_sources) {
+        if (!is_valid_manifest_name(source)) return "";
+        out += "file: " + source + "\n";
+    }
     for (const auto& s : node.sketches) {
         if (!is_valid_sketch_filename(s)) return "";
         out += "sketch: " + s + "\n";
     }
     out += "sketch-library: " + node.sketch_library_rel + "\n";
+    for (const auto& sibling : node.sibling_library_rels) {
+        for (const unsigned char c : sibling) {
+            if (c < 0x20 || c == 0x7f) return "";
+        }
+        out += "sketch-library: " + sibling + "\n";
+    }
     if (node.legacy) {
         out += std::string(sketch_profile_key) + ": " + std::string(legacy_profile_name) + "\n";
     }
@@ -1409,17 +1448,29 @@ bool validate_manifest_compatibility(
                     + ": sketch: entries do not match discovered sketches";
             return false;
         }
+        // The first sketch-library: is the library the example exercises;
+        // any further ones are the other libraries it uses.
         const auto* lib = lookup(doc, "sketch-library");
-        if (lib == nullptr || lib->size() != 1 || lib->front().empty()) {
+        if (lib == nullptr || lib->empty() || lib->front().empty()) {
             error = manifest_path.string()
-                    + ": expected one sketch-library: declaration";
+                    + ": expected a sketch-library: declaration";
             return false;
         }
-        const std::filesystem::path raw_library(lib->front());
-        if (raw_library.is_absolute()) {
-            error = manifest_path.string()
-                    + ": sketch-library: value must be relative";
-            return false;
+        std::set<std::filesystem::path> named;
+        for (const auto& value : *lib) {
+            if (value.empty() || std::filesystem::path(value).is_absolute()) {
+                error = manifest_path.string()
+                        + ": sketch-library: value must be relative";
+                return false;
+            }
+            std::error_code named_ec;
+            if (!named.insert(std::filesystem::weakly_canonical(
+                                  (app_node->dir / value).lexically_normal(), named_ec))
+                     .second) {
+                error = manifest_path.string()
+                        + ": sketch-library names one library twice: " + value;
+                return false;
+            }
         }
         std::error_code ec;
         const auto resolved_lib = std::filesystem::weakly_canonical(

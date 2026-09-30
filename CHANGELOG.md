@@ -65,6 +65,25 @@ All notable changes to modules.cpp. Versions follow [semantic versioning](https:
   `interrupts()`. They do not mask the platform's interrupts. That spec
   previously declined them; RobTillaart's `PCF8574_interrupt_advanced`
   example uses them.
+- **Other libraries an example uses.** `sketch --library` finds the other
+  sketch libraries each example needs and records them as further
+  `sketch-library:` entries: headers the example's own files include, and
+  `depends=` in `library.properties`, transitively. It searches the folder
+  holding the library, then the folders `MM_SKETCH_LIBRARIES_PATH` names,
+  colon separated. The build compiles each such library into the application
+  like the first, and accepts one outside the tree provided it declares itself
+  a sketch library. RobTillaart's `ACS712_ESP32_external_ADC` and
+  `waveMix_demo_temperature` find `ADS1X15` and `DHTNEW`, and Adafruit GFX
+  finds Adafruit BusIO. The C and C++ sources beside a sketch are compiled
+  with it, recorded as further `file:` entries, as the Arduino tools compile
+  every source in a sketch folder.
+- **More of the Arduino core in the legacy profile.** Integer `SPI_MODE0` to
+  `SPI_MODE3` with an `SPISettings` that takes them, `radians` and `degrees`,
+  `__FlashStringHelper`, and `pins_arduino.h` and `wiring_private.h`
+  forwarders; `Sketch.h` also defines its flash readers so that a library's
+  own `pgm_read_byte` macro does not break them. With these, Adafruit GFX
+  (through BusIO) and RF24's `scannerGraphic` (through GFX, SSD1306, and
+  ST7735) build.
 
 With `Wire1` and, for `ADS_pointerToFunction`, the legacy profile, all 27
 examples of RobTillaart's ADS1X15 build; `ADS_RP2040_WIRE1` and

@@ -567,7 +567,13 @@ void walk_project(const std::filesystem::path& dir, std::size_t parent, Project&
                 target.sketch_legacy = true;
             }
         }
+        bool first_library = true;
         for (const auto& entry : all(doc, "sketch-library")) {
+            // The first is the library the example exercises, inside the
+            // tree; the others are libraries it uses, which the sketch tool
+            // found wherever the user keeps them.
+            const bool sibling = !first_library;
+            first_library = false;
             if (target.sketches.empty()) {
                 std::cerr << state.policy.tool << ": " << manifest.string()
                           << ": sketch-library requires sketch:\n";
@@ -588,11 +594,27 @@ void walk_project(const std::filesystem::path& dir, std::size_t parent, Project&
             std::error_code root_ec;
             const auto lib_root = std::filesystem::weakly_canonical(
                 target.source_dir / raw_lib, root_ec);
-            if (root_ec || !path_contained_in(owning_root, lib_root)) {
+            if (root_ec || (!sibling && !path_contained_in(owning_root, lib_root))) {
                 std::cerr << state.policy.tool << ": " << manifest.string()
                           << ": sketch-library outside tree: " << entry << "\n";
                 project.ok = false;
                 return;
+            }
+            // Outside the tree only a sketch library is accepted: a directory
+            // declaring itself one, so a stray path compiles nothing.
+            if (sibling) {
+                std::error_code meta_ec;
+                const bool declared =
+                    std::filesystem::is_regular_file(lib_root / "library.properties", meta_ec) ||
+                    std::filesystem::is_regular_file(lib_root / "library.json", meta_ec);
+                if (!declared) {
+                    std::cerr << state.policy.tool << ": " << manifest.string()
+                              << ": sketch-library is not a sketch library"
+                                 " (no library.properties or library.json): "
+                              << entry << "\n";
+                    project.ok = false;
+                    return;
+                }
             }
             std::error_code lib_ec;
             if (!std::filesystem::is_directory(lib_root, lib_ec) || lib_ec) {
@@ -651,10 +673,16 @@ void walk_project(const std::filesystem::path& dir, std::size_t parent, Project&
                 unit.source = state.is_external
                     ? (displayed_compiled_root / file.lexically_relative(compiled_root)).lexically_normal()
                     : file;
-                const auto relative = file.lexically_relative(compiled_root);
-                unit.path = (state.is_external
-                                 ? target.logical_dir / relative
-                                 : file.lexically_relative(state.root))
+                // Another library's objects go under its own name, so two
+                // libraries with a source of the same name do not collide
+                // and nothing is written outside the application.
+                const auto relative = sibling
+                    ? std::filesystem::path("sketch-libraries") / lib_root.filename() /
+                          file.lexically_relative(compiled_root)
+                    : file.lexically_relative(compiled_root);
+                unit.path = (state.is_external ? target.logical_dir / relative
+                             : sibling         ? target.dir / relative
+                                               : file.lexically_relative(state.root))
                                 .lexically_normal()
                                 .string();
                 target.sources.push_back(std::move(unit));

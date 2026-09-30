@@ -792,4 +792,29 @@ bool pinMode(Led, int mode);
 byte shiftIn(unsigned int data_pin, unsigned int clock_pin, int bit_order);
 void shiftOut(unsigned int data_pin, unsigned int clock_pin, int bit_order, byte val);
 
+// A mode as SPI.h's integer: 0 to 3 for SPI_MODE0 to SPI_MODE3, and AVR's
+// 0x04, 0x08, and 0x0C for modes 1 to 3. The two low bits of anything else
+// are the mode.
+[[nodiscard]] constexpr SpiMode spi_mode(int mode) {
+    const int value = (mode & 0x0C) != 0 ? (mode >> 2) & 3 : mode & 3;
+    return value == 1 ? SpiMode::Mode1
+         : value == 2 ? SpiMode::Mode2
+         : value == 3 ? SpiMode::Mode3
+                      : SpiMode::Mode0;
+}
+
+// SPISettings taking the mode as an integer, which is how a library that
+// keeps a mode in a uint8_t hands it back. The legacy Sketch.h names this
+// class SPISettings and SPI_MODE0 to SPI_MODE3 integers, as SPI.h does; it is
+// the core SPISettings with one more constructor, and beginTransaction takes
+// it as one.
+class SPISettings : public mm::sketch::SPISettings {
+public:
+    constexpr SPISettings() = default;
+    constexpr SPISettings(unsigned long clock_speed, BitOrder order, SpiMode mode)
+        : mm::sketch::SPISettings(clock_speed, order, mode) {}
+    constexpr SPISettings(unsigned long clock_speed, BitOrder order, int mode)
+        : mm::sketch::SPISettings(clock_speed, order, spi_mode(mode)) {}
+};
+
 }  // namespace mm::sketch::legacy
