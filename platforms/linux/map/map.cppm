@@ -103,6 +103,11 @@ struct PwmEntry {
     std::optional<unsigned int> group;
 };
 
+struct StorageEntry {
+    std::string path;
+    bool writable = false;
+};
+
 struct Map {
     std::string board_name = "linux";
     std::optional<std::string> led_name;
@@ -119,6 +124,7 @@ struct Map {
     Selector adc_device;
     std::vector<AdcEntry> adcs;
     std::vector<PwmEntry> pwms;
+    std::vector<StorageEntry> storages;
 };
 
 struct ParseError {

@@ -182,6 +182,13 @@ bool apply(Map& map, std::string_view key, std::string_view text) {
         if(field=="parity"){text=trim(text);if(text=="none")e.parity=0;else if(text=="even")e.parity=1;else if(text=="odd")e.parity=2;else return false;return true;}
         return false;
     }
+    if (indexed_key(key, "storage", index, field)) {
+        if (map.storages.size() <= index) map.storages.resize(index + 1);
+        auto& e = map.storages[index];
+        if (field == "path") return quoted(text, e.path);
+        if (field == "writable") return boolean(text, e.writable);
+        return false;
+    }
     return false;
 }
 
@@ -231,6 +238,17 @@ MapStatus validate(Map& map, const std::string& path, ParseError& error) {
         }
         if (pwm.gpio && (*pwm.gpio>=map.gpios.size() || !pwm_pins.insert(*pwm.gpio).second)) {
             error={path,0,0,"pwm."+std::to_string(i)+".gpio","does not name a declared GPIO once"};
+            return MapStatus::SyntaxError;
+        }
+    }
+    for (std::size_t i = 0; i < map.storages.size(); ++i) {
+        const auto& s = map.storages[i];
+        if (s.path.empty() && s.writable) {
+            error = {path, 0, 0, "storage." + std::to_string(i) + ".writable", "writable without a path"};
+            return MapStatus::SyntaxError;
+        }
+        if (!s.path.empty() && !s.path.starts_with('/')) {
+            error = {path, 0, 0, "storage." + std::to_string(i) + ".path", "relative path"};
             return MapStatus::SyntaxError;
         }
     }

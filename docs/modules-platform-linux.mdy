@@ -164,6 +164,9 @@ pwm.N.channel = C                  # pwmC under it
 pwm.N.gpio = G                     # optional; a declared GPIO, once
 pwm.N.name = "..."                 # optional; default pwm.N; unique
 pwm.N.group = Q                    # optional; a known shared counter
+
+storage.N.path = "/dev/..."        # whole-disk block device path
+storage.N.writable = yes|no        # default no; writing needs yes
 Closing fence
 
 A UART entry serves both of mm.mcu's UART forms. A text write opens the device,
@@ -176,6 +179,13 @@ passes are not used, because the entry names the device. Board describes
 uart.0 as its default UART and uart.1 as its second, which mm.sketch serves as
 Serial1 and Serial2.
 
+A storage entry exposes a whole-disk block device to mm.mcu's block storage
+interface. Writing requires storage.N.writable = yes; without it, the device
+opens read-only and writes answer Unsupported. The provider refuses to write a
+disk that is mounted, or any of whose partitions is, or any of whose partitions
+has active holders, answering Busy. The path must resolve to a whole-disk block
+device, not a partition or file.
+
 Validation, after every line has applied: every GPIO has a chip and a name
 unique among GPIOs; the LED, and any analog entry's pad, names a declared
 GPIO, and a pad is attached to at most one channel and at most one output;
@@ -184,7 +194,8 @@ because sysfs does not publish a raw channel's width and the map must say
 it. The SPI and I2C wiring fields exist so that a caller's configuration is
 checked against the board rather than trusted: a configuration naming other
 pins is BadArgument, as it would be on a microcontroller whose mux does not
-route the bus there.
+route the bus there. An unknown storage field, a relative path, or
+storage.N.writable without a path is an error at resolution.
 
 ## An example
 
