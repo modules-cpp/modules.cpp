@@ -667,6 +667,92 @@ Level digitalRead(unsigned int pin) {
     return high ? HIGH : LOW;
 }
 
+namespace {
+
+constexpr std::size_t usb_sector_size = 512;
+std::uint32_t usb_storage_sectors_ = 0;
+
+}  // namespace
+
+bool usbStoragePresent() {
+    CallScope scope{"usbStoragePresent"};
+    bool present = false;
+    const auto status = mm::mcu::storage_poll(present);
+    if (status != mm::mcu::Status::Ok) {
+        record_failure(from(status), "usbStoragePresent");
+        return false;
+    }
+    return present;
+}
+
+bool usbStorageBegin(unsigned long timeout_ms) {
+    CallScope scope{"usbStorageBegin"};
+    usb_storage_sectors_ = 0;
+    const unsigned long start = millis();
+    while (true) {
+        bool present = false;
+        const auto status = mm::mcu::storage_poll(present);
+        if (status != mm::mcu::Status::Ok) {
+            record_failure(from(status), "usbStorageBegin");
+            return false;
+        }
+        if (present) {
+            mm::mcu::StorageGeometry geometry;
+            const auto read = mm::mcu::storage_geometry(geometry);
+            if (read != mm::mcu::Status::Ok) {
+                record_failure(from(read), "usbStorageBegin");
+                return false;
+            }
+            if (geometry.block_size != usb_sector_size ||
+                geometry.block_count > 0xffffffffULL) {
+                record_failure(Status::Unsupported, "usbStorageBegin");
+                return false;
+            }
+            usb_storage_sectors_ = static_cast<std::uint32_t>(geometry.block_count);
+            return true;
+        }
+        if (millis() - start >= timeout_ms) {
+            record_failure(Status::Timeout, "usbStorageBegin");
+            return false;
+        }
+        if (!delay(10)) return false;
+    }
+}
+
+std::uint32_t usbStorageSectorCount() { return usb_storage_sectors_; }
+
+bool usbStorageRead(std::uint32_t sector, byte* destination, std::size_t count) {
+    CallScope scope{"usbStorageRead"};
+    if (destination == nullptr || count == 0) {
+        record_failure(Status::BadArgument, "usbStorageRead");
+        return false;
+    }
+    const auto status = mm::mcu::storage_read(
+        sector, std::span<std::byte>{reinterpret_cast<std::byte*>(destination),
+                                     count * usb_sector_size});
+    if (status != mm::mcu::Status::Ok) {
+        record_failure(from(status), "usbStorageRead");
+        return false;
+    }
+    return true;
+}
+
+bool usbStorageWrite(std::uint32_t sector, const byte* source, std::size_t count) {
+    CallScope scope{"usbStorageWrite"};
+    if (source == nullptr || count == 0) {
+        record_failure(Status::BadArgument, "usbStorageWrite");
+        return false;
+    }
+    const auto status = mm::mcu::storage_write(
+        sector, std::span<const std::byte>{reinterpret_cast<const std::byte*>(source),
+                                           count * usb_sector_size});
+    if (status != mm::mcu::Status::Ok) {
+        record_failure(from(status), "usbStorageWrite");
+        return false;
+    }
+    return true;
+}
+
 SpiPin::operator unsigned int() const {
     const auto board = mm::mcu::board();
     if (!board.spi) return no_pin;

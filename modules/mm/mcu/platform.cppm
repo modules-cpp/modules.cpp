@@ -13,6 +13,7 @@ import :board;
 import :spi_types;
 import :i2c_types;
 import :uart_types;
+import :storage_types;
 import :i2s_types;
 import :transport_types;
 import :adc_types;
@@ -32,6 +33,7 @@ struct Capabilities {
     bool timer = false;
     bool adc = false;
     bool pwm = false;
+    bool storage = false;
 };
 
 // The seam. A name declared in a module's purview is attached to that module and
@@ -137,6 +139,17 @@ public:
         return Status::Unsupported;
     }
     [[nodiscard]] virtual Status uart_release(unsigned int) { return Status::Unsupported; }
+
+    [[nodiscard]] virtual Status storage_poll(bool&) { return Status::Unsupported; }
+    [[nodiscard]] virtual Status storage_geometry(StorageGeometry&) {
+        return Status::Unsupported;
+    }
+    [[nodiscard]] virtual Status storage_read(std::uint64_t, std::span<std::byte>) {
+        return Status::Unsupported;
+    }
+    [[nodiscard]] virtual Status storage_write(std::uint64_t, std::span<const std::byte>) {
+        return Status::Unsupported;
+    }
 
     [[nodiscard]] virtual Status delay_ms(unsigned long) { return Status::Unsupported; }
 

@@ -130,6 +130,8 @@ Opening fence
 1.3  project             app dir
 1.3  sketch              app
 1.3  sketch-library      app
+1.3  sketch-profile      app
+1.3  sketch-define       app
 Closing fence
 
 Three placements are worth stating because their absence is load-bearing rather
@@ -174,6 +176,13 @@ than accidental.
   which docs/modules-sketch.mdy specifies; without it an application is in the
   core profile. The sketch tool writes it for sketch --legacy, and the build
   reports every application that carries it.
+- sketch-define is valid on app, requires mm: 1.3, requires sketch: on the same
+  manifest, and may repeat. Each is NAME or NAME=VALUE, an identifier and a
+  value of letters, digits, and . _ - +, and the build compiles the
+  application and its sketch libraries with it defined, after ARDUINO. It is
+  the configuration a library's documentation says to set by editing its own
+  header (SdFat's USE_BLOCK_DEVICE_INTERFACE), recorded in the manifest
+  instead. The sketch tool never writes it; a manifest keeps it across runs.
 
 # External targets
 

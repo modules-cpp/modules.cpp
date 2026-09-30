@@ -149,6 +149,7 @@ public:
             .timer = true,
             .adc = mm_pico_mcu_adc_channel_count() != 0,
             .pwm = gpio_count != 0,
+            .storage = mm_pico_mcu_has_storage() != 0,
         };
     }
 
@@ -306,6 +307,31 @@ public:
 
     [[nodiscard]] mm::mcu::Status uart_release(unsigned int instance) override {
         return from(mm_pico_mcu_uart_release(instance));
+    }
+
+    [[nodiscard]] mm::mcu::Status storage_poll(bool& present) override {
+        int value = 0;
+        const auto status = from(mm_pico_mcu_storage_poll(&value));
+        if (status == mm::mcu::Status::Ok) present = value != 0;
+        return status;
+    }
+
+    [[nodiscard]] mm::mcu::Status storage_geometry(mm::mcu::StorageGeometry& geometry) override {
+        unsigned long long count = 0;
+        unsigned int size = 0;
+        const auto status = from(mm_pico_mcu_storage_geometry(&count, &size));
+        if (status == mm::mcu::Status::Ok) geometry = {count, size};
+        return status;
+    }
+
+    [[nodiscard]] mm::mcu::Status storage_read(std::uint64_t block,
+                                               std::span<std::byte> data) override {
+        return from(mm_pico_mcu_storage_read(block, data.data(), data.size()));
+    }
+
+    [[nodiscard]] mm::mcu::Status storage_write(std::uint64_t block,
+                                                std::span<const std::byte> data) override {
+        return from(mm_pico_mcu_storage_write(block, data.data(), data.size()));
     }
 
     [[nodiscard]] mm::mcu::Status delay_ms(unsigned long milliseconds) override {

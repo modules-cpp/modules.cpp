@@ -407,8 +407,10 @@ int compile(const Toolchain& toolchain, BuildableNode& target,
 }
 
 std::string compile_definitions(const BuildableNode& target) {
-    if (!target.sketch_legacy) return {};
-    return " -DARDUINO=" + std::string(sketch_arduino_version);
+    std::string out;
+    if (target.sketch_legacy) out += " -DARDUINO=" + std::string(sketch_arduino_version);
+    for (const auto& definition : target.sketch_defines) out += " -D" + definition;
+    return out;
 }
 
 int compile(const Toolchain& toolchain, BuildableNode& target,

@@ -2,6 +2,7 @@
 // 32bitmicro LLC (C) 2026
 #include <climits>
 #include <cstddef>
+#include <array>
 #include <cstdint>
 #include <string>
 #include <string_view>
@@ -36,6 +37,7 @@ extern void test_setup_pulse(unsigned int pin, std::initializer_list<bool> level
 extern void test_clear_pulse();
 
 extern void test_set_spi_present(bool present);
+extern void test_set_storage(bool present, unsigned int block_size);
 extern void test_set_spi_fail(bool fail);
 extern void test_set_spi_xor_mask(unsigned char mask);
 extern void test_reset_spi();
@@ -1536,6 +1538,38 @@ void interrupt_preserved_across_runs() {
 
 // The SPI pin names read the board's default wiring when used: the test
 // board is the Pico's, SCK GP18, MOSI GP19, MISO GP16, SS GP15.
+// A USB flash drive through mm.mcu's block storage: begin waits for one,
+// then whole sectors go both ways.
+void usb_storage() {
+    test_set_storage(false, 512);
+    clearError();
+    expect(!usbStoragePresent(), "no drive is present");
+    expect(!usbStorageBegin(30) && lastError() == Status::Timeout,
+           "begin without a drive times out");
+
+    test_set_storage(true, 512);
+    clearError();
+    expect(usbStoragePresent() && usbStorageBegin(30) && usbStorageSectorCount() == 16,
+           "a drive is found and its sectors counted");
+    std::array<byte, 1024> out{};
+    for (std::size_t i = 0; i < out.size(); ++i) out[i] = static_cast<byte>(i * 7);
+    std::array<byte, 1024> in{};
+    expect(usbStorageWrite(5, out.data(), 2) && usbStorageRead(5, in.data(), 2) && in == out,
+           "two sectors are written and read back");
+    expect(!usbStorageRead(15, in.data(), 2) && lastError() == Status::BadArgument,
+           "sectors past the end are refused");
+    clearError();
+    expect(!usbStorageRead(0, nullptr, 1) && lastError() == Status::BadArgument,
+           "a null buffer is refused");
+
+    test_set_storage(true, 4096);
+    clearError();
+    expect(!usbStorageBegin(30) && lastError() == Status::Unsupported,
+           "a drive whose sectors are not 512 bytes is refused");
+    test_set_storage(false, 512);
+    clearError();
+}
+
 void spi_pin_names() {
     test_set_spi_present(true);
     const unsigned int select = SS;
@@ -2457,6 +2491,7 @@ const mm::test::case_ cases[] = {
     {"interrupt preserved across runs", &interrupt_preserved_across_runs},
     {"spi communication", &spi_communication},
     {"spi pin names", &spi_pin_names},
+    {"usb storage", &usb_storage},
     {"wire communication", &wire_communication},
     {"legacy profile", &legacy_profile},
     {"second wire bus", &second_wire_bus},

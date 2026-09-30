@@ -109,11 +109,49 @@ public:
             .timer = true,
             .adc = true,
             .pwm = true,
+            .storage = true,
         };
     }
 
     [[nodiscard]] mm::mcu::Board board() const override {
         return {"stand", gpios, mm::mcu::Led{"status", 25, false}};
+    }
+
+    // A drive of storage_blocks 512-byte blocks, present when storage_present.
+    [[nodiscard]] mm::mcu::Status storage_poll(bool& present) override {
+        if (forced != mm::mcu::Status::Ok) return forced;
+        ++storage_polls;
+        present = storage_present;
+        return mm::mcu::Status::Ok;
+    }
+
+    [[nodiscard]] mm::mcu::Status storage_geometry(mm::mcu::StorageGeometry& geometry) override {
+        if (forced != mm::mcu::Status::Ok) return forced;
+        if (!storage_present) return mm::mcu::Status::TransportError;
+        geometry = {storage_blocks, 512};
+        return mm::mcu::Status::Ok;
+    }
+
+    [[nodiscard]] mm::mcu::Status storage_read(std::uint64_t block,
+                                               std::span<std::byte> data) override {
+        if (forced != mm::mcu::Status::Ok) return forced;
+        if (!storage_present) return mm::mcu::Status::TransportError;
+        if (data.size() % 512 != 0 || block + data.size() / 512 > storage_blocks)
+            return mm::mcu::Status::BadArgument;
+        for (std::size_t i = 0; i < data.size(); ++i)
+            data[i] = storage_bytes[static_cast<std::size_t>(block) * 512 + i];
+        return mm::mcu::Status::Ok;
+    }
+
+    [[nodiscard]] mm::mcu::Status storage_write(std::uint64_t block,
+                                                std::span<const std::byte> data) override {
+        if (forced != mm::mcu::Status::Ok) return forced;
+        if (!storage_present) return mm::mcu::Status::TransportError;
+        if (data.size() % 512 != 0 || block + data.size() / 512 > storage_blocks)
+            return mm::mcu::Status::BadArgument;
+        for (std::size_t i = 0; i < data.size(); ++i)
+            storage_bytes[static_cast<std::size_t>(block) * 512 + i] = data[i];
+        return mm::mcu::Status::Ok;
     }
 
     [[nodiscard]] mm::mcu::Status gpio_configure(unsigned int pin, mm::mcu::Direction direction,
@@ -867,6 +905,9 @@ public:
         for (auto& claim : pwm_claims) claim = {};
         for (auto& group : pwm_groups) group = {};
         forced = mm::mcu::Status::Ok;
+        storage_present = false;
+        storage_polls = 0;
+        for (auto& value : storage_bytes) value = std::byte{};
         ticks = 0;
         ticks_us_val = 0;
         interrupt_depth = 0;
@@ -1028,6 +1069,10 @@ public:
         std::vector<std::byte> incoming;
     };
     UartLane uart_lanes[2];
+    static constexpr std::uint64_t storage_blocks = 8;
+    std::byte storage_bytes[storage_blocks * 512]{};
+    bool storage_present = false;
+    unsigned int storage_polls = 0;
     std::size_t uart_room = 4;
     bool spi_ready = false;
     mm::mcu::SpiConfiguration spi_configuration;
@@ -1090,6 +1135,8 @@ std::size_t mm_test_uart_sent_size(unsigned int instance) {
 void mm_test_uart_feed(unsigned int instance, std::byte value) {
     stand.uart_lanes[instance].incoming.push_back(value);
 }
+void mm_test_storage_present(bool present) { stand.storage_present = present; }
+unsigned int mm_test_storage_polls() { return stand.storage_polls; }
 bool mm_test_spi_ready() { return stand.spi_ready; }
 unsigned long mm_test_spi_baud() { return stand.spi_configuration.baud; }
 std::size_t mm_test_spi_size() { return stand.spi_written.size(); }

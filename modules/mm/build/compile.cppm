@@ -98,8 +98,9 @@ inline constexpr std::string_view sketch_arduino_version = "10819";
 // " -DNAME=VALUE". A legacy sketch application, its main.cpp and the sources of
 // its sketch libraries alike, gets ARDUINO, as a sketch toolchain passes it to
 // every file it compiles; no board or architecture macro is defined, since
-// those select the board-specific code mm.sketch replaces. Every other target
-// gets none.
+// those select the board-specific code mm.sketch replaces. Any sketch
+// application then gets its sketch-define: entries. Every other target gets
+// none.
 std::string compile_definitions(const BuildableNode& target);
 
 // Compiles every source of a target, appending to target.objects. Library

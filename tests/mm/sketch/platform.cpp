@@ -125,6 +125,46 @@ public:
         return mm::mcu::Status::Ok;
     }
 
+    // A drive of storage_blocks blocks of storage_block_size bytes, present
+    // when storage_present.
+    [[nodiscard]] mm::mcu::Status storage_poll(bool& present) override {
+        present = storage_present;
+        return mm::mcu::Status::Ok;
+    }
+
+    [[nodiscard]] mm::mcu::Status storage_geometry(mm::mcu::StorageGeometry& geometry) override {
+        if (!storage_present) return mm::mcu::Status::TransportError;
+        geometry = {storage_blocks, storage_block_size};
+        return mm::mcu::Status::Ok;
+    }
+
+    [[nodiscard]] mm::mcu::Status storage_read(std::uint64_t block,
+                                               std::span<std::byte> data) override {
+        if (!storage_present) return mm::mcu::Status::TransportError;
+        if (data.size() % storage_block_size != 0 ||
+            block + data.size() / storage_block_size > storage_blocks)
+            return mm::mcu::Status::BadArgument;
+        std::copy_n(storage_bytes.begin() + static_cast<std::ptrdiff_t>(block * storage_block_size),
+                    data.size(), data.begin());
+        return mm::mcu::Status::Ok;
+    }
+
+    [[nodiscard]] mm::mcu::Status storage_write(std::uint64_t block,
+                                                std::span<const std::byte> data) override {
+        if (!storage_present) return mm::mcu::Status::TransportError;
+        if (data.size() % storage_block_size != 0 ||
+            block + data.size() / storage_block_size > storage_blocks)
+            return mm::mcu::Status::BadArgument;
+        std::copy(data.begin(), data.end(),
+                  storage_bytes.begin() + static_cast<std::ptrdiff_t>(block * storage_block_size));
+        return mm::mcu::Status::Ok;
+    }
+
+    static constexpr std::uint64_t storage_blocks = 16;
+    unsigned int storage_block_size = 512;
+    bool storage_present = false;
+    std::vector<std::byte> storage_bytes = std::vector<std::byte>(16 * 4096);
+
     [[nodiscard]] mm::mcu::Board board() const override {
         std::optional<mm::mcu::SpiWiring> spi_wiring;
         std::optional<mm::mcu::I2cWiring> i2c_wiring;
@@ -652,6 +692,11 @@ void test_setup_pulse(unsigned int pin, std::initializer_list<bool> levels, unsi
 void test_clear_pulse() {
     platform_instance.feed_pulse = false;
     platform_instance.feed_pulse_levels.clear();
+}
+
+void test_set_storage(bool present, unsigned int block_size) {
+    platform_instance.storage_present = present;
+    platform_instance.storage_block_size = block_size;
 }
 
 void test_set_spi_present(bool present) {

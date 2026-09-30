@@ -282,6 +282,34 @@ Wi-Fi, and Bluetooth are not enabled merely by recognizing the W board.
 
 ## USB CDC console
 
+On the pico_usb_host and pico2_usb_host boards the native port stays this
+console while a second USB port, D+ on GP2 and D- on GP3, is a USB host
+driven by Pico-PIO-USB through the chip's PIO, for one USB mass-storage
+device, which mm.mcu's block storage reads and writes. A board opts in with
+MM_BOARD_HAS_USB_HOST and MM_BOARD_USB_HOST_DP_PIN in resolve-board.cmake.
+For such a board the bridge:
+
+- builds TinyUSB's host with its Pico-PIO-USB controller driver from the
+  checkout pio-usb/vendor.sh provisions (pinned, and cloned from
+  MM_PIO_USB_SOURCE when that names a local clone), and fails the configure
+  with that command when it is absent;
+- makes ext/usb-host/tusb_config.h TinyUSB's configuration: the native port
+  as the CDC device pico_stdio_usb expects, with its descriptors
+  (PICO_STDIO_USB_USE_DEFAULT_DESCRIPTORS), and the PIO port as a host for
+  one device with the mass-storage class and no hub;
+- sets the system clock to 120 MHz in a constructor that runs before every
+  C++ static initializer, since Pico-PIO-USB needs a multiple of 12 MHz and
+  the peripheral clock follows the system clock;
+- initialises TinyUSB's device and host before stdio_usb_init.
+
+The storage calls run TinyUSB's host stack on the caller's thread: a poll for
+two milliseconds, a transfer in pieces of at most 32 blocks until each
+completes, the device goes, or five seconds pass. Every other board builds
+exactly as before and answers Unsupported for storage.
+
+Wiring: a USB-A socket's D+ to GP2 and D- to GP3, each through a 22-ohm
+resistor, VBUS to 5 V, and ground to ground.
+
 Both SDKs bind mm.stdio to platform.pico.stdio at the SDK tier, so every Pico
 SDK-backed board receives the USB CDC console by default and a board may replace
 it through the ordinary, more-specific board-provider tier. A program that does

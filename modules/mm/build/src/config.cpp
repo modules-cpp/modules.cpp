@@ -83,6 +83,7 @@ const std::vector<ManifestKeyRule> manifest_key_rules = {
     {"sketch", 13, "app"},
     {"sketch-library", 13, "app"},
     {"sketch-profile", 13, "app"},
+    {"sketch-define", 13, "app"},
     {"project", 13, "app dir"},
 };
 

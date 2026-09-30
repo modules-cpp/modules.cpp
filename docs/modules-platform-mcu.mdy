@@ -737,6 +737,37 @@ nor RP2350 has an I2S peripheral. docs/modules-platform-pico.mdy says how.
 The Linux provider answers Unsupported: on Linux, I2S is behind the sound
 card.
 
+## Block storage
+
+Opening fence
+struct StorageGeometry { std::uint64_t block_count = 0; unsigned int block_size = 0; };
+
+[[nodiscard]] Status storage_poll(bool& present);
+[[nodiscard]] Status storage_geometry(StorageGeometry&);
+[[nodiscard]] Status storage_read(std::uint64_t block, std::span<std::byte>);
+[[nodiscard]] Status storage_write(std::uint64_t block, std::span<const std::byte>);
+Closing fence
+
+One block device the board attaches, a USB flash drive on a USB host port
+today, addressed in whole blocks; Capabilities::storage says a platform serves
+it, and every call answers Unsupported by default.
+
+Nothing services the device between calls. storage_poll lets the platform do
+its work for a moment and reports whether a device is ready, which is how a
+program notices one arriving or leaving: a program that waits for a drive
+polls, the latch-and-poll shape docs/modules-execution.mdy describes. present
+changes only on Ok. storage_geometry reports the ready device's block count
+and size.
+
+storage_read and storage_write transfer whole blocks from block on, as many as
+the span holds, and return when they are done or failed, so they wait for the
+device. An empty span is BadArgument before the platform is asked; a size that
+is not a whole number of blocks, or blocks past the device's end, are
+BadArgument from the platform before it asks the device. With no device ready
+each call but storage_poll answers TransportError: there is nothing on the
+other end. On failure a read may have filled part of the span and a write may
+have written part of the blocks, as a block device promises no more.
+
 ## Critical sections
 
 Opening fence

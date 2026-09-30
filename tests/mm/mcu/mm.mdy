@@ -10,6 +10,7 @@ unit: tests/mm/mcu/adc.cpp
 unit: tests/mm/mcu/pwm.cpp
 unit: tests/mm/mcu/transport.cpp
 unit: tests/mm/mcu/interrupt.cpp
+unit: tests/mm/mcu/storage.cpp
 unit: tests/main.cpp
 ---
 

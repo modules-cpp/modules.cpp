@@ -454,6 +454,28 @@ void sketch_library_refusals() {
 
     ext_tree.manifest_raw("",
         "mm: 1.3\nkind: app\nname: a\nproject: " + rel_proj +
+        "\nfile: main.cpp\nsketch-define: A=1\n");
+    expect(!mm::build::load_project(proj_tree.root(), policy).ok,
+           "sketch-define without sketch: is refused");
+    for (const std::string bad : {"1A", "A=", "A=$(x)", "A B", "A=\"q\""}) {
+        ext_tree.manifest_raw("",
+            "mm: 1.3\nkind: app\nname: a\nproject: " + rel_proj +
+            "\nfile: main.cpp\nsketch: a.ino\nsketch-define: " + bad + "\n");
+        expect(!mm::build::load_project(proj_tree.root(), policy).ok,
+               "a sketch-define that is not NAME or NAME=VALUE is refused");
+    }
+    ext_tree.manifest_raw("",
+        "mm: 1.3\nkind: app\nname: a\nproject: " + rel_proj +
+        "\nfile: main.cpp\nsketch: a.ino\nsketch-define: USE_X=1\nsketch-define: DEBUG\n");
+    const auto defined = mm::build::load_project(proj_tree.root(), policy);
+    std::vector<std::string> definitions;
+    for (const auto& target : defined.targets)
+        if (target.name == "a") definitions = target.sketch_defines;
+    expect(defined.ok && definitions == std::vector<std::string>{"USE_X=1", "DEBUG"},
+           "sketch-define entries are recorded in order");
+
+    ext_tree.manifest_raw("",
+        "mm: 1.3\nkind: app\nname: a\nproject: " + rel_proj +
         "\nfile: main.cpp\nsketch: a.ino\nsketch-profile: legacy\n");
     const auto legacy = mm::build::load_project(proj_tree.root(), policy);
     bool marked = false;

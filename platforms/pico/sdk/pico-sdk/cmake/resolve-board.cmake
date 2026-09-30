@@ -50,6 +50,19 @@ if(MM_BOARD STREQUAL "pico" OR
   set(MM_BOARD_HAS_SECOND_I2C 1)
 endif()
 
+# A PIO USB host port, two GPIOs Pico-PIO-USB drives as a second USB port, D+
+# on MM_BOARD_USB_HOST_DP_PIN and D- on the next; the native port stays the
+# USB console. Only a board that says so has one: the pico_usb_host and
+# pico2_usb_host composite boards, on GP2 and GP3, which the vendor boards'
+# default wiring leaves free. The clock becomes 120 MHz on such a board.
+set(MM_BOARD_HAS_USB_HOST 0)
+set(MM_BOARD_USB_HOST_DP_PIN 0)
+if(MM_BOARD STREQUAL "pico_usb_host" OR
+   MM_BOARD STREQUAL "pico2_usb_host")
+  set(MM_BOARD_HAS_USB_HOST 1)
+  set(MM_BOARD_USB_HOST_DP_PIN 2)
+endif()
+
 # A second UART, instance 1 on GP8 and GP9, the pins the Arduino cores for
 # RP2040 and RP2350 give Serial2. The same six vendor boards, for the same
 # reason: a composite board's default UART may already be UART1, as the LCD

@@ -266,6 +266,12 @@ void a_legacy_sketch_is_compiled_with_arduino_defined() {
     expect(mm::build::compile_definitions(legacy).find("ARDUINO_") == std::string::npos,
            "no board or architecture macro is defined");
 
+    mm::build::BuildableNode configured = legacy;
+    configured.sketch_defines = {"USE_BLOCK_DEVICE_INTERFACE=1", "SDFAT_DEBUG"};
+    expect(mm::build::compile_definitions(configured) ==
+               " -DARDUINO=10819 -DUSE_BLOCK_DEVICE_INTERFACE=1 -DSDFAT_DEBUG",
+           "sketch-define entries follow ARDUINO in declared order");
+
     mm::build::BuildableNode module;
     module.kind = "module";
     expect(mm::build::compile_definitions(module).empty(),

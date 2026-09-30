@@ -567,6 +567,39 @@ void walk_project(const std::filesystem::path& dir, std::size_t parent, Project&
                 target.sketch_legacy = true;
             }
         }
+        for (const auto& definition : all(doc, "sketch-define")) {
+            if (target.sketches.empty()) {
+                std::cerr << state.policy.tool << ": " << manifest.string()
+                          << ": sketch-define requires sketch:\n";
+                project.ok = false;
+                return;
+            }
+            // An identifier, then optionally = and a value of letters, digits,
+            // and . _ - +, so a definition is one argument to the compiler and
+            // nothing a shell reads specially.
+            const auto equals = definition.find('=');
+            const std::string_view name = std::string_view(definition).substr(0, equals);
+            const std::string_view value = equals == std::string::npos
+                ? std::string_view{}
+                : std::string_view(definition).substr(equals + 1);
+            const auto identifier_char = [](char c, bool first) {
+                return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c == '_' ||
+                       (!first && c >= '0' && c <= '9');
+            };
+            bool valid = !name.empty();
+            for (std::size_t i = 0; valid && i < name.size(); ++i)
+                valid = identifier_char(name[i], i == 0);
+            if (equals != std::string::npos && value.empty()) valid = false;
+            for (const char c : value)
+                if (!(identifier_char(c, false) || c == '.' || c == '-' || c == '+')) valid = false;
+            if (!valid) {
+                std::cerr << state.policy.tool << ": " << manifest.string()
+                          << ": sketch-define takes NAME or NAME=VALUE: " << definition << "\n";
+                project.ok = false;
+                return;
+            }
+            target.sketch_defines.push_back(definition);
+        }
         bool first_library = true;
         for (const auto& entry : all(doc, "sketch-library")) {
             // The first is the library the example exercises, inside the

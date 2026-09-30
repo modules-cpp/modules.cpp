@@ -7,6 +7,7 @@ module;
 #include <compare>
 #include <concepts>
 #include <cstddef>
+#include <cstdint>
 #include <type_traits>
 #include <string>
 #include <string_view>
@@ -691,6 +692,18 @@ extern HardwareSerial Serial1;
 extern HardwareSerial Serial2;
 
 void onSerial(void (*fn)());
+
+// A USB flash drive on a board with a USB host port, through mm.mcu's block
+// storage, in the 512-byte sectors SdFat's block devices speak.
+// usbStorageBegin polls until a drive with 512-byte sectors is ready or
+// timeout_ms passes, running dispatch between polls as delay does;
+// usbStoragePresent polls once. Read and write take count whole sectors and
+// wait for the drive. Each answers false, and latches the reason, on failure.
+bool usbStorageBegin(unsigned long timeout_ms = 10000);
+[[nodiscard]] bool usbStoragePresent();
+[[nodiscard]] std::uint32_t usbStorageSectorCount();
+bool usbStorageRead(std::uint32_t sector, byte* destination, std::size_t count);
+bool usbStorageWrite(std::uint32_t sector, const byte* source, std::size_t count);
 
 enum class SpiMode { Mode0, Mode1, Mode2, Mode3 };
 inline constexpr SpiMode SPI_MODE0 = SpiMode::Mode0;

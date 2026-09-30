@@ -57,6 +57,16 @@ int mm_pico_mcu_uart_send(unsigned int instance, const unsigned char* data, size
 int mm_pico_mcu_uart_receive(unsigned int instance, unsigned char* data, size_t size,
                              size_t* count);
 int mm_pico_mcu_uart_release(unsigned int instance);
+
+// Block storage: a USB mass-storage device on the PIO USB host port of a board
+// with one (MM_BOARD_HAS_USB_HOST). Every call answers
+// MM_PICO_MCU_UNSUPPORTED on any other board. size is in bytes, a whole
+// number of blocks.
+int mm_pico_mcu_has_storage(void);
+int mm_pico_mcu_storage_poll(int* present);
+int mm_pico_mcu_storage_geometry(unsigned long long* block_count, unsigned int* block_size);
+int mm_pico_mcu_storage_read(unsigned long long block, void* data, unsigned long size);
+int mm_pico_mcu_storage_write(unsigned long long block, const void* data, unsigned long size);
 int mm_pico_mcu_default_uart(unsigned int* instance, unsigned int* transmit_pin,
                              unsigned int* receive_pin);
 int mm_pico_mcu_has_second_uart(void);

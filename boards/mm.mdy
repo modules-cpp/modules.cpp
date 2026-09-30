@@ -7,6 +7,8 @@ folder: pico_epaper
 folder: pico_epaper_b
 folder: rp2350_touch_lcd_28
 folder: rp2350_touch_lcd_154
+folder: pico_usb_host
+folder: pico2_usb_host
 ---
 
 # boards

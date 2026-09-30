@@ -88,6 +88,18 @@ All notable changes to modules.cpp. Versions follow [semantic versioning](https:
   ILI9341 examples use, is the `ili9341-linux-x86_64` and
   `ili9341-linux-aarch64` boards (`--board ili9341`), so Adafruit GFX's
   `mock_ili9341` draws in a window too.
+- **A USB flash drive on a Pico through a PIO USB port.** New
+  `pico_usb_host` and `pico2_usb_host` boards turn GP2 and GP3 into a second
+  USB port with Pico-PIO-USB, a USB host for a mass-storage device through
+  TinyUSB, while the Pico's own USB port stays the console. `mm.mcu` gains
+  block storage (`storage_poll`, `storage_geometry`, `storage_read`,
+  `storage_write`), and `mm.sketch` `usbStorageBegin` and its companions in
+  512-byte sectors. `platforms/pico/sdk/pico-sdk/pio-usb/vendor.sh` provisions
+  Pico-PIO-USB. The `mm-usb-storage` sketch library makes a drive an SdFat
+  volume; its `UsbKeyPio` example is SdFat's `UsbKey` without the shield.
+- **`sketch-define:`.** A sketch application may declare preprocessor
+  definitions its libraries are configured by, `NAME` or `NAME=VALUE`, which
+  the build passes to every file of the application after `ARDUINO`.
 - **SD.h in the legacy profile is SdFat.** A legacy application gets an
   `SD.h` forwarder that includes SdFat and defines `SD` as an `SdFat`, and
   library mode adds the SdFat library to any example including `SD.h`. An
