@@ -61,6 +61,22 @@ bool digitalWrite(unsigned int pin, Level level);
 struct Led {};
 inline constexpr Led LED_BUILTIN{};
 
+// The SPI pin names an Arduino core's board variant defines. Each reads the
+// board's default SPI wiring when it is used, so it names the pin of the
+// board the program runs on: on a Pico, SCK GP18, MOSI GP19, MISO GP16, and
+// SS GP15. A name the board's wiring lacks converts to no_pin, which every
+// pin function refuses.
+struct SpiPin {
+    enum class Role { Select, Transmit, Receive, Clock };
+    Role role;
+    operator unsigned int() const;
+};
+inline constexpr unsigned int no_pin = 0xffff;
+inline constexpr SpiPin SS{SpiPin::Role::Select};
+inline constexpr SpiPin MOSI{SpiPin::Role::Transmit};
+inline constexpr SpiPin MISO{SpiPin::Role::Receive};
+inline constexpr SpiPin SCK{SpiPin::Role::Clock};
+
 bool pinMode(Led, Mode mode);
 bool digitalWrite(Led, Level level);
 [[nodiscard]] Level digitalRead(Led);

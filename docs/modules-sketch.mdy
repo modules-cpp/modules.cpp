@@ -556,6 +556,8 @@ Closing fence
 
 SPI provides SPI master communication over mm.mcu's spi_configure and spi_transfer.
 
+SS, MOSI, MISO, and SCK are the SPI pin names an Arduino core's board variant defines, for the board's default SPI wiring: its chip select, transmit, receive, and clock GPIOs. Each is an SpiPin that reads mm.mcu's board description when it converts to a pin number, so it names the pin of the board the program runs on; on the Pico SDK boards SCK is GP18, MOSI GP19, MISO GP16, and SS GP15, DAT3 in SdFat's SDIO wiring for the Pico, the line an SD card in SPI mode is selected by. A name the wiring lacks converts to no_pin, 0xffff, which every pin function refuses. They are not constant expressions: the board is chosen when the program is linked, not when the sketch is compiled.
+
 begin initializes the SPI bus using the board's default SPI wiring (clock, transmit, and optional receive GPIOs) with default settings of 4 MHz, MSBFIRST, SPI_MODE0. If the board declares no SPI wiring, begin returns false and latches Status::Unsupported. end resets the sketch SPI state without deconfiguring the underlying peripheral hardware; the object may be re-initialized with begin.
 
 beginTransaction applies a new SPISettings (clock speed, bit order, and SPI mode) by reconfiguring the underlying SPI peripheral via mm.mcu spi_configure. If begin has not been called, beginTransaction latches Status::NotInitialized. endTransaction is a no-op placeholder for symmetry.

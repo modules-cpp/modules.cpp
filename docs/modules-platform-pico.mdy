@@ -203,7 +203,11 @@ family:
 - SPI instances zero and one use Pico SDK hardware_spi with caller-selected
   clock, transmit, and optional receive GPIOs. Configuration validates the
   board inventory, distinct signals, and each RP chip's SPI signal-to-GPIO mux;
-  chip select remains device-driver GPIO policy.
+  chip select remains device-driver GPIO policy. The board description's
+  default SPI wiring is instance zero on GP18 (clock), GP19 (transmit), and
+  GP16 (receive), with GP15 as its default chip select: DAT3 in SdFat's SDIO
+  wiring for the Pico, the line an SD card in SPI mode is selected by, and
+  what mm.sketch calls SS.
 - text UART instance zero, uart_write with a C string, is the board header's
   PICO_DEFAULT_UART, using its PICO_DEFAULT_UART_TX_PIN,
   PICO_DEFAULT_UART_RX_PIN, and PICO_DEFAULT_UART_BAUD_RATE. It is initialized

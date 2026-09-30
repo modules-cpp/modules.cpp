@@ -171,8 +171,10 @@ public:
             uart = mm::mcu::UartWiring{uart_instance, uart_tx, uart_rx};
         std::optional<mm::mcu::UartWiring> second_uart;
         if (mm_pico_mcu_has_second_uart()) second_uart = mm::mcu::UartWiring{1, 8, 9};
+        // The chip select is GP15, DAT3 in SdFat's SDIO wiring for the Pico, the
+        // line an SD card in SPI mode is selected by.
         return {mm_pico_mcu_board_name(), std::span<const mm::mcu::Gpio>{gpios, count}, led,
-                mm::mcu::SpiWiring{0, 18, 19, 16}, mm::mcu::I2cWiring{0, 4, 5}, second_i2c,
+                mm::mcu::SpiWiring{0, 18, 19, 16, 15}, mm::mcu::I2cWiring{0, 4, 5}, second_i2c,
                 uart, second_uart};
     }
 

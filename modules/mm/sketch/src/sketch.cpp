@@ -667,6 +667,18 @@ Level digitalRead(unsigned int pin) {
     return high ? HIGH : LOW;
 }
 
+SpiPin::operator unsigned int() const {
+    const auto board = mm::mcu::board();
+    if (!board.spi) return no_pin;
+    switch (role) {
+        case Role::Select: return board.spi->chip_select_gpio.value_or(no_pin);
+        case Role::Transmit: return board.spi->transmit_gpio;
+        case Role::Receive: return board.spi->receive_gpio.value_or(no_pin);
+        case Role::Clock: return board.spi->clock_gpio;
+    }
+    return no_pin;
+}
+
 bool hasBuiltinLed() {
     return mm::mcu::board().led.has_value();
 }

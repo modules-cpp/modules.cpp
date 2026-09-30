@@ -1534,6 +1534,27 @@ void interrupt_preserved_across_runs() {
     clearError();
 }
 
+// The SPI pin names read the board's default wiring when used: the test
+// board is the Pico's, SCK GP18, MOSI GP19, MISO GP16, SS GP15.
+void spi_pin_names() {
+    test_set_spi_present(true);
+    const unsigned int select = SS;
+    const std::uint8_t transmit = MOSI;
+    expect(select == 15 && transmit == 19 && static_cast<unsigned int>(MISO) == 16 &&
+               static_cast<unsigned int>(SCK) == 18,
+           "the names are the board's SPI wiring, SS its chip select");
+    expect(pinMode(SS, OUTPUT) && digitalWrite(SS, HIGH),
+           "SS is an ordinary pin to the pin functions");
+
+    test_set_spi_present(false);
+    expect(static_cast<unsigned int>(SS) == no_pin && static_cast<unsigned int>(SCK) == no_pin,
+           "a board without SPI wiring names no pin");
+    clearError();
+    expect(!pinMode(SS, OUTPUT), "and the pin functions refuse it");
+    test_set_spi_present(true);
+    clearError();
+}
+
 void spi_communication() {
     clearError();
     test_reset_spi();
@@ -2435,6 +2456,7 @@ const mm::test::case_ cases[] = {
     {"interrupts held between noInterrupts and interrupts", &interrupts_held_between_no_interrupts_and_interrupts},
     {"interrupt preserved across runs", &interrupt_preserved_across_runs},
     {"spi communication", &spi_communication},
+    {"spi pin names", &spi_pin_names},
     {"wire communication", &wire_communication},
     {"legacy profile", &legacy_profile},
     {"second wire bus", &second_wire_bus},

@@ -129,7 +129,7 @@ public:
         std::optional<mm::mcu::SpiWiring> spi_wiring;
         std::optional<mm::mcu::I2cWiring> i2c_wiring;
         if (spi_present) {
-            spi_wiring = mm::mcu::SpiWiring{0, 18, 19, 16};
+            spi_wiring = mm::mcu::SpiWiring{0, 18, 19, 16, 15};
         }
         if (i2c_present) {
             i2c_wiring = mm::mcu::I2cWiring{0, 4, 5};

@@ -32,6 +32,10 @@ struct SpiWiring {
     unsigned int clock_gpio = 0;
     unsigned int transmit_gpio = 0;
     std::optional<unsigned int> receive_gpio;
+    // The board's default chip select: a plain GPIO a driver lowers to talk
+    // to one device on the bus, what an Arduino core calls SS. Absent where
+    // the board names none.
+    std::optional<unsigned int> chip_select_gpio;
 };
 
 // Default I2C wiring on the board.
