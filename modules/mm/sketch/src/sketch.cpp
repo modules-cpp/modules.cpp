@@ -8,6 +8,7 @@ module;
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <limits>
 #include <optional>
 #include <random>
 #include <span>
@@ -293,6 +294,7 @@ std::optional<mm::mcu::UartWiring> board_uart(unsigned int port) {
 
 // Moves what has arrived into the port's buffer, keeping what is unread.
 void fill_serial(unsigned int port) {
+    if (port < 1 || port >= serial_port_count) return;
     auto& state = serial_states_[port];
     if (!state.begun || !state.wiring) return;
     if (state.head > 0) {
@@ -323,6 +325,7 @@ void reset_wire(WireState& state) {
 }
 
 bool flush_pending_wire_write(unsigned int bus) {
+    if (bus >= wire_bus_count) return true;
     auto& state = wire_states_[bus];
     if (!state.pending_write_read) return true;
     state.pending_write_read = false;
@@ -723,7 +726,8 @@ std::uint32_t usbStorageSectorCount() { return usb_storage_sectors_; }
 
 bool usbStorageRead(std::uint32_t sector, byte* destination, std::size_t count) {
     CallScope scope{"usbStorageRead"};
-    if (destination == nullptr || count == 0) {
+    if (destination == nullptr || count == 0 ||
+        count > std::numeric_limits<std::size_t>::max() / usb_sector_size) {
         record_failure(Status::BadArgument, "usbStorageRead");
         return false;
     }
@@ -739,7 +743,8 @@ bool usbStorageRead(std::uint32_t sector, byte* destination, std::size_t count) 
 
 bool usbStorageWrite(std::uint32_t sector, const byte* source, std::size_t count) {
     CallScope scope{"usbStorageWrite"};
-    if (source == nullptr || count == 0) {
+    if (source == nullptr || count == 0 ||
+        count > std::numeric_limits<std::size_t>::max() / usb_sector_size) {
         record_failure(Status::BadArgument, "usbStorageWrite");
         return false;
     }
@@ -3225,6 +3230,10 @@ SPIClass SPI;
 // TwoWire implementation. Each object is one bus; all of its state lives in
 // wire_states_[bus_].
 bool TwoWire::begin() {
+    if (bus_ >= wire_bus_count) {
+        record_failure(Status::Unsupported, "Wire.begin");
+        return false;
+    }
     const auto& names = wire_names_[bus_];
     auto& state = wire_states_[bus_];
     CallScope scope{names.begin};
@@ -3252,6 +3261,10 @@ bool TwoWire::begin() {
 }
 
 bool TwoWire::begin(int sda, int scl) {
+    if (bus_ >= wire_bus_count) {
+        record_failure(Status::Unsupported, "Wire.begin");
+        return false;
+    }
     auto& state = wire_states_[bus_];
     if (!state.begun) {
         if (sda >= 0) state.sda = static_cast<unsigned int>(sda);
@@ -3263,10 +3276,14 @@ bool TwoWire::begin(int sda, int scl) {
 bool TwoWire::begin(int sda, int scl, unsigned long frequency) {
     if (!begin(sda, scl)) return false;
     if (frequency != 0) setClock(frequency);
-    return wire_states_[bus_].begun;
+    return bus_ < wire_bus_count && wire_states_[bus_].begun;
 }
 
 bool TwoWire::end() {
+    if (bus_ >= wire_bus_count) {
+        record_failure(Status::Unsupported, "Wire.end");
+        return false;
+    }
     CallScope scope{wire_names_[bus_].end};
     const bool flushed = flush_pending_wire_write(bus_);
     reset_wire(wire_states_[bus_]);
@@ -3276,6 +3293,10 @@ bool TwoWire::end() {
 // The RP2040 and RP2350 cores' spelling: a pin chosen before begin. A running
 // bus keeps its pins, so after begin the pin must be the one in use.
 bool TwoWire::setSDA(unsigned int pin) {
+    if (bus_ >= wire_bus_count) {
+        record_failure(Status::Unsupported, "Wire.setSDA");
+        return false;
+    }
     CallScope scope{wire_names_[bus_].set_sda};
     auto& state = wire_states_[bus_];
     if (state.begun) return state.wiring && state.wiring->data_gpio == pin;
@@ -3284,6 +3305,10 @@ bool TwoWire::setSDA(unsigned int pin) {
 }
 
 bool TwoWire::setSCL(unsigned int pin) {
+    if (bus_ >= wire_bus_count) {
+        record_failure(Status::Unsupported, "Wire.setSCL");
+        return false;
+    }
     CallScope scope{wire_names_[bus_].set_scl};
     auto& state = wire_states_[bus_];
     if (state.begun) return state.wiring && state.wiring->clock_gpio == pin;
@@ -3292,6 +3317,10 @@ bool TwoWire::setSCL(unsigned int pin) {
 }
 
 void TwoWire::setClock(unsigned long clock_speed) {
+    if (bus_ >= wire_bus_count) {
+        record_failure(Status::Unsupported, "Wire.setClock");
+        return;
+    }
     const auto& names = wire_names_[bus_];
     auto& state = wire_states_[bus_];
     CallScope scope{names.set_clock};
@@ -3310,6 +3339,10 @@ void TwoWire::setClock(unsigned long clock_speed) {
 }
 
 void TwoWire::beginTransmission(byte address) {
+    if (bus_ >= wire_bus_count) {
+        record_failure(Status::Unsupported, "Wire.beginTransmission");
+        return;
+    }
     const auto& names = wire_names_[bus_];
     auto& state = wire_states_[bus_];
     CallScope scope{names.begin_transmission};
@@ -3325,6 +3358,10 @@ void TwoWire::beginTransmission(byte address) {
 }
 
 void TwoWire::beginTransmission(int address) {
+    if (bus_ >= wire_bus_count) {
+        record_failure(Status::Unsupported, "Wire.beginTransmission");
+        return;
+    }
     if (address < 0 || address > 0x7F) {
         CallScope scope{wire_names_[bus_].begin_transmission};
         record_failure(Status::BadArgument, wire_names_[bus_].begin_transmission);
@@ -3334,6 +3371,10 @@ void TwoWire::beginTransmission(int address) {
 }
 
 std::size_t TwoWire::write(byte val) {
+    if (bus_ >= wire_bus_count) {
+        record_failure(Status::Unsupported, "Wire.write");
+        return 0;
+    }
     auto& state = wire_states_[bus_];
     CallScope scope{wire_names_[bus_].write};
     if (!state.transmitting) return 0;
@@ -3346,6 +3387,10 @@ std::size_t TwoWire::write(byte val) {
 }
 
 std::size_t TwoWire::write(const byte* buffer, std::size_t size) {
+    if (bus_ >= wire_bus_count) {
+        record_failure(Status::Unsupported, "Wire.write");
+        return 0;
+    }
     auto& state = wire_states_[bus_];
     CallScope scope{wire_names_[bus_].write};
     if (!state.transmitting || !buffer || size == 0) return 0;
@@ -3361,12 +3406,20 @@ std::size_t TwoWire::write(const byte* buffer, std::size_t size) {
 }
 
 std::size_t TwoWire::write(const char* s) {
+    if (bus_ >= wire_bus_count) {
+        record_failure(Status::Unsupported, "Wire.write");
+        return 0;
+    }
     CallScope scope{wire_names_[bus_].write};
     if (!s) return 0;
     return write(reinterpret_cast<const byte*>(s), std::strlen(s));
 }
 
 byte TwoWire::endTransmission(bool send_stop) {
+    if (bus_ >= wire_bus_count) {
+        record_failure(Status::Unsupported, "Wire.endTransmission");
+        return 4;
+    }
     const auto& names = wire_names_[bus_];
     auto& state = wire_states_[bus_];
     CallScope scope{names.end_transmission};
@@ -3411,6 +3464,10 @@ byte TwoWire::endTransmission(bool send_stop) {
 }
 
 std::size_t TwoWire::requestFrom(byte address, std::size_t quantity, bool send_stop) {
+    if (bus_ >= wire_bus_count) {
+        record_failure(Status::Unsupported, "Wire.requestFrom");
+        return 0;
+    }
     const auto& names = wire_names_[bus_];
     auto& state = wire_states_[bus_];
     CallScope scope{names.request_from};
@@ -3453,6 +3510,10 @@ std::size_t TwoWire::requestFrom(byte address, std::size_t quantity, bool send_s
 }
 
 std::size_t TwoWire::requestFrom(int address, int quantity, int send_stop) {
+    if (bus_ >= wire_bus_count) {
+        record_failure(Status::Unsupported, "Wire.requestFrom");
+        return 0;
+    }
     if (address < 0 || address > 0x7F) {
         CallScope scope{wire_names_[bus_].request_from};
         record_failure(Status::BadArgument, wire_names_[bus_].request_from);
@@ -3463,12 +3524,14 @@ std::size_t TwoWire::requestFrom(int address, int quantity, int send_stop) {
 }
 
 int TwoWire::available() {
+    if (bus_ >= wire_bus_count) return 0;
     const auto& state = wire_states_[bus_];
     CallScope scope{wire_names_[bus_].available};
     return static_cast<int>(state.rx_len - state.rx_head);
 }
 
 int TwoWire::read() {
+    if (bus_ >= wire_bus_count) return -1;
     auto& state = wire_states_[bus_];
     CallScope scope{wire_names_[bus_].read};
     if (state.rx_head >= state.rx_len) return -1;
@@ -3476,6 +3539,7 @@ int TwoWire::read() {
 }
 
 int TwoWire::peek() {
+    if (bus_ >= wire_bus_count) return -1;
     const auto& state = wire_states_[bus_];
     CallScope scope{wire_names_[bus_].peek};
     if (state.rx_head >= state.rx_len) return -1;
@@ -3483,6 +3547,7 @@ int TwoWire::peek() {
 }
 
 void TwoWire::flush() {
+    if (bus_ >= wire_bus_count) return;
     CallScope scope{wire_names_[bus_].flush};
 }
 
@@ -3493,6 +3558,10 @@ TwoWire Wire2{2};
 // HardwareSerial implementation. Each object is one port; its state lives in
 // serial_states_[port_].
 bool HardwareSerial::begin(unsigned long baud) {
+    if (port_ < 1 || port_ >= serial_port_count) {
+        record_failure(Status::Unsupported, "HardwareSerial.begin");
+        return false;
+    }
     const auto& names = serial_names_[port_];
     auto& state = serial_states_[port_];
     CallScope scope{names.begin};
@@ -3521,6 +3590,10 @@ bool HardwareSerial::begin(unsigned long baud) {
 }
 
 bool HardwareSerial::end() {
+    if (port_ < 1 || port_ >= serial_port_count) {
+        record_failure(Status::Unsupported, "HardwareSerial.end");
+        return false;
+    }
     auto& state = serial_states_[port_];
     CallScope scope{serial_names_[port_].end};
     if (!state.begun || !state.wiring) return true;
@@ -3536,6 +3609,7 @@ bool HardwareSerial::end() {
 }
 
 bool HardwareSerial::setTX(unsigned int pin) {
+    if (port_ < 1 || port_ >= serial_port_count) return false;
     auto& state = serial_states_[port_];
     if (state.begun) return state.wiring && state.wiring->transmit_gpio == pin;
     state.tx = pin;
@@ -3543,6 +3617,7 @@ bool HardwareSerial::setTX(unsigned int pin) {
 }
 
 bool HardwareSerial::setRX(unsigned int pin) {
+    if (port_ < 1 || port_ >= serial_port_count) return false;
     auto& state = serial_states_[port_];
     if (state.begun) return state.wiring && state.wiring->receive_gpio == pin;
     state.rx = pin;
@@ -3557,6 +3632,11 @@ std::size_t HardwareSerial::write(byte b) { return write(&b, 1); }
 // Queues all of buffer, waiting for room up to the stream's timeout. What was
 // queued is returned; a timeout or a failure records the error.
 std::size_t HardwareSerial::write(const byte* buffer, std::size_t size) {
+    if (port_ < 1 || port_ >= serial_port_count) {
+        record_failure(Status::Unsupported, "HardwareSerial.write");
+        setWriteError();
+        return 0;
+    }
     const auto& names = serial_names_[port_];
     auto& state = serial_states_[port_];
     CallScope scope{names.write};
@@ -3567,7 +3647,7 @@ std::size_t HardwareSerial::write(const byte* buffer, std::size_t size) {
     }
     if (buffer == nullptr || size == 0) return 0;
     std::size_t done = 0;
-    const auto start = millis();
+    auto start = millis();
     while (done < size) {
         std::size_t accepted = 0;
         const auto st = mm::mcu::uart_write(
@@ -3583,7 +3663,9 @@ std::size_t HardwareSerial::write(const byte* buffer, std::size_t size) {
         done += accepted;
         if (done == size) break;
         if (exit_requested_) break;
-        if (accepted == 0) {
+        if (accepted > 0) {
+            start = millis();
+        } else {
             if (millis() - start >= getTimeout()) {
                 record_failure(Status::Timeout, names.write);
                 setWriteError();
@@ -3596,11 +3678,13 @@ std::size_t HardwareSerial::write(const byte* buffer, std::size_t size) {
 }
 
 int HardwareSerial::available() {
+    if (port_ < 1 || port_ >= serial_port_count) return 0;
     fill_serial(port_);
     return static_cast<int>(serial_states_[port_].length);
 }
 
 int HardwareSerial::read() {
+    if (port_ < 1 || port_ >= serial_port_count) return -1;
     auto& state = serial_states_[port_];
     if (state.length == 0) fill_serial(port_);
     if (state.length == 0) return -1;
@@ -3611,6 +3695,7 @@ int HardwareSerial::read() {
 }
 
 int HardwareSerial::peek() {
+    if (port_ < 1 || port_ >= serial_port_count) return -1;
     auto& state = serial_states_[port_];
     if (state.length == 0) fill_serial(port_);
     if (state.length == 0) return -1;
@@ -3619,7 +3704,10 @@ int HardwareSerial::peek() {
 
 void HardwareSerial::flush() {}
 
-HardwareSerial::operator bool() const { return serial_states_[port_].begun; }
+HardwareSerial::operator bool() const {
+    if (port_ < 1 || port_ >= serial_port_count) return false;
+    return serial_states_[port_].begun;
+}
 
 HardwareSerial Serial1{1};
 HardwareSerial Serial2{2};

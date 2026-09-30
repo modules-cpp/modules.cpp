@@ -1561,6 +1561,12 @@ void usb_storage() {
     clearError();
     expect(!usbStorageRead(0, nullptr, 1) && lastError() == Status::BadArgument,
            "a null buffer is refused");
+    clearError();
+    expect(!usbStorageRead(0, in.data(), ~std::size_t{0}) && lastError() == Status::BadArgument,
+           "overflowing count is refused");
+    clearError();
+    expect(!usbStorageWrite(0, out.data(), ~std::size_t{0}) && lastError() == Status::BadArgument,
+           "overflowing write count is refused");
 
     test_set_storage(true, 4096);
     clearError();
@@ -1749,6 +1755,25 @@ void hardware_serial_ports() {
     }, nullptr);
     clearError();
     test_reset_uart();
+
+    // Ports outside 1 and 2 fail as unsupported.
+    run([]{
+        clearError();
+        HardwareSerial invalid0{0};
+        HardwareSerial invalid3{3};
+        expect(!invalid0.begin() && lastError() == Status::Unsupported,
+               "HardwareSerial(0) is Unsupported");
+        clearError();
+        expect(!invalid3.begin() && lastError() == Status::Unsupported,
+               "HardwareSerial(3) is Unsupported");
+        clearError();
+        expect(invalid3.write(static_cast<byte>('a')) == 0 &&
+                   lastError() == Status::Unsupported && invalid3.getWriteError() != 0,
+               "writing invalid HardwareSerial fails with Unsupported");
+        requestExit(0);
+    }, nullptr);
+    clearError();
+    test_reset_uart();
 }
 
 void second_wire_bus() {
@@ -1825,6 +1850,24 @@ void second_wire_bus() {
         expect(test_get_i2c_config_instance() == 1 && test_get_i2c_config_data() == 21 &&
                    test_get_i2c_config_clock() == 22,
                "begin(sda, scl, frequency) uses the given pins on instance 1");
+        requestExit(0);
+    }, nullptr);
+    clearError();
+    test_reset_i2c();
+
+    // A bus outside 0 to 2 fails as unsupported.
+    run([]{
+        clearError();
+        TwoWire invalid_wire{3};
+        expect(!invalid_wire.begin() && lastError() == Status::Unsupported,
+               "TwoWire(3).begin is Unsupported");
+        clearError();
+        expect(!invalid_wire.setSDA(1) && lastError() == Status::Unsupported,
+               "TwoWire(3).setSDA is Unsupported");
+        clearError();
+        expect(invalid_wire.write(static_cast<byte>(1)) == 0 &&
+                   lastError() == Status::Unsupported,
+               "TwoWire(3).write is Unsupported");
         requestExit(0);
     }, nullptr);
     clearError();

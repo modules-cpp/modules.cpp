@@ -76,10 +76,10 @@ test-*.sh
 debug-*.sh
 
 # local release scripts
-./release-*.sh
+/release-*.sh
 
-#local run scripts
-./run_*.sh
+# local run scripts
+/run_*.sh
 
 # vendored library checkouts, provisioned by each library's vendor.sh
 platforms/pico/sdk/pico-sdk/upstream/
