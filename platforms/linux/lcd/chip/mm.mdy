@@ -1,0 +1,7 @@
+---
+mm: 1.2
+kind: module
+name: linux-lcd-chip
+module: platform.linux.lcd.chip
+file: chip.cppm
+---

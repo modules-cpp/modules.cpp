@@ -5,6 +5,7 @@ name: linux
 use: mm.test
 use: mm.display
 use: mm.epaper.ssd1680
+use: mm.lcd.st7789
 use: mm.imu
 use: mm.mcu
 use: mm.rtc
@@ -14,12 +15,14 @@ use: platform.linux.map
 use: platform.linux.defaults
 use: platform.linux.display
 use: platform.linux.epaper.chip
+use: platform.linux.lcd.chip
 use: platform.linux.imu
 use: platform.linux.mcu
 use: platform.linux.rtc
 use: platform.linux.stdio
 use: platform.linux.touch
 unit: tests/mm/linux/epaper.cpp
+unit: tests/mm/linux/lcd.cpp
 unit: tests/mm/linux/map.cpp
 unit: tests/mm/linux/stdio.cpp
 unit: tests/mm/linux/drm.cpp

@@ -187,6 +187,10 @@ const mm::build::LibraryDefinition* find_library(const mm::build::Project& proje
 // script wrote a record the build refused, and configure reads the record
 // before replacing it, so the tree could not be reconfigured either.
 std::filesystem::path project_relative(const std::filesystem::path& path) {
+    // No path stays no path: a board without a linker script, every hosted
+    // Linux board, would otherwise be recorded as ".", which the build
+    // refuses.
+    if (path.empty()) return path;
     std::error_code ec;
     const auto root = std::filesystem::current_path(ec);
     if (ec) return path.lexically_normal();

@@ -77,6 +77,13 @@ All notable changes to modules.cpp. Versions follow [semantic versioning](https:
   finds Adafruit BusIO. The C and C++ sources beside a sketch are compiled
   with it, recorded as further `file:` entries, as the Arduino tools compile
   every source in a sketch folder.
+- **An emulated ST7789 on Linux.** `platforms/linux/lcd` puts a virtual
+  ST7789 behind the `mm.mcu` seam on new `lcd-linux-x86_64` and
+  `lcd-linux-aarch64` boards and shows its glass in an SDL2 window, as the
+  e-paper boards do for the SSD1680. `mm.lcd.st7789` and Adafruit's ST7789
+  library both drive it unmodified, so `apps/gfx-demo` and RF24's
+  `scannerGraphic` draw on a desktop. `scripts/build-linux.sh --board lcd`
+  selects it; `MM_LCD_SNAPSHOT` writes each shown image to a PPM file.
 - **More of the Arduino core in the legacy profile.** Integer `SPI_MODE0` to
   `SPI_MODE3` with an `SPISettings` that takes them, `radians` and `degrees`,
   `__FlashStringHelper`, and `pins_arduino.h` and `wiring_private.h`
@@ -91,6 +98,10 @@ examples of RobTillaart's ADS1X15 build; `ADS_RP2040_WIRE1` and
 
 ### Fixed
 
+- **`configure` recorded `cross-board-linker-script: .` for a board without
+  a linker script**, every hosted Linux board, and the build then refused the
+  configuration as unsafe, so `scripts/build-linux.sh` failed for the generic,
+  SDL, and e-paper boards. No path is now recorded as no path.
 - **`sketch` no longer overwrites a sketch folder's own `main.cpp`.** A
   `main.cpp` whose first line is not sketch's generated header is left alone:
   library mode skips that example, and a single application is refused. It

@@ -1,7 +1,7 @@
 #!/bin/sh
 # Build one application for a native Linux lane, and verify what came out.
 #
-#   scripts/build-linux.sh --board generic|sdl|epaper|sdk|BOARD --app APP
+#   scripts/build-linux.sh --board generic|sdl|epaper|lcd|sdk|BOARD --app APP
 #                          [--arch aarch64|x86_64] [--compiler CXX]
 #                          [--symbol PATTERN]... [--no-symbol PATTERN]...
 #                          [--no-library NAME]... [--control APP]
@@ -9,7 +9,7 @@
 #
 # The lane is the target lane aimed at this machine's own triple, run by the
 # native runner. --board names the board family for the architecture --
-# generic, sdl, or epaper become <family>-linux-<arch> -- or sdk for the SDK
+# generic, sdl, epaper, or lcd become <family>-linux-<arch> -- or sdk for the SDK
 # alone, or any Linux board by name. APP is an application directory, or the
 # name of one under apps/.
 #
@@ -126,7 +126,7 @@ fi
 
 mm_linux_resolve_arch
 case "$board_argument" in
-    generic|sdl|epaper) mm_linux_lane "$board_argument" ;;
+    generic|sdl|epaper|lcd) mm_linux_lane "$board_argument" ;;
     sdk)
         mm_linux_lane generic
         board=
