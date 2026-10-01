@@ -9,6 +9,7 @@ folder: ext
 folder: mcu
 folder: stdio
 folder: usb/device
+folder: usb/host
 ---
 
 # Raspberry Pi Pico SDK

@@ -1552,4 +1552,4 @@ int mm_pico_mcu_storage_write(unsigned long long block, const void* data, unsign
 }
 
 #include "adapter_usb_device.c"
-
+#include "adapter_usb_host.c"
