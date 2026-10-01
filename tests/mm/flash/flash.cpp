@@ -77,12 +77,20 @@ void constructs_a_safely_quoted_picotool_command() {
                      "expected paths to remain single shell arguments");
     mm::test::expect(!mm::flash::command({}, "image.uf2"),
                      "expected an empty picotool path to be rejected");
+
+    const auto auto_result = mm::flash::command("tool path/picotool", "image; false.uf2", true);
+    mm::test::expect(auto_result &&
+                         *auto_result == "'tool path/picotool' 'load' '-f' '-v' '-x' "
+                                         "'image; false.uf2'",
+                     "expected auto-flash to include -f");
 }
 
 void executes_without_touching_hardware_in_the_test() {
     const auto toolchain = mm::build::default_toolchain();
     mm::test::expect(mm::flash::execute(toolchain, "true", "image.uf2") == 0,
                      "expected the common process wrapper to return the tool status");
+    mm::test::expect(mm::flash::execute(toolchain, "true", "image.uf2", true) == 0,
+                     "expected auto-flash execution to return the tool status");
 }
 
 const mm::test::case_ cases[] = {

@@ -330,6 +330,25 @@ connected callback returns, but cannot observe a timeout partway through that
 callback. docs/modules-stdio.mdy owns the portable console contract and records
 this provider-specific limitation.
 
+## Native USB port ownership: application vs console
+
+By default every Pico board keeps the native USB port as the CDC console (`MM_BOARD_USB_PORT="console"`). A board opts into giving the native USB port to the application by specifying `MM_BOARD_USB_PORT="application"` in `resolve-board.cmake`:
+
+- `pico_usb_device`: an RP2040 Pico board where the native USB port is owned by `platform.pico.usb.device`. `mm.stdio` redirects to the default UART (`pico_stdio_uart` on GP0/GP1).
+- `pico2_usb_device`: an RP2350 Pico 2 board where the native USB port is owned by `platform.pico.usb.device`, and `mm.stdio` redirects to the default UART.
+
+On application-port boards:
+- The bridge does not link `pico_stdio_usb`, linking `tinyusb_device` and `pico_stdio_uart` instead.
+- `platform.pico.usb.device` provides device initialization, connection events, control endpoint callbacks, and custom class endpoint transfers through TinyUSB's `usbd_app_driver_get_cb` hook.
+
+## USB host: storage and non-storage peripherals
+
+On boards with a second USB host port driven by Pico-PIO-USB (`pico_usb_host` and `pico2_usb_host`):
+- `mm.mcu`'s block storage calls continue to address USB mass-storage devices through TinyUSB's host MSC class.
+- `platform.pico.usb.host` binds `mm.usb.host` to serve non-storage USB peripherals attached to the port via TinyUSB's host API (`tuh_*`).
+- When a mass-storage device is claimed by `mm.mcu`, `platform.pico.usb.host::claim` refuses to claim the interface and answers `Busy`, preventing conflicts with the storage stack.
+- For non-storage devices, `platform.pico.usb.host` provides bus enumeration (`list`), attach/detach event notification (`take_event`), device opening/closing, descriptor querying, interface claiming and endpoint activation, control transfers, and bounded bulk/interrupt endpoint I/O.
+
 # Processor arguments, and where they come from
 
 Every argument below is read from the pinned SDK rather than inferred from a board

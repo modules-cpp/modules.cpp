@@ -17,9 +17,9 @@ platform family and uses picotool's UF2 loader.
 # Command
 
 Opening fence
-./flash.sh [-v|--verbose] <app-manifest>
-./flash [-v|--verbose] <app-manifest>
-out/bin/flash [-v|--verbose] <app-manifest>
+./flash.sh [-v|--verbose] [-a|--auto-flash] <app-manifest>
+./flash [-v|--verbose] [-a|--auto-flash] <app-manifest>
+out/bin/flash [-v|--verbose] [-a|--auto-flash] <app-manifest>
 Closing fence
 
 The manifest may be an app directory, its mm.mdy, or another spelling accepted
@@ -68,22 +68,25 @@ before changing a device.
 
 # Picotool invocation
 
-The current backend executes exactly:
+The backend executes:
 
 Opening fence
-picotool load -v -x <application.uf2>
+picotool load [-f] -v -x <application.uf2>
 Closing fence
 
 - load programs the UF2 image;
+- -f (when -a or --auto-flash is given) instructs picotool to force reboot a
+  running board into BOOTSEL mode before loading;
 - -v verifies the written data;
 - -x asks the boot ROM to reboot and execute the new image after loading.
 
 The picotool executable and image path are individually shell-quoted through
 mm.build before the common process wrapper executes them. Picotool's exit status
-is returned to the caller. The command deliberately omits -f: a board running an
-application without compatible USB support cannot be forced into BOOTSEL through
-picotool. The reliable first-use procedure is to hold BOOTSEL while connecting
-USB, release it after the device appears, and then invoke flash.
+is returned to the caller. By default the command omits -f: a board already in
+BOOTSEL mode is loaded directly. When -a or --auto-flash is specified, picotool
+uses the USB CDC console or picotool reset interface to reboot the board into
+BOOTSEL automatically before programming. If the board is not responding to USB,
+the manual BOOTSEL procedure remains available.
 
 # Example
 
