@@ -91,11 +91,11 @@ void repository_exposes_platform_definitions() {
         mm::test::expect(named_sdl == 2 && display_bound && touch_bound,
                          std::string("expected both ") + name +
                              " bindings to name one provider module");
-        // The base board's map binding survives derivation untouched, which is
+        // The base board's map, usb.host, and usb.device bindings survive derivation untouched, which is
         // what says the derived board replaced two interfaces and not the set.
-        mm::test::expect(bindings.size() == 3,
+        mm::test::expect(bindings.size() == 5,
                          std::string("expected ") + name +
-                             " to keep its inherited map binding");
+                             " to keep its inherited map and usb bindings");
     }
     const models::BoardNode* mps2 = nullptr;
     const models::BoardNode* rp2040 = nullptr;

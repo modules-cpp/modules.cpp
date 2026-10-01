@@ -108,6 +108,16 @@ struct StorageEntry {
     bool writable = false;
 };
 
+struct UsbHostEntry {
+    bool detach_kernel_drivers = false;
+};
+
+struct UsbDeviceEntry {
+    std::string functionfs;
+    std::string gadget;
+    Selector udc;
+};
+
 struct Map {
     std::string board_name = "linux";
     std::optional<std::string> led_name;
@@ -125,6 +135,8 @@ struct Map {
     std::vector<AdcEntry> adcs;
     std::vector<PwmEntry> pwms;
     std::vector<StorageEntry> storages;
+    UsbHostEntry usb_host;
+    UsbDeviceEntry usb_device;
 };
 
 struct ParseError {

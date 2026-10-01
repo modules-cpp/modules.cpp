@@ -118,6 +118,10 @@ bool apply(Map& map, std::string_view key, std::string_view text) {
     if (key == "imu.trigger") return selector(text, map.imu.trigger);
     if (key == "imu.timeout-ms") return number(text, map.imu.timeout_ms) && map.imu.timeout_ms > 0;
     if (key == "adc.device") return selector(text, map.adc_device);
+    if (key == "usb.host.detach-kernel-drivers") return boolean(text, map.usb_host.detach_kernel_drivers);
+    if (key == "usb.device.functionfs") return quoted(text, map.usb_device.functionfs);
+    if (key == "usb.device.gadget") return quoted(text, map.usb_device.gadget);
+    if (key == "usb.device.udc") return selector(text, map.usb_device.udc);
 
     std::size_t index = 0; std::string_view field;
     if (indexed_key(key, "gpio", index, field)) {
@@ -251,6 +255,14 @@ MapStatus validate(Map& map, const std::string& path, ParseError& error) {
             error = {path, 0, 0, "storage." + std::to_string(i) + ".path", "relative path"};
             return MapStatus::SyntaxError;
         }
+    }
+    if (!map.usb_device.functionfs.empty() && !map.usb_device.functionfs.starts_with('/')) {
+        error = {path, 0, 0, "usb.device.functionfs", "relative path"};
+        return MapStatus::SyntaxError;
+    }
+    if (!map.usb_device.gadget.empty() && !map.usb_device.gadget.starts_with('/')) {
+        error = {path, 0, 0, "usb.device.gadget", "relative path"};
+        return MapStatus::SyntaxError;
     }
     return MapStatus::Ok;
 }

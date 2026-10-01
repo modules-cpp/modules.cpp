@@ -21,6 +21,11 @@ use: platform.linux.mcu
 use: platform.linux.rtc
 use: platform.linux.stdio
 use: platform.linux.touch
+use: mm.usb
+use: mm.usb.host
+use: platform.linux.usb.host
+use: mm.usb.device
+use: platform.linux.usb.device
 unit: tests/mm/linux/epaper.cpp
 unit: tests/mm/linux/lcd.cpp
 unit: tests/mm/linux/map.cpp
@@ -33,6 +38,8 @@ unit: tests/mm/linux/mcu.cpp
 unit: tests/mm/linux/adc.cpp
 unit: tests/mm/linux/pwm.cpp
 unit: tests/mm/linux/storage.cpp
+unit: tests/mm/linux/usb_host.cpp
+unit: tests/mm/linux/usb_device.cpp
 unit: tests/main.cpp
 option: core no
 ---

@@ -25,7 +25,10 @@ void override_inherits_and_decodes_values() {
         "spi.0.max-speed = 0xF4240\n"
         "spi.0.speed-fixed = no\n"
         "spi.0.mode = mode3\n"
-        "spi.0.bit-order = lsb\n"};
+        "spi.0.bit-order = lsb\n"
+        "usb.device.functionfs = \"/dev/ffs-mm\"\n"
+        "usb.device.gadget = \"/sys/kernel/config/usb_gadget/mm\"\n"
+        "usb.device.udc = auto\n"};
     platform::linux::ParseError error;
     expect(platform::linux::apply_override(map, file.path().string(), error) ==
                platform::linux::MapStatus::Ok,
@@ -40,6 +43,9 @@ void override_inherits_and_decodes_values() {
     expect(map.spis.size() == 1 && map.spis[0].max_speed == 1'000'000 &&
                map.spis[0].mode == 3 && map.spis[0].least_significant_first,
            "SPI numeric and enum fields parse");
+    expect(map.usb_device.functionfs == "/dev/ffs-mm", "functionfs path parses");
+    expect(map.usb_device.gadget == "/sys/kernel/config/usb_gadget/mm", "gadget path parses");
+    expect(map.usb_device.udc.kind == platform::linux::SelectorKind::Auto, "udc auto selector parses");
 }
 
 void duplicate_and_unknown_keys_are_errors() {
@@ -114,11 +120,32 @@ void gpio_inventory_and_led_validation() {
            "duplicate GPIO names are rejected");
 }
 
+void usb_device_validation() {
+    platform::linux::Map map;
+    platform::linux::ParseError error;
+    const mm::test::scoped_file rel_ffs{
+        "mm_linux_map_rel_ffs.mdy",
+        "usb.device.functionfs = \"relative/path\"\n"};
+    expect(platform::linux::apply_override(map, rel_ffs.path().string(), error) ==
+               platform::linux::MapStatus::SyntaxError &&
+               error.key == "usb.device.functionfs",
+           "relative functionfs path is rejected");
+
+    const mm::test::scoped_file rel_gadget{
+        "mm_linux_map_rel_gadget.mdy",
+        "usb.device.gadget = \"relative/gadget\"\n"};
+    expect(platform::linux::apply_override(map, rel_gadget.path().string(), error) ==
+               platform::linux::MapStatus::SyntaxError &&
+               error.key == "usb.device.gadget",
+           "relative gadget path is rejected");
+}
+
 const mm::test::case_ cases[]{
     {"override inherits and decodes", &override_inherits_and_decodes_values},
     {"duplicates and unknown keys", &duplicate_and_unknown_keys_are_errors},
     {"missing file errors", &a_named_missing_file_is_an_error},
     {"gpio inventory and led validation", &gpio_inventory_and_led_validation},
+    {"usb device validation", &usb_device_validation},
 };
 const mm::test::registrar reg{"platform.linux.map", cases};
 
