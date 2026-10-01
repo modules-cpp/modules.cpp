@@ -268,7 +268,7 @@ void walk_project(const std::filesystem::path& dir, std::size_t parent, Project&
                   WalkState& state) {
     if (state.policy.print_folders || state.policy.check) {
         const auto display = dir.lexically_normal().generic_string();
-        std::cout << "visiting: " << (display.empty() ? "." : display) << "\n";
+        std::cout << (display.empty() ? "." : display) << "\n";
     }
 
     std::filesystem::path manifest;

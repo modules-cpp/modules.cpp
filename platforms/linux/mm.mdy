@@ -23,7 +23,6 @@ folder: sdl-x86_64
 folder: epaper
 folder: lcd
 folder: libusb
-folder: libusb/host
 folder: usb/device
 ---
 

@@ -868,6 +868,29 @@ void write_origins(std::ostream& out, Build build, const OptionValues& values) {
     }
 }
 
+void write_verbose_options(std::ostream& out, Build build, const OptionValues& values) {
+    for (const auto& [name, value] : values) {
+        std::string name_label = std::string(name) + ":";
+        if (name_label.size() < 18) name_label.resize(18, ' ');
+        const auto val_text = option_text(value);
+        std::string val_label = val_text;
+        if (val_label.size() < 7) val_label.resize(7, ' ');
+        out << "    " << name_label << ' ' << val_label << "  ";
+        if (value.origin == OptionOrigin::Default)
+            out << "default for " << build_name(build);
+        else if (value.origin == OptionOrigin::Assignment)
+            out << "assigned by " << value.value_source.generic_string();
+        else
+            out << "reset by " << value.value_source.generic_string()
+                << " to default for " << build_name(build);
+        if (value.read_only)
+            out << "; read-only from " << value.lock_source.generic_string();
+        else
+            out << "; mutable";
+        out << '\n';
+    }
+}
+
 }  // namespace
 
 bool resolve_options(const std::filesystem::path& project_root, Build build,
@@ -1040,10 +1063,11 @@ bool write_option_records(const std::filesystem::path& project_root,
             return false;
         }
         if (verbose) {
-            std::cout << "  options " << directory.generic_string() << '\n';
-            write_origins(std::cout, build, resolved[i]);
+            std::cout << "\n  options " << directory.generic_string() << '\n';
+            write_verbose_options(std::cout, build, resolved[i]);
         }
     }
+    if (verbose) std::cout << '\n';
     std::cout << "Manifest options and locks recorded; lane tools apply structural properties only\n";
     return true;
 }
