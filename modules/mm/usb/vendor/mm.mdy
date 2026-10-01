@@ -1,0 +1,14 @@
+---
+mm: 1.2
+kind: module
+name: usb-vendor
+module: mm.usb.vendor
+use: mm.usb
+use: mm.usb.device
+use: mm.usb.host
+file: vendor.cppm mm.usb.vendor
+---
+
+# mm.usb.vendor
+
+Vendor-class loopback echo client and service for USB testing.

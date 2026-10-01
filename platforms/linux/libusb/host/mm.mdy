@@ -1,0 +1,17 @@
+---
+mm: 1.2
+kind: module
+name: linux-usb-host
+module: platform.linux.usb.host
+library: libusb
+use: mm.usb
+use: mm.usb.host
+use: platform.linux.map
+file: host.cppm
+---
+
+# platform.linux.usb.host
+
+Linux USB host provider using libusb-1.0 over /dev/bus/usb (usbfs).
+Handles device discovery, event latching, bounded synchronous transfers,
+and interface claiming with kernel driver safety rules.

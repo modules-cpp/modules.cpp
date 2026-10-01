@@ -95,6 +95,29 @@ draining output.
 Pico SDK performs USB work from its default timer and low-priority IRQ. A caller
 does not call tud_task and mm.stdio exposes no pump operation.
 
+# Application-owned USB CDC console provider: mm.usb.cdc
+
+On boards where the application controls the native USB port (`MM_BOARD_USB_PORT="application"`,
+such as `pico_usb_device` and `pico2_usb_device`), `platform.pico.stdio` redirects to the
+default UART because `pico_stdio_usb` is not linked.
+
+`mm.usb.cdc` can serve as the console provider for `mm.stdio` on such boards by binding:
+
+Opening fence
+platform-provider: mm.stdio mm.usb.cdc
+Closing fence
+
+The `mm::usb::cdc::CdcConsole` class implements `mm::stdio::Console` over `mm.usb.cdc`
+and `mm.usb.device`. When `mm.usb.cdc` is bound as the platform provider, it automatically
+registers its `CdcConsole` instance via `mm::stdio::set_console()`.
+
+`CdcConsole` translates `Console` calls into CDC operations:
+- `initialize()` initializes the USB device stack with CDC descriptors and attaches to the bus.
+- `connected()` polls the device and checks connection state (either requiring DTR or enumeration).
+- `write()` and `read()` route through the bulk IN and bulk OUT endpoints nonblockingly, returning
+  count zero when disconnected.
+- `flush()` flushes the CDC pipeline and pumps USB events.
+
 # Delivery limits
 
 The SDK defaults its initial connection wait to zero, so output offered before

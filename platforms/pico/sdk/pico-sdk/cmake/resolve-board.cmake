@@ -25,7 +25,9 @@ if(MM_BOARD STREQUAL "pico" OR
    MM_BOARD STREQUAL "pico2-arm" OR
    MM_BOARD STREQUAL "pico2-riscv" OR
    MM_BOARD STREQUAL "pico2-w-arm" OR
-   MM_BOARD STREQUAL "pico2-w-riscv")
+   MM_BOARD STREQUAL "pico2-w-riscv" OR
+   MM_BOARD STREQUAL "pico_usb_device" OR
+   MM_BOARD STREQUAL "pico2_usb_device")
   set(MM_ADC_REFERENCE_MV 3300)
 endif()
 
@@ -46,8 +48,17 @@ if(MM_BOARD STREQUAL "pico" OR
    MM_BOARD STREQUAL "pico2-arm" OR
    MM_BOARD STREQUAL "pico2-riscv" OR
    MM_BOARD STREQUAL "pico2-w-arm" OR
-   MM_BOARD STREQUAL "pico2-w-riscv")
+   MM_BOARD STREQUAL "pico2-w-riscv" OR
+   MM_BOARD STREQUAL "pico_usb_device" OR
+   MM_BOARD STREQUAL "pico2_usb_device")
   set(MM_BOARD_HAS_SECOND_I2C 1)
+endif()
+
+# Native USB port ownership: console (every board today) vs application.
+set(MM_BOARD_USB_PORT "console")
+if(MM_BOARD STREQUAL "pico_usb_device" OR
+   MM_BOARD STREQUAL "pico2_usb_device")
+  set(MM_BOARD_USB_PORT "application")
 endif()
 
 # A PIO USB host port, two GPIOs Pico-PIO-USB drives as a second USB port, D+

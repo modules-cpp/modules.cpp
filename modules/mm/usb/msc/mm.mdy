@@ -1,0 +1,15 @@
+---
+mm: 1.2
+kind: module
+name: usb-msc
+module: mm.usb.msc
+use: mm.usb
+use: mm.usb.device
+use: mm.mcu
+file: msc.cppm mm.usb.msc
+---
+
+# mm.usb.msc
+
+USB Mass Storage Class (MSC) device function using Bulk-Only Transport (BOT / BBB).
+Exposes mm.mcu block storage to a USB host using the SCSI Transparent command set.

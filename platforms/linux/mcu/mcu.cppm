@@ -9,8 +9,10 @@ module;
 #include <cstdint>
 #include <cstring>
 #include <climits>
+#include <dirent.h>
 #include <fcntl.h>
 #include <limits>
+#include <linux/fs.h>
 #include <linux/gpio.h>
 #include <linux/i2c-dev.h>
 #include <linux/i2c.h>
@@ -23,6 +25,7 @@ module;
 #include <sys/ioctl.h>
 #include <string_view>
 #include <sys/stat.h>
+#include <sys/sysmacros.h>
 #include <termios.h>
 #include <time.h>
 #include <unistd.h>
@@ -93,6 +96,34 @@ struct PwmState {
                                                     unsigned int bits);
 [[nodiscard]] bool sysfs_integer(std::string_view text, long long& value);
 
+struct StorageTestHooks {
+    std::string mountinfo_path;
+    std::string sysfs_block_dir;
+    bool allow_regular_file = false;
+    unsigned int forced_sector_size = 0;
+    std::optional<std::string> storage_path;
+    std::optional<bool> storage_writable;
+};
+void set_storage_test_hooks(const StorageTestHooks* hooks);
+std::string read_file_text(const std::string& path);
+
+struct BlockDiskInfo {
+    bool is_whole_disk = false;
+    bool has_holders = false;
+    std::string dev_id;
+    std::vector<std::string> partition_dev_ids;
+    std::vector<std::string> partition_names;
+};
+
+[[nodiscard]] bool inspect_sysfs_block(const std::string& sysfs_block_root,
+                                       const std::string& dev_name,
+                                       BlockDiskInfo& info);
+[[nodiscard]] bool mountinfo_has_device(std::string_view mountinfo_text,
+                                        const std::string& dev_id,
+                                        const std::vector<std::string>& partition_dev_ids,
+                                        const std::string& dev_path,
+                                        const std::vector<std::string>& partition_paths);
+
 }
 
 // A named, non-exported namespace rather than an unnamed one: Clang emits an
@@ -101,7 +132,12 @@ struct PwmState {
 namespace platform::linux::mcu_provider {
 
 using platform::linux::mcu_detail::Descriptor;
+using platform::linux::mcu_detail::BlockDiskInfo;
+using platform::linux::mcu_detail::StorageTestHooks;
+using platform::linux::StorageEntry;
 using Status = mm::mcu::Status;
+
+const StorageTestHooks* storage_test_hooks_ = nullptr;
 
 Status error_status(int value, bool explicit_path = true,
                     bool caller_field = false) {
@@ -199,6 +235,9 @@ public:
             .timer = true,
             .adc = !configured->adcs.empty(),
             .pwm = !configured->pwms.empty(),
+            .storage = (storage_test_hooks_ && storage_test_hooks_->storage_path)
+                ? !storage_test_hooks_->storage_path->empty()
+                : (!configured->storages.empty() && !configured->storages[0].path.empty()),
         };
     }
 
@@ -604,6 +643,241 @@ public:
         if (instance >= uart_ports_.size() || uart_ports_[instance].get() < 0)
             return Status::BadArgument;
         uart_ports_[instance] = Descriptor{};
+        return Status::Ok;
+    }
+
+    [[nodiscard]] const StorageEntry* get_storage_entry(const platform::linux::Map* configured,
+                                                         StorageEntry& test_entry) const {
+        if (storage_test_hooks_ && storage_test_hooks_->storage_path) {
+            test_entry.path = *storage_test_hooks_->storage_path;
+            test_entry.writable = storage_test_hooks_->storage_writable.value_or(false);
+            return &test_entry;
+        }
+        if (configured && !configured->storages.empty() && !configured->storages[0].path.empty()) {
+            return &configured->storages[0];
+        }
+        return nullptr;
+    }
+
+    [[nodiscard]] Status storage_poll(bool& present) override {
+        Status status;
+        const auto* configured = map(status);
+        StorageEntry test_entry;
+        const auto* entry = get_storage_entry(configured, test_entry);
+        if (!entry) return Status::Unsupported;
+
+        if (storage_state_.current_path != entry->path) {
+            storage_state_.reset();
+            storage_state_.current_path = entry->path;
+        }
+
+        if (storage_state_.read_fd.get() >= 0) {
+            struct stat st{};
+            if (::fstat(storage_state_.read_fd.get(), &st) < 0) {
+                storage_state_.reset();
+                present = false;
+                return Status::Ok;
+            }
+            if (S_ISBLK(st.st_mode)) {
+                uint64_t total_size = 0;
+                if (::ioctl(storage_state_.read_fd.get(), BLKGETSIZE64, &total_size) < 0) {
+                    storage_state_.reset();
+                    present = false;
+                    return Status::Ok;
+                }
+                storage_state_.total_size = total_size;
+                storage_state_.block_count = (storage_state_.block_size > 0)
+                    ? (total_size / storage_state_.block_size) : 0;
+            } else if (storage_test_hooks_ && storage_test_hooks_->allow_regular_file && S_ISREG(st.st_mode)) {
+                storage_state_.total_size = static_cast<std::uint64_t>(st.st_size);
+                storage_state_.block_count = (storage_state_.block_size > 0)
+                    ? (storage_state_.total_size / storage_state_.block_size) : 0;
+            }
+            present = true;
+            return Status::Ok;
+        }
+
+        int fd = ::open(entry->path.c_str(), O_RDONLY | O_NONBLOCK | O_CLOEXEC);
+        if (fd < 0) {
+            if (errno == ENOENT || errno == ENODEV) {
+                present = false;
+                return Status::Ok;
+            }
+            if (errno == EACCES || errno == EPERM) {
+                return Status::TransportError;
+            }
+            return error_status(errno);
+        }
+
+        struct stat st{};
+        if (::fstat(fd, &st) < 0) {
+            int err = errno;
+            ::close(fd);
+            return error_status(err);
+        }
+
+        bool allow_reg = storage_test_hooks_ && storage_test_hooks_->allow_regular_file;
+        if (!S_ISBLK(st.st_mode)) {
+            if (!allow_reg || !S_ISREG(st.st_mode)) {
+                ::close(fd);
+                return Status::BadArgument;
+            }
+        }
+
+        std::uint64_t total_size = 0;
+        unsigned int block_size = 512;
+
+        if (S_ISBLK(st.st_mode)) {
+            char resolved[PATH_MAX];
+            std::string canonical_path = entry->path;
+            if (::realpath(entry->path.c_str(), resolved) != nullptr) {
+                canonical_path = resolved;
+            }
+            std::string sysfs_root = (storage_test_hooks_ && !storage_test_hooks_->sysfs_block_dir.empty())
+                ? storage_test_hooks_->sysfs_block_dir
+                : "/sys/class/block";
+            std::size_t last_slash = canonical_path.find_last_of('/');
+            std::string dev_name = (last_slash == std::string::npos) ? canonical_path : canonical_path.substr(last_slash + 1);
+
+            BlockDiskInfo info;
+            if (platform::linux::mcu_detail::inspect_sysfs_block(sysfs_root, dev_name, info)) {
+                if (!info.is_whole_disk) {
+                    ::close(fd);
+                    return Status::BadArgument;
+                }
+            }
+
+            if (::ioctl(fd, BLKGETSIZE64, &total_size) < 0) {
+                int err = errno;
+                ::close(fd);
+                return error_status(err);
+            }
+            int sector_size = 0;
+            if (::ioctl(fd, BLKSSZGET, &sector_size) < 0) {
+                int err = errno;
+                ::close(fd);
+                return error_status(err);
+            }
+            if (sector_size > 0) {
+                block_size = static_cast<unsigned int>(sector_size);
+            }
+        } else {
+            total_size = static_cast<std::uint64_t>(st.st_size);
+            if (storage_test_hooks_ && storage_test_hooks_->forced_sector_size > 0) {
+                block_size = storage_test_hooks_->forced_sector_size;
+            }
+        }
+
+        storage_state_.read_fd = Descriptor(fd);
+        storage_state_.total_size = total_size;
+        storage_state_.block_size = block_size;
+        storage_state_.block_count = (block_size > 0) ? (total_size / block_size) : 0;
+        storage_state_.is_present = true;
+        present = true;
+        return Status::Ok;
+    }
+
+    [[nodiscard]] Status storage_geometry(mm::mcu::StorageGeometry& geometry) override {
+        Status status;
+        const auto* configured = map(status);
+        StorageEntry test_entry;
+        const auto* entry = get_storage_entry(configured, test_entry);
+        if (!entry) return Status::Unsupported;
+        if (storage_state_.read_fd.get() < 0 || !storage_state_.is_present) {
+            return Status::TransportError;
+        }
+        geometry.block_count = storage_state_.block_count;
+        geometry.block_size = storage_state_.block_size;
+        return Status::Ok;
+    }
+
+    [[nodiscard]] Status storage_read(std::uint64_t block,
+                                      std::span<std::byte> data) override {
+        Status status;
+        const auto* configured = map(status);
+        StorageEntry test_entry;
+        const auto* entry = get_storage_entry(configured, test_entry);
+        if (!entry) return Status::Unsupported;
+        if (storage_state_.read_fd.get() < 0 || !storage_state_.is_present) {
+            return Status::TransportError;
+        }
+        if (data.empty()) return Status::BadArgument;
+        if (storage_state_.block_size == 0 || (data.size() % storage_state_.block_size) != 0) {
+            return Status::BadArgument;
+        }
+        std::uint64_t blocks_requested = data.size() / storage_state_.block_size;
+        if (block + blocks_requested > storage_state_.block_count || block + blocks_requested < block) {
+            return Status::BadArgument;
+        }
+
+        off_t offset = static_cast<off_t>(block * storage_state_.block_size);
+        std::size_t done = 0;
+        while (done < data.size()) {
+            ssize_t count = ::pread(storage_state_.read_fd.get(),
+                                    data.data() + done,
+                                    data.size() - done,
+                                    offset + static_cast<off_t>(done));
+            if (count > 0) {
+                done += static_cast<std::size_t>(count);
+                continue;
+            }
+            if (count < 0 && errno == EINTR) continue;
+            if (count == 0) return Status::TransportError;
+            return error_status(errno);
+        }
+        return Status::Ok;
+    }
+
+    [[nodiscard]] Status storage_write(std::uint64_t block,
+                                       std::span<const std::byte> data) override {
+        Status status;
+        const auto* configured = map(status);
+        StorageEntry test_entry;
+        const auto* entry = get_storage_entry(configured, test_entry);
+        if (!entry) return Status::Unsupported;
+        if (storage_state_.read_fd.get() < 0 || !storage_state_.is_present) {
+            return Status::TransportError;
+        }
+        if (data.empty()) return Status::BadArgument;
+        if (storage_state_.block_size == 0 || (data.size() % storage_state_.block_size) != 0) {
+            return Status::BadArgument;
+        }
+        std::uint64_t blocks_requested = data.size() / storage_state_.block_size;
+        if (block + blocks_requested > storage_state_.block_count || block + blocks_requested < block) {
+            return Status::BadArgument;
+        }
+
+        if (!entry->writable) return Status::Unsupported;
+
+        if (storage_state_.write_fd.get() < 0) {
+            std::string canonical_path;
+            BlockDiskInfo disk_info;
+            Status safety = check_storage_write_safety(entry->path, storage_state_.read_fd.get(),
+                                                       canonical_path, disk_info);
+            if (safety != Status::Ok) return safety;
+
+            int wfd = ::open(entry->path.c_str(), O_RDWR | O_SYNC | O_CLOEXEC);
+            if (wfd < 0) {
+                if (errno == EACCES || errno == EPERM) return Status::TransportError;
+                return error_status(errno);
+            }
+            storage_state_.write_fd = Descriptor(wfd);
+        }
+
+        off_t offset = static_cast<off_t>(block * storage_state_.block_size);
+        std::size_t done = 0;
+        while (done < data.size()) {
+            ssize_t count = ::pwrite(storage_state_.write_fd.get(),
+                                     data.data() + done,
+                                     data.size() - done,
+                                     offset + static_cast<off_t>(done));
+            if (count > 0) {
+                done += static_cast<std::size_t>(count);
+                continue;
+            }
+            if (count < 0 && errno == EINTR) continue;
+            return error_status(errno);
+        }
         return Status::Ok;
     }
 
@@ -1148,6 +1422,82 @@ private:
     mutable std::vector<mm::mcu::PwmOutput> pwm_inventory_;
     std::vector<PwmState> pwm_state_;
     std::vector<Owner> pad_owner_;
+
+    struct StorageState {
+        Descriptor read_fd;
+        Descriptor write_fd;
+        std::uint64_t total_size = 0;
+        unsigned int block_size = 512;
+        std::uint64_t block_count = 0;
+        bool is_present = false;
+        std::string current_path;
+
+        void reset() {
+            read_fd = Descriptor{};
+            write_fd = Descriptor{};
+            total_size = 0;
+            block_size = 512;
+            block_count = 0;
+            is_present = false;
+            current_path.clear();
+        }
+    };
+    StorageState storage_state_;
+
+    [[nodiscard]] Status check_storage_write_safety(const std::string& path,
+                                                    int fd,
+                                                    std::string& canonical_path,
+                                                    BlockDiskInfo& disk_info) {
+        struct stat st{};
+        if (::fstat(fd, &st) < 0) return error_status(errno);
+
+        bool allow_reg = storage_test_hooks_ && storage_test_hooks_->allow_regular_file;
+        if (!S_ISBLK(st.st_mode)) {
+            if (!allow_reg) return Status::BadArgument;
+        }
+
+        char resolved[PATH_MAX];
+        canonical_path = path;
+        if (::realpath(path.c_str(), resolved) != nullptr) {
+            canonical_path = resolved;
+        }
+
+        std::string sysfs_root = (storage_test_hooks_ && !storage_test_hooks_->sysfs_block_dir.empty())
+            ? storage_test_hooks_->sysfs_block_dir
+            : "/sys/class/block";
+
+        std::size_t last_slash = canonical_path.find_last_of('/');
+        std::string dev_name = (last_slash == std::string::npos) ? canonical_path : canonical_path.substr(last_slash + 1);
+
+        if (S_ISBLK(st.st_mode) || (storage_test_hooks_ && !storage_test_hooks_->sysfs_block_dir.empty())) {
+            if (!platform::linux::mcu_detail::inspect_sysfs_block(sysfs_root, dev_name, disk_info)) {
+                if (!allow_reg) return Status::BadArgument;
+            } else {
+                if (!disk_info.is_whole_disk) return Status::BadArgument;
+                if (disk_info.has_holders) return Status::Busy;
+            }
+        }
+
+        std::string mountinfo_file = (storage_test_hooks_ && !storage_test_hooks_->mountinfo_path.empty())
+            ? storage_test_hooks_->mountinfo_path
+            : "/proc/self/mountinfo";
+        std::string mountinfo_text = platform::linux::mcu_detail::read_file_text(mountinfo_file);
+        if (!mountinfo_text.empty()) {
+            std::vector<std::string> partition_paths;
+            for (const auto& part_name : disk_info.partition_names) {
+                partition_paths.push_back("/dev/" + part_name);
+                if (last_slash != std::string::npos) {
+                    partition_paths.push_back(canonical_path.substr(0, last_slash + 1) + part_name);
+                }
+            }
+            if (platform::linux::mcu_detail::mountinfo_has_device(
+                    mountinfo_text, disk_info.dev_id, disk_info.partition_dev_ids,
+                    canonical_path, partition_paths)) {
+                return Status::Busy;
+            }
+        }
+        return Status::Ok;
+    }
 };
 
 LinuxPlatform linux_platform;
@@ -1268,6 +1618,160 @@ mm::mcu::Status gpio_access_status(
     if (write && *direction != mm::mcu::Direction::Out)
         return mm::mcu::Status::BadArgument;
     return mm::mcu::Status::Ok;
+}
+
+void set_storage_test_hooks(const StorageTestHooks* hooks) {
+    mcu_provider::storage_test_hooks_ = hooks;
+}
+
+std::string read_file_text(const std::string& path) {
+    int fd = ::open(path.c_str(), O_RDONLY | O_CLOEXEC);
+    if (fd < 0) return {};
+    std::string content;
+    char buffer[4096];
+    while (true) {
+        ssize_t count = ::read(fd, buffer, sizeof(buffer));
+        if (count > 0) {
+            content.append(buffer, static_cast<std::size_t>(count));
+            continue;
+        }
+        if (count < 0 && errno == EINTR) continue;
+        break;
+    }
+    ::close(fd);
+    return content;
+}
+
+bool inspect_sysfs_block(const std::string& sysfs_block_root,
+                         const std::string& dev_name,
+                         BlockDiskInfo& info) {
+    std::string dev_dir = sysfs_block_root + "/" + dev_name;
+    struct stat st{};
+    if (::stat(dev_dir.c_str(), &st) < 0 || !S_ISDIR(st.st_mode)) {
+        return false;
+    }
+    std::string part_file = dev_dir + "/partition";
+    if (::access(part_file.c_str(), F_OK) == 0) {
+        info.is_whole_disk = false;
+    } else {
+        info.is_whole_disk = true;
+    }
+
+    std::string dev_file = dev_dir + "/dev";
+    std::string dev_str = read_file_text(dev_file);
+    while (!dev_str.empty() && (dev_str.back() == '\n' || dev_str.back() == '\r' || dev_str.back() == ' ')) {
+        dev_str.pop_back();
+    }
+    info.dev_id = dev_str;
+
+    auto check_holders_dir = [](const std::string& holders_path) -> bool {
+        DIR* dir = ::opendir(holders_path.c_str());
+        if (!dir) return false;
+        struct dirent* ent = nullptr;
+        bool has_any = false;
+        while ((ent = ::readdir(dir)) != nullptr) {
+            if (std::strcmp(ent->d_name, ".") != 0 && std::strcmp(ent->d_name, "..") != 0) {
+                has_any = true;
+                break;
+            }
+        }
+        ::closedir(dir);
+        return has_any;
+    };
+
+    info.has_holders = check_holders_dir(dev_dir + "/holders");
+
+    if (info.is_whole_disk) {
+        DIR* dir = ::opendir(dev_dir.c_str());
+        if (dir) {
+            struct dirent* ent = nullptr;
+            while ((ent = ::readdir(dir)) != nullptr) {
+                if (std::strcmp(ent->d_name, ".") == 0 || std::strcmp(ent->d_name, "..") == 0) {
+                    continue;
+                }
+                std::string child_name = ent->d_name;
+                std::string child_dir = dev_dir + "/" + child_name;
+                std::string child_part_file = child_dir + "/partition";
+                if (::access(child_part_file.c_str(), F_OK) == 0) {
+                    info.partition_names.push_back(child_name);
+                    std::string child_dev_file = child_dir + "/dev";
+                    std::string child_dev_str = read_file_text(child_dev_file);
+                    while (!child_dev_str.empty() && (child_dev_str.back() == '\n' || child_dev_str.back() == '\r' || child_dev_str.back() == ' ')) {
+                        child_dev_str.pop_back();
+                    }
+                    if (!child_dev_str.empty()) {
+                        info.partition_dev_ids.push_back(child_dev_str);
+                    }
+                    if (check_holders_dir(child_dir + "/holders")) {
+                        info.has_holders = true;
+                    }
+                }
+            }
+            ::closedir(dir);
+        }
+    }
+    return true;
+}
+
+bool mountinfo_has_device(std::string_view mountinfo_text,
+                          const std::string& dev_id,
+                          const std::vector<std::string>& partition_dev_ids,
+                          const std::string& dev_path,
+                          const std::vector<std::string>& partition_paths) {
+    auto is_match = [&](std::string_view candidate_id, std::string_view candidate_source) -> bool {
+        if (!dev_id.empty() && candidate_id == dev_id) return true;
+        for (const auto& pid : partition_dev_ids) {
+            if (!pid.empty() && candidate_id == pid) return true;
+        }
+        if (!dev_path.empty() && candidate_source == dev_path) return true;
+        for (const auto& ppath : partition_paths) {
+            if (!ppath.empty() && candidate_source == ppath) return true;
+        }
+        return false;
+    };
+
+    std::size_t line_start = 0;
+    while (line_start < mountinfo_text.size()) {
+        std::size_t line_end = mountinfo_text.find('\n', line_start);
+        if (line_end == std::string_view::npos) {
+            line_end = mountinfo_text.size();
+        }
+        std::string_view line = mountinfo_text.substr(line_start, line_end - line_start);
+        line_start = line_end + 1;
+
+        while (!line.empty() && (line.front() == ' ' || line.front() == '\t' || line.front() == '\r')) {
+            line.remove_prefix(1);
+        }
+        if (line.empty()) continue;
+
+        std::vector<std::string_view> tokens;
+        std::size_t pos = 0;
+        while (pos < line.size()) {
+            while (pos < line.size() && (line[pos] == ' ' || line[pos] == '\t')) ++pos;
+            if (pos >= line.size()) break;
+            std::size_t tok_start = pos;
+            while (pos < line.size() && line[pos] != ' ' && line[pos] != '\t') ++pos;
+            tokens.push_back(line.substr(tok_start, pos - tok_start));
+        }
+
+        if (tokens.size() < 3) continue;
+        std::string_view line_dev_id = tokens[2];
+
+        std::string_view line_source;
+        for (std::size_t i = 3; i < tokens.size(); ++i) {
+            if (tokens[i] == "-") {
+                if (i + 2 < tokens.size()) {
+                    line_source = tokens[i + 2];
+                }
+                break;
+            }
+        }
+
+        if (is_match(line_dev_id, line_source)) {
+            return true;
+        }
+    }
+    return false;
 }
 
 }

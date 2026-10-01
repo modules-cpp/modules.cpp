@@ -26,16 +26,20 @@ export namespace mm::flash {
 [[nodiscard]] std::filesystem::path image_for(
     const std::filesystem::path& executable);
 
-// Constructs: picotool load -v -x <image>. Every filesystem-derived argument
-// is shell quoted through mm.build.
+// Constructs: picotool load -v -x <image>. When auto_flash is true, adds -f:
+// picotool load -f -v -x <image> to automatically reboot a running board
+// into BOOTSEL mode before loading. Every filesystem-derived argument is
+// shell quoted through mm.build.
 [[nodiscard]] std::optional<std::string> command(
     const std::filesystem::path& picotool,
-    const std::filesystem::path& image);
+    const std::filesystem::path& image,
+    bool auto_flash = false);
 
 // Executes command() through the common child-process wrapper. Returns -1 when
 // either path is empty and otherwise returns picotool's exit status.
 int execute(const mm::build::Toolchain& toolchain,
             const std::filesystem::path& picotool,
-            const std::filesystem::path& image);
+            const std::filesystem::path& image,
+            bool auto_flash = false);
 
 }

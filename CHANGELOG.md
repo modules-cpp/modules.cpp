@@ -6,6 +6,28 @@ All notable changes to modules.cpp. Versions follow [semantic versioning](https:
 
 ### Added
 
+- **USB Subsystem (`mm.usb`, `mm.usb.device`, `mm.usb.host`).** Shared vocabulary
+  for USB data transfers (`Status`, `Speed`, `TransferType`, `Direction`,
+  `EndpointAddress`, `SetupPacket`), platform-interfaces for USB device
+  (`mm.usb.device`, nonblocking transfers, descriptors, setup handling) and
+  USB host (`mm.usb.host`, bounded transfers, device enumeration, interface claim).
+- **USB CDC ACM and Stdio Console Provider (`mm.usb.cdc`).** CDC ACM device class
+  function (`CdcDevice`) and `CdcConsole` providing console I/O for `mm.stdio`
+  when the application owns the native USB port.
+- **USB Mass Storage Class (`mm.usb.msc`).** Bulk-Only Transport (BOT / BBB)
+  device class exposing `mm.mcu` block storage to USB hosts via SCSI Transparent
+  commands (Inquiry, Test Unit Ready, Request Sense, Read Capacity 10, Read 10, Write 10).
+- **USB Vendor Class (`mm.usb.vendor`).** Bulk echo device (`DeviceEcho`) and host
+  (`HostEcho`) implementations for qualification and loopback testing.
+- **Native USB Port Ownership on Raspberry Pi Pico.** Support for native USB port
+  ownership configuration (`console` vs `application`) and dedicated boards
+  `pico_usb_device` and `pico2_usb_device`.
+- **Fenced code block support in `mm.mdy`.** Native multi-line fenced code block
+  parsing (`BlockType::CodeBlock`), language tag preservation, indentation and blank
+  line preservation, HTML `<pre><code class="language-...">` generation in `apps/mdy`,
+  and updated developer documentation.
+- **Flash tool `--auto-flash` flag.** Automatic device discovery, bootloader reset,
+  and flashing for Raspberry Pi Pico boards.
 - **`Wire1` in `mm.sketch`.** A second I2C bus beside `Wire`, each with its
   own buffers, pending write, clock, and pins, so a library handed `&Wire1`
   talks to the second bus. `Wire1` runs on `mm.mcu`'s new `Board::second_i2c`,

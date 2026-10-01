@@ -3,6 +3,7 @@ mm: 1.2
 kind: board
 name: pico2_usb_host
 derives-from: pico2-arm
+platform-provider: mm.usb.host platform.pico.usb.host
 ---
 
 # pico2_usb_host

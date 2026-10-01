@@ -1,0 +1,16 @@
+---
+mm: 1.2
+kind: module
+name: pico-usb-host
+module: platform.pico.usb.host
+use: mm.usb
+use: mm.usb.host
+file: host.cppm
+option: buildable-host no
+---
+
+# platform.pico.usb.host
+
+The Pico SDK platform's USB host implementation of mm.usb.host over TinyUSB.
+Active on boards that provide a PIO USB host port (pico_usb_host, pico2_usb_host)
+for non-storage peripherals alongside the mm.mcu storage stack.

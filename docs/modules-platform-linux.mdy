@@ -164,6 +164,15 @@ pwm.N.channel = C                  # pwmC under it
 pwm.N.gpio = G                     # optional; a declared GPIO, once
 pwm.N.name = "..."                 # optional; default pwm.N; unique
 pwm.N.group = Q                    # optional; a known shared counter
+
+storage.N.path = "/dev/..."        # whole-disk block device path
+storage.N.writable = yes|no        # default no; writing needs yes
+
+usb.host.detach-kernel-drivers = yes|no  # default no; allows detaching driver
+
+usb.device.functionfs = "/dev/..."      # FunctionFS mount point
+usb.device.gadget = "/sys/kernel/..."   # optional; gadget configfs directory
+usb.device.udc = auto | "..."           # optional; UDC controller name or auto
 Closing fence
 
 A UART entry serves both of mm.mcu's UART forms. A text write opens the device,
@@ -176,6 +185,24 @@ passes are not used, because the entry names the device. Board describes
 uart.0 as its default UART and uart.1 as its second, which mm.sketch serves as
 Serial1 and Serial2.
 
+A storage entry exposes a whole-disk block device to mm.mcu's block storage
+interface. Writing requires storage.N.writable = yes; without it, the device
+opens read-only and writes answer Unsupported. The provider refuses to write a
+disk that is mounted, or any of whose partitions is, or any of whose partitions
+has active holders, answering Busy. The path must resolve to a whole-disk block
+device, not a partition or file.
+
+usb.host.detach-kernel-drivers decides whether the libusb host provider is
+permitted to detach an active kernel driver when claiming an interface. Even
+when yes, it never detaches usb-storage, uas, or usbhid, answering Busy instead.
+
+usb.device.functionfs names the FunctionFS mount point for the USB device
+provider. usb.device.gadget and usb.device.udc configure the configfs gadget path
+and UDC binding. With gadget and udc specified, attach binds the gadget to the
+UDC (or the first available controller in /sys/class/udc when auto) and detach
+unbinds it; otherwise attach and detach answer Unsupported. Without
+usb.device.functionfs the provider answers Unsupported throughout.
+
 Validation, after every line has applied: every GPIO has a chip and a name
 unique among GPIOs; the LED, and any analog entry's pad, names a declared
 GPIO, and a pad is attached to at most one channel and at most one output;
@@ -184,7 +211,8 @@ because sysfs does not publish a raw channel's width and the map must say
 it. The SPI and I2C wiring fields exist so that a caller's configuration is
 checked against the board rather than trusted: a configuration naming other
 pins is BadArgument, as it would be on a microcontroller whose mux does not
-route the bus there.
+route the bus there. An unknown storage field, a relative path, or
+storage.N.writable without a path is an error at resolution.
 
 ## An example
 

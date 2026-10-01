@@ -14,5 +14,7 @@ build-target: dry run
   provider platform.linux.sdl 1
   provider platform.linux.stdio 0
   provider platform.linux.touch 0
+  provider platform.linux.usb.device 0
+  provider platform.linux.usb.host 0
   library SDL2
 exit 0

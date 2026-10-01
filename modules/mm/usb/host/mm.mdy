@@ -1,0 +1,17 @@
+---
+mm: 1.2
+kind: module
+name: usb-host
+module: mm.usb.host
+platform-interface:
+file: platform.cppm mm.usb.host:platform
+file: host.cppm mm.usb.host
+file: src/host.cpp
+---
+
+# mm.usb.host
+
+Portable USB host platform interface.
+
+Provides device discovery, event latching, device open/close, interface claiming,
+and bounded synchronous transfers.

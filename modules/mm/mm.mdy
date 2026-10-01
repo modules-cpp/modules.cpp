@@ -35,4 +35,10 @@ folder: test
 folder: touch
 folder: touch/cst328
 folder: touch/cst816
+folder: usb
+folder: usb/device
+folder: usb/host
+folder: usb/vendor
+folder: usb/cdc
+folder: usb/msc
 ---

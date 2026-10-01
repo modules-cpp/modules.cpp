@@ -1,0 +1,16 @@
+---
+mm: 1.2
+kind: module
+name: linux-usb-device
+module: platform.linux.usb.device
+use: mm.usb
+use: mm.usb.device
+use: platform.linux.map
+file: device.cppm
+---
+
+# platform.linux.usb.device
+
+Linux USB device provider using FunctionFS and Linux AIO with system calls.
+Handles FunctionFS descriptor configuration, event translation, nonblocking
+endpoint transfers, and configfs gadget UDC binding.

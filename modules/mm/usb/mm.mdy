@@ -1,0 +1,15 @@
+---
+mm: 1.2
+kind: module
+name: usb
+module: mm.usb
+file: status.cppm mm.usb:status
+file: types.cppm mm.usb:types
+file: usb.cppm mm.usb
+---
+
+# mm.usb
+
+Shared vocabulary and types for USB device and host stacks.
+
+Contains status codes, speed, transfer types, endpoint addressing, and setup packet decoding.

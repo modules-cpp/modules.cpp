@@ -3,6 +3,7 @@
 // rather than here: this file implements it, and the module calls it.
 #include "../mcu/mcu-c.h"
 #include "../stdio/stdio-c.h"
+#include "../usb/device/usb-device-c.h"
 #include "hardware/adc.h"
 #include "hardware/clocks.h"
 #include "hardware/dma.h"
@@ -18,7 +19,9 @@
 #include "pico/stdlib.h"
 #include "pico/stdio_semihosting.h"
 #include "pico/stdio_uart.h"
+#if !MM_BOARD_USB_PORT_APPLICATION
 #include "pico/stdio_usb.h"
+#endif
 #include "pico/time.h"
 #include <limits.h>
 #include <stdio.h>
@@ -77,7 +80,11 @@ static void mm_pico_initialize_stdio(void) {
 #if MM_BOARD_HAS_USB_HOST
     mm_pico_usb_start();
 #endif
-#if LIB_PICO_STDIO_USB
+#if MM_BOARD_USB_PORT_APPLICATION
+#if LIB_PICO_STDIO_UART
+    mm_pico_stdio_ready = 1;
+#endif
+#elif LIB_PICO_STDIO_USB
     mm_pico_stdio_ready = stdio_usb_init() ? 1 : 0;
 #endif
 }
@@ -120,12 +127,24 @@ int mm_pico_stdio_write(const unsigned char* data, size_t size, size_t* written)
         return MM_PICO_STDIO_BAD_ARGUMENT;
 
     *written = 0;
+#if MM_BOARD_USB_PORT_APPLICATION
+    if (size == 0) return MM_PICO_STDIO_OK;
+#if LIB_PICO_STDIO_UART
+    if (stdio_uart.out_chars == NULL) return MM_PICO_STDIO_UNSUPPORTED;
+    stdio_uart.out_chars((const char*)data, (int)size);
+    *written = size;
+    return MM_PICO_STDIO_OK;
+#else
+    return MM_PICO_STDIO_UNSUPPORTED;
+#endif
+#else
     if (size == 0 || !stdio_usb_connected()) return MM_PICO_STDIO_OK;
     if (stdio_usb.out_chars == NULL) return MM_PICO_STDIO_UNSUPPORTED;
 
     stdio_usb.out_chars((const char*)data, (int)size);
     *written = size;
     return MM_PICO_STDIO_OK;
+#endif
 }
 
 int mm_pico_stdio_read(unsigned char* data, size_t size, size_t* count) {
@@ -134,6 +153,21 @@ int mm_pico_stdio_read(unsigned char* data, size_t size, size_t* count) {
         return MM_PICO_STDIO_BAD_ARGUMENT;
 
     *count = 0;
+#if MM_BOARD_USB_PORT_APPLICATION
+    if (size == 0) return MM_PICO_STDIO_OK;
+#if LIB_PICO_STDIO_UART
+    if (stdio_uart.in_chars == NULL) return MM_PICO_STDIO_UNSUPPORTED;
+    const int result = stdio_uart.in_chars((char*)data, (int)size);
+    if (result > 0) {
+        *count = (size_t)result;
+        return MM_PICO_STDIO_OK;
+    }
+    if (result == PICO_ERROR_NO_DATA) return MM_PICO_STDIO_OK;
+    return MM_PICO_STDIO_TRANSPORT_ERROR;
+#else
+    return MM_PICO_STDIO_UNSUPPORTED;
+#endif
+#else
     if (size == 0 || !stdio_usb_connected()) return MM_PICO_STDIO_OK;
     if (stdio_usb.in_chars == NULL) return MM_PICO_STDIO_UNSUPPORTED;
 
@@ -144,20 +178,36 @@ int mm_pico_stdio_read(unsigned char* data, size_t size, size_t* count) {
     }
     if (result == PICO_ERROR_NO_DATA) return MM_PICO_STDIO_OK;
     return MM_PICO_STDIO_TRANSPORT_ERROR;
+#endif
 }
 
 int mm_pico_stdio_flush(void) {
     if (!mm_pico_stdio_ready) return MM_PICO_STDIO_NOT_INITIALIZED;
+#if MM_BOARD_USB_PORT_APPLICATION
+#if LIB_PICO_STDIO_UART
+    if (stdio_uart.out_flush == NULL) return MM_PICO_STDIO_UNSUPPORTED;
+    stdio_uart.out_flush();
+    return MM_PICO_STDIO_OK;
+#else
+    return MM_PICO_STDIO_UNSUPPORTED;
+#endif
+#else
     if (stdio_usb.out_flush == NULL) return MM_PICO_STDIO_UNSUPPORTED;
     stdio_usb.out_flush();
     return MM_PICO_STDIO_OK;
+#endif
 }
 
 int mm_pico_stdio_connected(int* connected) {
     if (!mm_pico_stdio_ready) return MM_PICO_STDIO_NOT_INITIALIZED;
     if (connected == NULL) return MM_PICO_STDIO_BAD_ARGUMENT;
+#if MM_BOARD_USB_PORT_APPLICATION
+    *connected = 1;
+    return MM_PICO_STDIO_OK;
+#else
     *connected = stdio_usb_connected() ? 1 : 0;
     return MM_PICO_STDIO_OK;
+#endif
 }
 
 // The platform surface: the private ABI beneath platform.pico.mcu. Both live in
@@ -1500,3 +1550,6 @@ int mm_pico_mcu_storage_write(unsigned long long block, const void* data, unsign
     return MM_PICO_MCU_UNSUPPORTED;
 #endif
 }
+
+#include "adapter_usb_device.c"
+#include "adapter_usb_host.c"

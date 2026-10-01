@@ -1,0 +1,17 @@
+---
+mm: 1.2
+kind: module
+name: usb-device
+module: mm.usb.device
+platform-interface:
+file: platform.cppm mm.usb.device:platform
+file: device.cppm mm.usb.device
+file: src/device.cpp
+---
+
+# mm.usb.device
+
+Portable USB device platform interface.
+
+Provides the device lifecycle, control request handling, event latching,
+and nonblocking endpoint data transfers.

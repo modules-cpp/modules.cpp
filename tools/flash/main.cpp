@@ -12,14 +12,17 @@ import mm.flash;
 
 int main(int argc, char** argv) {
     mm::app::Options options("flash");
-    options.help("flash [-v|--verbose] [-h|--help] <app-manifest>");
+    options.flag("-a");
+    options.flag("--auto-flash");
+    options.help("flash [-v|--verbose] [-a|--auto-flash] [-h|--help] <app-manifest>");
     const auto cli = options.parse(argc, argv);
     if (cli == mm::app::Cli::help) return mm::build::exit_ok;
     if (cli != mm::app::Cli::ok) return mm::build::exit_usage;
     if (options.positional().size() != 1) {
-        std::cerr << "usage: flash [-v] <app-manifest>\n";
+        std::cerr << "usage: flash [-v] [-a|--auto-flash] <app-manifest>\n";
         return mm::build::exit_usage;
     }
+    const bool auto_flash = options.seen("-a") || options.seen("--auto-flash");
 
     auto manifest = mm::build::resolve_manifest(options.positional().front());
     std::filesystem::path manifest_directory;
@@ -132,10 +135,11 @@ int main(int argc, char** argv) {
 
     if (options.verbose()) {
         std::cout << "modules.cpp flash tool\n";
-        std::cout << "  board    " << *platform->board << "\n";
-        std::cout << "  image    " << image.string() << "\n";
-        std::cout << "  picotool " << picotool.string() << "\n";
+        std::cout << "  board      " << *platform->board << "\n";
+        std::cout << "  image      " << image.string() << "\n";
+        std::cout << "  picotool   " << picotool.string() << "\n";
+        std::cout << "  auto-flash " << (auto_flash ? "yes" : "no") << "\n";
     }
-    const int status = mm::flash::execute(*toolchain, picotool, image);
+    const int status = mm::flash::execute(*toolchain, picotool, image, auto_flash);
     return status < 0 ? mm::build::exit_run : status;
 }
