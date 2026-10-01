@@ -1,0 +1,15 @@
+---
+mm: 1.2
+kind: module
+name: usb-cdc
+module: mm.usb.cdc
+use: mm.usb
+use: mm.usb.device
+file: cdc.cppm mm.usb.cdc
+---
+
+# mm.usb.cdc
+
+USB CDC ACM (Communications Device Class / Abstract Control Model) device function.
+Provides standard CDC ACM descriptors, line coding and control line state negotiation,
+and stream byte transfers over bulk endpoints.

@@ -38,4 +38,6 @@ folder: touch/cst816
 folder: usb
 folder: usb/device
 folder: usb/host
+folder: usb/vendor
+folder: usb/cdc
 ---

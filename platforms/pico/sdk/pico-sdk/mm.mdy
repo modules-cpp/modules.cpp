@@ -8,6 +8,7 @@ external-build: cmake
 folder: ext
 folder: mcu
 folder: stdio
+folder: usb/device
 ---
 
 # Raspberry Pi Pico SDK

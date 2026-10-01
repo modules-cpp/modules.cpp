@@ -65,16 +65,35 @@ target_compile_definitions(mm_external PRIVATE
   MM_BOARD_USB_HOST_DP_PIN=${MM_BOARD_USB_HOST_DP_PIN}
   ${MM_BOARD_DEFINITIONS}
   PICO_STDIO_USB_CONNECTION_WITHOUT_DTR=1)
-target_link_libraries(mm_external
-  pico_stdlib
-  pico_stdio_usb
-  hardware_adc
-  hardware_dma
-  hardware_pio
-  hardware_pwm
-  hardware_spi
-  hardware_i2c
-  hardware_uart)
+if(MM_BOARD_USB_PORT STREQUAL "application")
+  target_compile_definitions(mm_external PRIVATE MM_BOARD_USB_PORT_APPLICATION=1)
+  target_include_directories(mm_external PRIVATE ${CMAKE_CURRENT_LIST_DIR}/../ext/usb-device)
+  target_link_libraries(mm_external
+    pico_stdlib
+    pico_stdio_uart
+    tinyusb_device
+    hardware_adc
+    hardware_dma
+    hardware_pio
+    hardware_pwm
+    hardware_spi
+    hardware_i2c
+    hardware_uart)
+  pico_enable_stdio_uart(mm_external 1)
+  pico_enable_stdio_usb(mm_external 0)
+else()
+  target_link_libraries(mm_external
+    pico_stdlib
+    pico_stdio_usb
+    hardware_adc
+    hardware_dma
+    hardware_pio
+    hardware_pwm
+    hardware_spi
+    hardware_i2c
+    hardware_uart)
+  pico_enable_stdio_usb(mm_external 1)
+endif()
 if(MM_BOARD_HAS_USB_HOST)
   if(NOT TARGET tinyusb_pico_pio_usb)
     message(FATAL_ERROR "TinyUSB did not make tinyusb_pico_pio_usb from ${PICO_PIO_USB_PATH}")
@@ -87,7 +106,6 @@ if(MM_BOARD_HAS_USB_HOST)
   target_compile_definitions(mm_external PRIVATE PICO_STDIO_USB_USE_DEFAULT_DESCRIPTORS=1)
   target_link_libraries(mm_external tinyusb_device tinyusb_host tinyusb_pico_pio_usb)
 endif()
-pico_enable_stdio_usb(mm_external 1)
 pico_enable_stdio_semihosting(mm_external 1)
 pico_add_extra_outputs(mm_external)
 add_custom_command(TARGET mm_external POST_BUILD

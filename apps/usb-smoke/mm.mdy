@@ -1,0 +1,17 @@
+---
+mm: 1.2
+kind: app
+name: usb-smoke
+use: mm.usb
+use: mm.usb.device
+use: mm.usb.host
+use: mm.usb.vendor
+file: main.cpp
+---
+
+# usb-smoke
+
+USB host and device smoke application.
+
+Exercises device-side vendor echo service and host-side vendor echo client.
+Exits 0 on unserved fallback or completed transfer.

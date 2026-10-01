@@ -6,9 +6,13 @@ use: mm.test
 use: mm.usb
 use: mm.usb.device
 use: mm.usb.host
+use: mm.usb.vendor
+use: mm.usb.cdc
 unit: tests/mm/usb/types.cpp
 unit: tests/mm/usb/device.cpp
 unit: tests/mm/usb/host.cpp
+unit: tests/mm/usb/vendor.cpp
+unit: tests/mm/usb/cdc.cpp
 unit: tests/main.cpp
 ---
 
