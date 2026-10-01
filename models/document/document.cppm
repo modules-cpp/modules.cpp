@@ -27,15 +27,16 @@ export namespace models {
 // emitting them as blocks (modules/mm/mdy/src/mdy.cpp), so a real
 // Document's body() never contains one, and this type has no Empty
 // variant to represent it with.
-enum class BlockType { Heading1, Heading2, Heading3, Paragraph, UnorderedList };
+enum class BlockType { Heading1, Heading2, Heading3, Paragraph, UnorderedList, CodeBlock };
 
-// One body block: a heading, a paragraph, or a list item.
+// One body block: a heading, a paragraph, a list item, or a code block.
 class Block {
 public:
     virtual ~Block() = default;
 
     [[nodiscard]] virtual BlockType type() const = 0;
     [[nodiscard]] virtual std::string_view text() const = 0;
+    [[nodiscard]] virtual std::string_view language() const { return {}; }
 };
 
 class Document {

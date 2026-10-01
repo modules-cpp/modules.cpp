@@ -44,6 +44,7 @@ models::BlockType to_models_block_type(mm::mdy::BlockType type) {
         case mm::mdy::BlockType::Heading3:      return models::BlockType::Heading3;
         case mm::mdy::BlockType::Paragraph:     return models::BlockType::Paragraph;
         case mm::mdy::BlockType::UnorderedList: return models::BlockType::UnorderedList;
+        case mm::mdy::BlockType::CodeBlock:     return models::BlockType::CodeBlock;
         case mm::mdy::BlockType::Empty:         return models::BlockType::Paragraph;
     }
     return models::BlockType::Paragraph;
@@ -51,14 +52,17 @@ models::BlockType to_models_block_type(mm::mdy::BlockType type) {
 
 class RealBlock : public models::Block {
 public:
-    RealBlock(models::BlockType type, std::string text) : type_(type), text_(std::move(text)) {}
+    RealBlock(models::BlockType type, std::string text, std::string language = "")
+        : type_(type), text_(std::move(text)), language_(std::move(language)) {}
 
     [[nodiscard]] models::BlockType type() const override { return type_; }
     [[nodiscard]] std::string_view text() const override { return text_; }
+    [[nodiscard]] std::string_view language() const override { return language_; }
 
 private:
     models::BlockType type_;
     std::string text_;
+    std::string language_;
 };
 
 class RealDocument : public models::Document {
@@ -67,7 +71,7 @@ public:
         : path_(std::move(path)) {
         for (const auto& block : doc.body)
             blocks_.push_back(
-                std::make_unique<RealBlock>(to_models_block_type(block.type), block.content));
+                std::make_unique<RealBlock>(to_models_block_type(block.type), block.content, block.language));
         metadata_ = std::move(doc.metadata);
     }
 

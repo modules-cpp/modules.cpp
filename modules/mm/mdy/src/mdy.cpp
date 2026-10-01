@@ -55,14 +55,60 @@ std::vector<Block> Parser::parse(const std::filesystem::path& file_path) {
 
     std::ifstream file(file_path);
     std::string current_line;
+    bool inside_code_block = false;
+    bool first_code_line = true;
+    std::string code_content;
+    std::string code_lang;
 
     while (std::getline(file, current_line)) {
-        std::string_view view(current_line);
-        
+        std::string_view line_view = trim(current_line);
+
+        if (inside_code_block) {
+            if (line_view.size() >= 3 && line_view.find_first_not_of('`') == std::string_view::npos) {
+                inside_code_block = false;
+                parsed_blocks.push_back(Block{BlockType::CodeBlock, std::move(code_content), std::move(code_lang)});
+                code_content.clear();
+                code_lang.clear();
+                continue;
+            }
+
+            std::string line = current_line;
+            if (!line.empty() && line.back() == '\r') {
+                line.pop_back();
+            }
+            if (first_code_line) {
+                code_content = std::move(line);
+                first_code_line = false;
+            } else {
+                code_content += '\n';
+                code_content += line;
+            }
+            continue;
+        }
+
+        if (line_view.starts_with("```")) {
+            inside_code_block = true;
+            first_code_line = true;
+            auto info_pos = line_view.find_first_not_of('`');
+            if (info_pos != std::string_view::npos) {
+                code_lang = std::string(trim(line_view.substr(info_pos)));
+            } else {
+                code_lang.clear();
+            }
+            code_content.clear();
+            continue;
+        }
+
         // Skip empty lines gracefully
+        std::string_view view(current_line);
+        if (view.ends_with('\r')) view.remove_suffix(1);
         if (view.empty()) continue; 
         
         parsed_blocks.push_back(parse_line(view));
+    }
+
+    if (inside_code_block) {
+        parsed_blocks.push_back(Block{BlockType::CodeBlock, std::move(code_content), std::move(code_lang)});
     }
 
     return parsed_blocks;
@@ -103,12 +149,16 @@ MDYDocument Parser::parse_file(const std::filesystem::path& file_path) {
     ParseState state = ParseState::ExpectingStartFence;
 
     bool first_line = true;
+    bool inside_code_block = false;
+    bool first_code_line = true;
+    std::string code_content;
+    std::string code_lang;
 
     while (std::getline(file, current_line)) {
         std::string_view line_view = trim(current_line);
 
-        // 1. Check for YAML boundary markers (---)
-        if (line_view == "---") {
+        // 1. Check for YAML boundary markers (---) when not in a code block
+        if (!inside_code_block && line_view == "---") {
             if (first_line && state == ParseState::ExpectingStartFence) {
                 state = ParseState::InsideFrontMatter;
                 first_line = false;
@@ -138,10 +188,51 @@ MDYDocument Parser::parse_file(const std::filesystem::path& file_path) {
             }
         }
         else {
-            // We are in the body. Skip empty spacer lines, parse the rest.
+            // We are in the body.
+            if (inside_code_block) {
+                if (line_view.size() >= 3 && line_view.find_first_not_of('`') == std::string_view::npos) {
+                    inside_code_block = false;
+                    doc.body.push_back(Block{BlockType::CodeBlock, std::move(code_content), std::move(code_lang)});
+                    code_content.clear();
+                    code_lang.clear();
+                    continue;
+                }
+
+                std::string line = current_line;
+                if (!line.empty() && line.back() == '\r') {
+                    line.pop_back();
+                }
+                if (first_code_line) {
+                    code_content = std::move(line);
+                    first_code_line = false;
+                } else {
+                    code_content += '\n';
+                    code_content += line;
+                }
+                continue;
+            }
+
+            if (line_view.starts_with("```")) {
+                inside_code_block = true;
+                first_code_line = true;
+                auto info_pos = line_view.find_first_not_of('`');
+                if (info_pos != std::string_view::npos) {
+                    code_lang = std::string(trim(line_view.substr(info_pos)));
+                } else {
+                    code_lang.clear();
+                }
+                code_content.clear();
+                continue;
+            }
+
+            // Skip empty spacer lines, parse the rest.
             if (line_view.empty()) continue;
             doc.body.push_back(parse_line(line_view));
         }
+    }
+
+    if (inside_code_block) {
+        doc.body.push_back(Block{BlockType::CodeBlock, std::move(code_content), std::move(code_lang)});
     }
 
     // is_open() is true for a path that opens but cannot actually be read,

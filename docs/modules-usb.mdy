@@ -44,7 +44,7 @@ or both.
 
 # Layering
 
-Opening fence
+```text
 application or class module (CDC, vendor protocol, HID, MSC device)
              |                                   |
        mm.usb.device                        mm.usb.host
@@ -58,7 +58,7 @@ application or class module (CDC, vendor protocol, HID, MSC device)
   Linux FunctionFS                       libusb over Linux usbfs
              \_____________ mm.usb ______________/
                     (shared types and status)
-Closing fence
+```
 
 mm.usb is an ordinary module of shared vocabulary. mm.usb.device and
 mm.usb.host are each a platform-interface, so a platform provider is linked only
@@ -66,7 +66,7 @@ when an executable's closure reaches the interface it serves.
 
 # Directory and module layout
 
-Opening fence
+```text
 modules/mm/usb/
   mm.mdy                 mm.usb: shared types, no provider
   status.cppm            mm.usb:status
@@ -91,11 +91,11 @@ modules/mm/usb/
   msc/
     mm.mdy               mm.usb.msc, Mass Storage Class (BOT) module
     msc.cppm             mm.usb.msc, MscDevice and SCSI handler
-Closing fence
+```
 
 The providers live with their platforms:
 
-Opening fence
+```text
 platforms/linux/usb/device/          platform.linux.usb.device (FunctionFS)
 platforms/linux/libusb/              kind: library, source: system
 platforms/linux/libusb/host/         platform.linux.usb.host (libusb)
@@ -103,13 +103,13 @@ platforms/linux/mcu/                 block storage added to platform.linux.mcu
 platforms/pico/sdk/pico-sdk/usb/     platform.pico.usb.device and .host
 tests/mm/usb/                        interface tests, recording stand-ins
 tests/mm/linux/                      provider tests on byte fixtures
-Closing fence
+```
 
 The interfaces under modules/mm/usb are core and use only the standard library.
 
 # Shared vocabulary: mm.usb
 
-Opening fence
+```cpp
 export namespace mm::usb {
 
 enum class Status {
@@ -158,7 +158,7 @@ struct SetupPacket {
 };
 
 }
-Closing fence
+```
 
 Descriptors are passed as standard byte spans defined by the USB specification,
 not as custom C++ structs: every underlying stack accepts raw descriptor bytes,
@@ -168,7 +168,7 @@ and a class module composing descriptors knows their layout.
 
 ## Contract
 
-Opening fence
+```cpp
 export namespace mm::usb::device {
 
 struct Descriptors {
@@ -224,7 +224,7 @@ void set_device(Device&);
 [[nodiscard]] Device& selected_device();
 
 }
-Closing fence
+```
 
 Every method of the unserved base answers Unsupported (state() Detached, speed()
 Unknown), and an unserved object is selected until a provider registers.
@@ -246,7 +246,7 @@ Unknown), and an unserved object is selected until a provider registers.
 
 ## Contract
 
-Opening fence
+```cpp
 export namespace mm::usb::host {
 
 struct DeviceInfo {
@@ -297,7 +297,7 @@ void set_host(Host&);
 [[nodiscard]] Host& selected_host();
 
 }
-Closing fence
+```
 
 Host transfers are bounded waits rather than nonblocking because nonblocking host
 transfers outlive the call that started them, requiring caller buffers to
@@ -387,9 +387,10 @@ function:
 - Provides CdcDevice for bulk endpoint stream read/write.
 - Serves as a console provider for mm.stdio on boards where the application
   owns the native USB port through CdcConsole:
-  Opening fence
-  platform-provider: mm.stdio mm.usb.cdc
-  Closing fence
+
+```yaml
+platform-provider: mm.stdio mm.usb.cdc
+```
 
 ## mm.usb.vendor (device and host)
 
