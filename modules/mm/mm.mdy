@@ -40,4 +40,5 @@ folder: usb/device
 folder: usb/host
 folder: usb/vendor
 folder: usb/cdc
+folder: usb/msc
 ---

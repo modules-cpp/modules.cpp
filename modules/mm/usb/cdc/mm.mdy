@@ -3,6 +3,7 @@ mm: 1.2
 kind: module
 name: usb-cdc
 module: mm.usb.cdc
+use: mm.stdio
 use: mm.usb
 use: mm.usb.device
 file: cdc.cppm mm.usb.cdc

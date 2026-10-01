@@ -7,11 +7,13 @@ module;
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <optional>
 #include <span>
 #include <vector>
 
 export module mm.usb.cdc;
 
+import mm.stdio;
 import mm.usb;
 import mm.usb.device;
 
@@ -368,11 +370,130 @@ public:
         return device_.read(ENDPOINT_BULK_OUT, buf, received);
     }
 
+    [[nodiscard]] Device& device() noexcept { return device_; }
+
 private:
     Device& device_;
     LineCoding line_coding_{.bitrate = 115200, .stopbits = 0, .parity = 0, .databits = 8};
     bool dtr_ = false;
     bool rts_ = false;
 };
+
+class CdcConsole final : public mm::stdio::Console {
+public:
+    explicit CdcConsole(CdcDevice& cdc, bool require_dtr = true)
+        : cdc_(&cdc), require_dtr_(require_dtr) {}
+    explicit CdcConsole(bool require_dtr = true)
+        : require_dtr_(require_dtr) {}
+
+    [[nodiscard]] mm::stdio::Status initialize() override {
+        ensure_cdc();
+        const auto s_init = cdc_->initialize();
+        if (s_init != Status::Ok) {
+            return s_init == Status::Unsupported
+                ? mm::stdio::Status::Unsupported
+                : mm::stdio::Status::TransportError;
+        }
+        const auto s_att = cdc_->attach();
+        if (s_att != Status::Ok && s_att != Status::Unsupported) {
+            return mm::stdio::Status::TransportError;
+        }
+        initialized_ = true;
+        return mm::stdio::Status::Ok;
+    }
+
+    [[nodiscard]] mm::stdio::Status write(std::span<const std::byte> data,
+                                          std::size_t& written) override {
+        if (!initialized_) return mm::stdio::Status::NotInitialized;
+        ensure_cdc();
+        (void)cdc_->poll();
+        if (!is_connected()) {
+            written = 0;
+            return mm::stdio::Status::Ok;
+        }
+        written = 0;
+        const auto status = cdc_->write(data, written);
+        return to_stdio_status(status);
+    }
+
+    [[nodiscard]] mm::stdio::Status read(std::span<std::byte> data,
+                                         std::size_t& count) override {
+        if (!initialized_) return mm::stdio::Status::NotInitialized;
+        ensure_cdc();
+        (void)cdc_->poll();
+        count = 0;
+        if (!is_connected()) {
+            return mm::stdio::Status::Ok;
+        }
+        const auto status = cdc_->read(data, count);
+        return to_stdio_status(status);
+    }
+
+    [[nodiscard]] mm::stdio::Status flush() override {
+        if (!initialized_) return mm::stdio::Status::NotInitialized;
+        ensure_cdc();
+        (void)cdc_->poll();
+        return mm::stdio::Status::Ok;
+    }
+
+    [[nodiscard]] mm::stdio::Status connected(bool& value) override {
+        if (!initialized_) return mm::stdio::Status::NotInitialized;
+        ensure_cdc();
+        (void)cdc_->poll();
+        value = is_connected();
+        return mm::stdio::Status::Ok;
+    }
+
+    [[nodiscard]] CdcDevice& device() {
+        ensure_cdc();
+        return *cdc_;
+    }
+
+    [[nodiscard]] bool require_dtr() const noexcept { return require_dtr_; }
+    void set_require_dtr(bool req) noexcept { require_dtr_ = req; }
+
+private:
+    [[nodiscard]] bool is_connected() const {
+        if (!cdc_) return false;
+        return require_dtr_ ? cdc_->connected() : (cdc_->state() == State::Configured);
+    }
+
+    void ensure_cdc() {
+        if (!cdc_) {
+            owned_cdc_.emplace(mm::usb::device::selected_device());
+            cdc_ = &*owned_cdc_;
+        }
+    }
+
+    static mm::stdio::Status to_stdio_status(Status s) {
+        switch (s) {
+            case Status::Ok: return mm::stdio::Status::Ok;
+            case Status::BadArgument: return mm::stdio::Status::BadArgument;
+            case Status::Unsupported: return mm::stdio::Status::Unsupported;
+            case Status::NotInitialized: return mm::stdio::Status::NotInitialized;
+            case Status::Busy: return mm::stdio::Status::Busy;
+            case Status::Timeout: return mm::stdio::Status::Timeout;
+            default: return mm::stdio::Status::TransportError;
+        }
+    }
+
+    std::optional<CdcDevice> owned_cdc_;
+    CdcDevice* cdc_ = nullptr;
+    bool require_dtr_ = true;
+    bool initialized_ = false;
+};
+
+inline CdcConsole& default_console() {
+    static CdcConsole instance;
+    return instance;
+}
+
+struct RegisterConsole {
+    RegisterConsole() {
+        mm::stdio::set_console(default_console());
+    }
+};
+
+const RegisterConsole console_registered;
 
 }  // namespace mm::usb::cdc

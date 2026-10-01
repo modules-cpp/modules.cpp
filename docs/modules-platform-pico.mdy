@@ -340,6 +340,8 @@ By default every Pico board keeps the native USB port as the CDC console (`MM_BO
 On application-port boards:
 - The bridge does not link `pico_stdio_usb`, linking `tinyusb_device` and `pico_stdio_uart` instead.
 - `platform.pico.usb.device` provides device initialization, connection events, control endpoint callbacks, and custom class endpoint transfers through TinyUSB's `usbd_app_driver_get_cb` hook.
+- `mm.usb.cdc` can be bound as the `mm.stdio` console provider (`platform-provider: mm.stdio mm.usb.cdc`) on boards where the application controls the native USB port, replacing UART console with CDC ACM over `platform.pico.usb.device`.
+- `mm.usb.msc` provides USB Mass Storage Class (BOT / BBB) device functionality, exposing `mm.mcu` block storage to a USB host over Bulk endpoints.
 
 ## USB host: storage and non-storage peripherals
 

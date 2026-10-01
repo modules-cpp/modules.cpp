@@ -8,6 +8,7 @@
 #include <span>
 #include <vector>
 
+import mm.stdio;
 import mm.usb;
 import mm.usb.device;
 import mm.usb.cdc;
@@ -219,9 +220,85 @@ void test_cdc_device_lifecycle_and_requests() {
     expect(cdc.detach() == Status::Ok, "detach ok");
 }
 
+void test_cdc_console_provider() {
+    MockCdcDevice dev;
+    mm::usb::cdc::CdcDevice cdc(dev);
+    mm::usb::cdc::CdcConsole console(cdc);
+
+    // Prior to initialize
+    std::size_t written = 999;
+    std::size_t read_count = 999;
+    bool conn = true;
+    const std::array<std::byte, 4> msg = {std::byte{'p'}, std::byte{'i'}, std::byte{'n'}, std::byte{'g'}};
+    std::array<std::byte, 4> rx_buf{};
+
+    expect(console.write(msg, written) == mm::stdio::Status::NotInitialized, "uninitialized write refused");
+    expect(console.read(rx_buf, read_count) == mm::stdio::Status::NotInitialized, "uninitialized read refused");
+    expect(console.connected(conn) == mm::stdio::Status::NotInitialized, "uninitialized connected refused");
+    expect(console.flush() == mm::stdio::Status::NotInitialized, "uninitialized flush refused");
+
+    // Initialize
+    expect(console.initialize() == mm::stdio::Status::Ok, "console initialize ok");
+    expect(dev.initialized_, "mock device initialized");
+    expect(dev.attached_, "mock device attached");
+
+    // Connected query before configuration & DTR
+    expect(console.connected(conn) == mm::stdio::Status::Ok, "connected query ok");
+    expect(!conn, "not connected before config/dtr");
+
+    // Disconnected write reports Ok with count 0
+    written = 999;
+    expect(console.write(msg, written) == mm::stdio::Status::Ok, "disconnected write returns Ok");
+    expect(written == 0, "disconnected write accepted 0 bytes");
+
+    // Disconnected read reports Ok with count 0
+    read_count = 999;
+    expect(console.read(rx_buf, read_count) == mm::stdio::Status::Ok, "disconnected read returns Ok");
+    expect(read_count == 0, "disconnected read returned 0 bytes");
+
+    // Configure and set DTR
+    dev.set_state(State::Configured);
+    const SetupPacket set_cls{
+        .request_type = 0x21,
+        .request = mm::usb::cdc::CDC_REQUEST_SET_CONTROL_LINE_STATE,
+        .value = 0x01, // DTR = 1
+        .index = 0,
+        .length = 0
+    };
+    dev.inject_event(Event{.kind = EventKind::Setup, .setup = set_cls});
+    expect(console.connected(conn) == mm::stdio::Status::Ok, "connected query ok after dtr");
+    expect(conn, "connected is now true");
+
+    // Connected write
+    written = 0;
+    expect(console.write(msg, written) == mm::stdio::Status::Ok, "connected write returns Ok");
+    expect(written == 4, "connected write wrote 4 bytes");
+    expect(dev.bulk_in_fifo_.size() == 4, "device bulk in fifo has 4 bytes");
+
+    // Connected read when empty
+    read_count = 999;
+    expect(console.read(rx_buf, read_count) == mm::stdio::Status::Ok, "connected empty read returns Ok");
+    expect(read_count == 0, "connected empty read returned 0 bytes");
+
+    // Connected read with data
+    dev.inject_bulk_out_data(msg);
+    read_count = 0;
+    expect(console.read(rx_buf, read_count) == mm::stdio::Status::Ok, "connected read with data returns Ok");
+    expect(read_count == 4, "connected read returned 4 bytes");
+    expect(std::memcmp(rx_buf.data(), msg.data(), 4) == 0, "read data matches written message");
+
+    // Flush
+    expect(console.flush() == mm::stdio::Status::Ok, "flush returns Ok");
+
+    // Test mm::stdio console registration
+    mm::stdio::set_console(console);
+    expect(&mm::stdio::selected_console() == &console, "selected_console is our CdcConsole");
+}
+
 const mm::test::case_ cases[] = {
     {"descriptors and line coding", &test_descriptors_and_line_coding},
     {"cdc device lifecycle and requests", &test_cdc_device_lifecycle_and_requests},
+    {"cdc console provider for mm.stdio", &test_cdc_console_provider},
 };
 
 const mm::test::registrar reg{"mm.usb.cdc", cases};

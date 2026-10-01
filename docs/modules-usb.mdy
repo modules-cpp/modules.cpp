@@ -1,0 +1,421 @@
+---
+mm: 1.0
+kind: doc
+name: modules.cpp portable USB specification
+status: official
+release: v1.3.1
+---
+
+# Portable USB: mm.usb, mm.usb.device, and mm.usb.host
+
+# Status and authority
+
+This document specifies the portable USB architecture, interfaces, platform
+providers, and class modules for release v1.3.1. It describes the design and
+contracts of `mm.usb` (shared vocabulary), `mm.usb.device` (device stack
+interface), and `mm.usb.host` (host stack interface).
+
+docs/modules-platform-mcu.mdy remains authoritative for mm.mcu's MCU transports
+and block storage. docs/modules-stdio.mdy remains authoritative for mm.stdio's
+console contract. docs/modules-platforms.mdy remains authoritative for the
+platform-interface and platform-provider resolution mechanism.
+
+The interfaces change no existing interface. mm.stdio, mm.mcu, mm.display, and
+mm.sketch keep working exactly as they do.
+
+# Architectural motivation
+
+USB fits neither existing interface:
+- mm.mcu's transports are byte streams (UART) and synchronous register buses
+  (I2C, SPI); USB is packetised, enumerated, endpoint-addressed, and driven
+  by standard control requests and descriptors.
+- mm.stdio is a console and nothing more.
+- mm.display demonstrates the architecture that succeeds here: a focused,
+  allocation-free, project-owned platform interface owning lifecycle and
+  transfer, with policy above it (USB class modules) and hardware below it
+  (a UDC, a host controller, or a vendor stack).
+
+Two interfaces are defined rather than one because the two sides share only
+vocabulary:
+- A device answers one host's requests on its own endpoints.
+- A host enumerates many devices and addresses their endpoints.
+A program is usually one or the other, and a target board provides one, the other,
+or both.
+
+# Layering
+
+Opening fence
+application or class module (CDC, vendor protocol, HID, MSC device)
+             |                                   |
+       mm.usb.device                        mm.usb.host
+             |                                   |
+  device provider                        host provider
+  (platform.pico.usb.device,             (platform.pico.usb.host,
+   platform.linux.usb.device,             platform.linux.usb.host,
+   test stand-in)                         test stand-in)
+             |                                   |
+  TinyUSB device stack /                 TinyUSB host stack /
+  Linux FunctionFS                       libusb over Linux usbfs
+             \_____________ mm.usb ______________/
+                    (shared types and status)
+Closing fence
+
+mm.usb is an ordinary module of shared vocabulary. mm.usb.device and
+mm.usb.host are each a platform-interface, so a platform provider is linked only
+when an executable's closure reaches the interface it serves.
+
+# Directory and module layout
+
+Opening fence
+modules/mm/usb/
+  mm.mdy                 mm.usb: shared types, no provider
+  status.cppm            mm.usb:status
+  types.cppm             mm.usb:types
+  usb.cppm               mm.usb
+  device/
+    mm.mdy               mm.usb.device, platform-interface
+    platform.cppm        mm.usb.device:platform
+    device.cppm          mm.usb.device
+    src/device.cpp       unserved fallback and current pointer
+  host/
+    mm.mdy               mm.usb.host, platform-interface
+    platform.cppm        mm.usb.host:platform
+    host.cppm            mm.usb.host
+    src/host.cpp         unserved fallback and current pointer
+  cdc/
+    mm.mdy               mm.usb.cdc, CDC ACM class module
+    cdc.cppm             mm.usb.cdc, CdcDevice and CdcConsole
+  vendor/
+    mm.mdy               mm.usb.vendor, vendor class module
+    vendor.cppm          mm.usb.vendor, DeviceEcho and HostEcho
+  msc/
+    mm.mdy               mm.usb.msc, Mass Storage Class (BOT) module
+    msc.cppm             mm.usb.msc, MscDevice and SCSI handler
+Closing fence
+
+The providers live with their platforms:
+
+Opening fence
+platforms/linux/usb/device/          platform.linux.usb.device (FunctionFS)
+platforms/linux/libusb/              kind: library, source: system
+platforms/linux/libusb/host/         platform.linux.usb.host (libusb)
+platforms/linux/mcu/                 block storage added to platform.linux.mcu
+platforms/pico/sdk/pico-sdk/usb/     platform.pico.usb.device and .host
+tests/mm/usb/                        interface tests, recording stand-ins
+tests/mm/linux/                      provider tests on byte fixtures
+Closing fence
+
+The interfaces under modules/mm/usb are core and use only the standard library.
+
+# Shared vocabulary: mm.usb
+
+Opening fence
+export namespace mm::usb {
+
+enum class Status {
+    Ok,
+    BadArgument,
+    Unsupported,
+    NotInitialized,
+    Busy,
+    Timeout,
+    TransportError
+};
+
+enum class Speed { Unknown, Low, Full, High };
+
+enum class TransferType { Control, Isochronous, Bulk, Interrupt };
+
+enum class Direction { Out, In };
+enum class Type { Standard, Class, Vendor, Reserved };
+enum class Recipient { Device, Interface, Endpoint, Other };
+
+struct EndpointAddress {
+    std::uint8_t value = 0;
+    [[nodiscard]] constexpr unsigned int number() const { return value & 0x0f; }
+    [[nodiscard]] constexpr bool in() const { return (value & 0x80) != 0; }
+    [[nodiscard]] constexpr bool valid() const { return (value & 0x70) == 0; }
+    constexpr bool operator==(const EndpointAddress&) const = default;
+};
+
+struct SetupPacket {
+    std::uint8_t request_type = 0;
+    std::uint8_t request = 0;
+    std::uint16_t value = 0;
+    std::uint16_t index = 0;
+    std::uint16_t length = 0;
+
+    [[nodiscard]] constexpr Direction direction() const {
+        return (request_type & 0x80) != 0 ? Direction::In : Direction::Out;
+    }
+    [[nodiscard]] constexpr Type type() const {
+        return static_cast<Type>((request_type >> 5) & 0x03);
+    }
+    [[nodiscard]] constexpr Recipient recipient() const {
+        return static_cast<Recipient>(request_type & 0x1f);
+    }
+    constexpr bool operator==(const SetupPacket&) const = default;
+};
+
+}
+Closing fence
+
+Descriptors are passed as standard byte spans defined by the USB specification,
+not as custom C++ structs: every underlying stack accepts raw descriptor bytes,
+and a class module composing descriptors knows their layout.
+
+# The device interface: mm.usb.device
+
+## Contract
+
+Opening fence
+export namespace mm::usb::device {
+
+struct Descriptors {
+    std::span<const std::byte> device;
+    std::span<const std::byte> configuration;
+    std::span<const std::span<const std::byte>> strings;
+};
+
+enum class State { Detached, Default, Addressed, Configured, Suspended };
+
+enum class EventKind {
+    None,
+    Reset,
+    Configured,
+    Deconfigured,
+    Suspended,
+    Resumed,
+    Setup
+};
+
+struct Event {
+    EventKind kind = EventKind::None;
+    SetupPacket setup;
+    constexpr bool operator==(const Event&) const = default;
+};
+
+class Device {
+public:
+    virtual ~Device() = default;
+
+    [[nodiscard]] virtual Status initialize(const Descriptors&);
+    [[nodiscard]] virtual Status attach();
+    [[nodiscard]] virtual Status detach();
+
+    [[nodiscard]] virtual State state() const;
+    [[nodiscard]] virtual Speed speed() const;
+
+    [[nodiscard]] virtual Status take_event(Event&);
+
+    [[nodiscard]] virtual Status control_receive(std::span<std::byte>,
+                                                 std::size_t& received);
+    [[nodiscard]] virtual Status control_reply(std::span<const std::byte>);
+    [[nodiscard]] virtual Status control_stall();
+
+    [[nodiscard]] virtual Status write(EndpointAddress, std::span<const std::byte>,
+                                       std::size_t& accepted);
+    [[nodiscard]] virtual Status read(EndpointAddress, std::span<std::byte>,
+                                      std::size_t& received);
+    [[nodiscard]] virtual Status stall(EndpointAddress, bool halted);
+};
+
+void set_device(Device&);
+[[nodiscard]] Device& selected_device();
+
+}
+Closing fence
+
+Every method of the unserved base answers Unsupported (state() Detached, speed()
+Unknown), and an unserved object is selected until a provider registers.
+
+## Execution and transfer semantics
+
+- The program's thread moves the data. A provider that services the controller
+  from an interrupt latches events and buffers transfers, handing them over in
+  take_event, read, and write under its own lock. A provider with no interrupt
+  service runs its processing inside those calls.
+- Standard control requests (GET_DESCRIPTOR, SET_ADDRESS, SET_CONFIGURATION)
+  are handled by the provider stack and never reach the application.
+- Exactly one of control_reply and control_stall completes each Setup event.
+- Endpoint transfers are nonblocking: write queues what the endpoint buffer
+  accepts, read takes what has arrived, and both return Ok with count zero when
+  no buffer room or no data is available.
+
+# The host interface: mm.usb.host
+
+## Contract
+
+Opening fence
+export namespace mm::usb::host {
+
+struct DeviceInfo {
+    std::uint8_t bus = 0;
+    std::uint8_t address = 0;
+    std::uint16_t vendor = 0;
+    std::uint16_t product = 0;
+    Speed speed = Speed::Unknown;
+};
+
+enum class EventKind { None, Attached, Detached };
+struct Event { EventKind kind = EventKind::None; DeviceInfo device; };
+
+struct Handle { unsigned int value = 0; };
+
+class Host {
+public:
+    virtual ~Host() = default;
+
+    [[nodiscard]] virtual Status initialize();
+    [[nodiscard]] virtual Status list(std::span<DeviceInfo> out, std::size_t& count);
+    [[nodiscard]] virtual Status take_event(Event&);
+
+    [[nodiscard]] virtual Status open(const DeviceInfo&, Handle&);
+    [[nodiscard]] virtual Status close(Handle);
+
+    [[nodiscard]] virtual Status descriptors(Handle, std::span<std::byte> out,
+                                             std::size_t& count);
+
+    [[nodiscard]] virtual Status claim(Handle, unsigned int interface);
+    [[nodiscard]] virtual Status release(Handle, unsigned int interface);
+
+    [[nodiscard]] virtual Status control(Handle, const SetupPacket&,
+                                         std::span<std::byte> data,
+                                         std::size_t& transferred,
+                                         unsigned long timeout_ms);
+    [[nodiscard]] virtual Status transfer_out(Handle, EndpointAddress,
+                                              std::span<const std::byte>,
+                                              std::size_t& transferred,
+                                              unsigned long timeout_ms);
+    [[nodiscard]] virtual Status transfer_in(Handle, EndpointAddress,
+                                             std::span<std::byte>,
+                                             std::size_t& transferred,
+                                             unsigned long timeout_ms);
+};
+
+void set_host(Host&);
+[[nodiscard]] Host& selected_host();
+
+}
+Closing fence
+
+Host transfers are bounded waits rather than nonblocking because nonblocking host
+transfers outlive the call that started them, requiring caller buffers to
+remain valid asynchronously. The bounded form keeps buffer lifetime tied strictly
+to the call duration.
+
+## Relation to block storage
+
+A USB flash drive remains under mm.mcu's block storage, not mm.usb.host:
+- On the Pico, the PIO host port's mass-storage class serves it.
+- On Linux, the kernel's usb-storage driver owns it, accessed through a raw
+  block device.
+A host provider does not offer interfaces already claimed by a platform class
+driver unless explicit configuration instructs it to detach them.
+
+# Platform providers
+
+## Pico platform
+
+### Native port ownership
+
+The native USB port has one owner per board, configured in resolve-board.cmake:
+- `console`: pico_stdio_usb owns the port as a CDC console. mm.usb.device is
+  not bound.
+- `application`: The bridge leaves the native port to platform.pico.usb.device.
+  mm.stdio redirects to the default UART unless bound to mm.usb.cdc.
+
+### platform.pico.usb.device
+
+Supplies TinyUSB's descriptor callbacks (tud_descriptor_device_cb,
+tud_descriptor_configuration_cb, tud_descriptor_string_cb) from Descriptors,
+and registers a class driver through TinyUSB's usbd_app_driver_get_cb hook.
+SET_CONFIGURATION opens the configuration endpoints, class/vendor setup requests
+queue into take_event, and endpoint buffers move data.
+
+### platform.pico.usb.host
+
+On boards with a second USB host port driven by Pico-PIO-USB (pico_usb_host,
+pico2_usb_host), platform.pico.usb.host binds mm.usb.host over TinyUSB's host API
+(tuh_descriptor_get_device, tuh_control_xfer, tuh_edpt_xfer). It leaves mass-storage
+devices to mm.mcu, answering Busy if claim is attempted on storage interfaces.
+
+## Linux platform
+
+### platform.linux.usb.device: FunctionFS
+
+Presents a USB peripheral through FunctionFS on Linux systems equipped with a USB
+Device Controller (UDC):
+- Configured via configfs (scripts/linux-usb-gadget.sh).
+- initialize writes the FunctionFS descriptor block (FUNCTIONFS_DESCRIPTORS_MAGIC_V2)
+  and strings to ep0, then opens ep1..epN.
+- take_event reads struct usb_functionfs_event records nonblockingly from ep0.
+- write and read use Linux AIO (io_setup, io_submit, io_getevents) nonblockingly
+  with eventfd notification.
+- attach and detach bind and unbind the gadget by writing the UDC name to its
+  configfs UDC attribute.
+
+### platform.linux.usb.host: libusb
+
+User-space USB host implementation built over libusb-1.0 and /dev/bus/usb (usbfs):
+- list uses libusb_get_device_list.
+- take_event handles arrival/departure events via hotplug callbacks or polling.
+- Driver safety rules: The provider never detaches kernel drivers for storage
+  (`usb-storage`, `uas`) or input (`usbhid`), preventing unwritten buffer loss
+  and input disruption. Non-storage kernel drivers are detached only when
+  configured (`usb.host.detach-kernel-drivers = yes`) and reattached on release.
+
+### Linux block storage over raw block devices
+
+A USB drive on Linux is read as a block device under platform.linux.mcu
+(e.g., storage.0.path = "/dev/disk/by-id/usb-..."):
+- Refuses to write any disk or partition currently mounted (verified against
+  /proc/self/mountinfo and /sys/class/block).
+- Requires explicit permission: storage.0.writable = yes in the map.
+- Requires whole-disk block devices (S_ISBLK with no partition parent).
+
+# USB class modules
+
+Class modules sit above the platform interfaces as ordinary portable modules:
+
+## mm.usb.cdc (device)
+
+A standard USB CDC ACM (Communications Device Class / Abstract Control Model)
+function:
+- Provides default CDC ACM device and configuration descriptors.
+- Handles SET_LINE_CODING, GET_LINE_CODING, and SET_CONTROL_LINE_STATE.
+- Provides CdcDevice for bulk endpoint stream read/write.
+- Serves as a console provider for mm.stdio on boards where the application
+  owns the native USB port through CdcConsole:
+  Opening fence
+  platform-provider: mm.stdio mm.usb.cdc
+  Closing fence
+
+## mm.usb.vendor (device and host)
+
+A vendor-class pair implementing a bulk echo protocol:
+- DeviceEcho receives data on Bulk OUT and echoes it to Bulk IN.
+- HostEcho discovers the vendor peripheral, claims the interface, and executes
+  synchronous write-then-read roundtrips.
+
+## mm.usb.msc (device)
+
+A USB Mass Storage Class Bulk-Only Transport (BOT / BBB) device function:
+- Exposes mm.mcu block storage to a USB host using SCSI Transparent commands.
+- Implements 31-byte CBW decoding (signature 0x43425355) and 13-byte CSW encoding
+  (signature 0x53425355).
+- Handles SCSI commands: TEST UNIT READY (0x00), REQUEST SENSE (0x03), INQUIRY
+  (0x12), MODE SENSE 6/10 (0x1A/0x5A), READ CAPACITY 10 (0x25), READ 10 (0x28),
+  and WRITE 10 (0x2A).
+- Pluggable StorageBackend abstraction defaulting to mm.mcu storage calls.
+
+# Testing architecture
+
+- `tests/mm/usb`: Validates shared vocabulary (endpoint addresses, setup packets),
+  unserved fallbacks, and recording stand-ins for Device and Host verifying
+  protocol state machines and nonblocking/bounded transfers.
+- `tests/mm/linux`: Unit tests verifying FunctionFS descriptor blocks, event
+  translation, and libusb status mapping against fixed byte fixtures without
+  requiring hardware, kernel modules, or elevated permissions.
+- Qualification: `scripts/qualify-linux-usb.sh` tests host enumeration and
+  vendor loopback via Linux `dummy_hcd` or physical hardware.
