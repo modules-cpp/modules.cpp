@@ -172,6 +172,8 @@ struct LoadPolicy {
     bool strict_tree = false;
     bool warn_options = false;
     std::optional<std::filesystem::path> external;
+    bool check = false;
+    bool print_folders = false;
 };
 
 [[nodiscard]] bool validate_manifest_schema(const mm::mdy::MDYDocument& document,

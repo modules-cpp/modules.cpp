@@ -420,6 +420,27 @@ void compiler_workarounds() {
            "the baseline stays compiler-agnostic");
 }
 
+void configure_check_policy() {
+    const mm::test::scoped_tree tree{"check_policy"};
+    tree.manifest_raw("", "mm: 1.1\nkind: project\nname: p\nfolder: shared\nfolder: shared\n");
+    tree.manifest("shared", "kind: dir\nname: shared\n");
+
+    // Under normal relaxed mode without check, repeat-visit is accepted.
+    expect(mm::build::load_project(tree.root(), {.tool = "configure", .strict_tree = false}).ok,
+           "relaxed tree accepts repeat visit");
+
+    // Under check mode, repeated directory is reported and sets ok = false.
+    expect(!mm::build::load_project(tree.root(), {.tool = "configure", .check = true}).ok,
+           "check mode rejects repeated directory");
+
+    // A clean tree passes check mode.
+    const mm::test::scoped_tree clean{"check_clean"};
+    clean.manifest_raw("", "mm: 1.1\nkind: project\nname: p\nfolder: sub\n");
+    clean.manifest("sub", "kind: dir\nname: sub\n");
+    expect(mm::build::load_project(clean.root(), {.tool = "configure", .check = true}).ok,
+           "clean tree passes check mode");
+}
+
 const mm::test::case_ cases[] = {
     {"shared build defaults", &shared_defaults},
     {"compiler workaround flags", &compiler_workarounds},
@@ -431,6 +452,7 @@ const mm::test::case_ cases[] = {
     {"output safety", &output_safety},
     {"structural properties", &structural_properties},
     {"external options", &external_options},
+    {"configure check policy", &configure_check_policy},
 };
 const mm::test::registrar reg{"mm.configure options", cases};
 

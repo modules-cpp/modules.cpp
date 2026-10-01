@@ -130,7 +130,7 @@ Enter enter_manifest(const std::filesystem::path& dir, WalkState& state,
         return Enter::error;
     }
 
-    if (state.policy.strict_tree) {
+    if (state.policy.strict_tree || state.policy.check) {
         // Generated lanes are root siblings: out is the bootstrap/configuration
         // tree, while configured host and target lanes use out-* names. Match
         // the complete first component so a source directory such as "outside"
@@ -143,7 +143,7 @@ Enter enter_manifest(const std::filesystem::path& dir, WalkState& state,
         }
     }
     if (state.contains(state.visited, canonical)) {
-        if (!state.policy.strict_tree) return Enter::skip;
+        if (!state.policy.strict_tree && !state.policy.check) return Enter::skip;
         std::cerr << state.policy.tool << ": repeated canonical manifest directory: "
                   << manifest.string() << "\n";
         return Enter::error;
@@ -266,6 +266,11 @@ bool folder_within_library_source(const std::filesystem::path& source,
 // saw the same bytes.
 void walk_project(const std::filesystem::path& dir, std::size_t parent, Project& project,
                   WalkState& state) {
+    if (state.policy.print_folders || state.policy.check) {
+        const auto display = dir.lexically_normal().generic_string();
+        std::cout << "visiting: " << (display.empty() ? "." : display) << "\n";
+    }
+
     std::filesystem::path manifest;
     std::filesystem::path canonical;
 

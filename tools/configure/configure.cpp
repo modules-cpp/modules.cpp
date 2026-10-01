@@ -336,6 +336,7 @@ int main(int argc, char** argv) {
     mm::app::Options options("configure");
     options.flag("--host");
     options.flag("--target-host");
+    options.flag("--check");
     options.option("--target", "a target triple");
     options.option("--compiler", "a native or target-prefixed GCC or Clang C++ driver");
     options.option("--c-compiler", "a native or target-prefixed GCC or Clang C driver");
@@ -344,7 +345,7 @@ int main(int argc, char** argv) {
     options.option("--board", "a supported board manifest name");
     options.option("--debugger", "none, gdb, or openocd");
     options.option("--build", "debug or release");
-    options.help("configure [-v|--verbose] [-h|--help] [--host | --target TRIPLE] "
+    options.help("configure [-v|--verbose] [-h|--help] [--check] [--host | --target TRIPLE] "
                  "[--target-host] "
                  "[--compiler COMPILER] [--c-compiler C_COMPILER] [--sdk SDK] [--board BOARD] "
                  "[--runner none|PROFILE] [--debugger none|gdb|openocd] "
@@ -468,7 +469,24 @@ int main(int argc, char** argv) {
         std::cout << "  config " << configuration_path.string() << "\n";
     }
 
-    const auto project = mm::build::load_project(".", {.tool = "configure", .strict_tree = true});
+    const auto project = mm::build::load_project(".", {
+        .tool = "configure",
+        .strict_tree = !options.seen("--check"),
+        .warn_options = false,
+        .external = std::nullopt,
+        .check = options.seen("--check"),
+        .print_folders = options.seen("--check"),
+    });
+
+    if (options.seen("--check")) {
+        if (!project.ok) {
+            std::cerr << "configure: manifest check failed\n";
+            return mm::build::exit_manifest;
+        }
+        std::cout << "configure: manifest check passed\n";
+        return mm::build::exit_ok;
+    }
+
     if (!project.ok) return mm::build::exit_manifest;
     if (verbose) {
         for (const auto& library : project.libraries)

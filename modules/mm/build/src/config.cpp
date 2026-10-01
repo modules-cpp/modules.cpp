@@ -111,8 +111,8 @@ bool valid_mm_version(const mm::mdy::MDYDocument& doc, const std::filesystem::pa
         if (rule == nullptr && version->rejects_unknown_keys) {
             std::cerr << policy.tool << ": " << manifest.string()
                       << ": unknown manifest key: " << key
-                      << (policy.strict_tree ? "\n" : " (ignored)\n");
-            if (policy.strict_tree) return false;
+                      << (policy.strict_tree || policy.check ? "\n" : " (ignored)\n");
+            if (policy.strict_tree || policy.check) return false;
         }
         if (rule == nullptr) continue;
         if (version->number < rule->introduced) {
