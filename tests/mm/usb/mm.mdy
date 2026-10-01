@@ -1,0 +1,20 @@
+---
+mm: 1.0
+kind: test
+name: usb
+use: mm.test
+use: mm.usb
+use: mm.usb.device
+use: mm.usb.host
+unit: tests/mm/usb/types.cpp
+unit: tests/mm/usb/device.cpp
+unit: tests/mm/usb/host.cpp
+unit: tests/main.cpp
+---
+
+# mm.usb test target
+
+Exercises the shared USB vocabulary (endpoint address bit decoding, setup packet
+decoding), unserved fallback behaviour for device and host, and recording stand-ins
+verifying device and host state machines, one reply/stall contract, and nonblocking /
+bounded transfers.
