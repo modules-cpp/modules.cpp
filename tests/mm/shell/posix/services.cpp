@@ -221,9 +221,11 @@ void spawn_distinguishes_its_failures() {
            "an unexecutable file is PermissionDenied, distinct from missing");
 
     const std::string_view nowhere[]{"true"};
+    // directory is a view: the string it names must outlive the spawn.
+    const auto absent_directory = root + "/absent";
     ProcessRequest bad_directory;
     bad_directory.arguments = nowhere;
-    bad_directory.directory = root + "/absent";
+    bad_directory.directory = absent_directory;
     expect(process.spawn(process.context, bad_directory, child) ==
                ServiceStatus::Failed && child == invalid_handle &&
                host.live_children() == 0,
