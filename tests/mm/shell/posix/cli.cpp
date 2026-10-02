@@ -257,7 +257,10 @@ void cli_modes_and_exit_codes() {
     const auto substitution = run({
         "-c", "status=0; value=$(exit 64) || status=$?; echo $status",
         "--"});
-    expect(substitution.status == 0 && substitution.output == "64\n",
+    const bool substitution_ok =
+        substitution.status == 0 && substitution.output == "64\n";
+    if (!substitution_ok) show("value=$(exit 64) || status=$?", substitution);
+    expect(substitution_ok,
            "assignment-only command keeps substitution exit status");
     const auto canonical = run({
         "-c", "echo \"$(CDPATH= cd -- . && pwd)\""});
@@ -347,8 +350,12 @@ void native_child_resolution() {
     expect(plain.status == 126 &&
                plain.output.find("plain\n") == std::string::npos,
            "executable text without a shebang never falls to /bin/sh");
-    expect(run("./nonexec.sh").status == 126,
-           "non-executable script is refused");
+    // Only where a file can be non-executable: MSYS2 mounts noacl, and then
+    // any file that starts with #! is executable whatever its mode says.
+    if (::access((tree.root() / "nonexec.sh").c_str(), X_OK) != 0) {
+        expect(run("./nonexec.sh").status == 126,
+               "non-executable script is refused");
+    }
     expect(run("./foreign.sh").output == "foreign\n",
            "foreign shebang keeps external exec behavior");
     const auto escape = run("./escape.sh");
