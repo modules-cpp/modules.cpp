@@ -667,8 +667,11 @@ void resolve_roots_records_the_requested_node_and_directories() {
     tree.manifest("a", "kind: dir\nname: a\n");
     auto roots = mm::build::resolve_roots(tree.root() / "a");
     expect(roots.ok, "a directory inside the project resolves");
-    expect(roots.project_root == tree.root(), "the project root is recorded");
-    expect(roots.tools_dir == tree.root() / "out" / "bin",
+    // resolve_roots records canonical paths. The temporary root need not be
+    // one: on macOS /tmp is a symlink to /private/tmp.
+    const auto root = std::filesystem::weakly_canonical(tree.root());
+    expect(roots.project_root == root, "the project root is recorded");
+    expect(roots.tools_dir == root / "out" / "bin",
            "the tools directory is derived from the project root");
     expect(roots.requested_node == "a", "the requested node is named");
     expect(roots.requested_manifest.filename() == "mm.mdy",
