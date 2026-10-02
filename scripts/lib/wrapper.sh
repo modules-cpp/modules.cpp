@@ -59,7 +59,14 @@ wrapper_main() {
             case "$board" in
                 sdl|epaper|sdl-linux-*|epaper-linux-*)
                     if [ "$run_requested" = yes ]; then
-                        passed=$(printf '%s\n' "$passed" | sed 's/ --run\( \|$\)/ --run-must-succeed\1/')
+                        # Word by word, not sed: \| alternation is GNU sed
+                        # only, and BSD sed on macOS leaves --run unchanged.
+                        rewritten=
+                        for word in $passed; do
+                            [ "$word" = --run ] && word=--run-must-succeed
+                            rewritten="$rewritten $word"
+                        done
+                        passed=$rewritten
                     fi
                     ;;
             esac
