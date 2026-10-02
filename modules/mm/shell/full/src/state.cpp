@@ -14,6 +14,22 @@ import :state;
 import mm.shell;
 
 namespace mm::shell::full {
+namespace {
+
+// A shell variable name: a letter or underscore, then letters, digits, and
+// underscores.
+[[nodiscard]] bool shell_name(std::string_view name) {
+    const auto first = [](char c) {
+        return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c == '_';
+    };
+    if (name.empty() || !first(name.front())) return false;
+    for (const char c : name.substr(1)) {
+        if (!first(c) && !(c >= '0' && c <= '9')) return false;
+    }
+    return true;
+}
+
+}  // namespace
 
 FullState::FullState(StateCapacity capacity)
     : variables_(capacity.variable_slots),
@@ -30,10 +46,12 @@ void FullState::set_directory(std::string_view path) {
 Status FullState::seed_environment(
     std::span<const std::string_view> entries) {
     for (const auto entry : entries) {
+        // An entry no shell variable can name is skipped, as POSIX shells do:
+        // Windows always passes ProgramFiles(x86) and =C: style entries, and
+        // one of them must not stop the shell from starting.
         const auto equal = entry.find('=');
-        if (equal == std::string_view::npos || equal == 0) {
-            return Status::BadArgument;
-        }
+        if (equal == std::string_view::npos ||
+            !shell_name(entry.substr(0, equal))) continue;
         const auto name = entry.substr(0, equal);
         const auto value = entry.substr(equal + 1);
         const auto assigned = core_.assign(name, value);

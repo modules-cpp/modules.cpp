@@ -182,6 +182,15 @@ void owning_child_state() {
                parent.core().lookup("PATH").value == "/bin" &&
                parent.is_exported("EMPTY"),
            "initial environment is copied into owning state");
+    full::FullState host;
+    const std::string_view windows[]{
+        "ProgramFiles(x86)=C:\\Program Files (x86)", "=C:=C:\\",
+        "NOEQUALS", "1ST=x", "HOME=/home/user"};
+    expect(host.seed_environment(windows) == mm::shell::Status::Ok &&
+               host.core().lookup("HOME").value == "/home/user" &&
+               !host.is_exported("ProgramFiles(x86)") &&
+               !host.is_exported("1ST"),
+           "entries no variable can name are skipped, not fatal");
     expect(parent.core().assign("MODE", "parent").ok(),
            "parent value installs");
     const std::string_view args[]{"first", "second"};
