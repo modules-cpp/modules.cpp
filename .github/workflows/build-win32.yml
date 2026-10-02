@@ -1,0 +1,89 @@
+name: build-win32
+
+# Build modules.cpp on Windows using MinGW-w64 (64-bit and 32-bit).
+# Bootstraps from source, configures, builds, and runs tests.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    name: build (${{ matrix.platform }}, ${{ matrix.build }})
+    runs-on: windows-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [x64, x86]
+        build: [debug, release]
+
+    steps:
+      - name: Configure git to keep LF line endings
+        run: git config --global core.autocrlf false
+
+      - uses: actions/checkout@v4
+
+      # Sets up MinGW-w64 toolchain (x64 for 64-bit, x86 for 32-bit)
+      # and creates c++ / cc aliases in PATH.
+      - name: Set up MinGW (${{ matrix.platform }})
+        uses: egor-tensin/setup-mingw@v3
+        with:
+          platform: ${{ matrix.platform }}
+
+      - name: Verify compiler
+        run: |
+          c++ --version | head -1
+          g++ --version | head -1
+          gcc --version | head -1
+
+      - name: Bootstrap from source
+        run: ./bootstrap.sh
+
+      - name: Configure
+        run: ./configure --compiler g++ --build ${{ matrix.build }}
+
+      - name: Build
+        run: ./build.sh
+
+      - name: Test
+        run: ./test.sh
+
+      - name: Check the manifest tree against itself
+        run: ./model.sh
+
+      - name: Generate documentation
+        run: ./document.sh
+
+      # The recovery path never runs during a successful bootstrap, so it is
+      # exercised explicitly. A stale out/ or gcm.cache would let it pass
+      # without recompiling anything, so it runs in a pristine copy.
+      - name: Verify the bootstrap fallback
+        if: matrix.build == 'debug'
+        run: |
+          FALLBACK_DIR="${RUNNER_TEMP:-/tmp}/fallback"
+          rm -rf "$FALLBACK_DIR" && mkdir -p "$FALLBACK_DIR"
+          git archive HEAD | tar -x -C "$FALLBACK_DIR"
+          cd "$FALLBACK_DIR"
+          test ! -e out && test ! -e gcm.cache
+          B=out; F=-std=c++20
+          mkdir -p $B/modules/mm/mdy/src $B/modules/mm/build/src \
+                   $B/modules/mm/configure/src $B/tools/build
+          for f in modules/mm/mdy/mdy.cppm modules/mm/mdy/src/mdy.cpp \
+                   modules/mm/configure/configure.cppm \
+                   modules/mm/configure/src/configure.cpp \
+                   modules/mm/build/build.cppm modules/mm/build/src/build.cpp \
+                   tools/build/build.cpp; do
+            c++ -fmodules-ts $F -x c++ -c "$f" -o "$B/${f%.*}.o"
+          done
+          c++ $F $B/modules/mm/mdy/mdy.o $B/modules/mm/mdy/src/mdy.o \
+                 $B/modules/mm/build/build.o $B/modules/mm/build/src/build.o \
+                 $B/modules/mm/configure/configure.o \
+                 $B/modules/mm/configure/src/configure.o \
+                 $B/tools/build/build.o -o $B/build1
+          ./$B/build1 -h
