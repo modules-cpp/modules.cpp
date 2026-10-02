@@ -1,0 +1,55 @@
+name: build-macos
+
+# Build modules.cpp on macOS using Clang.
+# Bootstraps from source, configures, builds, and runs tests.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: build (${{ matrix.build }})
+    runs-on: macos-latest
+    timeout-minutes: 30
+    env:
+      TMPDIR: /tmp
+    strategy:
+      fail-fast: false
+      matrix:
+        build: [debug, release]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # cppcheck is needed by the test suite: tests/mm/configure exercises
+      # the installed check tool, which wraps cppcheck and exits 127 without it.
+      - name: Install dependencies
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+        run: |
+          brew install cppcheck
+
+      - name: Verify Clang compiler
+        run: |
+          clang++ --version
+          c++ --version
+
+      - name: Bootstrap from source
+        run: ./bootstrap.sh
+
+      - name: Configure
+        run: ./configure --host --compiler clang++ --build ${{ matrix.build }}
+
+      - name: Build
+        run: ./build.sh
+
+      - name: Test
+        run: ./test.sh
+
+      - name: Check the manifest tree against itself
+        run: ./model.sh
+
+      - name: Generate documentation
+        run: ./document.sh
