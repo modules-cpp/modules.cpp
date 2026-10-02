@@ -77,7 +77,10 @@ inline bool decode_line_coding(std::span<const std::byte> bytes, LineCoding& lc)
     return true;
 }
 
-inline const std::vector<std::byte>& default_device_descriptor() {
+// Not inline: each function's static exists once, in this module's object.
+// An inline function would give every importer its own copy, which ELF
+// merges and PE/COFF (Cygwin, MSYS2) rejects as a multiple definition.
+const std::vector<std::byte>& default_device_descriptor() {
     static const std::vector<std::byte> desc = {
         std::byte{18},                // bLength
         std::byte{1},                 // bDescriptorType (DEVICE)
@@ -97,7 +100,7 @@ inline const std::vector<std::byte>& default_device_descriptor() {
     return desc;
 }
 
-inline const std::vector<std::byte>& default_configuration_descriptor() {
+const std::vector<std::byte>& default_configuration_descriptor() {
     static const std::vector<std::byte> desc = {
         // Configuration Descriptor (9 bytes)
         std::byte{9},                 // bLength
@@ -194,12 +197,12 @@ inline const std::vector<std::byte>& default_configuration_descriptor() {
     return desc;
 }
 
-inline const std::vector<std::byte>& string_langid() {
+const std::vector<std::byte>& string_langid() {
     static const std::vector<std::byte> s = {std::byte{4}, std::byte{3}, std::byte{0x09}, std::byte{0x04}};
     return s;
 }
 
-inline const std::vector<std::byte>& string_manufacturer() {
+const std::vector<std::byte>& string_manufacturer() {
     static const std::vector<std::byte> s = {
         std::byte{22}, std::byte{3},
         std::byte{'3'}, std::byte{0},
@@ -216,7 +219,7 @@ inline const std::vector<std::byte>& string_manufacturer() {
     return s;
 }
 
-inline const std::vector<std::byte>& string_product() {
+const std::vector<std::byte>& string_product() {
     static const std::vector<std::byte> s = {
         std::byte{24}, std::byte{3},
         std::byte{'U'}, std::byte{0},
@@ -234,7 +237,7 @@ inline const std::vector<std::byte>& string_product() {
     return s;
 }
 
-inline const std::vector<std::byte>& string_serial() {
+const std::vector<std::byte>& string_serial() {
     static const std::vector<std::byte> s = {
         std::byte{10}, std::byte{3},
         std::byte{'0'}, std::byte{0},
@@ -245,7 +248,7 @@ inline const std::vector<std::byte>& string_serial() {
     return s;
 }
 
-inline const std::vector<std::span<const std::byte>>& default_strings_list() {
+const std::vector<std::span<const std::byte>>& default_strings_list() {
     static const std::vector<std::span<const std::byte>> list = {
         string_langid(),
         string_manufacturer(),
@@ -483,7 +486,7 @@ private:
     bool initialized_ = false;
 };
 
-inline CdcConsole& default_console() {
+CdcConsole& default_console() {
     static CdcConsole instance;
     return instance;
 }
