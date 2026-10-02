@@ -1,7 +1,14 @@
 name: build-win32
 
-# Build modules.cpp on Windows using MinGW-w64 (64-bit and 32-bit).
+# Build modules.cpp on Windows inside the MSYS2 MSYS environment.
 # Bootstraps from source, configures, builds, and runs tests.
+#
+# The tools assume POSIX: std::system() backed by /bin/sh, wait statuses from
+# sys/wait.h, and single-quoted shell arguments. The MSYS environment provides
+# all three, so the code builds unchanged. The executables depend on
+# msys-2.0.dll; they are not native Win32 programs. MSYS has no 32-bit
+# environment, so this covers 64-bit Windows only. Native win32 and win64
+# builds are planned in drafts/plan-win32.mdy.
 on:
   workflow_dispatch:
 
@@ -10,34 +17,53 @@ permissions:
 
 defaults:
   run:
-    shell: bash
+    shell: msys2 {0}
 
 jobs:
   build:
-    name: build (${{ matrix.platform }}, ${{ matrix.build }})
+    name: build (msys, ${{ matrix.build }})
     runs-on: windows-latest
     timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        platform: [x64, x86]
         build: [debug, release]
 
     steps:
       - name: Configure git to keep LF line endings
+        shell: bash
         run: git config --global core.autocrlf false
 
       - uses: actions/checkout@v4
 
-      # Sets up MinGW-w64 toolchain (x64 for 64-bit, x86 for 32-bit)
-      # and creates c++ / cc aliases in PATH.
-      - name: Set up MinGW (${{ matrix.platform }})
-        uses: egor-tensin/setup-mingw@v3
+      # gcc here is the MSYS POSIX-runtime GCC, not a MinGW-w64 one.
+      # cppcheck is needed by the test suite: tests/mm/configure exercises
+      # the installed check tool, which wraps cppcheck and exits 127 without
+      # it. MSYS has no cppcheck package, so the MinGW-w64 build is installed
+      # and reached through a wrapper in /usr/bin; /mingw64/bin is not put on
+      # PATH, so it cannot shadow the MSYS toolchain. Its addon runs on
+      # python.
+      - name: Set up MSYS2
+        uses: msys2/setup-msys2@v2
         with:
-          platform: ${{ matrix.platform }}
+          msystem: MSYS
+          update: true
+          install: >-
+            gcc
+            make
+            git
+            python
+            mingw-w64-x86_64-cppcheck
+
+      - name: Expose cppcheck
+        run: |
+          printf '#!/bin/sh\nexec /mingw64/bin/cppcheck.exe "$@"\n' > /usr/bin/cppcheck
+          chmod +x /usr/bin/cppcheck
+          cppcheck --version
 
       - name: Verify compiler
         run: |
+          uname -a
           c++ --version | head -1
           g++ --version | head -1
           gcc --version | head -1
@@ -66,7 +92,7 @@ jobs:
       - name: Verify the bootstrap fallback
         if: matrix.build == 'debug'
         run: |
-          FALLBACK_DIR="${RUNNER_TEMP:-/tmp}/fallback"
+          FALLBACK_DIR="$(cygpath -u "${RUNNER_TEMP}")/fallback"
           rm -rf "$FALLBACK_DIR" && mkdir -p "$FALLBACK_DIR"
           git archive HEAD | tar -x -C "$FALLBACK_DIR"
           cd "$FALLBACK_DIR"
