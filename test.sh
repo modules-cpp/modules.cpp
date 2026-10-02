@@ -243,6 +243,9 @@ case "$(uname -s)" in
     Darwin)
         echo "Skipping tests/mm/linux/: Linux DRM headers are unavailable on macOS"
         ;;
+    MSYS*|MINGW*|CYGWIN*)
+        echo "Skipping tests/mm/linux/: Linux DRM headers are unavailable on Windows"
+        ;;
     *)
         run_test_target tests/mm/linux/ || exit $?
         ;;
