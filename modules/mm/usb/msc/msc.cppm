@@ -363,7 +363,23 @@ public:
 
         if (device_.state() != State::Configured) return Status::Ok;
 
-        // BOT State Machine
+        // One poll carries a command as far as it can go without waiting: the
+        // CBW, its data phase, and its CSW, so a command with no data phase is
+        // answered by the poll that read it. A step that leaves the state
+        // unchanged made no progress (no bytes yet, or the endpoint is busy)
+        // and ends the poll; the bound is only a guard.
+        for (int pass = 0; pass < 8; ++pass) {
+            const BotState before = bot_state_;
+            step();
+            if (bot_state_ == before) break;
+        }
+
+        return Status::Ok;
+    }
+
+private:
+    // Advances the Bulk-Only Transport state machine by one step.
+    void step() {
         switch (bot_state_) {
             case BotState::WaitCbw: {
                 std::size_t received = 0;
@@ -497,11 +513,8 @@ public:
                 break;
             }
         }
-
-        return Status::Ok;
     }
 
-private:
     enum class BotState {
         WaitCbw,
         DataIn,
