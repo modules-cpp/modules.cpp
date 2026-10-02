@@ -3,7 +3,7 @@ mm: 1.0
 kind: doc
 name: modules.cpp touch input interface
 status: official
-release: v1.3.0
+release: v1.3.1
 ---
 
 # modules.cpp touch input interface

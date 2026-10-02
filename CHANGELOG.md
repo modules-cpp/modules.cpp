@@ -2,7 +2,18 @@
 
 All notable changes to modules.cpp. Versions follow [semantic versioning](https://semver.org/).
 
-## [v1.3.1] — Unreleased
+## [v1.3.1] — 2026-10-02
+
+Something to connect and store with. v1.3.0 gave the project a language of its
+own with sketches and a native shell; v1.3.1 gives programs standard USB
+connectivity and mass storage: the USB subsystem (`mm.usb`) introduces device
+and host abstractions, CDC ACM console communication for `mm.stdio`, and SCSI
+Mass Storage Class (`mm.usb.msc`) for block storage; sketches gain secondary
+peripheral buses (`Wire1`, `Wire2`, `Serial1`, `Serial2`), interrupts, SD card
+redirection, and a legacy profile (`sketch --legacy`) for seamless third-party
+Arduino library compatibility; native USB port ownership is unlocked on
+Raspberry Pi Pico; Linux adds emulated ST7789 and ILI9341 display support over
+SDL2; and fenced code blocks arrive in `mm.mdy`.
 
 ### Added
 
@@ -1168,6 +1179,7 @@ framework or documentation generator. 77 commits from the initial commit on
   `xfail`, and `xpass` failing the run when a known defect starts passing.
 - GCC and Clang backends, selected per build.
 
+[v1.3.1]: https://github.com/modules-cpp/modules.cpp/releases/tag/v1.3.1
 [v1.3.0]: https://github.com/modules-cpp/modules.cpp/releases/tag/v1.3.0
 [v1.2.4]: https://github.com/modules-cpp/modules.cpp/releases/tag/v1.2.4
 [v1.2.3]: https://github.com/modules-cpp/modules.cpp/releases/tag/v1.2.3
