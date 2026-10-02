@@ -5,6 +5,12 @@
 # 1. Verifies the libusb-1.0 library dependency and platform.linux.usb.host provider.
 # 2. Lists USB devices through platform.linux.usb.host via tests/mm/linux.
 # 3. Reports status of dummy_hcd module for local device-to-host loopback qualification.
+
+# Sort, compare, and match bytes, and keep tool messages untranslated,
+# whatever the caller's locale.
+LC_ALL=C
+export LC_ALL
+
 set -eu
 
 test_name=qualify-linux-usb

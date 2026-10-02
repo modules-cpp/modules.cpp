@@ -7,6 +7,12 @@
 #   scripts/linux-usb-gadget.sh create [gadget_name] [mount_point] [udc]
 #   scripts/linux-usb-gadget.sh destroy [gadget_name] [mount_point]
 #   scripts/linux-usb-gadget.sh status [gadget_name] [mount_point]
+
+# Sort, compare, and match bytes, and keep tool messages untranslated,
+# whatever the caller's locale.
+LC_ALL=C
+export LC_ALL
+
 set -eu
 
 cmd="${1:-status}"

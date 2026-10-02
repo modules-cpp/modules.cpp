@@ -395,9 +395,11 @@ inline constexpr Base HEX = Base::Hex;
 inline constexpr Base OCT = Base::Oct;
 inline constexpr Base BIN = Base::Bin;
 
+inline constexpr unsigned int SERIAL_8N1 = 0x06;
+
 class SerialPort {
 public:
-    bool begin(unsigned long baud = 9600);
+    bool begin(unsigned long baud = 9600, unsigned int config = SERIAL_8N1);
     bool end();
 
     std::size_t write(byte b);
@@ -482,7 +484,7 @@ public:
     constexpr HardwareSerial() = default;
     constexpr explicit HardwareSerial(unsigned int port);
 
-    bool begin(unsigned long baud = 9600);
+    bool begin(unsigned long baud = 9600, unsigned int config = SERIAL_8N1);
     bool end();
     bool setTX(unsigned int pin);
     bool setRX(unsigned int pin);
@@ -752,6 +754,7 @@ public:
     explicit String(std::string_view s);
     explicit String(int value, unsigned char base = 10);           // and unsigned int,
     explicit String(long value, unsigned char base = 10);          // and unsigned long
+    explicit String(int value, Base base);                         // and unsigned int, long, ulong
     explicit String(double value, unsigned char decimal_places = 2);  // and float
 
     const std::string& str() const noexcept;

@@ -5,8 +5,10 @@ module;
 #include <cctype>
 #include <charconv>
 #include <climits>
+#include <cstdarg>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <limits>
 #include <optional>
@@ -1707,7 +1709,7 @@ unsigned int digitalPinToInterrupt(unsigned int pin) {
 // Serial implementation
 SerialPort Serial;
 
-bool SerialPort::begin(unsigned long) {
+bool SerialPort::begin(unsigned long, unsigned int) {
     CallScope scope{"Serial.begin"};
     if (console_init_status_ == mm::stdio::Status::NotInitialized) {
         console_init_status_ = mm::stdio::selected_console().initialize();
@@ -1901,6 +1903,18 @@ String::String(long value, unsigned char base)
 
 String::String(unsigned long value, unsigned char base)
     : text_(unsigned_text(value, base)) {}
+
+String::String(int value, Base base)
+    : String(value, static_cast<unsigned char>(base)) {}
+
+String::String(unsigned int value, Base base)
+    : String(value, static_cast<unsigned char>(base)) {}
+
+String::String(long value, Base base)
+    : String(value, static_cast<unsigned char>(base)) {}
+
+String::String(unsigned long value, Base base)
+    : String(value, static_cast<unsigned char>(base)) {}
 
 String::String(double value, unsigned char decimal_places)
     : text_(double_text(value, decimal_places)) {}
@@ -2350,6 +2364,23 @@ std::size_t Print::println(unsigned long long n, Base base) { return print(n, ba
 std::size_t Print::println(const Printable& object) { return print(object) + print("\r\n"); }
 std::size_t Print::println(const String& s) { return print(s) + print("\r\n"); }
 std::size_t Print::println() { return print("\r\n"); }
+
+std::size_t Print::printf(const char* format, ...) {
+    char buffer[256];
+    std::va_list args;
+    va_start(args, format);
+    const int len = std::vsnprintf(buffer, sizeof buffer, format, args);
+    va_end(args);
+    if (len <= 0) return 0;
+    if (static_cast<std::size_t>(len) < sizeof buffer) {
+        return write(reinterpret_cast<const byte*>(buffer), static_cast<std::size_t>(len));
+    }
+    std::vector<char> dynamic_buf(static_cast<std::size_t>(len) + 1);
+    va_start(args, format);
+    std::vsnprintf(dynamic_buf.data(), dynamic_buf.size(), format, args);
+    va_end(args);
+    return write(reinterpret_cast<const byte*>(dynamic_buf.data()), static_cast<std::size_t>(len));
+}
 
 // --- Stream ------------------------------------------------------------
 //
@@ -3557,7 +3588,7 @@ TwoWire Wire2{2};
 
 // HardwareSerial implementation. Each object is one port; its state lives in
 // serial_states_[port_].
-bool HardwareSerial::begin(unsigned long baud) {
+bool HardwareSerial::begin(unsigned long baud, unsigned int config) {
     if (port_ < 1 || port_ >= serial_port_count) {
         record_failure(Status::Unsupported, "HardwareSerial.begin");
         return false;
@@ -3565,6 +3596,10 @@ bool HardwareSerial::begin(unsigned long baud) {
     const auto& names = serial_names_[port_];
     auto& state = serial_states_[port_];
     CallScope scope{names.begin};
+    if (config != SERIAL_8N1) {
+        record_failure(Status::Unsupported, names.begin);
+        return false;
+    }
     auto wiring = board_uart(port_);
     if (!wiring && state.tx && state.rx) wiring = mm::mcu::UartWiring{port_ - 1, 0, 0};
     if (!wiring) {
@@ -3574,9 +3609,9 @@ bool HardwareSerial::begin(unsigned long baud) {
     if (state.tx) wiring->transmit_gpio = *state.tx;
     if (state.rx) wiring->receive_gpio = *state.rx;
     if (state.begun && state.wiring) (void)mm::mcu::uart_release(state.wiring->instance);
-    const mm::mcu::UartConfiguration config{wiring->instance, wiring->transmit_gpio,
-                                            wiring->receive_gpio, baud};
-    const auto st = mm::mcu::uart_configure(config);
+    const mm::mcu::UartConfiguration uart_config{wiring->instance, wiring->transmit_gpio,
+                                                  wiring->receive_gpio, baud};
+    const auto st = mm::mcu::uart_configure(uart_config);
     if (st != mm::mcu::Status::Ok) {
         state.begun = false;
         record_failure(from(st), names.begin);

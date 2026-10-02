@@ -10,6 +10,12 @@
 #
 # Re-running it is safe. With the checkout already at the pinned commit it does
 # nothing and exits zero.
+
+# Sort, compare, and match bytes, and keep tool messages untranslated,
+# whatever the caller's locale.
+LC_ALL=C
+export LC_ALL
+
 set -eu
 
 MM_COMMIT="5a37a66dc5d3fbe0ef3cdbeda923a757440f984f"

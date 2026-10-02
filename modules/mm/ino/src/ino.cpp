@@ -627,6 +627,12 @@ std::string sketch_header(bool legacy) {
         out += "#define SPI_MODE2 2\n";
         out += "#define SPI_MODE3 3\n";
         out += "\n";
+        out += "// Serial configuration framing constants, which Arduino.h and\n";
+        out += "// HardwareSerial.h define as macros.\n";
+        out += "#ifndef SERIAL_8N1\n";
+        out += "#define SERIAL_8N1 ::mm::sketch::SERIAL_8N1\n";
+        out += "#endif\n";
+        out += "\n";
         out += "// Arduino.h's angle conversions, macros there, functions\n";
         out += "// here, over the constants above.\n";
         out += "inline double radians(double degrees) { return degrees * 0.017453292519943295; }\n";
@@ -882,10 +888,10 @@ std::span<const std::string_view> sketch_alias_headers(bool legacy) {
     // and the sketch tool adds the SdFat library to any example that
     // includes SD.h.
     static constexpr std::string_view names[] = {
-        "Arduino.h", "Print.h", "Printable.h", "Wire.h", "SPI.h",
+        "Arduino.h", "Print.h", "Printable.h", "Wire.h", "SPI.h", "HardwareSerial.h",
         "avr/pgmspace.h", "pins_arduino.h", "wiring_private.h", "SD.h",
     };
-    return std::span<const std::string_view>(names).first(legacy ? 9 : 5);
+    return std::span<const std::string_view>(names).first(legacy ? 10 : 6);
 }
 
 std::string sketch_alias_header(std::string_view name) {

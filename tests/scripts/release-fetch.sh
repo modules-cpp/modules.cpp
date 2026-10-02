@@ -9,6 +9,12 @@
 # Builds a throwaway origin and clone, gives the clone a conflicting local
 # tag, stubs gh so the authentication precondition passes, and runs the
 # release script's dry run from the clone. Needs git and nothing else.
+
+# Sort, compare, and match bytes, and keep tool messages untranslated,
+# whatever the caller's locale.
+LC_ALL=C
+export LC_ALL
+
 set -eu
 
 root=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)

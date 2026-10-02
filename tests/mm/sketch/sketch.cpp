@@ -368,6 +368,10 @@ void serial_formatting() {
     expect(test_console_get_written() == "14", "print oct");
 
     test_console_clear_written();
+    Serial.printf("val %d -> %s\n", 42, "OK");
+    expect(test_console_get_written() == "val 42 -> OK\n", "Serial.printf formatting");
+
+    test_console_clear_written();
     Serial.print(5, BIN);
     expect(test_console_get_written() == "101", "print bin");
 
@@ -828,6 +832,10 @@ void sketch_string() {
     // docs/modules-sketch.mdy records both.
     expect(String(255, 16) == String("ff"),
            "an integer renders in the base it is given");
+    expect(String(255, HEX) == String("ff"),
+           "an integer renders in HEX with Base enum");
+    expect(String(10, BIN) == String("1010"),
+           "an integer renders in BIN with Base enum");
     expect(String(-42) == String("-42"), "decimal carries the sign");
     expect(String(-1, 16) == String("ffffffff"),
            "a base other than ten renders the bit pattern");
@@ -1705,10 +1713,15 @@ void hardware_serial_ports() {
     // Serial1 and Serial2 are the board's UARTs 0 and 1, with their own state.
     run([]{
         clearError();
-        expect(Serial1.begin(115200) && Serial2.begin(9600), "both ports begin");
+        expect(Serial1.begin(115200, SERIAL_8N1) && Serial2.begin(9600), "both ports begin");
         expect(test_uart_ready(0) && test_uart_baud(0) == 115200 &&
                    test_uart_ready(1) && test_uart_baud(1) == 9600 && test_uart_tx(1) == 8,
                "Serial1 is instance 0 and Serial2 instance 1 on its pins at its rate");
+        clearError();
+        expect(!Serial1.begin(115200, 0x99) && lastError() == Status::Unsupported,
+               "non-8N1 config fails as Unsupported");
+        clearError();
+        expect(Serial1.begin(115200), "port begins again with default SERIAL_8N1");
         expect(static_cast<bool>(Serial2), "a begun port is true");
         expect(Serial2.print("hello, world") == 12, "a write longer than the FIFO completes");
         expect(Serial2.println(42) == 4, "print reaches the port through Print");

@@ -361,6 +361,10 @@ public:
     explicit String(unsigned int value, unsigned char base = 10);
     explicit String(long value, unsigned char base = 10);
     explicit String(unsigned long value, unsigned char base = 10);
+    explicit String(int value, Base base);
+    explicit String(unsigned int value, Base base);
+    explicit String(long value, Base base);
+    explicit String(unsigned long value, Base base);
     explicit String(double value, unsigned char decimal_places = 2);
     explicit String(float value, unsigned char decimal_places = 2);
 
@@ -509,6 +513,8 @@ public:
     std::size_t println(unsigned short n, Base base = DEC) { return println(static_cast<unsigned int>(n), base); }
     std::size_t println();
 
+    std::size_t printf(const char* format, ...) __attribute__((format(printf, 2, 3)));
+
     // A sink's own sticky error, which is what a library reads after
     // printing. It is separate from lastError: this one belongs to the sink
     // and says whether anything printed to it failed, and the latch belongs
@@ -576,6 +582,32 @@ private:
     unsigned long timeout_ms_ = 1000;
 };
 
+// Serial configuration framing constants (data bits, parity, stop bits).
+inline constexpr unsigned int SERIAL_5N1 = 0x00;
+inline constexpr unsigned int SERIAL_6N1 = 0x02;
+inline constexpr unsigned int SERIAL_7N1 = 0x04;
+inline constexpr unsigned int SERIAL_8N1 = 0x06;
+inline constexpr unsigned int SERIAL_5N2 = 0x08;
+inline constexpr unsigned int SERIAL_6N2 = 0x0a;
+inline constexpr unsigned int SERIAL_7N2 = 0x0c;
+inline constexpr unsigned int SERIAL_8N2 = 0x0e;
+inline constexpr unsigned int SERIAL_5E1 = 0x20;
+inline constexpr unsigned int SERIAL_6E1 = 0x22;
+inline constexpr unsigned int SERIAL_7E1 = 0x24;
+inline constexpr unsigned int SERIAL_8E1 = 0x26;
+inline constexpr unsigned int SERIAL_5E2 = 0x28;
+inline constexpr unsigned int SERIAL_6E2 = 0x2a;
+inline constexpr unsigned int SERIAL_7E2 = 0x2c;
+inline constexpr unsigned int SERIAL_8E2 = 0x2e;
+inline constexpr unsigned int SERIAL_5O1 = 0x30;
+inline constexpr unsigned int SERIAL_6O1 = 0x32;
+inline constexpr unsigned int SERIAL_7O1 = 0x34;
+inline constexpr unsigned int SERIAL_8O1 = 0x36;
+inline constexpr unsigned int SERIAL_5O2 = 0x38;
+inline constexpr unsigned int SERIAL_6O2 = 0x3a;
+inline constexpr unsigned int SERIAL_7O2 = 0x3c;
+inline constexpr unsigned int SERIAL_8O2 = 0x3e;
+
 class SerialPort : public Stream {
 public:
     // The console's own overloads answer every call a sketch makes on
@@ -583,8 +615,9 @@ public:
     // a Printable, without displacing any of them.
     using Print::print;
     using Print::println;
+    using Print::printf;
 
-    bool begin(unsigned long baud = 9600);
+    bool begin(unsigned long baud = 9600, unsigned int config = SERIAL_8N1);
     bool end();
 
     std::size_t write(byte b) override;
@@ -670,7 +703,7 @@ public:
 
     using Print::write;
 
-    bool begin(unsigned long baud = 9600);
+    bool begin(unsigned long baud = 9600, unsigned int config = SERIAL_8N1);
     bool end();
     bool setTX(unsigned int pin);
     bool setRX(unsigned int pin);
