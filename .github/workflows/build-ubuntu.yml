@@ -1,0 +1,100 @@
+name: build-ubuntu
+
+# Build modules.cpp on each supported Ubuntu LTS using GCC.
+# Bootstraps from source, configures, builds, and runs tests.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: build (${{ matrix.os }}, ${{ matrix.build }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-26.04]
+        build: [debug, release]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # bootstrap.sh deliberately invokes the literal command c++, so the
+      # default must be a compiler with C++20 module support. GCC 13 has no
+      # usable module support and GCC 14 ICEs on this codebase
+      # (simplify_aggr_init_expr, cp/semantics.cc), so the build needs GCC 15.
+      # ubuntu-24.04 has no g++-15 in its archive and takes it from the
+      # toolchain PPA; a release that carries g++-15 itself uses the archive.
+      # cppcheck is needed by the test suite, not only by ./check.sh:
+      # tests/mm/configure exercises the installed check tool, which wraps
+      # cppcheck and exits 127 without it.
+      - name: Install dependencies
+        run: |
+          . /etc/os-release
+          echo "$PRETTY_NAME"
+          sudo apt-get update
+          if ! apt-cache show g++-15 >/dev/null 2>&1; then
+            sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
+            sudo apt-get update
+          fi
+          sudo apt-get install -y g++-15 cppcheck
+          sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-15 100
+          sudo update-alternatives --install /usr/bin/c++ c++ /usr/bin/g++-15 100
+
+      # bootstrap uses c++; an unconfigured build uses g++. Mixing versions
+      # across that boundary is what broke build.yml before.
+      - name: Verify GCC compiler
+        run: |
+          which c++
+          c++ --version | head -1
+          which g++
+          g++ --version | head -1
+          test "$(c++ -dumpversion)" = "$(g++ -dumpversion)"
+
+      - name: Bootstrap from source
+        run: ./bootstrap.sh
+
+      - name: Configure
+        run: ./configure --host --compiler gcc-15 --build ${{ matrix.build }}
+
+      - name: Build
+        run: ./build.sh
+
+      - name: Test
+        run: ./test.sh
+
+      - name: Check the manifest tree against itself
+        run: ./model.sh
+
+      - name: Generate documentation
+        run: ./document.sh
+
+      # The recovery path never runs during a successful bootstrap, so it is
+      # exercised explicitly. A stale out/ or gcm.cache would let it pass
+      # without recompiling anything, so it runs in a pristine copy.
+      - name: Verify the bootstrap fallback
+        if: matrix.build == 'debug'
+        run: |
+          rm -rf /tmp/fallback && mkdir -p /tmp/fallback
+          git archive HEAD | tar -x -C /tmp/fallback
+          cd /tmp/fallback
+          test ! -e out && test ! -e gcm.cache
+          B=out; F=-std=c++20
+          mkdir -p $B/modules/mm/mdy/src $B/modules/mm/build/src \
+                   $B/modules/mm/configure/src $B/tools/build
+          for f in modules/mm/mdy/mdy.cppm modules/mm/mdy/src/mdy.cpp \
+                   modules/mm/configure/configure.cppm \
+                   modules/mm/configure/src/configure.cpp \
+                   modules/mm/build/build.cppm modules/mm/build/src/build.cpp \
+                   tools/build/build.cpp; do
+            c++ -fmodules-ts $F -x c++ -c "$f" -o "$B/${f%.*}.o"
+          done
+          c++ $F $B/modules/mm/mdy/mdy.o $B/modules/mm/mdy/src/mdy.o \
+                 $B/modules/mm/build/build.o $B/modules/mm/build/src/build.o \
+                 $B/modules/mm/configure/configure.o \
+                 $B/modules/mm/configure/src/configure.o \
+                 $B/tools/build/build.o -o $B/build1
+          ./$B/build1 -h
