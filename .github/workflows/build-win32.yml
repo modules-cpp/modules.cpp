@@ -24,6 +24,12 @@ jobs:
     name: build (msys, ${{ matrix.build }})
     runs-on: windows-latest
     timeout-minutes: 30
+    env:
+      # MSYS2's default symlink() makes a deep copy, so a symlink a test
+      # creates to escape the tree is an ordinary file inside it and the
+      # guards under test have nothing to refuse. winsymlinks:sys makes real
+      # MSYS symlinks, which every tool here reads through the same runtime.
+      MSYS: winsymlinks:sys
     strategy:
       fail-fast: false
       matrix:
@@ -42,7 +48,8 @@ jobs:
       # it. MSYS has no cppcheck package, so the MinGW-w64 build is installed
       # and reached through a wrapper in /usr/bin; /mingw64/bin is not put on
       # PATH, so it cannot shadow the MSYS toolchain. Its addon runs on
-      # python.
+      # python. cmake is needed by tests/mm/build/external.cpp, which runs
+      # the Pico bridge's resolve-board.cmake with cmake -P.
       - name: Set up MSYS2
         uses: msys2/setup-msys2@v2
         with:
@@ -53,6 +60,7 @@ jobs:
             make
             git
             python
+            cmake
             mingw-w64-x86_64-cppcheck
 
       - name: Expose cppcheck
@@ -67,6 +75,7 @@ jobs:
           c++ --version | head -1
           g++ --version | head -1
           gcc --version | head -1
+          cmake --version | head -1
 
       - name: Bootstrap from source
         run: ./bootstrap.sh
