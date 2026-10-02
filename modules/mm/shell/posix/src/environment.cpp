@@ -10,6 +10,11 @@ module;
 #include <vector>
 #include <unistd.h>
 
+// POSIX leaves environ for the program to declare. glibc's unistd.h declares
+// it under _GNU_SOURCE; macOS's does not. Declared here, in the global module
+// fragment, so it stays attached to the global module like the header's.
+extern "C" char** environ;
+
 module mm.shell.posix;
 
 import :environment;
