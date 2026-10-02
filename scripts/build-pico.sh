@@ -33,6 +33,12 @@
 #
 # The prebuilt Pico tools default to platforms/pico/pico-sdk. Set MM_PICO_TOOLS
 # or picotool_DIR to select another installation.
+
+# Sort, compare, and match bytes, and keep tool messages untranslated,
+# whatever the caller's locale.
+LC_ALL=C
+export LC_ALL
+
 set -eu
 
 test_name=build-pico

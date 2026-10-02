@@ -18,6 +18,12 @@
 #
 # Configuring is separate from building because the lane outlives one build:
 # out/bin/build, flash, debug, and run all read the configuration this wrote.
+
+# Sort, compare, and match bytes, and keep tool messages untranslated,
+# whatever the caller's locale.
+LC_ALL=C
+export LC_ALL
+
 set -eu
 
 script_name=configure-pico.sh

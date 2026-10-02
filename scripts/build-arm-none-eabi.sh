@@ -7,4 +7,10 @@
 # Every option passes through to scripts/build-target.sh, a later --app,
 # --sdk, --board, --compiler, or --runner replacing the one given here; see
 # its --help.
+
+# Sort, compare, and match bytes, and keep tool messages untranslated,
+# whatever the caller's locale.
+LC_ALL=C
+export LC_ALL
+
 exec sh "$(dirname -- "$0")/build-target.sh" --target arm-none-eabi --board mps2-an385 --runner qemu-system --app platforms/mps2-an385/target-smoke "$@"

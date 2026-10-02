@@ -2,6 +2,12 @@
 # apps/gfx-demo on any board with a display: a dithered glow, nested frames,
 # a ringed porthole, and an off-centre tick, in four orientations. The image
 # must carry no font tables: gfx draws without them.
+
+# Sort, compare, and match bytes, and keep tool messages untranslated,
+# whatever the caller's locale.
+LC_ALL=C
+export LC_ALL
+
 set -eu
 
 test_name=build-gfx

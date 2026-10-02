@@ -9,6 +9,12 @@
 #
 # --update rewrites the expected files from the current output, for a change
 # whose new output has been reviewed.
+
+# Sort, compare, and match bytes, and keep tool messages untranslated,
+# whatever the caller's locale.
+LC_ALL=C
+export LC_ALL
+
 set -eu
 
 root=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)

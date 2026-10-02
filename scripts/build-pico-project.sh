@@ -27,6 +27,12 @@
 # debugging it. That differs from the test scripts under scripts/, which
 # restore the host configuration because a test must leave the tree as it
 # found it. -r restores it here too, and ./configure does it by hand.
+
+# Sort, compare, and match bytes, and keep tool messages untranslated,
+# whatever the caller's locale.
+LC_ALL=C
+export LC_ALL
+
 set -eu
 
 script_name=build-pico-project.sh

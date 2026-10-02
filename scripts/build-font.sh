@@ -3,6 +3,12 @@
 # and two at 12px, the last one Polish, then every glyph of the 12px table, in
 # four orientations. Both font tables must reach the image: the demo draws two
 # lines in each, so neither may be garbage-collected out.
+
+# Sort, compare, and match bytes, and keep tool messages untranslated,
+# whatever the caller's locale.
+LC_ALL=C
+export LC_ALL
+
 set -eu
 
 test_name=build-font

@@ -11,6 +11,12 @@
 # --run runs the SDL build of display-demo, which opens a window and is
 # expected to work on an ordinary desktop. -a, -c, --keep, and --dry-run pass
 # through to every build.
+
+# Sort, compare, and match bytes, and keep tool messages untranslated,
+# whatever the caller's locale.
+LC_ALL=C
+export LC_ALL
+
 set -eu
 
 test_name=build-sdl

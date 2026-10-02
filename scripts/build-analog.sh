@@ -3,6 +3,12 @@
 # in the image, and target-smoke-any, which reaches no interface, must carry no
 # provider. The analog path itself needs a wired board run: GP16 through 10
 # kOhm to GP26, 1 uF from GP26 to ground, GP17 and GP0 unconnected.
+
+# Sort, compare, and match bytes, and keep tool messages untranslated,
+# whatever the caller's locale.
+LC_ALL=C
+export LC_ALL
+
 set -eu
 
 test_name=build-analog

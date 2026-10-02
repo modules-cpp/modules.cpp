@@ -12,6 +12,12 @@
 #
 # Re-running it is safe. With the pinned tools already installed it does nothing
 # and exits zero, so it can be named in setup notes without qualification.
+
+# Sort, compare, and match bytes, and keep tool messages untranslated,
+# whatever the caller's locale.
+LC_ALL=C
+export LC_ALL
+
 set -eu
 
 MM_TAG="v2.3.1-0"

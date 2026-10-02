@@ -3,6 +3,12 @@
 # Waveshare Pico-ePaper-2.66, black and white or with red, or the emulated
 # e-paper board on Linux. The panel is one bit deep, so this is where the demos'
 # packed-row path runs; the SSD1680 driver must be in the image.
+
+# Sort, compare, and match bytes, and keep tool messages untranslated,
+# whatever the caller's locale.
+LC_ALL=C
+export LC_ALL
+
 set -eu
 
 test_name=build-epaper

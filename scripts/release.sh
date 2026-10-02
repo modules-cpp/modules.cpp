@@ -18,6 +18,12 @@
 # and `gh release create` uses the tag message when no notes are given.
 #
 # Nothing is pushed before the plan is shown and confirmed.
+
+# Sort, compare, and match bytes, and keep tool messages untranslated,
+# whatever the caller's locale.
+LC_ALL=C
+export LC_ALL
+
 set -eu
 
 dry_run=false

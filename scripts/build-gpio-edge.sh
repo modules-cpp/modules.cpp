@@ -2,6 +2,12 @@
 # apps/gpio-edge-smoke on a Pico board: the edge-latch adapter symbols must be
 # in the image. Physical edge delivery needs a wired board run: GPIO14 joined
 # to GPIO15.
+
+# Sort, compare, and match bytes, and keep tool messages untranslated,
+# whatever the caller's locale.
+LC_ALL=C
+export LC_ALL
+
 set -eu
 
 test_name=build-gpio-edge

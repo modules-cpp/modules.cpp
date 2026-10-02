@@ -3,6 +3,12 @@
 # twice. Red is 0xf800; bars that come out blue mean a provider swapped the
 # RGB565 bytes. On a generic Linux board the DRM provider needs DRM master, so
 # --run belongs on a virtual terminal.
+
+# Sort, compare, and match bytes, and keep tool messages untranslated,
+# whatever the caller's locale.
+LC_ALL=C
+export LC_ALL
+
 set -eu
 
 test_name=build-display
