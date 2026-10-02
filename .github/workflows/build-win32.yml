@@ -50,7 +50,10 @@ jobs:
       # PATH, so it cannot shadow the MSYS toolchain. Its addon needs a
       # native python too: cppcheck hands it D:\ paths, which MSYS python
       # reads as relative POSIX paths. The wrapper puts /mingw64/bin first
-      # for cppcheck's process alone, so it finds the MinGW-w64 python.
+      # for cppcheck's process alone, so it finds the MinGW-w64 python, and
+      # sets PYTHONPATH to the package's addons directory: this cppcheck
+      # runs an addon without its runaddon.py, so nothing else puts
+      # cppcheckdata on the addon's import path.
       # cmake is needed by tests/mm/build/external.cpp, which runs
       # the Pico bridge's resolve-board.cmake with cmake -P.
       - name: Set up MSYS2
@@ -69,10 +72,15 @@ jobs:
 
       - name: Expose cppcheck
         run: |
-          printf '#!/bin/sh\nPATH=/mingw64/bin:$PATH exec /mingw64/bin/cppcheck.exe "$@"\n' > /usr/bin/cppcheck
+          addons=/mingw64/share/cppcheck/addons
+          test -f "$addons/cppcheckdata.py"
+          printf '#!/bin/sh\nPATH=/mingw64/bin:$PATH PYTHONPATH=%s exec /mingw64/bin/cppcheck.exe "$@"\n' \
+            "$addons" > /usr/bin/cppcheck
           chmod +x /usr/bin/cppcheck
+          cat /usr/bin/cppcheck
           cppcheck --version
-          PATH=/mingw64/bin:$PATH python3 -c 'import sys; print(sys.executable)'
+          PATH=/mingw64/bin:$PATH PYTHONPATH=$addons python3 -c \
+            'import sys, cppcheckdata; print(sys.executable, cppcheckdata.__file__)'
 
       - name: Verify compiler
         run: |
