@@ -215,8 +215,9 @@ ServiceStatus Interpreter::substitute(void* context, std::string_view source,
     if (piped != ServiceStatus::Ok) return piped;
 
     // A substitution's mutations do not reach the parent, so it runs against a
-    // forked state with its own host metadata.
-    FullState child;
+    // forked state with its own host metadata. It is sized like the parent:
+    // a host environment can outgrow the default capacity.
+    FullState child{self.state_.capacity()};
     if (self.state_.fork_into(child) != Status::Ok) {
         (void)self.services_.io.close(self.services_.io.context, read_end);
         (void)self.services_.io.close(self.services_.io.context, write_end);

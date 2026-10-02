@@ -262,6 +262,15 @@ void cli_modes_and_exit_codes() {
     if (!substitution_ok) show("value=$(exit 64) || status=$?", substitution);
     expect(substitution_ok,
            "assignment-only command keeps substitution exit status");
+    // A host environment larger than the default state capacity, as on
+    // Windows: substitutions and subshells copy the whole state.
+    (void)::setenv("MM_TEST_LARGE", std::string(12000, 'x').c_str(), 1);
+    const auto large = run({
+        "-c", "value=$(echo sub); (echo \"$value\" shell)", "--"});
+    (void)::unsetenv("MM_TEST_LARGE");
+    if (large.output != "sub shell\n") show("large environment", large);
+    expect(large.status == 0 && large.output == "sub shell\n",
+           "substitution and subshell copy a large environment");
     const auto canonical = run({
         "-c", "echo \"$(CDPATH= cd -- . && pwd)\""});
     expect(canonical.status == 0 &&
