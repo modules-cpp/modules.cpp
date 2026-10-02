@@ -30,6 +30,19 @@ struct Result {
     std::string output;
 };
 
+void normalize_crlf(std::string& text) {
+    std::string normalized;
+    normalized.reserve(text.size());
+    for (std::size_t i = 0; i < text.size(); ++i) {
+        if (text[i] == '\r' && i + 1 < text.size() &&
+            text[i + 1] == '\n') {
+            continue;
+        }
+        normalized.push_back(text[i]);
+    }
+    text.swap(normalized);
+}
+
 void script(const std::filesystem::path& path,
             std::string_view source, bool executable = true);
 
@@ -143,12 +156,21 @@ void script(const std::filesystem::path& path,
     for (auto& stream : streams) {
         if (stream.fd >= 0) (void)::close(stream.fd);
     }
+    normalize_crlf(result.standard_output);
+    normalize_crlf(result.standard_error);
     result.output = result.standard_output + result.standard_error;
     int raw = 0;
     if (::waitpid(child, &raw, 0) >= 0 && WIFEXITED(raw)) {
         result.status = WEXITSTATUS(raw);
     }
     return result;
+}
+
+void captured_output_normalizes_crlf() {
+    std::string text = "first\r\nsecond\nthird\r";
+    normalize_crlf(text);
+    expect(text == "first\nsecond\nthird\r",
+           "captured output uses LF line endings");
 }
 
 void wrapper_contracts() {
@@ -589,6 +611,7 @@ void fixture_script_dash_differential() {
 }
 
 const mm::test::case_ cases[]{
+    {"captured output line endings", &captured_output_normalizes_crlf},
     {"native CLI modes and exit codes", &cli_modes_and_exit_codes},
     {"native child resolution", &native_child_resolution},
     {"all root wrapper contracts", &wrapper_contracts},
