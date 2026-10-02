@@ -48,7 +48,9 @@ jobs:
           # cppcheck is needed by the test suite, not only by ./check.sh:
           # tests/mm/configure exercises the installed check tool, which
           # wraps cppcheck and exits 127 without it.
-          sudo apt-get install -y g++-15 cppcheck
+          # libusb-1.0-0-dev is for platform.linux.usb.host, which the
+          # tests/mm/linux suite links on a Linux host.
+          sudo apt-get install -y g++-15 cppcheck libusb-1.0-0-dev
           sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-15 100
           sudo update-alternatives --install /usr/bin/c++ c++ /usr/bin/g++-15 100
           # bootstrap uses c++; an unconfigured build uses g++. Mixing versions

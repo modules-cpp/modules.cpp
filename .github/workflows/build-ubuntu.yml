@@ -44,7 +44,9 @@ jobs:
             sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
             sudo apt-get update
           fi
-          sudo apt-get install -y g++-15 cppcheck
+          # libusb-1.0-0-dev is for platform.linux.usb.host, which the
+          # tests/mm/linux suite links on a Linux host.
+          sudo apt-get install -y g++-15 cppcheck libusb-1.0-0-dev
           test -x /usr/bin/g++-15
           sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-15 100
           sudo update-alternatives --install /usr/bin/c++ c++ /usr/bin/g++-15 100
