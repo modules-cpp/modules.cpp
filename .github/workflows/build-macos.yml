@@ -23,17 +23,25 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # cppcheck is needed by the test suite: tests/mm/configure exercises
-      # the installed check tool, which wraps cppcheck and exits 127 without it.
+      # Apple Clang bundled with Xcode does not support ISO C++20 standard
+      # modules ('export module' syntax is rejected). Upstream LLVM Clang
+      # from Homebrew provides standard C++20 module support.
+      # cppcheck is required by the test suite (tests/mm/configure).
       - name: Install dependencies
         env:
           HOMEBREW_NO_AUTO_UPDATE: "1"
         run: |
-          brew install cppcheck
+          brew install llvm cppcheck
+          LLVM_PREFIX="$(brew --prefix llvm)"
+          echo "$LLVM_PREFIX/bin" >> "$GITHUB_PATH"
+          echo "SDKROOT=$(xcrun --sdk macosx --show-sdk-path)" >> "$GITHUB_ENV"
+          ln -sf "$LLVM_PREFIX/bin/clang++" "$LLVM_PREFIX/bin/c++"
 
       - name: Verify Clang compiler
         run: |
+          which clang++
           clang++ --version
+          which c++
           c++ --version
 
       - name: Bootstrap from source
