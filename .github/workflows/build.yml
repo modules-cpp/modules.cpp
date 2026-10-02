@@ -64,31 +64,22 @@ jobs:
         run: ./document.sh
 
       # The recovery path never runs during a successful bootstrap, so it is
-      # exercised explicitly. A stale out/ or gcm.cache would let it pass
-      # without recompiling anything, so it runs in a pristine copy.
+      # exercised explicitly: MM_BOOTSTRAP_FALLBACK=1 makes bootstrap.sh skip
+      # build0 and build build1 with its own shell commands, so this tests
+      # the fallback itself rather than a copy of its file list. A stale out/
+      # or gcm.cache would let it pass without recompiling anything, so it
+      # runs in a pristine copy.
       - name: Verify the bootstrap fallback
         if: matrix.build == 'debug'
         run: |
+          set -o pipefail
           rm -rf /tmp/fallback && mkdir -p /tmp/fallback
           git archive HEAD | tar -x -C /tmp/fallback
           cd /tmp/fallback
           test ! -e out && test ! -e gcm.cache
-          B=out; F=-std=c++20
-          mkdir -p $B/modules/mm/mdy/src $B/modules/mm/build/src \
-                   $B/modules/mm/configure/src $B/tools/build
-          for f in modules/mm/mdy/mdy.cppm modules/mm/mdy/src/mdy.cpp \
-                   modules/mm/configure/configure.cppm \
-                   modules/mm/configure/src/configure.cpp \
-                   modules/mm/build/build.cppm modules/mm/build/src/build.cpp \
-                   tools/build/build.cpp; do
-            c++ -fmodules-ts $F -x c++ -c "$f" -o "$B/${f%.*}.o"
-          done
-          c++ $F $B/modules/mm/mdy/mdy.o $B/modules/mm/mdy/src/mdy.o \
-                 $B/modules/mm/build/build.o $B/modules/mm/build/src/build.o \
-                 $B/modules/mm/configure/configure.o \
-                 $B/modules/mm/configure/src/configure.o \
-                 $B/tools/build/build.o -o $B/build1
-          ./$B/build1 -h
+          MM_BOOTSTRAP_FALLBACK=1 ./bootstrap.sh 2>&1 | tee bootstrap.log
+          grep -q 'Build build1 with shell commands' bootstrap.log
+          ./out/build1 -h
 
   check:
     runs-on: ubuntu-24.04

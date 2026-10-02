@@ -100,9 +100,17 @@ mkdir -p "${MM_BUILD}/bootstrap-bmi"
 # a second time. The status is captured instead of ending the script,
 # because the hand written commands below are exactly the fallback for
 # build0's mode failing: exiting here would make them unreachable.
+#
+# MM_BOOTSTRAP_FALLBACK=1 skips build0 and takes the fallback directly. CI uses
+# it to exercise the fallback, which a successful bootstrap never reaches.
 echo "Build build1"
 mm_build1_status=0
-"${MM_BUILD}/build0" build1 --compiler "${MCCP}" --flags "${MM_MODULE_FLAGS}" || mm_build1_status=$?
+if [ "${MM_BOOTSTRAP_FALLBACK:-0}" = 1 ]; then
+    echo "bootstrap: MM_BOOTSTRAP_FALLBACK=1, skipping build0 build1"
+    mm_build1_status=1
+else
+    "${MM_BUILD}/build0" build1 --compiler "${MCCP}" --flags "${MM_MODULE_FLAGS}" || mm_build1_status=$?
+fi
 echo
 
 if [ "${mm_build1_status}" -ne 0 ] || [ ! -x "${MM_BUILD}/build1" ]; then
@@ -126,14 +134,6 @@ if [ "${mm_build1_status}" -ne 0 ] || [ ! -x "${MM_BUILD}/build1" ]; then
     ${MCCP_MODULES} ${MM_MODULE_FLAGS} \
         -c modules/mm/mdy/src/mdy.cpp \
         -o "${MM_BUILD}/modules/mm/mdy/src/mdy.o" || exit $?
-
-    ${MCCP_MODULES} ${MM_MODULE_FLAGS} \
-        -c modules/mm/configure/configure.cppm \
-        -o "${MM_BUILD}/modules/mm/configure/configure.o" || exit $?
-
-    ${MCCP_MODULES} ${MM_MODULE_FLAGS} \
-        -c modules/mm/configure/src/configure.cpp \
-        -o "${MM_BUILD}/modules/mm/configure/src/configure.o" || exit $?
 
     # mm.parse is dependency-free; mm.json and mm.configure import it.
     # Compile its partitions and implementation units first.
@@ -168,6 +168,14 @@ if [ "${mm_build1_status}" -ne 0 ] || [ ! -x "${MM_BUILD}/build1" ]; then
     ${MCCP_MODULES} ${MM_MODULE_FLAGS} \
         -c modules/mm/parse/src/time.cpp \
         -o "${MM_BUILD}/modules/mm/parse/src/time.o" || exit $?
+
+    ${MCCP_MODULES} ${MM_MODULE_FLAGS} \
+        -c modules/mm/configure/configure.cppm \
+        -o "${MM_BUILD}/modules/mm/configure/configure.o" || exit $?
+
+    ${MCCP_MODULES} ${MM_MODULE_FLAGS} \
+        -c modules/mm/configure/src/configure.cpp \
+        -o "${MM_BUILD}/modules/mm/configure/src/configure.o" || exit $?
 
     # mm.build reads compile_commands.json through mm.json, so the json
     # partitions, primary interface, and implementation units come first.
