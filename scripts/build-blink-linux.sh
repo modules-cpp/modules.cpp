@@ -6,6 +6,12 @@
 # mm.stdio. On Linux, this resolves to platform.linux.mcu, platform.linux.stdio,
 # and platform.linux.defaults (or the board map). The four unused providers
 # (display, touch, imu, rtc) must be absent from the image.
+
+# Sort, compare, and match bytes, and keep tool messages untranslated,
+# whatever the caller's locale.
+LC_ALL=C
+export LC_ALL
+
 set -eu
 
 test_name=build-blink-linux

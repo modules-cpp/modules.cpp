@@ -2,6 +2,12 @@
 # apps/audio-smoke on any board that binds mm.audio: a second of tone through
 # the board's Speaker, recorded through its Microphone where the board has one.
 # On a Pico board the I2S adapter symbols must be in the image.
+
+# Sort, compare, and match bytes, and keep tool messages untranslated,
+# whatever the caller's locale.
+LC_ALL=C
+export LC_ALL
+
 set -eu
 
 test_name=build-audio

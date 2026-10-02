@@ -3,6 +3,11 @@
 # shell script to run the modules.cpp configure tool
 #
 
+# Sort, compare, and match bytes, and keep tool messages untranslated,
+# whatever the caller's locale.
+LC_ALL=C
+export LC_ALL
+
 MM_BUILD="out"
 echo "Run configure"
 echo

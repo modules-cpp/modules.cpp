@@ -1,11 +1,8 @@
-name: build
+name: build-ubuntu
 
-# A clean build on every commit: bootstrap from source, configure, build, test.
-# Nothing is cached. The point is to prove a fresh checkout still bootstraps
-# itself, which a cached out/ or gcm.cache would quietly hide.
+# Build modules.cpp on each supported Ubuntu LTS, x64 and arm64, using GCC.
+# Bootstraps from source, configures, builds, and runs tests.
 on:
-  push:
-  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -13,35 +10,52 @@ permissions:
 
 jobs:
   build:
-    runs-on: ubuntu-24.04
+    name: build (${{ matrix.os }}, ${{ matrix.build }})
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
+        # x64 and arm64 for each release: GCC 14's module defects showed up on
+        # aarch64 first (drafts/gcc-14-workaround.mdy), so both are built.
+        os: [ubuntu-24.04, ubuntu-26.04, ubuntu-24.04-arm, ubuntu-26.04-arm]
         build: [debug, release]
 
     steps:
       - uses: actions/checkout@v4
 
       # bootstrap.sh deliberately invokes the literal command c++, so the
-      # default must be a compiler with C++20 module support.
-      - name: Install a modules-capable GCC
+      # default must be a compiler with C++20 module support. GCC 13 has no
+      # usable module support and GCC 14 ICEs on this codebase
+      # (simplify_aggr_init_expr, cp/semantics.cc), so the build needs GCC 15.
+      # ubuntu-24.04 has no g++-15 in its archive and takes it from the
+      # toolchain PPA; a release that carries g++-15 itself uses the archive.
+      # cppcheck is needed by the test suite, not only by ./check.sh:
+      # tests/mm/configure exercises the installed check tool, which wraps
+      # cppcheck and exits 127 without it.
+      - name: Install dependencies
         run: |
-          # ubuntu-24.04 carries GCC 13 as c++ and GCC 14 as its newest
-          # archive compiler. GCC 13 has no usable module support, and GCC 14
-          # ICEs on this codebase (simplify_aggr_init_expr, cp/semantics.cc),
-          # so GCC 15 comes from the toolchain PPA.
-          sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
+          . /etc/os-release
+          echo "$PRETTY_NAME"
           sudo apt-get update
-          # cppcheck is needed by the test suite, not only by ./check.sh:
-          # tests/mm/configure exercises the installed check tool, which
-          # wraps cppcheck and exits 127 without it.
+          # Match the exact name: given a name no package has, apt reads it
+          # as a regular expression, and g++-15 then matches clang-15.
+          if ! apt-cache show g++-15 2>/dev/null | grep -qx 'Package: g++-15'; then
+            sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
+            sudo apt-get update
+          fi
           sudo apt-get install -y g++-15 cppcheck
+          test -x /usr/bin/g++-15
           sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-15 100
           sudo update-alternatives --install /usr/bin/c++ c++ /usr/bin/g++-15 100
-          # bootstrap uses c++; an unconfigured build uses g++. Mixing versions
-          # across that boundary is what broke this workflow before.
+
+      # bootstrap uses c++; an unconfigured build uses g++. Mixing versions
+      # across that boundary is what broke build.yml before.
+      - name: Verify GCC compiler
+        run: |
+          which c++
           c++ --version | head -1
+          which g++
           g++ --version | head -1
           test "$(c++ -dumpversion)" = "$(g++ -dumpversion)"
 
@@ -49,7 +63,7 @@ jobs:
         run: ./bootstrap.sh
 
       - name: Configure
-        run: ./configure --compiler gcc-15 --build ${{ matrix.build }}
+        run: ./configure --host --compiler gcc-15 --build ${{ matrix.build }}
 
       - name: Build
         run: ./build.sh
@@ -80,21 +94,3 @@ jobs:
           MM_BOOTSTRAP_FALLBACK=1 ./bootstrap.sh 2>&1 | tee bootstrap.log
           grep -q 'Build build1 with shell commands' bootstrap.log
           ./out/build1 -h
-
-  check:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    continue-on-error: true    # cppcheck findings should not gate a commit
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install dependencies
-        run: |
-          sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
-          sudo apt-get update
-          sudo apt-get install -y g++-15 cppcheck
-          sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-15 100
-          sudo update-alternatives --install /usr/bin/c++ c++ /usr/bin/g++-15 100
-      - run: ./bootstrap.sh
-      - run: ./configure --compiler gcc-15 --build debug
-      - run: ./build.sh
-      - run: ./check.sh

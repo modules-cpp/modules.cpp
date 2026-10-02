@@ -1,5 +1,11 @@
 #!/bin/sh
 # runs tests
+
+# Sort, compare, and match bytes, and keep tool messages untranslated,
+# whatever the caller's locale.
+LC_ALL=C
+export LC_ALL
+
 set -eu
 
 verbose=false
@@ -238,6 +244,9 @@ run_test_target tests/mm/usb/ || exit $?
 case "$(uname -s)" in
     Darwin)
         echo "Skipping tests/mm/linux/: Linux DRM headers are unavailable on macOS"
+        ;;
+    MSYS*|MINGW*|CYGWIN*)
+        echo "Skipping tests/mm/linux/: Linux DRM headers are unavailable on Windows"
         ;;
     *)
         run_test_target tests/mm/linux/ || exit $?

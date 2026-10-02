@@ -7,6 +7,12 @@
 #
 # Re-running it is safe. With the checkout already at the pinned commit it does
 # nothing and exits zero, so it can be named in setup notes without qualification.
+
+# Sort, compare, and match bytes, and keep tool messages untranslated,
+# whatever the caller's locale.
+LC_ALL=C
+export LC_ALL
+
 set -eu
 
 MM_TAG="2.3.1"

@@ -6,6 +6,11 @@
 #   help-dummy.o  left in the working directory by builds made before the
 #                 target-option probe stopped passing -c to the C driver
 
+# Sort, compare, and match bytes, and keep tool messages untranslated,
+# whatever the caller's locale.
+LC_ALL=C
+export LC_ALL
+
 rm -fr out/
 rm -fr out-*/
 rm -fr gcm.cache/

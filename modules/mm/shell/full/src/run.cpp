@@ -367,7 +367,8 @@ Interpreter::Step Interpreter::run_subshell(const FullScript& script,
         return {.status = 2,
                 .diagnostic = {ParseStatus::Malformed, 0, "subshell shape"}};
     }
-    FullState child;
+    // Sized like the parent: a host environment can outgrow the default.
+    FullState child{state_.capacity()};
     if (state_.fork_into(child) != Status::Ok) {
         return {.status = 1,
                 .diagnostic = {ParseStatus::Malformed, 0,

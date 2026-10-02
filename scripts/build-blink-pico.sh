@@ -2,6 +2,12 @@
 # Build apps/ino/blink through the Pico SDK bridge and inspect the resulting image.
 # This proves provider selection (platform.pico.mcu, platform.pico.stdio), link,
 # and UF2 structure.
+
+# Sort, compare, and match bytes, and keep tool messages untranslated,
+# whatever the caller's locale.
+LC_ALL=C
+export LC_ALL
+
 set -eu
 
 test_name=build-blink-pico

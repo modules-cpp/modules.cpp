@@ -23,12 +23,23 @@ export namespace mm::test {
 // byte identical copies of scoped_file and three carried scoped_tree: one
 // copy is one place to fix a bug in them.
 
+// The temp directory, canonical. Tools record canonical paths, and on macOS
+// the default /tmp is a symlink to /private/tmp, so a fixture under the
+// uncanonical name would never compare equal to what a tool reports.
+[[nodiscard]] inline std::filesystem::path temp_root() {
+    std::error_code ec;
+    auto root = std::filesystem::temp_directory_path(ec);
+    if (ec) return root;
+    auto canonical = std::filesystem::weakly_canonical(root, ec);
+    return ec ? root : canonical;
+}
+
 // A file holding the given text, removed again at end of scope. A relative
 // name is placed under the temp directory; an absolute one is used as is.
 class scoped_file {
 public:
     scoped_file(std::string_view name, std::string_view text)
-        : path_(std::filesystem::temp_directory_path() / name) {
+        : path_(temp_root() / name) {
         std::ofstream out(path_, std::ios::binary);
         out << text;
     }
@@ -55,7 +66,7 @@ private:
 class scoped_tree {
 public:
     explicit scoped_tree(std::string_view name)
-        : root_(std::filesystem::temp_directory_path() / ("mm_test_" + std::string(name))) {
+        : root_(temp_root() / ("mm_test_" + std::string(name))) {
         std::error_code ec;
         std::filesystem::remove_all(root_, ec);
         std::filesystem::create_directories(root_, ec);

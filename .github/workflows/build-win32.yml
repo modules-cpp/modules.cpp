@@ -1,7 +1,14 @@
 name: build-win32
 
-# Build modules.cpp on Windows using MinGW-w64 (64-bit and 32-bit).
+# Build modules.cpp on Windows inside the MSYS2 MSYS environment.
 # Bootstraps from source, configures, builds, and runs tests.
+#
+# The tools assume POSIX: std::system() backed by /bin/sh, wait statuses from
+# sys/wait.h, and single-quoted shell arguments. The MSYS environment provides
+# all three, so the code builds unchanged. The executables depend on
+# msys-2.0.dll; they are not native Win32 programs. MSYS has no 32-bit
+# environment, so this covers 64-bit Windows only. Native win32 and win64
+# builds are planned in drafts/plan-win32.mdy.
 on:
   workflow_dispatch:
 
@@ -10,37 +17,78 @@ permissions:
 
 defaults:
   run:
-    shell: bash
+    shell: msys2 {0}
 
 jobs:
   build:
-    name: build (${{ matrix.platform }}, ${{ matrix.build }})
+    name: build (msys, ${{ matrix.build }})
     runs-on: windows-latest
     timeout-minutes: 30
+    env:
+      # MSYS2's default symlink() makes a deep copy, so a symlink a test
+      # creates to escape the tree is an ordinary file inside it and the
+      # guards under test have nothing to refuse. winsymlinks:sys makes real
+      # MSYS symlinks, which every tool here reads through the same runtime.
+      MSYS: winsymlinks:sys
     strategy:
       fail-fast: false
       matrix:
-        platform: [x64, x86]
         build: [debug, release]
 
     steps:
       - name: Configure git to keep LF line endings
+        shell: bash
         run: git config --global core.autocrlf false
 
       - uses: actions/checkout@v4
 
-      # Sets up MinGW-w64 toolchain (x64 for 64-bit, x86 for 32-bit)
-      # and creates c++ / cc aliases in PATH.
-      - name: Set up MinGW (${{ matrix.platform }})
-        uses: egor-tensin/setup-mingw@v3
+      # gcc here is the MSYS POSIX-runtime GCC, not a MinGW-w64 one.
+      # cppcheck is needed by the test suite: tests/mm/configure exercises
+      # the installed check tool, which wraps cppcheck and exits 127 without
+      # it. MSYS has no cppcheck package, so the MinGW-w64 build is installed
+      # and reached through a wrapper in /usr/bin; /mingw64/bin is not put on
+      # PATH, so it cannot shadow the MSYS toolchain. Its addon needs a
+      # native python too: cppcheck hands it D:\ paths, which MSYS python
+      # reads as relative POSIX paths. The wrapper puts /mingw64/bin first
+      # for cppcheck's process alone, so it finds the MinGW-w64 python, and
+      # sets PYTHONPATH to the package's addons directory: this cppcheck
+      # runs an addon without its runaddon.py, so nothing else puts
+      # cppcheckdata on the addon's import path.
+      # cmake is needed by tests/mm/build/external.cpp, which runs
+      # the Pico bridge's resolve-board.cmake with cmake -P.
+      - name: Set up MSYS2
+        uses: msys2/setup-msys2@v2
         with:
-          platform: ${{ matrix.platform }}
+          msystem: MSYS
+          update: true
+          install: >-
+            gcc
+            make
+            git
+            python
+            cmake
+            mingw-w64-x86_64-cppcheck
+            mingw-w64-x86_64-python
+
+      - name: Expose cppcheck
+        run: |
+          addons=/mingw64/share/cppcheck/addons
+          test -f "$addons/cppcheckdata.py"
+          printf '#!/bin/sh\nPATH=/mingw64/bin:$PATH PYTHONPATH=%s exec /mingw64/bin/cppcheck.exe "$@"\n' \
+            "$addons" > /usr/bin/cppcheck
+          chmod +x /usr/bin/cppcheck
+          cat /usr/bin/cppcheck
+          cppcheck --version
+          PATH=/mingw64/bin:$PATH PYTHONPATH=$addons python3 -c \
+            'import sys, cppcheckdata; print(sys.executable, cppcheckdata.__file__)'
 
       - name: Verify compiler
         run: |
+          uname -a
           c++ --version | head -1
           g++ --version | head -1
           gcc --version | head -1
+          cmake --version | head -1
 
       - name: Bootstrap from source
         run: ./bootstrap.sh
@@ -50,6 +98,27 @@ jobs:
 
       - name: Build
         run: ./build.sh
+
+      # The check tool runs a native MinGW-w64 cppcheck, whose addon runs on
+      # MSYS python, all from MSYS paths. The test suite only sees its exit
+      # status, so run it here first where its output is visible: the tool
+      # on a small subtree, then cppcheck and the addon directly.
+      - name: Smoke-test the check tool
+        run: |
+          status=0
+          out/bin/check -v modules/mm/parse || status=$?
+          if [ "$status" -ne 0 ]; then
+            echo "::group::check exited $status; cppcheck and the addon directly"
+            command -v python python3 || true
+            MM_CHECK_EXCEPTIONS="$PWD/out/check-exceptions.txt" \
+              cppcheck --std=c++20 --language=c++ --verbose \
+              --suppress=syntaxError --suppress=missingIncludeSystem \
+              --error-exitcode=1 \
+              --addon="$PWD/tools/check/cppcheck/cpp20_rules.py" \
+              "$PWD/modules/mm/parse/src/cursor.cpp" || echo "cppcheck exited $?"
+            echo "::endgroup::"
+          fi
+          exit "$status"
 
       - name: Test
         run: ./test.sh
@@ -61,29 +130,20 @@ jobs:
         run: ./document.sh
 
       # The recovery path never runs during a successful bootstrap, so it is
-      # exercised explicitly. A stale out/ or gcm.cache would let it pass
-      # without recompiling anything, so it runs in a pristine copy.
+      # exercised explicitly: MM_BOOTSTRAP_FALLBACK=1 makes bootstrap.sh skip
+      # build0 and build build1 with its own shell commands, so this tests
+      # the fallback itself rather than a copy of its file list. A stale out/
+      # or gcm.cache would let it pass without recompiling anything, so it
+      # runs in a pristine copy.
       - name: Verify the bootstrap fallback
         if: matrix.build == 'debug'
         run: |
-          FALLBACK_DIR="${RUNNER_TEMP:-/tmp}/fallback"
+          set -o pipefail
+          FALLBACK_DIR="$(cygpath -u "${RUNNER_TEMP}")/fallback"
           rm -rf "$FALLBACK_DIR" && mkdir -p "$FALLBACK_DIR"
           git archive HEAD | tar -x -C "$FALLBACK_DIR"
           cd "$FALLBACK_DIR"
           test ! -e out && test ! -e gcm.cache
-          B=out; F=-std=c++20
-          mkdir -p $B/modules/mm/mdy/src $B/modules/mm/build/src \
-                   $B/modules/mm/configure/src $B/tools/build
-          for f in modules/mm/mdy/mdy.cppm modules/mm/mdy/src/mdy.cpp \
-                   modules/mm/configure/configure.cppm \
-                   modules/mm/configure/src/configure.cpp \
-                   modules/mm/build/build.cppm modules/mm/build/src/build.cpp \
-                   tools/build/build.cpp; do
-            c++ -fmodules-ts $F -x c++ -c "$f" -o "$B/${f%.*}.o"
-          done
-          c++ $F $B/modules/mm/mdy/mdy.o $B/modules/mm/mdy/src/mdy.o \
-                 $B/modules/mm/build/build.o $B/modules/mm/build/src/build.o \
-                 $B/modules/mm/configure/configure.o \
-                 $B/modules/mm/configure/src/configure.o \
-                 $B/tools/build/build.o -o $B/build1
-          ./$B/build1 -h
+          MM_BOOTSTRAP_FALLBACK=1 ./bootstrap.sh 2>&1 | tee bootstrap.log
+          grep -q 'Build build1 with shell commands' bootstrap.log
+          ./out/build1 -h

@@ -1,5 +1,11 @@
 #!/bin/sh
 # Flash one already-built Pico SDK application through picotool.
+
+# Sort, compare, and match bytes, and keep tool messages untranslated,
+# whatever the caller's locale.
+LC_ALL=C
+export LC_ALL
+
 set -eu
 
 MM_BUILD="out"

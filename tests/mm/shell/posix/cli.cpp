@@ -151,6 +151,14 @@ void script(const std::filesystem::path& path,
     return result;
 }
 
+// What a shell run produced, on standard error, for a check about to fail:
+// the expectation alone says only that the output differed.
+void show(std::string_view what, const Result& result) {
+    std::cerr << what << ": status " << result.status << "\n"
+              << "stdout: [" << result.standard_output << "]\n"
+              << "stderr: [" << result.standard_error << "]\n";
+}
+
 void wrapper_contracts() {
     const auto repository = std::filesystem::current_path();
     const mm::test::scoped_tree installed{"shell_wrappers_installed"};
@@ -234,8 +242,9 @@ void cli_modes_and_exit_codes() {
     };
 
     const auto command = run({"-c", "echo native $((2+3))", "--"});
-    expect(command.status == 0 && command.output == "native 5\n",
-           "-c runs native arithmetic and output");
+    const bool command_ok = command.status == 0 && command.output == "native 5\n";
+    if (!command_ok) show("-c echo native $((2+3))", command);
+    expect(command_ok, "-c runs native arithmetic and output");
     const auto positional = run({"-c", "echo \"$@\"", "--",
                                  "alpha", "beta"});
     expect(positional.status == 0 &&
@@ -248,8 +257,20 @@ void cli_modes_and_exit_codes() {
     const auto substitution = run({
         "-c", "status=0; value=$(exit 64) || status=$?; echo $status",
         "--"});
-    expect(substitution.status == 0 && substitution.output == "64\n",
+    const bool substitution_ok =
+        substitution.status == 0 && substitution.output == "64\n";
+    if (!substitution_ok) show("value=$(exit 64) || status=$?", substitution);
+    expect(substitution_ok,
            "assignment-only command keeps substitution exit status");
+    // A host environment larger than the default state capacity, as on
+    // Windows: substitutions and subshells copy the whole state.
+    (void)::setenv("MM_TEST_LARGE", std::string(12000, 'x').c_str(), 1);
+    const auto large = run({
+        "-c", "value=$(echo sub); (echo \"$value\" shell)", "--"});
+    (void)::unsetenv("MM_TEST_LARGE");
+    if (large.output != "sub shell\n") show("large environment", large);
+    expect(large.status == 0 && large.output == "sub shell\n",
+           "substitution and subshell copy a large environment");
     const auto canonical = run({
         "-c", "echo \"$(CDPATH= cd -- . && pwd)\""});
     expect(canonical.status == 0 &&
@@ -331,14 +352,19 @@ void native_child_resolution() {
     };
     const auto nested = invoke(binary, tree.root(),
                                {"--run", "parent.sh", "--", "value"});
-    expect(nested.status == 0 && nested.output == "child value\n",
-           "nested project script preserves arguments");
+    const bool nested_ok = nested.status == 0 && nested.output == "child value\n";
+    if (!nested_ok) show("--run parent.sh -- value", nested);
+    expect(nested_ok, "nested project script preserves arguments");
     const auto plain = run("./plain.sh");
     expect(plain.status == 126 &&
                plain.output.find("plain\n") == std::string::npos,
            "executable text without a shebang never falls to /bin/sh");
-    expect(run("./nonexec.sh").status == 126,
-           "non-executable script is refused");
+    // Only where a file can be non-executable: MSYS2 mounts noacl, and then
+    // any file that starts with #! is executable whatever its mode says.
+    if (::access((tree.root() / "nonexec.sh").c_str(), X_OK) != 0) {
+        expect(run("./nonexec.sh").status == 126,
+               "non-executable script is refused");
+    }
     expect(run("./foreign.sh").output == "foreign\n",
            "foreign shebang keeps external exec behavior");
     const auto escape = run("./escape.sh");

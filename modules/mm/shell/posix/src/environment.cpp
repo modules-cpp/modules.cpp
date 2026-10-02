@@ -14,6 +14,11 @@ module mm.shell.posix;
 
 import :environment;
 
+// POSIX leaves environ for the program to declare. glibc's unistd.h declares
+// it under _GNU_SOURCE; macOS's does not. C language linkage keeps this the
+// same entity as a header's declaration, as with popen in mm.build.
+extern "C" char** environ;
+
 namespace mm::shell {
 
 std::filesystem::path current_shell() {

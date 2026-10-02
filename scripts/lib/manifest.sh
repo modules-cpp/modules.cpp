@@ -10,6 +10,10 @@
 #
 # Everything here reads only a manifest's front matter, the lines between its
 # first two ---, which is where the manifest grammar puts every key.
+#
+# Every sort here relies on the sourcing script's LC_ALL=C. A UTF-8 locale's
+# collation ignores punctuation, which orders platform.pico_epaper_b before
+# platform.pico.mcu on one machine and after it on another.
 
 # The value of every "key: value" line in a manifest's front matter, one a line.
 mm_manifest_values() {

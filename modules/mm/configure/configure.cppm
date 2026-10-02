@@ -114,6 +114,13 @@ struct CompilerRequest {
 [[nodiscard]] std::string_view compiler_workaround_flags(CompilerFamily family,
                                                          std::string_view version);
 
+// Compile flags a host C library needs to expose POSIX under -std=c++20, and
+// nothing otherwise. glibc's g++ predefines _GNU_SOURCE; the Cygwin and MSYS2
+// drivers do not, and their newlib then hides popen, setenv, O_CLOEXEC, and
+// the rest of POSIX in strict mode. target_triple is a driver -dumpmachine
+// string.
+[[nodiscard]] std::string_view host_feature_flags(std::string_view target_triple);
+
 // The one place the configured output layout is decided. Bootstrap output stays
 // in out/, which also holds the authoritative out/config.mdy; a configured lane
 // never writes there. target_output_directory names a distinct tree per target

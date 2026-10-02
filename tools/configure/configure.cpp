@@ -73,14 +73,20 @@ bool run_driver_command(const std::string& command, std::string& output) {
     return status == 0 && !output.empty();
 }
 
-// Flags a defective compiler needs, probed from the driver that will actually
-// run. An unprobeable driver adds nothing: configure fails later on its own
-// terms rather than guessing at a workaround here.
-std::string_view workaround_flags(std::string_view invocation) {
+// Flags a defective compiler or a strict host C library needs, probed from the
+// driver that will actually run. An unprobeable driver adds nothing: configure
+// fails later on its own terms rather than guessing at a workaround here.
+std::string workaround_flags(std::string_view invocation) {
     if (invocation.empty()) return {};
     const auto probe = mm::configure::probe_compiler(invocation, run_driver_command);
     if (!probe) return {};
-    return mm::configure::compiler_workaround_flags(probe->family, probe->version);
+    std::string flags(mm::configure::compiler_workaround_flags(probe->family, probe->version));
+    if (const auto feature = mm::configure::host_feature_flags(probe->target_triple);
+        !feature.empty()) {
+        if (!flags.empty()) flags += ' ';
+        flags += feature;
+    }
+    return flags;
 }
 
 std::string compile_flags(mm::configure::Build build, mm::configure::CompilerFamily family,

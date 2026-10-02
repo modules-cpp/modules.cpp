@@ -35,6 +35,12 @@
 # --dry-run prints the lane, the commands, and every check, and touches
 # nothing. --keep leaves the lane configured; otherwise the configuration the
 # tree had before is restored on every exit.
+
+# Sort, compare, and match bytes, and keep tool messages untranslated,
+# whatever the caller's locale.
+LC_ALL=C
+export LC_ALL
+
 set -eu
 
 test_name=build-target

@@ -2,6 +2,12 @@
 # apps/board-smoke on any board that binds a display, touch, an IMU, and a
 # clock: the one build that proves provider injection resolves four interfaces
 # at once, from one portable source, whatever providers stand behind them.
+
+# Sort, compare, and match bytes, and keep tool messages untranslated,
+# whatever the caller's locale.
+LC_ALL=C
+export LC_ALL
+
 set -eu
 
 test_name=build-board

@@ -87,3 +87,6 @@ platforms/pico/sdk/pico-sdk/pio-usb/upstream/
 
 # locally installed Pico SDK tools (compiler, picotool, OpenOCD, and pioasm)
 platforms/pico/pico-sdk/
+
+# per-developer shell environment, sourced by hand or through direnv
+/.env

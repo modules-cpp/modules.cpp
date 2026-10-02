@@ -13,6 +13,12 @@
 # --run reports each facility; a desktop session refuses display and touch, so
 # a non-zero exit there describes the machine and not the build. -a, -c,
 # --keep, and --dry-run pass through to both builds.
+
+# Sort, compare, and match bytes, and keep tool messages untranslated,
+# whatever the caller's locale.
+LC_ALL=C
+export LC_ALL
+
 set -eu
 
 test_name=build-linux-smoke
