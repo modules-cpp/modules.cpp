@@ -659,6 +659,12 @@ std::string_view compiler_workaround_flags(CompilerFamily family, std::string_vi
     return "-flarge-source-files -fno-ipa-sra";
 }
 
+std::string_view host_feature_flags(std::string_view target_triple) {
+    if (target_triple.ends_with("-cygwin") || target_triple.ends_with("-msys"))
+        return "-D_GNU_SOURCE";
+    return {};
+}
+
 bool log_configuration(const ConfigurationLog& log) {
     std::error_code ec;
     const bool has_configuration = std::filesystem::exists(log.configuration_path, ec);

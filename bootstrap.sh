@@ -48,6 +48,14 @@ if [ "${MM_COMPILER_FAMILY}" = "gcc" ]; then
             ;;
     esac
 fi
+
+# glibc's g++ predefines _GNU_SOURCE. The Cygwin and MSYS2 drivers do not, and
+# their newlib hides popen, setenv, O_CLOEXEC, and the rest of POSIX under
+# -std=c++20. mm::configure::host_feature_flags makes the same choice for the
+# configured build.
+case "$(${MCCP} -dumpmachine 2>/dev/null)" in
+    *-cygwin|*-msys) MM_CPPFLAGS="${MM_CPPFLAGS} -D_GNU_SOURCE" ;;
+esac
 echo "Flags ${MM_CPPFLAGS}"
 
 # GCC uses its C++ modules TS mapper. Apple Clang uses Clang's C++ modules

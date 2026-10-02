@@ -416,6 +416,19 @@ void compiler_workarounds() {
            "an unknown version adds nothing");
     expect(compiler_workaround_flags(CompilerFamily::Clang, "14.0.0").empty(),
            "the defects are GCC's, not clang's");
+    using mm::configure::host_feature_flags;
+    expect(host_feature_flags("x86_64-pc-cygwin") == "-D_GNU_SOURCE",
+           "a Cygwin or MSYS2 host asks newlib for POSIX");
+    expect(host_feature_flags("x86_64-pc-msys") == "-D_GNU_SOURCE",
+           "an msys triple is read the same way");
+    expect(host_feature_flags("x86_64-linux-gnu").empty(),
+           "glibc's g++ already exposes POSIX");
+    expect(host_feature_flags("arm64-apple-darwin25.6.0").empty(),
+           "macOS needs nothing");
+    expect(host_feature_flags("x86_64-w64-mingw32").empty(),
+           "a native MinGW host has no POSIX to expose");
+    expect(host_feature_flags("arm-none-eabi").empty(),
+           "a bare-metal target is left strict");
     expect(mm::configure::build_compile_flags(Build::Debug) == "-std=c++20 -O0 -g",
            "the baseline stays compiler-agnostic");
 }
