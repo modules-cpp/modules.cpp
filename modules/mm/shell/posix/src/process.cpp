@@ -18,16 +18,16 @@ module;
 #include <utility>
 #include <vector>
 
-// POSIX leaves environ for the program to declare. glibc's unistd.h declares
-// it under _GNU_SOURCE; macOS's does not. Declared here, in the global module
-// fragment, so it stays attached to the global module like the header's.
-extern "C" char** environ;
-
 module mm.shell.posix;
 
 import :service;
 import mm.shell.full;
 import mm.shell;
+
+// POSIX leaves environ for the program to declare. glibc's unistd.h declares
+// it under _GNU_SOURCE; macOS's does not. C language linkage keeps this the
+// same entity as a header's declaration, as with popen in mm.build.
+extern "C" char** environ;
 
 namespace mm::shell::posix {
 namespace {

@@ -151,6 +151,14 @@ void script(const std::filesystem::path& path,
     return result;
 }
 
+// What a shell run produced, on standard error, for a check about to fail:
+// the expectation alone says only that the output differed.
+void show(std::string_view what, const Result& result) {
+    std::cerr << what << ": status " << result.status << "\n"
+              << "stdout: [" << result.standard_output << "]\n"
+              << "stderr: [" << result.standard_error << "]\n";
+}
+
 void wrapper_contracts() {
     const auto repository = std::filesystem::current_path();
     const mm::test::scoped_tree installed{"shell_wrappers_installed"};
@@ -234,8 +242,9 @@ void cli_modes_and_exit_codes() {
     };
 
     const auto command = run({"-c", "echo native $((2+3))", "--"});
-    expect(command.status == 0 && command.output == "native 5\n",
-           "-c runs native arithmetic and output");
+    const bool command_ok = command.status == 0 && command.output == "native 5\n";
+    if (!command_ok) show("-c echo native $((2+3))", command);
+    expect(command_ok, "-c runs native arithmetic and output");
     const auto positional = run({"-c", "echo \"$@\"", "--",
                                  "alpha", "beta"});
     expect(positional.status == 0 &&
@@ -331,8 +340,9 @@ void native_child_resolution() {
     };
     const auto nested = invoke(binary, tree.root(),
                                {"--run", "parent.sh", "--", "value"});
-    expect(nested.status == 0 && nested.output == "child value\n",
-           "nested project script preserves arguments");
+    const bool nested_ok = nested.status == 0 && nested.output == "child value\n";
+    if (!nested_ok) show("--run parent.sh -- value", nested);
+    expect(nested_ok, "nested project script preserves arguments");
     const auto plain = run("./plain.sh");
     expect(plain.status == 126 &&
                plain.output.find("plain\n") == std::string::npos,
