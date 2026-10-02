@@ -1,6 +1,6 @@
 name: build-ubuntu
 
-# Build modules.cpp on each supported Ubuntu LTS using GCC.
+# Build modules.cpp on each supported Ubuntu LTS, x64 and arm64, using GCC.
 # Bootstraps from source, configures, builds, and runs tests.
 on:
   workflow_dispatch:
@@ -16,7 +16,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, ubuntu-26.04]
+        # x64 and arm64 for each release: GCC 14's module defects showed up on
+        # aarch64 first (drafts/gcc-14-workaround.mdy), so both are built.
+        os: [ubuntu-24.04, ubuntu-26.04, ubuntu-24.04-arm, ubuntu-26.04-arm]
         build: [debug, release]
 
     steps:
