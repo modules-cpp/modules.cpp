@@ -86,6 +86,27 @@ jobs:
       - name: Build
         run: ./build.sh
 
+      # The check tool runs a native MinGW-w64 cppcheck, whose addon runs on
+      # MSYS python, all from MSYS paths. The test suite only sees its exit
+      # status, so run it here first where its output is visible: the tool
+      # on a small subtree, then cppcheck and the addon directly.
+      - name: Smoke-test the check tool
+        run: |
+          status=0
+          out/bin/check -v modules/mm/parse || status=$?
+          if [ "$status" -ne 0 ]; then
+            echo "::group::check exited $status; cppcheck and the addon directly"
+            command -v python python3 || true
+            MM_CHECK_EXCEPTIONS="$PWD/out/check-exceptions.txt" \
+              cppcheck --std=c++20 --language=c++ --verbose \
+              --suppress=syntaxError --suppress=missingIncludeSystem \
+              --error-exitcode=1 \
+              --addon="$PWD/tools/check/cppcheck/cpp20_rules.py" \
+              "$PWD/modules/mm/parse/src/cursor.cpp" || echo "cppcheck exited $?"
+            echo "::endgroup::"
+          fi
+          exit "$status"
+
       - name: Test
         run: ./test.sh
 
