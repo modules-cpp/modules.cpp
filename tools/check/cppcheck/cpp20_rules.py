@@ -91,7 +91,9 @@ def report_exception(tok, message, error_id):
     path = os.environ.get('MM_CHECK_EXCEPTIONS') or EXCEPTIONS_FILE
     if not os.path.isdir(os.path.dirname(path)):
         return
-    with open(path, 'a', encoding='utf-8') as out:
+    # LF on every host: tools/check reads the file line by line, and a native
+    # Windows python would otherwise write CRLF.
+    with open(path, 'a', encoding='utf-8', newline='\n') as out:
         out.write('%s:%s:%s: exception: %s [%s-%s]\n' % (
             tok.file, tok.linenr, tok.column, message, ADDON, error_id))
 

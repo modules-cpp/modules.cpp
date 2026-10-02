@@ -47,8 +47,11 @@ jobs:
       # the installed check tool, which wraps cppcheck and exits 127 without
       # it. MSYS has no cppcheck package, so the MinGW-w64 build is installed
       # and reached through a wrapper in /usr/bin; /mingw64/bin is not put on
-      # PATH, so it cannot shadow the MSYS toolchain. Its addon runs on
-      # python. cmake is needed by tests/mm/build/external.cpp, which runs
+      # PATH, so it cannot shadow the MSYS toolchain. Its addon needs a
+      # native python too: cppcheck hands it D:\ paths, which MSYS python
+      # reads as relative POSIX paths. The wrapper puts /mingw64/bin first
+      # for cppcheck's process alone, so it finds the MinGW-w64 python.
+      # cmake is needed by tests/mm/build/external.cpp, which runs
       # the Pico bridge's resolve-board.cmake with cmake -P.
       - name: Set up MSYS2
         uses: msys2/setup-msys2@v2
@@ -62,12 +65,14 @@ jobs:
             python
             cmake
             mingw-w64-x86_64-cppcheck
+            mingw-w64-x86_64-python
 
       - name: Expose cppcheck
         run: |
-          printf '#!/bin/sh\nexec /mingw64/bin/cppcheck.exe "$@"\n' > /usr/bin/cppcheck
+          printf '#!/bin/sh\nPATH=/mingw64/bin:$PATH exec /mingw64/bin/cppcheck.exe "$@"\n' > /usr/bin/cppcheck
           chmod +x /usr/bin/cppcheck
           cppcheck --version
+          PATH=/mingw64/bin:$PATH python3 -c 'import sys; print(sys.executable)'
 
       - name: Verify compiler
         run: |
