@@ -106,6 +106,7 @@ int mm_pico_usb_host_list(struct mm_pico_usb_host_device_info* out_devices,
     }
     return MM_PICO_USB_HOST_OK;
 #else
+    (void)out_devices; (void)capacity; (void)out_count;
     return MM_PICO_USB_HOST_UNSUPPORTED;
 #endif
 }
@@ -123,6 +124,7 @@ int mm_pico_usb_host_take_event(struct mm_pico_usb_host_event* out_event) {
     mm_pico_host_event_tail = (mm_pico_host_event_tail + 1) % MM_PICO_USB_HOST_EVENT_QUEUE_SIZE;
     return MM_PICO_USB_HOST_OK;
 #else
+    (void)out_event;
     return MM_PICO_USB_HOST_UNSUPPORTED;
 #endif
 }
@@ -138,6 +140,7 @@ int mm_pico_usb_host_open(const struct mm_pico_usb_host_device_info* info,
     *out_handle = info->address;
     return MM_PICO_USB_HOST_OK;
 #else
+    (void)info; (void)out_handle;
     return MM_PICO_USB_HOST_UNSUPPORTED;
 #endif
 }
@@ -147,6 +150,7 @@ int mm_pico_usb_host_close(unsigned int handle) {
     if (handle == 0 || handle > CFG_TUH_DEVICE_MAX) return MM_PICO_USB_HOST_BAD_ARGUMENT;
     return MM_PICO_USB_HOST_OK;
 #else
+    (void)handle;
     return MM_PICO_USB_HOST_UNSUPPORTED;
 #endif
 }
@@ -216,6 +220,7 @@ int mm_pico_usb_host_descriptors(unsigned int handle, uint8_t* out_buf,
     *out_len = copied;
     return MM_PICO_USB_HOST_OK;
 #else
+    (void)handle; (void)out_buf; (void)capacity; (void)out_len;
     return MM_PICO_USB_HOST_UNSUPPORTED;
 #endif
 }
@@ -261,6 +266,7 @@ int mm_pico_usb_host_claim(unsigned int handle, unsigned int iface) {
     }
     return MM_PICO_USB_HOST_OK;
 #else
+    (void)handle; (void)iface;
     return MM_PICO_USB_HOST_UNSUPPORTED;
 #endif
 }
@@ -271,6 +277,7 @@ int mm_pico_usb_host_release(unsigned int handle, unsigned int iface) {
     if (handle == 0 || handle > CFG_TUH_DEVICE_MAX) return MM_PICO_USB_HOST_BAD_ARGUMENT;
     return MM_PICO_USB_HOST_OK;
 #else
+    (void)handle; (void)iface;
     return MM_PICO_USB_HOST_UNSUPPORTED;
 #endif
 }
@@ -321,6 +328,8 @@ int mm_pico_usb_host_control(unsigned int handle,
     if (ctx.result == XFER_RESULT_TIMEOUT) return MM_PICO_USB_HOST_TIMEOUT;
     return MM_PICO_USB_HOST_TRANSPORT_ERROR;
 #else
+    (void)handle; (void)setup; (void)data;
+    (void)length; (void)out_transferred; (void)timeout_ms;
     return MM_PICO_USB_HOST_UNSUPPORTED;
 #endif
 }
@@ -364,6 +373,8 @@ int mm_pico_usb_host_transfer(unsigned int handle, uint8_t ep,
     if (ctx.result == XFER_RESULT_TIMEOUT) return MM_PICO_USB_HOST_TIMEOUT;
     return MM_PICO_USB_HOST_TRANSPORT_ERROR;
 #else
+    (void)handle; (void)ep; (void)data;
+    (void)length; (void)out_transferred; (void)timeout_ms;
     return MM_PICO_USB_HOST_UNSUPPORTED;
 #endif
 }
