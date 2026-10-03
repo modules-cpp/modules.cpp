@@ -8,12 +8,14 @@ file: status.cppm mm.mcu:status
 file: board.cppm mm.mcu:board
 file: spi-types.cppm mm.mcu:spi_types
 file: i2c-types.cppm mm.mcu:i2c_types
+file: uart-types.cppm mm.mcu:uart_types
 file: i2s-types.cppm mm.mcu:i2s_types
 file: transport-types.cppm mm.mcu:transport_types
 file: interrupt-types.cppm mm.mcu:interrupt_types
 file: adc-types.cppm mm.mcu:adc_types
 file: dac-types.cppm mm.mcu:dac_types
 file: pwm-types.cppm mm.mcu:pwm_types
+file: storage-types.cppm mm.mcu:storage_types
 file: platform.cppm mm.mcu:platform
 file: gpio.cppm mm.mcu:gpio
 file: spi.cppm mm.mcu:spi
@@ -25,6 +27,7 @@ file: interrupt.cppm mm.mcu:interrupt
 file: adc.cppm mm.mcu:adc
 file: dac.cppm mm.mcu:dac
 file: pwm.cppm mm.mcu:pwm
+file: storage.cppm mm.mcu:storage
 file: mcu.cppm mm.mcu
 file: src/platform.cpp
 file: src/analog.cpp

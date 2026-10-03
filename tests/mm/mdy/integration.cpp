@@ -199,6 +199,84 @@ void parse_returns_every_line_as_a_block() {
     mm::test::expect(blocks[0].type == BlockType::Heading1, "expected the heading to parse");
 }
 
+void fenced_code_block_with_language() {
+    const auto doc = parse_text(
+        "---\n"
+        "mm: 1.0\n"
+        "---\n"
+        "# Code Example\n"
+        "```cpp\n"
+        "int main() {\n"
+        "    return 0;\n"
+        "}\n"
+        "```\n"
+        "trailing text\n");
+
+    mm::test::expect(doc.body.size() == 3, "expected heading, code block, and trailing paragraph");
+    mm::test::expect(doc.body[0].type == BlockType::Heading1, "expected heading");
+    mm::test::expect(doc.body[1].type == BlockType::CodeBlock, "expected code block");
+    mm::test::expect(doc.body[1].language == "cpp", "expected language cpp");
+    mm::test::expect(doc.body[1].content == "int main() {\n    return 0;\n}", "expected preserved code content and indentation");
+    mm::test::expect(doc.body[2].type == BlockType::Paragraph, "expected paragraph");
+}
+
+void fenced_code_block_without_language() {
+    const auto doc = parse_text(
+        "```\n"
+        "plain code\n"
+        "line 2\n"
+        "```\n");
+
+    mm::test::expect(doc.body.size() == 1, "expected single code block");
+    mm::test::expect(doc.body[0].type == BlockType::CodeBlock, "expected code block");
+    mm::test::expect(doc.body[0].language.empty(), "expected empty language");
+    mm::test::expect(doc.body[0].content == "plain code\nline 2", "expected lines joined with newline");
+}
+
+void fenced_code_block_preserves_blank_lines_and_yaml_dashes() {
+    const auto doc = parse_text(
+        "```yaml\n"
+        "---\n"
+        "name: test\n"
+        "\n"
+        "value: 42\n"
+        "```\n");
+
+    mm::test::expect(doc.body.size() == 1, "expected single code block");
+    mm::test::expect(doc.body[0].type == BlockType::CodeBlock, "expected code block");
+    mm::test::expect(doc.body[0].language == "yaml", "expected language yaml");
+    mm::test::expect(doc.body[0].content == "---\nname: test\n\nvalue: 42", "expected preserved blank lines and dashes");
+}
+
+void unterminated_code_block_preserves_content_at_eof() {
+    const auto doc = parse_text(
+        "```text\n"
+        "line 1\n"
+        "line 2\n");
+
+    mm::test::expect(doc.body.size() == 1, "expected code block at eof");
+    mm::test::expect(doc.body[0].type == BlockType::CodeBlock, "expected code block");
+    mm::test::expect(doc.body[0].content == "line 1\nline 2", "expected content preserved");
+}
+
+void parse_reads_fenced_code_block() {
+    const mm::test::scoped_file file{"mm_mdy_test_code.mdy",
+        "# Header\n"
+        "```sh\n"
+        "echo hello\n"
+        "```\n"
+        "footer\n"};
+
+    const auto blocks = Parser::parse(file.path());
+
+    mm::test::expect(blocks.size() == 3, "expected 3 blocks from parse with code block");
+    mm::test::expect(blocks[0].type == BlockType::Heading1, "expected heading");
+    mm::test::expect(blocks[1].type == BlockType::CodeBlock, "expected code block");
+    mm::test::expect(blocks[1].language == "sh", "expected language sh");
+    mm::test::expect(blocks[1].content == "echo hello", "expected content");
+    mm::test::expect(blocks[2].type == BlockType::Paragraph, "expected paragraph");
+}
+
 const mm::test::case_ cases[] = {
     { "reads front matter and body",              &reads_front_matter_and_body },
     { "repeated keys accumulate",                 &repeated_keys_accumulate },
@@ -215,6 +293,11 @@ const mm::test::case_ cases[] = {
     { "parse_file of missing path is empty",      &parse_file_of_missing_path_is_empty },
     { "parse_file of directory is empty",         &parse_file_of_directory_is_empty },
     { "parse returns every line as a block",      &parse_returns_every_line_as_a_block },
+    { "fenced code block with language",          &fenced_code_block_with_language },
+    { "fenced code block without language",       &fenced_code_block_without_language },
+    { "fenced code block preserves blank lines and yaml dashes", &fenced_code_block_preserves_blank_lines_and_yaml_dashes },
+    { "unterminated code block preserves content at eof", &unterminated_code_block_preserves_content_at_eof },
+    { "parse reads fenced code block",            &parse_reads_fenced_code_block },
 };
 
 const mm::test::registrar reg{"mm.mdy integration", cases};

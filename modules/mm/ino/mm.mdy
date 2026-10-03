@@ -7,6 +7,7 @@ use: mm.mdy
 file: ino.cppm
 file: src/ino.cpp
 file: src/guard.cpp
+file: src/siblings.cpp
 option: buildable-target no
 ---
 

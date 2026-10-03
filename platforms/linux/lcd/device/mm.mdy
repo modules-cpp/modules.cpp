@@ -1,0 +1,11 @@
+---
+mm: 1.2
+kind: module
+name: linux-lcd-device
+module: platform.linux.lcd.device
+file: device.cppm
+use: mm.mcu
+use: platform.linux.lcd.chip
+use: platform.linux.lcd.panel
+option: buildable-host no
+---

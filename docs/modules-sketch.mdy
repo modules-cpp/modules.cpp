@@ -3,7 +3,7 @@ mm: 1.0
 kind: doc
 name: modules.cpp sketch specification
 status: official
-release: v1.3.0
+release: v1.3.1
 ---
 
 # Sketch compatibility specification
@@ -368,6 +368,8 @@ bool detachInterrupt(int pin);
 bool detachInterrupt(unsigned int pin);
 [[nodiscard]] int digitalPinToInterrupt(int pin);
 [[nodiscard]] unsigned int digitalPinToInterrupt(unsigned int pin);
+void noInterrupts();
+void interrupts();
 Closing fence
 
 attachInterrupt registers a handler function for GPIO edge events on the specified pin, configuring the pin for edge detection via mm.mcu. Trigger modes are RISING, FALLING, and CHANGE (mapped to mm::mcu::Edge::Rising, mm::mcu::Edge::Falling, and mm::mcu::Edge::Both). LOW and HIGH level interrupts are declined because level detection cannot be latched. The module maintains a fixed table of eight interrupt entries; attempting to attach a ninth returns false with Status::Busy. Re-attaching an already attached pin updates its handler and trigger, reusing the slot.
@@ -376,7 +378,7 @@ detachInterrupt clears the interrupt registration and unwatches the pin via mm.m
 
 digitalPinToInterrupt is the identity mapping: every GPIO pin that the latch supports serves directly as its own interrupt identifier.
 
-The legacy interrupts and noInterrupts functions are declined. The modules.cpp execution model runs sketch handlers in thread context without preemption; disabling global interrupts is neither necessary nor supported.
+noInterrupts and interrupts hold off and resume the attached handlers. Sketch handlers run in thread context, from dispatch, without preemption, so the handlers are the only interrupts a sketch can observe: between noInterrupts and interrupts dispatch runs none of them, including the dispatch inside delay, and an edge that arrives in between stays latched in mm.mcu and its handler runs at the first dispatch after interrupts. A variable a handler shares with loop can therefore be read and reset between the two calls, as on an Arduino core. The calls do not nest: interrupts resumes however many noInterrupts came before it, and calling either twice is harmless. run begins with handlers resumed. They do not call mm.mcu's interrupts_disable or interrupts_enable. The platform's own handlers keep running, so a delay, bus transfer, or Serial write between the two calls behaves as it does outside them. docs/modules-execution.mdy forbids a waiting call inside an mm.mcu critical section, and an Arduino sketch commonly makes one there.
 
 ## Communication
 
@@ -393,9 +395,11 @@ inline constexpr Base HEX = Base::Hex;
 inline constexpr Base OCT = Base::Oct;
 inline constexpr Base BIN = Base::Bin;
 
+inline constexpr unsigned int SERIAL_8N1 = 0x06;
+
 class SerialPort {
 public:
-    bool begin(unsigned long baud = 9600);
+    bool begin(unsigned long baud = 9600, unsigned int config = SERIAL_8N1);
     bool end();
 
     std::size_t write(byte b);
@@ -472,6 +476,51 @@ find and findUntil perform streaming Knuth-Morris-Pratt pattern matching, suppor
 
 onSerial registers a callback invoked from dispatch once per pass whenever unread bytes remain in the receive ring buffer.
 
+### Serial1 and Serial2
+
+Opening fence
+class HardwareSerial : public Stream {
+public:
+    constexpr HardwareSerial() = default;
+    constexpr explicit HardwareSerial(unsigned int port);
+
+    bool begin(unsigned long baud = 9600, unsigned int config = SERIAL_8N1);
+    bool end();
+    bool setTX(unsigned int pin);
+    bool setRX(unsigned int pin);
+
+    std::size_t write(byte b) override;
+    std::size_t write(const byte* buffer, std::size_t size) override;
+    [[nodiscard]] int available() override;
+    int read() override;
+    int peek() override;
+    void flush() override;
+    explicit operator bool() const;
+};
+
+extern HardwareSerial Serial1;
+extern HardwareSerial Serial2;
+Closing fence
+
+Serial1 and Serial2 are hardware UARTs over mm.mcu's byte UART calls, each a
+Stream, so everything Print and Stream offer -- print, println, readBytes,
+parseInt, readStringUntil -- works on them. Serial is the console, which may be
+USB, and is a different object. Serial1 is the board's default UART,
+Board::uart, and Serial2 its second, Board::second_uart; a port whose board
+declares no UART fails begin with Status::Unsupported unless setTX and setRX,
+the RP2040 and RP2350 cores' spelling, named both pins first, in which case it
+begins on its own instance (Serial1 on 0, Serial2 on 1). After begin a running
+port keeps its pins, and setTX and setRX return true only for the pin in use.
+
+write queues what the UART takes and waits, up to the stream's timeout, for
+room for the rest; a timeout records Status::Timeout, sets the port's write
+error, and returns what was queued. read, peek, and available never wait: they
+take what has arrived into a sixty-four-byte buffer. flush returns at once,
+because mm.mcu reports what it accepted, not what has left the wire. end
+releases the port, and run releases any port a sketch left begun. On the Pico
+SDK vendor boards Serial1 is UART0 on GP0 and GP1 and Serial2 UART1 on GP8 and
+GP9; on Linux they are the device map's uart.0 and uart.1.
+
 ### SPI
 
 Opening fence
@@ -509,6 +558,10 @@ Closing fence
 
 SPI provides SPI master communication over mm.mcu's spi_configure and spi_transfer.
 
+usbStorageBegin, usbStoragePresent, usbStorageSectorCount, usbStorageRead, and usbStorageWrite read and write a USB flash drive on a board with a USB host port, through mm.mcu's block storage, in 512-byte sectors, the unit SdFat's block devices speak. usbStorageBegin polls until a drive with 512-byte sectors is ready or its timeout passes, running dispatch between polls as delay does, and records the drive's sector count; a drive with another sector size is Unsupported. usbStoragePresent polls once. Read and write take whole sectors and wait for the drive. Each answers false and latches the reason on failure. SdFat's block device interface belongs to SdFat, so the adapter that makes a drive an SdFat volume is a sketch library, mm-usb-storage, beside SdFat.
+
+SS, MOSI, MISO, and SCK are the SPI pin names an Arduino core's board variant defines, for the board's default SPI wiring: its chip select, transmit, receive, and clock GPIOs. Each is an SpiPin that reads mm.mcu's board description when it converts to a pin number, so it names the pin of the board the program runs on; on the Pico SDK boards SCK is GP18, MOSI GP19, MISO GP16, and SS GP15, DAT3 in SdFat's SDIO wiring for the Pico, the line an SD card in SPI mode is selected by. A name the wiring lacks converts to no_pin, 0xffff, which every pin function refuses. They are not constant expressions: the board is chosen when the program is linked, not when the sketch is compiled.
+
 begin initializes the SPI bus using the board's default SPI wiring (clock, transmit, and optional receive GPIOs) with default settings of 4 MHz, MSBFIRST, SPI_MODE0. If the board declares no SPI wiring, begin returns false and latches Status::Unsupported. end resets the sketch SPI state without deconfiguring the underlying peripheral hardware; the object may be re-initialized with begin.
 
 beginTransaction applies a new SPISettings (clock speed, bit order, and SPI mode) by reconfiguring the underlying SPI peripheral via mm.mcu spi_configure. If begin has not been called, beginTransaction latches Status::NotInitialized. endTransaction is a no-op placeholder for symmetry.
@@ -522,9 +575,16 @@ SPISettings bundles clock speed, bit order, and SPI mode. The three SPI mode con
 Opening fence
 class TwoWire {
 public:
+    constexpr TwoWire() = default;
+    constexpr explicit TwoWire(unsigned int bus);
+
     bool begin();
+    bool begin(int sda, int scl);
+    bool begin(int sda, int scl, unsigned long frequency);
     bool end();
     void setClock(unsigned long clock_speed);
+    bool setSDA(unsigned int pin);
+    bool setSCL(unsigned int pin);
 
     void beginTransmission(byte address);
     void beginTransmission(int address);
@@ -543,9 +603,19 @@ public:
 };
 
 extern TwoWire Wire;
+extern TwoWire Wire1;
+extern TwoWire Wire2;
 Closing fence
 
 Wire provides I2C master communication over mm.mcu's i2c_configure, i2c_write, i2c_read, and i2c_write_read.
+
+Wire2 is a third bus, instance 2. No board declares a default wiring for it, so Wire2.begin() fails with Status::Unsupported until setSDA and setSCL, or begin(sda, scl), name its pins, and a platform with two I2C controllers, such as the Pico, refuses instance 2 when it is configured.
+
+Wire and Wire1 are two buses with separate state: transmit and receive buffers, pending write, clock, and pins. Wire is bus 0, on the board's I2C wiring; Wire1 is bus 1, on the board's second I2C wiring, Board::second_i2c in mm.mcu, which the Pico SDK vendor boards give as instance 1 on GP26 and GP27, the Arduino cores' Wire1 pins. A board without a second wiring leaves Wire1.begin() failing with Status::Unsupported. Diagnostics name the bus: Wire.begin, Wire1.begin.
+
+begin(sda, scl) and begin(sda, scl, frequency) make the same choice at begin: each non-negative pin replaces the board's, and a nonzero frequency is then set as setClock sets it.
+
+setSDA and setSCL are the RP2040 and RP2350 cores' spelling for choosing a bus's pins. Before begin they record the pin and return true, and begin then uses them in place of the board's; with both named, a bus begins on its own instance even where the board declares no wiring for it. After begin a running bus keeps its pins, so each returns true only for the pin already in use.
 
 begin initializes the I2C bus using the board's default I2C wiring (data and clock GPIOs) at 100 kHz. If the board declares no I2C wiring, begin returns false and latches Status::Unsupported. Wire.begin(addr) and the slave callbacks onReceive/onRequest are declined: mm.mcu is a master-only interface. end resets the sketch Wire state without deconfiguring the underlying peripheral hardware; the object may be re-initialized with begin.
 
@@ -558,6 +628,68 @@ endTransmission executes the buffered write via mm.mcu i2c_write. It returns a s
 requestFrom reads up to min(quantity, 32) bytes from the given address into an internal receive buffer. If a deferred write is pending for the same address, the operation becomes a combined write-then-read. Returns the number of bytes received.
 
 available returns the count of unread bytes in the receive buffer. read returns the next byte and advances the read head, or -1 if the buffer is exhausted. peek returns the next byte without advancing the head, or -1. flush is a no-op.
+
+## The legacy profile
+
+The vocabulary above has one signature per function, and it refuses what it
+does not mean: digitalWrite takes a Level, and an integer does not convert to
+one. The Arduino core accepts integers in those places, and published libraries
+rely on it. The legacy profile accepts them, for applications that ask.
+
+Opening fence
+namespace mm::sketch::legacy {
+bool digitalWrite(unsigned int pin, int level);          // 0 LOW, else HIGH
+bool digitalWrite(Led, int level);
+bool pinMode(unsigned int pin, int mode);                // 0 INPUT, 1 OUTPUT,
+bool pinMode(Led, int mode);                             // 2 INPUT_PULLUP,
+                                                         // 3 INPUT_PULLDOWN
+[[nodiscard]] int analogRead(unsigned char pin);
+[[nodiscard]] int analogRead(int pin);
+[[nodiscard]] int analogRead(long pin);
+[[nodiscard]] int analogRead(unsigned long pin);
+[[nodiscard]] unsigned long pulseIn(unsigned int pin, int value,
+                                    unsigned long timeout = 1000000UL);
+[[nodiscard]] unsigned long pulseInLong(unsigned int pin, int value,
+                                        unsigned long timeout = 1000000UL);
+byte shiftIn(unsigned int data_pin, unsigned int clock_pin, int bit_order);
+void shiftOut(unsigned int data_pin, unsigned int clock_pin, int bit_order,
+              byte val);                                 // 0 LSBFIRST, 1 MSBFIRST
+}
+Closing fence
+
+The namespace is part of mm.sketch and is exported with it, but nothing sees it
+unless the application is generated with sketch --legacy: its manifest then
+carries sketch-profile: legacy, and its main.cpp and Sketch.h add using
+namespace mm::sketch::legacy after using namespace mm::sketch, so the sketch
+and the library sources that include Arduino.h both see the overloads. An
+application without the key never has the namespace in scope, and
+digitalWrite(pin, 1) is refused there as before.
+
+Each overload forwards to the core function it loosens and behaves exactly as
+that function does; only what it accepts differs. A value the core has no
+spelling for -- a mode above 3, a bit order above 1 -- records
+Status::BadArgument under the core function's name and does not reach the
+core function. The analogRead overloads let a sketch or library store
+analogRead's address as int (*)(uint8_t), the core's signature, or as
+int (*)(int), and a pin no channel can have, negative or wider than unsigned
+int, fails as an unknown pin does rather than wrapping onto a real one.
+
+With both namespaces in scope, a call the core accepts keeps the core overload:
+each core parameter is an exact match where the legacy one needs a promotion,
+so digitalWrite(pin, HIGH), pinMode(pin, OUTPUT), and shiftOut(d, c, MSBFIRST,
+v) resolve as they do without the profile. A uint8_t, char, short, or bool
+level promotes to int and takes the legacy overload. tests/mm/sketch compiles
+both kinds of call in one translation unit.
+
+The build reports every legacy application, and the sketch libraries compiled
+into one, under the application's link line and in a closing summary, so a
+project sees where it accepts what the core does not.
+
+The inventory holds what published code was found to need. Its first entries
+came from RobTillaart's libraries: AS5600, FastShiftInOut, ParallelPrinter,
+PinOutGroup, MATRIX7219, logicAnalyzer, and Stopwatch_RT pass integer or bool
+levels, and ADS1X15's ADS_pointerToFunction takes analogRead's address. Other
+signatures the Arduino core accepts are added when code needs them.
 
 ## Variables, types, and constants
 
@@ -622,6 +754,7 @@ public:
     explicit String(std::string_view s);
     explicit String(int value, unsigned char base = 10);           // and unsigned int,
     explicit String(long value, unsigned char base = 10);          // and unsigned long
+    explicit String(int value, Base base);                         // and unsigned int, long, ulong
     explicit String(double value, unsigned char decimal_places = 2);  // and float
 
     const std::string& str() const noexcept;

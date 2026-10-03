@@ -36,16 +36,22 @@ std::filesystem::path image_for(const std::filesystem::path& executable) {
 }
 
 std::optional<std::string> command(const std::filesystem::path& picotool,
-                                   const std::filesystem::path& image) {
+                                   const std::filesystem::path& image,
+                                   bool auto_flash) {
     if (picotool.empty() || image.empty()) return std::nullopt;
-    return mm::build::shell_quote(picotool) + " 'load' '-v' '-x' " +
-           mm::build::shell_quote(image);
+    std::string cmd = mm::build::shell_quote(picotool) + " 'load' ";
+    if (auto_flash) {
+        cmd += "'-f' ";
+    }
+    cmd += "'-v' '-x' " + mm::build::shell_quote(image);
+    return cmd;
 }
 
 int execute(const mm::build::Toolchain& toolchain,
             const std::filesystem::path& picotool,
-            const std::filesystem::path& image) {
-    const auto invocation = command(picotool, image);
+            const std::filesystem::path& image,
+            bool auto_flash) {
+    const auto invocation = command(picotool, image, auto_flash);
     return invocation ? mm::build::run(toolchain, *invocation) : -1;
 }
 

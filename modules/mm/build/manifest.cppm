@@ -52,6 +52,14 @@ struct BuildableNode {
     // exercises, in declared order. Each contributes an include directory and
     // the sources compiled into this application.
     std::vector<std::filesystem::path> sketch_libraries;
+    // sketch-profile: legacy. The build compiles such an application like any
+    // other and reports it, with its sketch libraries, as legacy code.
+    bool sketch_legacy = false;
+    // sketch-define: the preprocessor definitions a sketch application and its
+    // sketch libraries are compiled with, NAME or NAME=VALUE, in declared
+    // order: the configuration a library's documentation says to set in its
+    // own header, recorded here instead of edited there.
+    std::vector<std::string> sketch_defines;
     std::vector<std::filesystem::path> objects;  // filled in by compile
     bool external = false;
     bool non_core = false;
@@ -164,6 +172,8 @@ struct LoadPolicy {
     bool strict_tree = false;
     bool warn_options = false;
     std::optional<std::filesystem::path> external;
+    bool check = false;
+    bool print_folders = false;
 };
 
 [[nodiscard]] bool validate_manifest_schema(const mm::mdy::MDYDocument& document,

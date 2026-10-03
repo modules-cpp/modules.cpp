@@ -1,0 +1,12 @@
+---
+mm: 1.2
+kind: board
+name: pico_usb_device
+derives-from: pico
+platform-provider: mm.usb.device platform.pico.usb.device
+---
+
+# pico_usb_device
+
+A Raspberry Pi Pico whose native USB port is given to the application stack
+(platform.pico.usb.device), with the console redirected to the default UART.

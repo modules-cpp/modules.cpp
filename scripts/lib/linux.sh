@@ -44,7 +44,8 @@ mm_linux_resolve_arch() {
 }
 
 # target, sdk, machine, the generic board's map provider as linux_map, and the
-# board of the given family -- generic, sdl, or epaper -- for arch.
+# board of the given family -- generic, sdl, epaper, lcd, or ili9341 -- for
+# arch.
 mm_linux_lane() {
     case "$arch" in
         aarch64)

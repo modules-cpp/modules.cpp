@@ -32,4 +32,5 @@ folder: lcd
 folder: rtc
 folder: sketch
 folder: linux
+folder: usb
 ---

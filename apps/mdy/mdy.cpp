@@ -43,6 +43,9 @@ int sample() {
             case mm::mdy::BlockType::Heading2: std::cout << "Heading2: "; break;
             case mm::mdy::BlockType::Heading3: std::cout << "Heading3: "; break;
             case mm::mdy::BlockType::UnorderedList: std::cout << "UnorderedList: "; break;
+            case mm::mdy::BlockType::CodeBlock:
+                std::cout << "CodeBlock" << (block.language.empty() ? "" : " (") << block.language << (block.language.empty() ? ": " : "): ");
+                break;
             default: std::cout << "Text: "; break;
         }
         std::cout << block.content << "\n";
@@ -109,6 +112,13 @@ std::string to_html(const std::vector<mm::mdy::Block>& blocks) {
                 break;
             case mm::mdy::BlockType::Paragraph:
                 html_output += "<p>" + escape(block.content) + "</p>\n";
+                break;
+            case mm::mdy::BlockType::CodeBlock:
+                if (!block.language.empty()) {
+                    html_output += "<pre><code class=\"language-" + escape(block.language) + "\">" + escape(block.content) + "</code></pre>\n";
+                } else {
+                    html_output += "<pre><code>" + escape(block.content) + "</code></pre>\n";
+                }
                 break;
             case mm::mdy::BlockType::Empty:
                 break;
@@ -533,6 +543,9 @@ int MdyApp::run() {
         for (const auto& block : doc.body) {
             if (block.type == mm::mdy::BlockType::Heading1) {
                 log << "Heading: " << block.content << "\n";
+            } else if (block.type == mm::mdy::BlockType::CodeBlock) {
+                log << "Code" << (block.language.empty() ? "" : " (") << block.language << (block.language.empty() ? ":\n" : "):\n")
+                    << block.content << "\n";
             } else {
                 log << "Text: " << block.content << "\n";
             }

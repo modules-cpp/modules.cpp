@@ -362,6 +362,7 @@ int compile(const Toolchain& toolchain, BuildableNode& target,
         std::string command = toolchain.compiler.invocation + " " + toolchain.compiler.arguments;
         for (const auto& include : include_directories)
             command += " -I " + shell_quote(include);
+        command += compile_definitions(target);
         if (!clang_modules) {
             command += " -fmodules-ts -fmodule-mapper=" +
                        shell_quote(bmi_dir / "gcc.mapper") + " -x c++";
@@ -403,6 +404,13 @@ int compile(const Toolchain& toolchain, BuildableNode& target,
     }
 
     return exit_ok;
+}
+
+std::string compile_definitions(const BuildableNode& target) {
+    std::string out;
+    if (target.sketch_legacy) out += " -DARDUINO=" + std::string(sketch_arduino_version);
+    for (const auto& definition : target.sketch_defines) out += " -D" + definition;
+    return out;
 }
 
 int compile(const Toolchain& toolchain, BuildableNode& target,

@@ -3,6 +3,7 @@
 // rather than here: this file implements it, and the module calls it.
 #include "../mcu/mcu-c.h"
 #include "../stdio/stdio-c.h"
+#include "../usb/device/usb-device-c.h"
 #include "hardware/adc.h"
 #include "hardware/clocks.h"
 #include "hardware/dma.h"
@@ -18,15 +19,48 @@
 #include "pico/stdlib.h"
 #include "pico/stdio_semihosting.h"
 #include "pico/stdio_uart.h"
+#if !MM_BOARD_USB_PORT_APPLICATION
 #include "pico/stdio_usb.h"
+#endif
 #include "pico/time.h"
 #include <limits.h>
 #include <stdio.h>
+#include <string.h>
+
+#if MM_BOARD_HAS_USB_HOST
+#include "tusb.h"
+#include "pio_usb.h"
+#endif
 
 // The vendor surface: ext.pico, for code that wants Pico SDK specifically.
 
 static int mm_pico_stdio_attempted;
 static int mm_pico_stdio_ready;
+
+#if MM_BOARD_HAS_USB_HOST
+// A board with a PIO USB host port. Pico-PIO-USB bit-bangs full-speed USB and
+// needs the system clock at a multiple of 12 MHz. The clock is set before
+// anything else runs, in a constructor ahead of every C++ static initializer,
+// because the peripheral clock follows it and a UART or SPI configured at the
+// default clock would be left at the wrong rate.
+__attribute__((constructor(101))) static void mm_pico_usb_host_clock(void) {
+    set_sys_clock_khz(120000, true);
+}
+
+static int mm_pico_usb_started;
+
+// TinyUSB before pico_stdio_usb, which expects it initialised when the host is
+// linked: the native port as the console device, the PIO port as the host.
+static void mm_pico_usb_start(void) {
+    if (mm_pico_usb_started) return;
+    mm_pico_usb_started = 1;
+    pio_usb_configuration_t configuration = PIO_USB_DEFAULT_CONFIG;
+    configuration.pin_dp = MM_BOARD_USB_HOST_DP_PIN;
+    tuh_configure(BOARD_TUH_RHPORT, TUH_CFGID_RPI_PIO_USB_CONFIGURATION, &configuration);
+    tud_init(BOARD_TUD_RHPORT);
+    tuh_init(BOARD_TUH_RHPORT);
+}
+#endif
 
 static void mm_pico_initialize_stdio(void) {
     if (mm_pico_stdio_attempted) return;
@@ -43,7 +77,14 @@ static void mm_pico_initialize_stdio(void) {
 #if LIB_PICO_STDIO_SEMIHOSTING
     stdio_semihosting_init();
 #endif
-#if LIB_PICO_STDIO_USB
+#if MM_BOARD_HAS_USB_HOST
+    mm_pico_usb_start();
+#endif
+#if MM_BOARD_USB_PORT_APPLICATION
+#if LIB_PICO_STDIO_UART
+    mm_pico_stdio_ready = 1;
+#endif
+#elif LIB_PICO_STDIO_USB
     mm_pico_stdio_ready = stdio_usb_init() ? 1 : 0;
 #endif
 }
@@ -86,12 +127,24 @@ int mm_pico_stdio_write(const unsigned char* data, size_t size, size_t* written)
         return MM_PICO_STDIO_BAD_ARGUMENT;
 
     *written = 0;
+#if MM_BOARD_USB_PORT_APPLICATION
+    if (size == 0) return MM_PICO_STDIO_OK;
+#if LIB_PICO_STDIO_UART
+    if (stdio_uart.out_chars == NULL) return MM_PICO_STDIO_UNSUPPORTED;
+    stdio_uart.out_chars((const char*)data, (int)size);
+    *written = size;
+    return MM_PICO_STDIO_OK;
+#else
+    return MM_PICO_STDIO_UNSUPPORTED;
+#endif
+#else
     if (size == 0 || !stdio_usb_connected()) return MM_PICO_STDIO_OK;
     if (stdio_usb.out_chars == NULL) return MM_PICO_STDIO_UNSUPPORTED;
 
     stdio_usb.out_chars((const char*)data, (int)size);
     *written = size;
     return MM_PICO_STDIO_OK;
+#endif
 }
 
 int mm_pico_stdio_read(unsigned char* data, size_t size, size_t* count) {
@@ -100,6 +153,21 @@ int mm_pico_stdio_read(unsigned char* data, size_t size, size_t* count) {
         return MM_PICO_STDIO_BAD_ARGUMENT;
 
     *count = 0;
+#if MM_BOARD_USB_PORT_APPLICATION
+    if (size == 0) return MM_PICO_STDIO_OK;
+#if LIB_PICO_STDIO_UART
+    if (stdio_uart.in_chars == NULL) return MM_PICO_STDIO_UNSUPPORTED;
+    const int result = stdio_uart.in_chars((char*)data, (int)size);
+    if (result > 0) {
+        *count = (size_t)result;
+        return MM_PICO_STDIO_OK;
+    }
+    if (result == PICO_ERROR_NO_DATA) return MM_PICO_STDIO_OK;
+    return MM_PICO_STDIO_TRANSPORT_ERROR;
+#else
+    return MM_PICO_STDIO_UNSUPPORTED;
+#endif
+#else
     if (size == 0 || !stdio_usb_connected()) return MM_PICO_STDIO_OK;
     if (stdio_usb.in_chars == NULL) return MM_PICO_STDIO_UNSUPPORTED;
 
@@ -110,20 +178,36 @@ int mm_pico_stdio_read(unsigned char* data, size_t size, size_t* count) {
     }
     if (result == PICO_ERROR_NO_DATA) return MM_PICO_STDIO_OK;
     return MM_PICO_STDIO_TRANSPORT_ERROR;
+#endif
 }
 
 int mm_pico_stdio_flush(void) {
     if (!mm_pico_stdio_ready) return MM_PICO_STDIO_NOT_INITIALIZED;
+#if MM_BOARD_USB_PORT_APPLICATION
+#if LIB_PICO_STDIO_UART
+    if (stdio_uart.out_flush == NULL) return MM_PICO_STDIO_UNSUPPORTED;
+    stdio_uart.out_flush();
+    return MM_PICO_STDIO_OK;
+#else
+    return MM_PICO_STDIO_UNSUPPORTED;
+#endif
+#else
     if (stdio_usb.out_flush == NULL) return MM_PICO_STDIO_UNSUPPORTED;
     stdio_usb.out_flush();
     return MM_PICO_STDIO_OK;
+#endif
 }
 
 int mm_pico_stdio_connected(int* connected) {
     if (!mm_pico_stdio_ready) return MM_PICO_STDIO_NOT_INITIALIZED;
     if (connected == NULL) return MM_PICO_STDIO_BAD_ARGUMENT;
+#if MM_BOARD_USB_PORT_APPLICATION
+    *connected = 1;
+    return MM_PICO_STDIO_OK;
+#else
     *connected = stdio_usb_connected() ? 1 : 0;
     return MM_PICO_STDIO_OK;
+#endif
 }
 
 // The platform surface: the private ABI beneath platform.pico.mcu. Both live in
@@ -451,23 +535,117 @@ int mm_pico_mcu_i2c_write_read(unsigned int instance, unsigned int address,
     return read < 0 ? MM_PICO_MCU_UNSUPPORTED : MM_PICO_MCU_BUSY;
 }
 
-// Portable instance zero means the selected SDK board's default hardware UART.
-// Every Raspberry Pi Pico board definition supplies its UART number and TX/RX
-// pins. A second portable instance would need its own board description and is
-// Unsupported rather than silently aliasing the default.
+// The byte calls below address a hardware UART by its number, 0 or 1, and
+// each must be configured first. mm_pico_uart_ready records which are.
+static uart_inst_t* mm_pico_uart(unsigned int instance) {
+    if (instance == 0) return uart0;
+    if (instance == 1) return uart1;
+    return NULL;
+}
+
+static int mm_pico_uart_ready[2];
+
+// On RP2040 and RP2350 a UART's TX is where pin % 4 is 0 and its RX where it
+// is 1, and the instance alternates in runs of eight offset by four: GP0-3
+// UART0, GP4-11 UART1, GP12-19 UART0, GP20-27 UART1, GP28-29 UART0, which
+// is ((pin + 4) / 8) % 2.
+static int mm_pico_uart_pin_matches(unsigned int instance, unsigned int pin,
+                                    unsigned int signal) {
+    return ((pin + 4u) / 8u) % 2u == instance && pin % 4u == signal;
+}
+
+// Portable text instance zero means the selected SDK board's default hardware
+// UART. Every Raspberry Pi Pico board definition supplies its UART number and
+// TX/RX pins. A second portable instance would need its own board description
+// and is Unsupported rather than silently aliasing the default. A default UART
+// already configured through mm_pico_mcu_uart_configure keeps its rate.
 int mm_pico_mcu_uart_write(unsigned int instance, const char* text) {
-    static int initialized = 0;
     if (text == NULL) return MM_PICO_MCU_BAD_ARGUMENT;
     if (instance != 0) return MM_PICO_MCU_UNSUPPORTED;
 
-    if (!initialized) {
+    if (!mm_pico_uart_ready[PICO_DEFAULT_UART]) {
         uart_init(uart_default, PICO_DEFAULT_UART_BAUD_RATE);
         gpio_set_function(PICO_DEFAULT_UART_TX_PIN, GPIO_FUNC_UART);
         gpio_set_function(PICO_DEFAULT_UART_RX_PIN, GPIO_FUNC_UART);
-        initialized = 1;
+        mm_pico_uart_ready[PICO_DEFAULT_UART] = 1;
     }
     uart_puts(uart_default, text);
     return MM_PICO_MCU_OK;
+}
+
+int mm_pico_mcu_uart_configure(unsigned int instance, unsigned int transmit_pin,
+                               unsigned int receive_pin, unsigned long baud) {
+    uart_inst_t* uart = mm_pico_uart(instance);
+    if (uart == NULL || baud == 0 || !mm_pico_pin_valid(transmit_pin) ||
+        !mm_pico_pin_valid(receive_pin) ||
+        !mm_pico_uart_pin_matches(instance, transmit_pin, 0u) ||
+        !mm_pico_uart_pin_matches(instance, receive_pin, 1u))
+        return MM_PICO_MCU_BAD_ARGUMENT;
+
+    uart_init(uart, (uint)baud);
+    gpio_set_function(transmit_pin, GPIO_FUNC_UART);
+    gpio_set_function(receive_pin, GPIO_FUNC_UART);
+    mm_pico_uart_ready[instance] = 1;
+    return MM_PICO_MCU_OK;
+}
+
+// Neither call waits: the FIFOs take or give what they have.
+int mm_pico_mcu_uart_send(unsigned int instance, const unsigned char* data, size_t size,
+                          size_t* accepted) {
+    uart_inst_t* uart = mm_pico_uart(instance);
+    if (uart == NULL || !mm_pico_uart_ready[instance] || accepted == NULL ||
+        (data == NULL && size != 0))
+        return MM_PICO_MCU_BAD_ARGUMENT;
+    size_t sent = 0;
+    while (sent < size && uart_is_writable(uart)) uart_putc_raw(uart, (char)data[sent++]);
+    *accepted = sent;
+    return MM_PICO_MCU_OK;
+}
+
+int mm_pico_mcu_uart_receive(unsigned int instance, unsigned char* data, size_t size,
+                             size_t* count) {
+    uart_inst_t* uart = mm_pico_uart(instance);
+    if (uart == NULL || !mm_pico_uart_ready[instance] || count == NULL ||
+        (data == NULL && size != 0))
+        return MM_PICO_MCU_BAD_ARGUMENT;
+    size_t taken = 0;
+    while (taken < size && uart_is_readable(uart)) data[taken++] = (unsigned char)uart_getc(uart);
+    *count = taken;
+    return MM_PICO_MCU_OK;
+}
+
+int mm_pico_mcu_uart_release(unsigned int instance) {
+    uart_inst_t* uart = mm_pico_uart(instance);
+    if (uart == NULL || !mm_pico_uart_ready[instance]) return MM_PICO_MCU_BAD_ARGUMENT;
+    uart_deinit(uart);
+    mm_pico_uart_ready[instance] = 0;
+    return MM_PICO_MCU_OK;
+}
+
+// The board's default UART, from its SDK board header, and whether it has a
+// second one the bridge's board table vouches for.
+int mm_pico_mcu_default_uart(unsigned int* instance, unsigned int* transmit_pin,
+                             unsigned int* receive_pin) {
+#if defined(PICO_DEFAULT_UART) && defined(PICO_DEFAULT_UART_TX_PIN) && \
+    defined(PICO_DEFAULT_UART_RX_PIN)
+    *instance = (unsigned int)PICO_DEFAULT_UART;
+    *transmit_pin = (unsigned int)PICO_DEFAULT_UART_TX_PIN;
+    *receive_pin = (unsigned int)PICO_DEFAULT_UART_RX_PIN;
+    return 1;
+#else
+    (void)instance;
+    (void)transmit_pin;
+    (void)receive_pin;
+    return 0;
+#endif
+}
+
+int mm_pico_mcu_has_second_uart(void) {
+#if MM_BOARD_HAS_SECOND_UART
+    return 1;
+#else
+    return 0;
+#endif
 }
 
 int mm_pico_mcu_delay_ms(unsigned long milliseconds) {
@@ -1191,6 +1369,16 @@ int mm_pico_mcu_has_led(void) {
 #endif
 }
 
+// A board with a second I2C wiring says so through MM_BOARD_HAS_SECOND_I2C,
+// from the bridge's board table.
+int mm_pico_mcu_has_second_i2c(void) {
+#if MM_BOARD_HAS_SECOND_I2C
+    return 1;
+#else
+    return 0;
+#endif
+}
+
 unsigned int mm_pico_mcu_led_gpio(void) {
 #if defined(PICO_DEFAULT_LED_PIN) && MM_BOARD_HAS_LED
     return (unsigned int)PICO_DEFAULT_LED_PIN;
@@ -1206,3 +1394,162 @@ int mm_pico_mcu_led_active_high(void) {
     return 1;
 #endif
 }
+
+// Block storage over TinyUSB's mass-storage host. One device, logical unit
+// zero. Nothing runs the host stack between calls: each call runs it on the
+// caller's thread, poll for a moment and a transfer until it completes, so a
+// drive is noticed when the program asks.
+#if MM_BOARD_HAS_USB_HOST
+static uint8_t mm_pico_storage_address;
+static volatile int mm_pico_storage_done;
+static volatile int mm_pico_storage_passed;
+
+void tuh_msc_mount_cb(uint8_t dev_addr) { mm_pico_storage_address = dev_addr; }
+
+void tuh_msc_umount_cb(uint8_t dev_addr) {
+    if (mm_pico_storage_address == dev_addr) mm_pico_storage_address = 0;
+}
+
+static bool mm_pico_storage_complete(uint8_t dev_addr, tuh_msc_complete_data_t const* data) {
+    (void)dev_addr;
+    mm_pico_storage_passed = data->csw->status == MSC_CSW_STATUS_PASSED;
+    mm_pico_storage_done = 1;
+    return true;
+}
+
+static int mm_pico_storage_ready(void) {
+    return mm_pico_storage_address != 0 && tuh_msc_mounted(mm_pico_storage_address);
+}
+
+// Runs the host stack until the transfer in flight completes, the device goes,
+// or the deadline passes.
+static int mm_pico_storage_wait(void) {
+    const absolute_time_t deadline = make_timeout_time_ms(5000);
+    while (!mm_pico_storage_done) {
+        tuh_task();
+        if (!mm_pico_storage_ready()) return MM_PICO_MCU_TRANSPORT_ERROR;
+        if (time_reached(deadline)) return MM_PICO_MCU_TIMEOUT;
+    }
+    return mm_pico_storage_passed ? MM_PICO_MCU_OK : MM_PICO_MCU_TRANSPORT_ERROR;
+}
+
+static int mm_pico_storage_check(unsigned long long block, unsigned long size,
+                                 unsigned int* per_block) {
+    if (!mm_pico_storage_ready()) return MM_PICO_MCU_TRANSPORT_ERROR;
+    const uint32_t block_size = tuh_msc_get_block_size(mm_pico_storage_address, 0);
+    const uint32_t block_count = tuh_msc_get_block_count(mm_pico_storage_address, 0);
+    if (block_size == 0 || size == 0 || size % block_size != 0)
+        return MM_PICO_MCU_BAD_ARGUMENT;
+    if (block > block_count || size / block_size > block_count - block)
+        return MM_PICO_MCU_BAD_ARGUMENT;
+    *per_block = block_size;
+    return MM_PICO_MCU_OK;
+}
+
+// Transfers go in pieces of at most this many blocks, so one buffer never
+// holds the host stack for long.
+enum { MM_PICO_STORAGE_CHUNK_BLOCKS = 32 };
+#endif
+
+int mm_pico_mcu_has_storage(void) {
+#if MM_BOARD_HAS_USB_HOST
+    return 1;
+#else
+    return 0;
+#endif
+}
+
+int mm_pico_mcu_storage_poll(int* present) {
+#if MM_BOARD_HAS_USB_HOST
+    if (present == NULL) return MM_PICO_MCU_BAD_ARGUMENT;
+    mm_pico_usb_start();
+    const absolute_time_t until = make_timeout_time_ms(2);
+    do {
+        tuh_task();
+    } while (!time_reached(until));
+    *present = mm_pico_storage_ready();
+    return MM_PICO_MCU_OK;
+#else
+    (void)present;
+    return MM_PICO_MCU_UNSUPPORTED;
+#endif
+}
+
+int mm_pico_mcu_storage_geometry(unsigned long long* block_count, unsigned int* block_size) {
+#if MM_BOARD_HAS_USB_HOST
+    if (block_count == NULL || block_size == NULL) return MM_PICO_MCU_BAD_ARGUMENT;
+    if (!mm_pico_storage_ready()) return MM_PICO_MCU_TRANSPORT_ERROR;
+    *block_count = tuh_msc_get_block_count(mm_pico_storage_address, 0);
+    *block_size = tuh_msc_get_block_size(mm_pico_storage_address, 0);
+    return MM_PICO_MCU_OK;
+#else
+    (void)block_count;
+    (void)block_size;
+    return MM_PICO_MCU_UNSUPPORTED;
+#endif
+}
+
+int mm_pico_mcu_storage_read(unsigned long long block, void* data, unsigned long size) {
+#if MM_BOARD_HAS_USB_HOST
+    if (data == NULL) return MM_PICO_MCU_BAD_ARGUMENT;
+    unsigned int block_size = 0;
+    int status = mm_pico_storage_check(block, size, &block_size);
+    if (status != MM_PICO_MCU_OK) return status;
+    uint8_t* out = (uint8_t*)data;
+    unsigned long remaining = size / block_size;
+    while (remaining != 0) {
+        const uint16_t count = (uint16_t)(remaining < MM_PICO_STORAGE_CHUNK_BLOCKS
+                                              ? remaining
+                                              : MM_PICO_STORAGE_CHUNK_BLOCKS);
+        mm_pico_storage_done = 0;
+        if (!tuh_msc_read10(mm_pico_storage_address, 0, out, (uint32_t)block, count,
+                            mm_pico_storage_complete, 0))
+            return MM_PICO_MCU_BUSY;
+        status = mm_pico_storage_wait();
+        if (status != MM_PICO_MCU_OK) return status;
+        out += (unsigned long)count * block_size;
+        block += count;
+        remaining -= count;
+    }
+    return MM_PICO_MCU_OK;
+#else
+    (void)block;
+    (void)data;
+    (void)size;
+    return MM_PICO_MCU_UNSUPPORTED;
+#endif
+}
+
+int mm_pico_mcu_storage_write(unsigned long long block, const void* data, unsigned long size) {
+#if MM_BOARD_HAS_USB_HOST
+    if (data == NULL) return MM_PICO_MCU_BAD_ARGUMENT;
+    unsigned int block_size = 0;
+    int status = mm_pico_storage_check(block, size, &block_size);
+    if (status != MM_PICO_MCU_OK) return status;
+    const uint8_t* in = (const uint8_t*)data;
+    unsigned long remaining = size / block_size;
+    while (remaining != 0) {
+        const uint16_t count = (uint16_t)(remaining < MM_PICO_STORAGE_CHUNK_BLOCKS
+                                              ? remaining
+                                              : MM_PICO_STORAGE_CHUNK_BLOCKS);
+        mm_pico_storage_done = 0;
+        if (!tuh_msc_write10(mm_pico_storage_address, 0, in, (uint32_t)block, count,
+                             mm_pico_storage_complete, 0))
+            return MM_PICO_MCU_BUSY;
+        status = mm_pico_storage_wait();
+        if (status != MM_PICO_MCU_OK) return status;
+        in += (unsigned long)count * block_size;
+        block += count;
+        remaining -= count;
+    }
+    return MM_PICO_MCU_OK;
+#else
+    (void)block;
+    (void)data;
+    (void)size;
+    return MM_PICO_MCU_UNSUPPORTED;
+#endif
+}
+
+#include "adapter_usb_device.c"
+#include "adapter_usb_host.c"

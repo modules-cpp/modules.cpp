@@ -50,6 +50,26 @@ int mm_pico_mcu_i2c_write_read(unsigned int instance, unsigned int address,
                                const unsigned char* command, size_t command_size,
                                unsigned char* data, size_t size);
 int mm_pico_mcu_uart_write(unsigned int instance, const char* text);
+int mm_pico_mcu_uart_configure(unsigned int instance, unsigned int transmit_pin,
+                               unsigned int receive_pin, unsigned long baud);
+int mm_pico_mcu_uart_send(unsigned int instance, const unsigned char* data, size_t size,
+                          size_t* accepted);
+int mm_pico_mcu_uart_receive(unsigned int instance, unsigned char* data, size_t size,
+                             size_t* count);
+int mm_pico_mcu_uart_release(unsigned int instance);
+
+// Block storage: a USB mass-storage device on the PIO USB host port of a board
+// with one (MM_BOARD_HAS_USB_HOST). Every call answers
+// MM_PICO_MCU_UNSUPPORTED on any other board. size is in bytes, a whole
+// number of blocks.
+int mm_pico_mcu_has_storage(void);
+int mm_pico_mcu_storage_poll(int* present);
+int mm_pico_mcu_storage_geometry(unsigned long long* block_count, unsigned int* block_size);
+int mm_pico_mcu_storage_read(unsigned long long block, void* data, unsigned long size);
+int mm_pico_mcu_storage_write(unsigned long long block, const void* data, unsigned long size);
+int mm_pico_mcu_default_uart(unsigned int* instance, unsigned int* transmit_pin,
+                             unsigned int* receive_pin);
+int mm_pico_mcu_has_second_uart(void);
 int mm_pico_mcu_delay_ms(unsigned long milliseconds);
 int mm_pico_mcu_ticks_ms(unsigned long* ticks);
 int mm_pico_mcu_delay_us(unsigned long microseconds);
@@ -105,5 +125,6 @@ int mm_pico_mcu_pwm_release(unsigned int pin);
 const char* mm_pico_mcu_board_name(void);
 unsigned int mm_pico_mcu_gpio_count(void);
 int mm_pico_mcu_has_led(void);
+int mm_pico_mcu_has_second_i2c(void);
 unsigned int mm_pico_mcu_led_gpio(void);
 int mm_pico_mcu_led_active_high(void);

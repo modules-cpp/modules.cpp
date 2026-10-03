@@ -1,5 +1,6 @@
 // Pawel Wodnicki (C) 2026
 // 32bitmicro LLC (C) 2026
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -74,18 +75,116 @@ public:
     unsigned int feed_bit_index = 0;
     bool spi_present = true;
     bool i2c_present = true;
+    bool second_i2c_present = false;
+    bool uart_present = true;
+
+    // Two UART instances. The transmitter takes at most uart_room bytes a call;
+    // received bytes wait in uart_incoming until read.
+    struct UartLane {
+        bool ready = false;
+        mm::mcu::UartConfiguration configuration;
+        std::vector<std::byte> sent;
+        std::vector<std::byte> incoming;
+    };
+    UartLane uart_lanes[2];
+    std::size_t uart_room = 4;
+
+    [[nodiscard]] mm::mcu::Status uart_configure(
+        const mm::mcu::UartConfiguration& configuration) override {
+        if (configuration.instance >= 2 || configuration.baud == 0)
+            return mm::mcu::Status::BadArgument;
+        uart_lanes[configuration.instance] = {true, configuration, {}, {}};
+        return mm::mcu::Status::Ok;
+    }
+
+    [[nodiscard]] mm::mcu::Status uart_write(unsigned int instance,
+                                             std::span<const std::byte> data,
+                                             std::size_t& accepted) override {
+        if (instance >= 2 || !uart_lanes[instance].ready) return mm::mcu::Status::BadArgument;
+        const auto count = std::min(data.size(), uart_room);
+        auto& sent = uart_lanes[instance].sent;
+        sent.insert(sent.end(), data.begin(), data.begin() + static_cast<std::ptrdiff_t>(count));
+        accepted = count;
+        return mm::mcu::Status::Ok;
+    }
+
+    [[nodiscard]] mm::mcu::Status uart_read(unsigned int instance, std::span<std::byte> data,
+                                            std::size_t& count) override {
+        if (instance >= 2 || !uart_lanes[instance].ready) return mm::mcu::Status::BadArgument;
+        auto& incoming = uart_lanes[instance].incoming;
+        const auto taken = std::min(data.size(), incoming.size());
+        std::copy_n(incoming.begin(), taken, data.begin());
+        incoming.erase(incoming.begin(), incoming.begin() + static_cast<std::ptrdiff_t>(taken));
+        count = taken;
+        return mm::mcu::Status::Ok;
+    }
+
+    [[nodiscard]] mm::mcu::Status uart_release(unsigned int instance) override {
+        if (instance >= 2 || !uart_lanes[instance].ready) return mm::mcu::Status::BadArgument;
+        uart_lanes[instance].ready = false;
+        return mm::mcu::Status::Ok;
+    }
+
+    // A drive of storage_blocks blocks of storage_block_size bytes, present
+    // when storage_present.
+    [[nodiscard]] mm::mcu::Status storage_poll(bool& present) override {
+        present = storage_present;
+        return mm::mcu::Status::Ok;
+    }
+
+    [[nodiscard]] mm::mcu::Status storage_geometry(mm::mcu::StorageGeometry& geometry) override {
+        if (!storage_present) return mm::mcu::Status::TransportError;
+        geometry = {storage_blocks, storage_block_size};
+        return mm::mcu::Status::Ok;
+    }
+
+    [[nodiscard]] mm::mcu::Status storage_read(std::uint64_t block,
+                                               std::span<std::byte> data) override {
+        if (!storage_present) return mm::mcu::Status::TransportError;
+        if (data.size() % storage_block_size != 0 ||
+            block + data.size() / storage_block_size > storage_blocks)
+            return mm::mcu::Status::BadArgument;
+        std::copy_n(storage_bytes.begin() + static_cast<std::ptrdiff_t>(block * storage_block_size),
+                    data.size(), data.begin());
+        return mm::mcu::Status::Ok;
+    }
+
+    [[nodiscard]] mm::mcu::Status storage_write(std::uint64_t block,
+                                                std::span<const std::byte> data) override {
+        if (!storage_present) return mm::mcu::Status::TransportError;
+        if (data.size() % storage_block_size != 0 ||
+            block + data.size() / storage_block_size > storage_blocks)
+            return mm::mcu::Status::BadArgument;
+        std::copy(data.begin(), data.end(),
+                  storage_bytes.begin() + static_cast<std::ptrdiff_t>(block * storage_block_size));
+        return mm::mcu::Status::Ok;
+    }
+
+    static constexpr std::uint64_t storage_blocks = 16;
+    unsigned int storage_block_size = 512;
+    bool storage_present = false;
+    std::vector<std::byte> storage_bytes = std::vector<std::byte>(16 * 4096);
 
     [[nodiscard]] mm::mcu::Board board() const override {
         std::optional<mm::mcu::SpiWiring> spi_wiring;
         std::optional<mm::mcu::I2cWiring> i2c_wiring;
         if (spi_present) {
-            spi_wiring = mm::mcu::SpiWiring{0, 18, 19, 16};
+            spi_wiring = mm::mcu::SpiWiring{0, 18, 19, 16, 15};
         }
         if (i2c_present) {
             i2c_wiring = mm::mcu::I2cWiring{0, 4, 5};
         }
+        std::optional<mm::mcu::I2cWiring> second_i2c_wiring;
+        if (second_i2c_present) second_i2c_wiring = mm::mcu::I2cWiring{1, 26, 27};
+        std::optional<mm::mcu::UartWiring> uart_wiring;
+        std::optional<mm::mcu::UartWiring> second_uart_wiring;
+        if (uart_present) {
+            uart_wiring = mm::mcu::UartWiring{0, 0, 1};
+            second_uart_wiring = mm::mcu::UartWiring{1, 8, 9};
+        }
         return {"test-board", gpios, mm::mcu::Led{"status", 25, true},
-                spi_wiring, i2c_wiring};
+                spi_wiring, i2c_wiring, second_i2c_wiring, uart_wiring,
+                second_uart_wiring};
     }
 
     [[nodiscard]] mm::mcu::Status gpio_configure(unsigned int pin, mm::mcu::Direction direction,
@@ -224,6 +323,7 @@ public:
     bool i2c_fail = false;
     std::vector<std::byte> i2c_written;
     unsigned int i2c_written_address = 0;
+    unsigned int i2c_written_instance = 0;
     std::vector<std::byte> i2c_read_data;
     mm::mcu::I2cConfiguration last_i2c_config{};
 
@@ -234,11 +334,12 @@ public:
         return mm::mcu::Status::Ok;
     }
 
-    [[nodiscard]] mm::mcu::Status i2c_write(unsigned int /*instance*/, unsigned int address,
+    [[nodiscard]] mm::mcu::Status i2c_write(unsigned int instance, unsigned int address,
                                             std::span<const std::byte> data) override {
         if (i2c_fail) return mm::mcu::Status::TransportError;
         if (!i2c_configured) return mm::mcu::Status::BadArgument;
         i2c_written_address = address;
+        i2c_written_instance = instance;
         i2c_written.assign(data.begin(), data.end());
         return mm::mcu::Status::Ok;
     }
@@ -593,6 +694,11 @@ void test_clear_pulse() {
     platform_instance.feed_pulse_levels.clear();
 }
 
+void test_set_storage(bool present, unsigned int block_size) {
+    platform_instance.storage_present = present;
+    platform_instance.storage_block_size = block_size;
+}
+
 void test_set_spi_present(bool present) {
     platform_instance.spi_present = present;
 }
@@ -639,10 +745,60 @@ unsigned int test_get_i2c_written_address() {
     return platform_instance.i2c_written_address;
 }
 
+void test_set_second_i2c_present(bool present) {
+    platform_instance.second_i2c_present = present;
+}
+
+unsigned int test_get_i2c_written_instance() {
+    return platform_instance.i2c_written_instance;
+}
+
+unsigned int test_get_i2c_config_instance() {
+    return platform_instance.last_i2c_config.instance;
+}
+
+unsigned int test_get_i2c_config_data() {
+    return platform_instance.last_i2c_config.data_gpio;
+}
+
+unsigned int test_get_i2c_config_clock() {
+    return platform_instance.last_i2c_config.clock_gpio;
+}
+
+void test_reset_uart() {
+    for (auto& lane : platform_instance.uart_lanes) lane = {};
+    platform_instance.uart_room = 4;
+    platform_instance.uart_present = true;
+}
+
+void test_set_uart_present(bool present) { platform_instance.uart_present = present; }
+
+std::string test_uart_sent(unsigned int instance) {
+    const auto& sent = platform_instance.uart_lanes[instance].sent;
+    return std::string(reinterpret_cast<const char*>(sent.data()), sent.size());
+}
+
+void test_uart_feed(unsigned int instance, std::string_view text) {
+    for (const char c : text)
+        platform_instance.uart_lanes[instance].incoming.push_back(static_cast<std::byte>(c));
+}
+
+bool test_uart_ready(unsigned int instance) { return platform_instance.uart_lanes[instance].ready; }
+
+unsigned long test_uart_baud(unsigned int instance) {
+    return platform_instance.uart_lanes[instance].configuration.baud;
+}
+
+unsigned int test_uart_tx(unsigned int instance) {
+    return platform_instance.uart_lanes[instance].configuration.transmit_gpio;
+}
+
 void test_reset_i2c() {
     platform_instance.i2c_configured = false;
     platform_instance.i2c_fail = false;
     platform_instance.i2c_present = true;
+    platform_instance.second_i2c_present = false;
+    platform_instance.i2c_written_instance = 0;
     platform_instance.i2c_written.clear();
     platform_instance.i2c_written_address = 0;
     platform_instance.i2c_read_data.clear();

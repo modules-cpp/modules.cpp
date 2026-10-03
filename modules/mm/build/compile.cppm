@@ -90,6 +90,19 @@ std::string shell_quote(const std::filesystem::path& path);
 // status. Every path interpolated into the command must go through shell_quote.
 int run(const Toolchain& toolchain, const std::string& command);
 
+// The value an Arduino toolchain gives ARDUINO, which a sketch library tests
+// to know the Arduino API is present: 10819 is the Arduino IDE 1.8.19's.
+inline constexpr std::string_view sketch_arduino_version = "10819";
+
+// The preprocessor definitions a target's sources are compiled with, each as
+// " -DNAME=VALUE". A legacy sketch application, its main.cpp and the sources of
+// its sketch libraries alike, gets ARDUINO, as a sketch toolchain passes it to
+// every file it compiles; no board or architecture macro is defined, since
+// those select the board-specific code mm.sketch replaces. Any sketch
+// application then gets its sketch-define: entries. Every other target gets
+// none.
+std::string compile_definitions(const BuildableNode& target);
+
 // Compiles every source of a target, appending to target.objects. Library
 // include directories are separate from the configured compiler argument
 // string so each path remains one shell-quoted argument.

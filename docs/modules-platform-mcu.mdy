@@ -3,7 +3,7 @@ mm: 1.0
 kind: doc
 name: modules.cpp platform MCU provider specification
 status: official
-release: v1.3.0
+release: v1.3.1
 ---
 
 # modules.cpp platform MCU provider specification
@@ -354,7 +354,12 @@ name, the number of the GPIO to which it is electrically attached, and whether
 that signal is active high. Board carries the board name, a read-only
 std::span<const Gpio> that enumerates every GPIO the board exposes exactly once,
 and an optional Led. When an LED is present, its GPIO number must identify one
-entry in that sequence.
+entry in that sequence. Board also carries the board's default SPI and I2C
+wirings, each optional, and an optional second I2C wiring, second_i2c, on
+another instance where the board has pins free for one; mm.sketch serves Wire1
+from it. The Pico SDK vendor boards give it as instance 1 on GP26 and GP27; a
+composite board has one only when its own table entry says so, because those
+pins are often something else on it.
 
 board() returns the registered provider's description by value, while its span
 views a provider-owned static GPIO table. A std::vector was tested first but its
@@ -419,6 +424,22 @@ through, so the interface does not offer them.
 A provider that implements the operation must hold the bus across it. The Pico
 provider does so through the SDK's nostop argument, which makes the read a
 repeated start rather than a second transaction.
+
+A UART is the third point-to-point facility, and the simplest. uart_write with
+a C string writes text to a platform's default UART and needs no configure; it
+is the facility's original call and is kept. The byte calls address an
+instance by number and need it configured first: uart_configure carries the
+instance, the transmit and receive GPIOs, and baud, 115200 when unsaid, and the
+frame is eight data bits, no parity, one stop bit, except that a platform
+whose own configuration names another frame, as Linux's device map does, keeps
+it. uart_write with a span queues what the transmitter has room for and
+reports it; uart_read takes what has arrived, up to the span's size. Neither
+waits, so either may report zero; a zero byte is data like any other. On
+failure the count is unchanged. uart_release returns the pads and discards
+what was neither sent nor read. Board describes a default UART and a second
+one where the board has them, which is what mm.sketch's Serial1 and Serial2
+use. A platform that routes UARTs by name rather than pin, as Linux does,
+ignores the GPIOs.
 
 I2S is a serial audio link carried beside them, and it is the facility that is
 neither addressed nor mode-encoded. There is no address, because the link is
@@ -715,6 +736,37 @@ The Pico provider implements instance zero over PIO and DMA; neither RP2040
 nor RP2350 has an I2S peripheral. docs/modules-platform-pico.mdy says how.
 The Linux provider answers Unsupported: on Linux, I2S is behind the sound
 card.
+
+## Block storage
+
+Opening fence
+struct StorageGeometry { std::uint64_t block_count = 0; unsigned int block_size = 0; };
+
+[[nodiscard]] Status storage_poll(bool& present);
+[[nodiscard]] Status storage_geometry(StorageGeometry&);
+[[nodiscard]] Status storage_read(std::uint64_t block, std::span<std::byte>);
+[[nodiscard]] Status storage_write(std::uint64_t block, std::span<const std::byte>);
+Closing fence
+
+One block device the board attaches, a USB flash drive on a USB host port
+today, addressed in whole blocks; Capabilities::storage says a platform serves
+it, and every call answers Unsupported by default.
+
+Nothing services the device between calls. storage_poll lets the platform do
+its work for a moment and reports whether a device is ready, which is how a
+program notices one arriving or leaving: a program that waits for a drive
+polls, the latch-and-poll shape docs/modules-execution.mdy describes. present
+changes only on Ok. storage_geometry reports the ready device's block count
+and size.
+
+storage_read and storage_write transfer whole blocks from block on, as many as
+the span holds, and return when they are done or failed, so they wait for the
+device. An empty span is BadArgument before the platform is asked; a size that
+is not a whole number of blocks, or blocks past the device's end, are
+BadArgument from the platform before it asks the device. With no device ready
+each call but storage_poll answers TransportError: there is nothing on the
+other end. On failure a read may have filled part of the span and a write may
+have written part of the blocks, as a block device promises no more.
 
 ## Critical sections
 

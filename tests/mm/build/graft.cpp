@@ -2,6 +2,7 @@
 // 32bitmicro LLC (C) 2026
 // Tests for external application grafting and artifact contexts.
 
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -347,6 +348,69 @@ void sketch_library_wiring() {
     expect(!has_root_source, "layered library leaves root sources alone");
 }
 
+// Further sketch-library: entries are the other libraries an example uses.
+// They may lie outside the tree, provided each declares itself a sketch
+// library, and their objects go under the application's own directory.
+void sibling_sketch_libraries() {
+    const mm::test::scoped_tree proj_tree{"graft_proj_sibling"};
+    proj_tree.manifest("", "kind: project\nname: proj\n");
+
+    const mm::test::scoped_tree lib_tree{"graft_lib_sibling"};
+    const auto rel_proj = std::filesystem::relative(
+        proj_tree.root(), lib_tree.root()).lexically_normal().string();
+    lib_tree.manifest_raw("",
+        "mm: 1.3\nkind: dir\nname: Lib\nproject: " + rel_proj +
+        "\nfolder: examples\n");
+    std::ofstream(lib_tree.root() / "Lib.cpp") << "int lib(){return 0;}\n";
+    lib_tree.manifest_raw("examples",
+        "mm: 1.3\nkind: dir\nname: examples\nfolder: Demo\n");
+
+    const mm::test::scoped_tree other_tree{"graft_other_sibling"};
+    std::ofstream(other_tree.root() / "library.properties") << "name=Other\n";
+    std::ofstream(other_tree.root() / "Other.h") << "#pragma once\n";
+    std::ofstream(other_tree.root() / "Lib.cpp") << "int other(){return 0;}\n";
+
+    const auto app_dir = lib_tree.root() / "examples/Demo";
+    std::filesystem::create_directories(app_dir);
+    const auto rel_other = std::filesystem::relative(
+        other_tree.root(), app_dir).lexically_normal().generic_string();
+    lib_tree.manifest_raw("examples/Demo",
+        "mm: 1.3\nkind: app\nname: Demo\nfile: main.cpp\n"
+        "sketch: Demo.ino\nsketch-library: ../..\nsketch-library: " + rel_other + "\n");
+    std::ofstream(app_dir / "main.cpp") << "int main(){}\n";
+    std::ofstream(app_dir / "Demo.ino") << "void setup(){}\nvoid loop(){}\n";
+
+    mm::build::LoadPolicy policy{.tool = "build", .external = lib_tree.root()};
+    const auto project = mm::build::load_project(proj_tree.root(), policy);
+    expect(project.ok, "a sibling sketch library outside the tree loads");
+    const auto& app = project.targets.front();
+    expect(app.sketch_libraries.size() == 2, "both sketch libraries are recorded");
+
+    std::vector<std::string> paths;
+    for (const auto& unit : app.sources) paths.push_back(unit.path);
+    const auto sibling_object =
+        std::string("sketch-libraries/") + other_tree.root().filename().string() + "/Lib.cpp";
+    const bool separate = std::any_of(paths.begin(), paths.end(), [&](const auto& path) {
+        return path.find(sibling_object) != std::string::npos;
+    });
+    expect(separate, "the sibling's sources are placed under its own name");
+    const bool escapes = std::any_of(paths.begin(), paths.end(), [](const auto& path) {
+        return path.find("..") != std::string::npos;
+    });
+    expect(!escapes, "no object path leaves the application");
+
+    std::vector<std::filesystem::path> includes;
+    expect(mm::build::library_include_directories(
+               proj_tree.root(), project.libraries, app, includes, "build"),
+           "include directories resolve with a sibling");
+    expect(includes.size() == 3 && includes.back() == other_tree.root(),
+           "the sibling's directory follows the exercised library's");
+
+    std::filesystem::remove(other_tree.root() / "library.properties");
+    expect(!mm::build::load_project(proj_tree.root(), policy).ok,
+           "a directory outside the tree that is not a sketch library is refused");
+}
+
 void sketch_library_refusals() {
     const mm::test::scoped_tree proj_tree{"graft_proj_librefuse"};
     proj_tree.manifest("", "kind: project\nname: proj\n");
@@ -375,11 +439,55 @@ void sketch_library_refusals() {
         "\nfile: main.cpp\nsketch: a.ino\nsketch-library: main.cpp\n");
     expect(!mm::build::load_project(proj_tree.root(), policy).ok,
            "sketch-library naming a file is refused");
+
+    ext_tree.manifest_raw("",
+        "mm: 1.3\nkind: app\nname: a\nproject: " + rel_proj +
+        "\nfile: main.cpp\nsketch-profile: legacy\n");
+    expect(!mm::build::load_project(proj_tree.root(), policy).ok,
+           "sketch-profile without sketch: is refused");
+
+    ext_tree.manifest_raw("",
+        "mm: 1.3\nkind: app\nname: a\nproject: " + rel_proj +
+        "\nfile: main.cpp\nsketch: a.ino\nsketch-profile: loose\n");
+    expect(!mm::build::load_project(proj_tree.root(), policy).ok,
+           "a sketch-profile other than legacy is refused");
+
+    ext_tree.manifest_raw("",
+        "mm: 1.3\nkind: app\nname: a\nproject: " + rel_proj +
+        "\nfile: main.cpp\nsketch-define: A=1\n");
+    expect(!mm::build::load_project(proj_tree.root(), policy).ok,
+           "sketch-define without sketch: is refused");
+    for (const std::string bad : {"1A", "A=", "A=$(x)", "A B", "A=\"q\""}) {
+        ext_tree.manifest_raw("",
+            "mm: 1.3\nkind: app\nname: a\nproject: " + rel_proj +
+            "\nfile: main.cpp\nsketch: a.ino\nsketch-define: " + bad + "\n");
+        expect(!mm::build::load_project(proj_tree.root(), policy).ok,
+               "a sketch-define that is not NAME or NAME=VALUE is refused");
+    }
+    ext_tree.manifest_raw("",
+        "mm: 1.3\nkind: app\nname: a\nproject: " + rel_proj +
+        "\nfile: main.cpp\nsketch: a.ino\nsketch-define: USE_X=1\nsketch-define: DEBUG\n");
+    const auto defined = mm::build::load_project(proj_tree.root(), policy);
+    std::vector<std::string> definitions;
+    for (const auto& target : defined.targets)
+        if (target.name == "a") definitions = target.sketch_defines;
+    expect(defined.ok && definitions == std::vector<std::string>{"USE_X=1", "DEBUG"},
+           "sketch-define entries are recorded in order");
+
+    ext_tree.manifest_raw("",
+        "mm: 1.3\nkind: app\nname: a\nproject: " + rel_proj +
+        "\nfile: main.cpp\nsketch: a.ino\nsketch-profile: legacy\n");
+    const auto legacy = mm::build::load_project(proj_tree.root(), policy);
+    bool marked = false;
+    for (const auto& target : legacy.targets)
+        if (target.name == "a") marked = target.sketch_legacy;
+    expect(legacy.ok && marked, "sketch-profile: legacy marks the application");
 }
 
 const mm::test::case_ cases[] = {
     {"app root grafting", &app_root_grafting},
     {"dir root grafting", &dir_root_grafting},
+    {"sibling sketch libraries", &sibling_sketch_libraries},
     {"graft allowlist refusals", &graft_allowlist_refusals},
     {"uniqueness rules", &uniqueness_rules},
     {"manifest gate refusals", &manifest_gate_refusals},

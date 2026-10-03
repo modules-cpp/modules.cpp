@@ -21,6 +21,9 @@ folder: sdl-aarch64
 folder: generic-x86_64
 folder: sdl-x86_64
 folder: epaper
+folder: lcd
+folder: libusb
+folder: usb/device
 ---
 
 # Linux platform

@@ -1,5 +1,6 @@
 // Pawel Wodnicki (C) 2026
 // 32bitmicro LLC (C) 2026
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -21,6 +22,28 @@ void function_used_before_definition() {
     expect(result.ok, "transformation should succeed");
     expect(result.output.find("void helper();") != std::string::npos,
            "expected prototype for helper() to be generated");
+}
+
+// A default argument belongs to the definition the sketch wrote; repeating it
+// in the generated prototype is a redefinition C++ refuses. The prototype
+// carries each parameter without its default, whatever the default contains.
+void prototype_drops_default_arguments() {
+    const std::vector<mm::ino::SourceFile> sources = {
+        {"test.ino",
+         "void loop() {\n    estimate(c, true);\n}\n\n"
+         "uint16_t estimate(float &confidence, bool reset = false)\n{\n    return 0;\n}\n\n"
+         "int pick(int a = f(1, 2), const char* s = \"a,b\", char c = ',') {\n"
+         "    return a;\n}\n"}
+    };
+    const auto result = mm::ino::transform(sources);
+    expect(result.ok, "transformation should succeed");
+    expect(result.output.find("uint16_t estimate(float &confidence, bool reset);") !=
+               std::string::npos,
+           "the prototype drops a default argument");
+    expect(result.output.find("int pick(int a, const char* s, char c);") != std::string::npos,
+           "defaults containing calls, commas, and literals are dropped whole");
+    expect(result.output.find("bool reset = false)\n{") != std::string::npos,
+           "the definition keeps its default argument");
 }
 
 void prototype_already_written() {
@@ -358,6 +381,250 @@ void sketch_header_synthesis() {
     expect(mm::ino::sketch_header() == header,
            "synthesis is deterministic so --check can"
            " compare it");
+}
+
+// The legacy profile changes what is generated in three ways: the header
+// comment and a using-directive, in main.cpp and in Sketch.h, and, in
+// main.cpp, Sketch.h included ahead of the sketch's own includes. The check
+// reads the profile from the manifest.
+void legacy_profile_generation() {
+    const std::vector<mm::ino::SourceFile> sources = {
+        {"app.ino", "void setup() {}\nvoid loop() {}\n"}};
+    const auto core = mm::ino::transform(sources);
+    const auto legacy = mm::ino::transform(sources, true);
+    expect(core.ok && legacy.ok, "both profiles transform");
+    expect(core.output.find("mm::sketch::legacy") == std::string::npos,
+           "the core profile does not bring in the legacy namespace");
+    expect(legacy.output.find("using namespace mm::sketch;\nusing namespace mm::sketch::legacy;\n") !=
+               std::string::npos,
+           "the legacy profile adds its using-directive after the core one");
+
+    const std::vector<mm::ino::SourceFile> including = {
+        {"app.ino", "#include \"Lib.h\"\n#include <vector>\nvoid setup() {}\nvoid loop() {}\n"}};
+    const auto core_including = mm::ino::transform(including);
+    const auto legacy_including = mm::ino::transform(including, true);
+    expect(core_including.ok && legacy_including.ok, "both profiles transform includes");
+    expect(core_including.output.find("#include \"Lib.h\"\n#include <vector>\n#include \"Sketch.h\"\n") !=
+               std::string::npos,
+           "the core profile includes Sketch.h after the sketch's includes");
+    expect(legacy_including.output.find("#include \"Sketch.h\"\n#include \"Lib.h\"\n#include <vector>\nimport mm.sketch;\n") !=
+               std::string::npos,
+           "the legacy profile includes Sketch.h first, as a sketch toolchain includes Arduino.h");
+    expect(legacy.output.find("(mm: 1.3, legacy profile)") != std::string::npos,
+           "a legacy main.cpp says so in its header");
+    expect(mm::ino::sketch_header(true).find("using namespace mm::sketch::legacy;") !=
+                   std::string::npos &&
+               mm::ino::sketch_header(false) == mm::ino::sketch_header(),
+           "the legacy Sketch.h brings the namespace in, the core one is unchanged");
+
+    const std::string manifest = "---\nmm: 1.3\nkind: app\nname: app\nsketch: app.ino\n---\n\n# app\n";
+    const auto marked = mm::ino::with_legacy_profile(manifest);
+    expect(marked == "---\nmm: 1.3\nkind: app\nname: app\nsketch: app.ino\n"
+                     "sketch-profile: legacy\n---\n\n# app\n",
+           "with_legacy_profile adds the key to the front matter");
+    expect(mm::ino::with_legacy_profile(marked) == marked,
+           "with_legacy_profile leaves a legacy manifest unchanged");
+    expect(mm::ino::with_legacy_profile("no front matter").empty(),
+           "with_legacy_profile refuses text without front matter");
+
+    const mm::test::scoped_tree tree{"ino_legacy_check"};
+    const auto dir = tree.root();
+    std::ofstream(dir / "app.ino") << sources.front().content;
+    std::ofstream(dir / "main.cpp") << legacy.output;
+    std::ofstream(dir / std::string(mm::ino::sketch_header_name()))
+        << mm::ino::sketch_header(true);
+    for (const auto& alias : mm::ino::sketch_alias_headers())
+        std::ofstream(dir / std::string(alias)) << mm::ino::sketch_alias_header(alias);
+    mm::mdy::MDYDocument doc;
+    doc.metadata["kind"] = {"app"};
+    doc.metadata["sketch"] = {"app.ino"};
+    std::string error;
+    expect(!mm::ino::check_application(dir, doc, error),
+           "legacy output under a core manifest does not match");
+    doc.metadata["sketch-profile"] = {"legacy"};
+    expect(mm::ino::is_legacy_application(doc), "the manifest selects the legacy profile");
+    expect(!mm::ino::check_application(dir, doc, error) &&
+               error.find("avr/pgmspace.h") != std::string::npos,
+           "a legacy application without avr/pgmspace.h is reported");
+    for (const auto& alias : mm::ino::sketch_alias_headers(true))
+        expect(mm::ino::write_guarded(dir, alias, mm::ino::sketch_alias_header(alias), error),
+               "each legacy forwarder is written, one directory down included");
+    expect(mm::ino::check_application(dir, doc, error),
+           "legacy output under a legacy manifest matches");
+}
+
+// The other libraries an example uses: the search path, the index, the
+// resolution by header and by depends=, and the manifest update.
+void sibling_library_resolution() {
+    const mm::test::scoped_tree tree{"ino_siblings"};
+    const auto root = tree.root();
+    const auto write = [&](const std::filesystem::path& file, std::string_view text) {
+        std::filesystem::create_directories((root / file).parent_path());
+        std::ofstream(root / file) << text;
+    };
+    // Beside the exercised library: Lib, Display, Bus, and Extra.
+    write("libs/Lib/library.properties", "name=Lib\ndepends=Bus Library (>=1.0), Missing\n");
+    write("libs/Lib/Lib.h", "#pragma once\n");
+    write("libs/Lib/examples/Demo/Demo.ino",
+          "#include <Arduino.h>\n#include <SPI.h>\n#include <avr/pgmspace.h>\n"
+          "#include \"Lib.h\"\n#include \"Local.h\"\n  #  include <Display.h>\n"
+          "#include <vector>\nvoid setup() {}\nvoid loop() {}\n");
+    write("libs/Lib/examples/Demo/Local.h", "#include \"Extra.h\"\n");
+    write("libs/Lib/examples/Demo/main.cpp",
+          "// Generated by sketch (mm: 1.3) from Demo.ino\n#include \"Unused.h\"\n");
+    write("libs/Display/library.properties", "name=Display\ndepends=Bus Library\n");
+    write("libs/Display/src/Display.h", "#pragma once\n");
+    write("libs/Bus_Library/library.properties", "name=Bus Library\n");
+    write("libs/Extra/library.json", "{}\n");
+    write("libs/Extra/Extra.h", "#pragma once\n");
+    write("libs/Unused/library.properties", "name=Unused\n");
+    write("libs/SdFat/library.properties", "name=SdFat\n");
+    write("libs/SdFat/src/SdFat.h", "#pragma once\n");
+    write("libs/Lib/examples/Demo/Card.h", "#include <SD.h>\n");
+    write("libs/Unused/Unused.h", "#pragma once\n");
+    write("libs/NotALibrary/Display.h", "#pragma once\n");
+    // A second folder, named by the variable, with another Display.
+    write("more/Other/library.properties", "name=Other\n");
+    write("more/Other/Display.h", "#pragma once\n");
+
+    const auto canonical = [](const std::filesystem::path& path) {
+        return std::filesystem::weakly_canonical(path);
+    };
+    const auto search = mm::ino::sketch_library_search_path(
+        (root / "more").string() + "::" + (root / "more").string() + ":/nonexistent",
+        root / "libs/Lib");
+    expect(search.size() == 2 && search.front() == canonical(root / "libs") &&
+               search.back() == canonical(root / "more"),
+           "the library's own folder comes first, then each variable entry once");
+
+    const auto index = mm::ino::index_sketch_libraries(search);
+    expect(index.size() == 7, "every declared library is indexed, NotALibrary is not");
+    mm::ino::SketchLibraryEntry lib;
+    expect(mm::ino::read_sketch_library(root / "libs/Lib", lib) &&
+               lib.depends == std::vector<std::string>{"Bus Library", "Missing"},
+           "depends= names drop their version constraints");
+    mm::ino::SketchLibraryEntry display;
+    expect(mm::ino::read_sketch_library(root / "libs/Display", display) &&
+               display.include_dir == canonical(root / "libs/Display/src"),
+           "a src/ directory is the include directory");
+
+    const auto found =
+        mm::ino::resolve_sibling_libraries(root / "libs/Lib/examples/Demo", lib, index);
+    const std::vector<std::filesystem::path> expected{
+        canonical(root / "libs/SdFat"), canonical(root / "libs/Display"),
+        canonical(root / "libs/Extra"), canonical(root / "libs/Bus_Library")};
+    expect(found.libraries == expected,
+           "headers of the example's own files, SD.h as SdFat, then depends= "
+           "transitively, each once");
+    expect(found.unresolved == std::vector<std::string>{"Missing"},
+           "a depends= name no library declares is reported");
+
+    const std::string manifest =
+        "---\nmm: 1.3\nkind: app\nname: Demo\nsketch-library: ../..\n"
+        "sketch-profile: legacy\n---\n\n# Demo\n";
+    const std::vector<std::string> entries{"../../../Display", "../../../Extra",
+                                           "../../../Display"};
+    const auto updated = mm::ino::with_sketch_libraries(manifest, entries);
+    expect(updated ==
+               "---\nmm: 1.3\nkind: app\nname: Demo\nsketch-library: ../..\n"
+               "sketch-library: ../../../Display\nsketch-library: ../../../Extra\n"
+               "sketch-profile: legacy\n---\n\n# Demo\n",
+           "missing entries follow the last sketch-library: line, once each");
+    expect(mm::ino::with_sketch_libraries(updated, entries) == updated,
+           "a manifest with every entry is unchanged");
+    expect(mm::ino::with_sketch_libraries("no front matter", entries).empty(),
+           "text without front matter is refused");
+
+    // The sketch folder's own sources, which the Arduino tools compile with
+    // it, and their file: entries.
+    write("libs/Lib/examples/Demo/Helper.cpp", "int helper() { return 0; }\n");
+    write("libs/Lib/examples/Demo/driver.c", "int driver(void) { return 0; }\n");
+    const auto sources = mm::ino::sketch_folder_sources(root / "libs/Lib/examples/Demo");
+    expect(sources == std::vector<std::string>{"Helper.cpp", "driver.c"},
+           "the folder's sources, main.cpp and generated files excepted");
+    expect(mm::ino::with_files("---\nkind: app\nfile: main.cpp\nsketch: Demo.ino\n---\n",
+                               sources) ==
+               "---\nkind: app\nfile: main.cpp\nfile: Helper.cpp\nfile: driver.c\n"
+               "sketch: Demo.ino\n---\n",
+           "each source follows the last file: line");
+    mm::ino::LibraryAppNode node;
+    node.name = "Demo";
+    node.sketches = {"Demo.ino"};
+    node.sketch_library_rel = "../..";
+    node.sibling_library_rels = {"../../../Display"};
+    node.extra_sources = sources;
+    expect(mm::ino::render_app_manifest(node) ==
+               "---\nmm: 1.3\nkind: app\nname: Demo\nuse: mm.sketch\nfile: main.cpp\n"
+               "file: Helper.cpp\nfile: driver.c\nsketch: Demo.ino\nsketch-library: ../..\n"
+               "sketch-library: ../../../Display\n---\n",
+           "a new manifest carries the sources and the other libraries");
+}
+
+// A main.cpp the sketch folder ships itself is never taken for generated
+// output.
+void own_main_cpp_is_not_overwritable() {
+    const mm::test::scoped_tree tree{"ino_own_main"};
+    const auto main_cpp = tree.root() / "main.cpp";
+    expect(mm::ino::is_absent_or_generated(main_cpp), "an absent main.cpp may be written");
+    std::ofstream(main_cpp) << "// Generated by sketch (mm: 1.3) from a.ino -- do not edit by hand.\n";
+    expect(mm::ino::is_absent_or_generated(main_cpp), "a generated main.cpp may be rewritten");
+    std::ofstream(main_cpp) << "#ifdef MAPLE_IDE\nint main() {}\n#endif\n";
+    expect(!mm::ino::is_absent_or_generated(main_cpp), "the folder's own main.cpp is kept");
+}
+
+// The legacy profile's forwarders and the AVR spellings its Sketch.h adds,
+// none of which the core profile has.
+void legacy_profile_avr_spellings() {
+    const auto core = mm::ino::sketch_alias_headers();
+    const auto legacy = mm::ino::sketch_alias_headers(true);
+    expect(legacy.size() == core.size() + 4 && legacy[core.size()] == "avr/pgmspace.h" &&
+               legacy.back() == "SD.h",
+           "the legacy profile adds avr/pgmspace.h, pins_arduino.h, wiring_private.h, "
+           "and SD.h");
+    const auto sd = mm::ino::sketch_alias_header("SD.h");
+    expect(sd.find("#include \"SdFat.h\"\ninline SdFat SD;\n") != std::string::npos,
+           "SD.h redirects to SdFat and defines SD");
+    expect(mm::ino::sketch_alias_header("Wire.h").find("SdFat") == std::string::npos,
+           "the other forwarders only include Sketch.h");
+
+    // An include inside a conditional stays where it is in the legacy profile
+    // and is hoisted in the core one.
+    const std::vector<mm::ino::SourceFile> conditional = {
+        {"app.ino", "#define USE_SD_H 0\n#if USE_SD_H\n#include <SD.h>\n#else\n"
+                    "#include \"SdFat.h\"\n#endif\n#include <Wire.h>\n"
+                    "void setup() {}\nvoid loop() {}\n"}};
+    const auto kept = mm::ino::transform(conditional, true);
+    const auto hoisted = mm::ino::transform(conditional, false);
+    const auto import_at = kept.output.find("import mm.sketch;");
+    expect(kept.ok && kept.output.find("#include <Wire.h>") < import_at &&
+               kept.output.find("#include <SD.h>") > import_at &&
+               kept.output.find("#if USE_SD_H\n#include <SD.h>\n#else\n#include \"SdFat.h\"\n") !=
+                   std::string::npos,
+           "the legacy profile hoists the unconditional include and keeps the conditional ones");
+    expect(hoisted.ok && hoisted.output.find("#include <SD.h>") <
+                             hoisted.output.find("import mm.sketch;"),
+           "the core profile still hoists every include");
+    expect(std::find(core.begin(), core.end(), "avr/pgmspace.h") == core.end(),
+           "the core profile has no avr/pgmspace.h");
+
+    const auto core_header = mm::ino::sketch_header(false);
+    const auto legacy_header = mm::ino::sketch_header(true);
+    for (const std::string_view spelling :
+         {"#define SPI_HAS_TRANSACTION 1", "#define _BV(bit)", "inline int printf_P(",
+          "inline int sprintf_P(", "inline int snprintf_P(", "using std::toupper;",
+          "#include <cctype>"}) {
+        expect(legacy_header.find(spelling) != std::string::npos,
+               "the legacy Sketch.h has each AVR spelling");
+        expect(core_header.find(spelling) == std::string::npos,
+               "the core Sketch.h has none of them");
+    }
+
+    const mm::test::scoped_tree tree{"ino_guarded_subdir"};
+    std::string error;
+    expect(!mm::ino::write_guarded(tree.root(), "../escape.h", "x", error),
+           "a forwarder above the application is refused");
+    expect(!mm::ino::write_guarded(tree.root(), "a/b/c.h", "x", error),
+           "a forwarder two directories down is refused");
 }
 
 void sketch_header_is_checked() {
@@ -802,6 +1069,13 @@ void library_metadata_compatibility_failures() {
                app_node.dir / "mm.mdy", err),
            "duplicate sketch-library: declaration must fail validation");
 
+    std::filesystem::create_directories(root / "Other");
+    duplicate_lib_doc.metadata["sketch-library"] = {"../..", "../../Other"};
+    expect(mm::ino::validate_manifest_compatibility(
+               duplicate_lib_doc, nullptr, &app_node, false, root,
+               app_node.dir / "mm.mdy", err),
+           "a further sketch-library: naming another library validates");
+
     duplicate_lib_doc.metadata["sketch-library"] = {root.string()};
     expect(!mm::ino::validate_manifest_compatibility(
                duplicate_lib_doc, nullptr, &app_node, false, root,
@@ -815,6 +1089,11 @@ void library_metadata_compatibility_failures() {
 const mm::test::case_ cases[] = {
     {"function used before definition", &function_used_before_definition},
     {"prototype already written", &prototype_already_written},
+    {"prototype drops default arguments", &prototype_drops_default_arguments},
+    {"legacy profile generation", &legacy_profile_generation},
+    {"legacy profile avr spellings", &legacy_profile_avr_spellings},
+    {"own main.cpp is not overwritable", &own_main_cpp_is_not_overwritable},
+    {"sibling library resolution", &sibling_library_resolution},
     {"standard include in middle", &standard_include_in_middle},
     {"sketch with main is rejected", &sketch_with_main_is_rejected},
     {"quoted include is hoisted", &quoted_include_is_hoisted},

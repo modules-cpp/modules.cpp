@@ -1,0 +1,18 @@
+---
+mm: 1.2
+kind: dir
+name: lcd
+folder: chip
+folder: panel
+folder: device
+folder: display
+folder: board
+folder: board-aarch64
+folder: ili9341
+---
+
+# Linux LCD platform
+
+A virtual ST7789 behind the mm.mcu seam, with an SDL2 window showing what its
+glass would, and in ili9341/ the same controller behind an ILI9341 module's
+glass. See drafts/plan-linux-lcd.mdy for the design.

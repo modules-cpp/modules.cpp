@@ -115,14 +115,24 @@ void civil_from_days(std::int64_t days,
                 unit == 'd' || unit == 'w') {
                 // Confirm nothing follows the unit letter.
                 if (digit_end + 1 >= text.size()) {
-                    std::int64_t value = 0;
+                    // Read unsigned and checked: a count past what a
+                    // Duration holds saturates and sets overflow.
+                    constexpr std::uint64_t largest = ~std::uint64_t{0};
+                    std::uint64_t value = 0;
                     for (std::size_t i = pos; i < digit_end; ++i) {
-                        value = value * 10 + (text[i] - '0');
+                        const auto digit =
+                            static_cast<std::uint64_t>(text[i] - '0');
+                        if (value > (largest - digit) / 10) {
+                            result.overflow = true;
+                            value = largest;
+                            break;
+                        }
+                        value = value * 10 + digit;
                     }
                     result.kind = TimeKind::Duration;
                     result.length = digit_end - at + 1;
                     result.consumed = result.length;
-                    result.duration.value = static_cast<std::uint64_t>(value);
+                    result.duration.value = value;
                     switch (unit) {
                         case 's': result.duration.unit = Duration::Unit::Seconds; break;
                         case 'm': result.duration.unit = Duration::Unit::Minutes; break;

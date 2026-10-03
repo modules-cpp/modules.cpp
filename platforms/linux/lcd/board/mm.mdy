@@ -1,0 +1,21 @@
+---
+mm: 1.2
+kind: board
+name: lcd-linux-x86_64
+derives-from: generic-linux-x86_64
+platform-provider: mm.mcu platform.linux.lcd.device
+platform-provider: mm.display platform.linux.lcd.display
+---
+
+# lcd-linux-x86_64
+
+The generic hosted board with its MCU and screen pointed at the emulated
+ST7789. Everything else is inherited: the same SDK, the same named device
+map, and the same RTC and IMU providers.
+
+Rebinding mm.mcu, not only mm.display, is what makes the window real: the
+emulated chip sits behind the same seam the real driver talks to, and the
+SDL2 window is owned by that MCU provider. A sketch built for this board
+drives the chip through the same seam, so Adafruit's ST7789 library draws in
+the window too. Selecting this board is the only way anything in the LCD lane
+pays for SDL2.

@@ -2,6 +2,7 @@
 // 32bitmicro LLC (C) 2026
 #include <climits>
 #include <cstddef>
+#include <array>
 #include <cstdint>
 #include <string>
 #include <string_view>
@@ -36,6 +37,7 @@ extern void test_setup_pulse(unsigned int pin, std::initializer_list<bool> level
 extern void test_clear_pulse();
 
 extern void test_set_spi_present(bool present);
+extern void test_set_storage(bool present, unsigned int block_size);
 extern void test_set_spi_fail(bool fail);
 extern void test_set_spi_xor_mask(unsigned char mask);
 extern void test_reset_spi();
@@ -47,6 +49,18 @@ extern std::size_t test_get_i2c_written_size();
 extern unsigned char test_get_i2c_written_byte(std::size_t idx);
 extern unsigned int test_get_i2c_written_address();
 extern void test_reset_i2c();
+extern void test_set_second_i2c_present(bool present);
+extern void test_reset_uart();
+extern void test_set_uart_present(bool present);
+extern std::string test_uart_sent(unsigned int instance);
+extern void test_uart_feed(unsigned int instance, std::string_view text);
+extern bool test_uart_ready(unsigned int instance);
+extern unsigned long test_uart_baud(unsigned int instance);
+extern unsigned int test_uart_tx(unsigned int instance);
+extern unsigned int test_get_i2c_written_instance();
+extern unsigned int test_get_i2c_config_instance();
+extern unsigned int test_get_i2c_config_data();
+extern unsigned int test_get_i2c_config_clock();
 
 extern void test_adc_set_count(unsigned int channel, unsigned int count);
 extern bool test_adc_is_configured(unsigned int channel);
@@ -197,6 +211,70 @@ void digital_io_and_led() {
     expect(digitalRead(LED_BUILTIN) == LOW, "digitalRead LED_BUILTIN should be LOW when off");
 }
 
+// The legacy profile, in scope the way sketch --legacy puts it: both using
+// directives, so every call below is resolved exactly as in a legacy sketch.
+void legacy_profile() {
+    using namespace mm::sketch::legacy;
+    clearError();
+
+    // A call the core accepts keeps the core overload; these compile only
+    // because no legacy overload makes them ambiguous.
+    expect(pinMode(10, OUTPUT) && digitalWrite(10, HIGH) && digitalRead(10) == HIGH,
+           "core spellings resolve with the legacy profile in scope");
+
+    // Integer and bool levels: zero LOW, anything else HIGH.
+    const std::uint8_t on = 1;
+    expect(digitalWrite(10, 0) && digitalRead(10) == LOW, "legacy digitalWrite 0 is LOW");
+    expect(digitalWrite(10, on) && digitalRead(10) == HIGH, "legacy digitalWrite uint8_t 1 is HIGH");
+    expect(digitalWrite(10, false) && digitalRead(10) == LOW, "legacy digitalWrite false is LOW");
+    expect(digitalWrite(10, !digitalRead(10)) && digitalRead(10) == HIGH,
+           "legacy digitalWrite of a negated read toggles");
+    expect(digitalWrite(10, 7) && digitalRead(10) == HIGH, "legacy digitalWrite nonzero is HIGH");
+    expect(pinMode(LED_BUILTIN, 1) && digitalWrite(LED_BUILTIN, 1) &&
+               digitalRead(LED_BUILTIN) == HIGH,
+           "legacy pinMode and digitalWrite on LED_BUILTIN");
+
+    // Integer modes, and a mode the core has no spelling for.
+    expect(pinMode(11, 1), "legacy pinMode 1 is OUTPUT");
+    clearError();
+    expect(!pinMode(11, 7) && lastError() == Status::BadArgument,
+           "legacy pinMode refuses an unknown mode");
+    clearError();
+
+    // Integer bit orders.
+    test_start_gpio_log();
+    shiftOut(2, 3, 1, static_cast<byte>(0x80));
+    expect(test_gpio_log_size() > 0, "legacy shiftOut with an integer bit order writes");
+    test_stop_gpio_log();
+    clearError();
+    shiftOut(2, 3, 5, static_cast<byte>(0x80));
+    expect(lastError() == Status::BadArgument, "legacy shiftOut refuses an unknown bit order");
+    clearError();
+
+    // Every pin type reads the same channel, and analogRead's address converts
+    // to the core's int (*)(uint8_t) as well as to int (*)(int).
+    test_reset_adc();
+    test_adc_set_count(0, 4095);
+    int (*read_byte)(std::uint8_t) = analogRead;
+    int (*read_int)(int) = analogRead;
+    expect(read_byte(26) == 1023 && read_int(26) == 1023,
+           "analogRead through int (*)(uint8_t) and int (*)(int)");
+    expect(analogRead(static_cast<long>(26)) == 1023 &&
+               analogRead(static_cast<unsigned long>(26)) == 1023 &&
+               analogRead(static_cast<short>(26)) == 1023 &&
+               analogRead(26u) == 1023,
+           "analogRead takes every pin type");
+    clearError();
+    expect(analogRead(-1) == 0 && lastError() == Status::BadArgument,
+           "a negative pin names no channel");
+    clearError();
+    expect(analogRead(static_cast<unsigned long>(26) + (1ul << 32)) == 0 &&
+               lastError() == Status::BadArgument,
+           "a pin wider than unsigned int does not wrap onto a channel");
+    clearError();
+    test_reset_adc();
+}
+
 void time_and_delay() {
     const unsigned long t1 = millis();
     expect(t1 > 0, "millis should return ticks");
@@ -288,6 +366,10 @@ void serial_formatting() {
     test_console_clear_written();
     Serial.print(12, OCT);
     expect(test_console_get_written() == "14", "print oct");
+
+    test_console_clear_written();
+    Serial.printf("val %d -> %s\n", 42, "OK");
+    expect(test_console_get_written() == "val 42 -> OK\n", "Serial.printf formatting");
 
     test_console_clear_written();
     Serial.print(5, BIN);
@@ -750,6 +832,10 @@ void sketch_string() {
     // docs/modules-sketch.mdy records both.
     expect(String(255, 16) == String("ff"),
            "an integer renders in the base it is given");
+    expect(String(255, HEX) == String("ff"),
+           "an integer renders in HEX with Base enum");
+    expect(String(10, BIN) == String("1010"),
+           "an integer renders in BIN with Base enum");
     expect(String(-42) == String("-42"), "decimal carries the sign");
     expect(String(-1, 16) == String("ffffffff"),
            "a base other than ten renders the bit pattern");
@@ -1345,6 +1431,50 @@ void interrupt_edge_latched_during_handler() {
     clearError();
 }
 
+static int held_calls = 0;
+void held_handler() {
+    ++held_calls;
+}
+
+void interrupts_held_between_no_interrupts_and_interrupts() {
+    test_gpio_clear_all_edges();
+    clearError();
+    held_calls = 0;
+
+    expect(attachInterrupt(2, &held_handler, RISING), "attach handler");
+
+    noInterrupts();
+    test_gpio_set_edge(2, true);
+    dispatch();
+    expect(held_calls == 0, "no handler runs after noInterrupts");
+    expect(delay(0), "delay succeeds while interrupts are held");
+    expect(held_calls == 0, "delay does not run a held handler");
+
+    noInterrupts();
+    interrupts();
+    dispatch();
+    expect(held_calls == 1, "the latched edge runs once after interrupts");
+
+    dispatch();
+    expect(held_calls == 1, "the edge is taken once");
+
+    interrupts();
+    test_gpio_set_edge(2, true);
+    dispatch();
+    expect(held_calls == 2, "interrupts without noInterrupts changes nothing");
+
+    noInterrupts();
+    run(&setup_nop, &loop_completes);
+    test_gpio_set_edge(2, true);
+    dispatch();
+    expect(held_calls == 3, "run starts with interrupts resumed");
+    expect(lastError() == Status::Ok, "no error recorded");
+
+    detachInterrupt(2);
+    test_gpio_clear_all_edges();
+    clearError();
+}
+
 static int int_exit_h1_calls = 0;
 static int int_exit_h2_calls = 0;
 
@@ -1411,6 +1541,65 @@ void interrupt_preserved_across_runs() {
 
     detachInterrupt(2);
     test_gpio_clear_all_edges();
+    clearError();
+}
+
+// The SPI pin names read the board's default wiring when used: the test
+// board is the Pico's, SCK GP18, MOSI GP19, MISO GP16, SS GP15.
+// A USB flash drive through mm.mcu's block storage: begin waits for one,
+// then whole sectors go both ways.
+void usb_storage() {
+    test_set_storage(false, 512);
+    clearError();
+    expect(!usbStoragePresent(), "no drive is present");
+    expect(!usbStorageBegin(30) && lastError() == Status::Timeout,
+           "begin without a drive times out");
+
+    test_set_storage(true, 512);
+    clearError();
+    expect(usbStoragePresent() && usbStorageBegin(30) && usbStorageSectorCount() == 16,
+           "a drive is found and its sectors counted");
+    std::array<byte, 1024> out{};
+    for (std::size_t i = 0; i < out.size(); ++i) out[i] = static_cast<byte>(i * 7);
+    std::array<byte, 1024> in{};
+    expect(usbStorageWrite(5, out.data(), 2) && usbStorageRead(5, in.data(), 2) && in == out,
+           "two sectors are written and read back");
+    expect(!usbStorageRead(15, in.data(), 2) && lastError() == Status::BadArgument,
+           "sectors past the end are refused");
+    clearError();
+    expect(!usbStorageRead(0, nullptr, 1) && lastError() == Status::BadArgument,
+           "a null buffer is refused");
+    clearError();
+    expect(!usbStorageRead(0, in.data(), ~std::size_t{0}) && lastError() == Status::BadArgument,
+           "overflowing count is refused");
+    clearError();
+    expect(!usbStorageWrite(0, out.data(), ~std::size_t{0}) && lastError() == Status::BadArgument,
+           "overflowing write count is refused");
+
+    test_set_storage(true, 4096);
+    clearError();
+    expect(!usbStorageBegin(30) && lastError() == Status::Unsupported,
+           "a drive whose sectors are not 512 bytes is refused");
+    test_set_storage(false, 512);
+    clearError();
+}
+
+void spi_pin_names() {
+    test_set_spi_present(true);
+    const unsigned int select = SS;
+    const std::uint8_t transmit = MOSI;
+    expect(select == 15 && transmit == 19 && static_cast<unsigned int>(MISO) == 16 &&
+               static_cast<unsigned int>(SCK) == 18,
+           "the names are the board's SPI wiring, SS its chip select");
+    expect(pinMode(SS, OUTPUT) && digitalWrite(SS, HIGH),
+           "SS is an ordinary pin to the pin functions");
+
+    test_set_spi_present(false);
+    expect(static_cast<unsigned int>(SS) == no_pin && static_cast<unsigned int>(SCK) == no_pin,
+           "a board without SPI wiring names no pin");
+    clearError();
+    expect(!pinMode(SS, OUTPUT), "and the pin functions refuse it");
+    test_set_spi_present(true);
     clearError();
 }
 
@@ -1515,6 +1704,187 @@ void spi_communication() {
     clearError();
 
     test_reset_spi();
+}
+
+void hardware_serial_ports() {
+    clearError();
+    test_reset_uart();
+
+    // Serial1 and Serial2 are the board's UARTs 0 and 1, with their own state.
+    run([]{
+        clearError();
+        expect(Serial1.begin(115200, SERIAL_8N1) && Serial2.begin(9600), "both ports begin");
+        expect(test_uart_ready(0) && test_uart_baud(0) == 115200 &&
+                   test_uart_ready(1) && test_uart_baud(1) == 9600 && test_uart_tx(1) == 8,
+               "Serial1 is instance 0 and Serial2 instance 1 on its pins at its rate");
+        clearError();
+        expect(!Serial1.begin(115200, 0x99) && lastError() == Status::Unsupported,
+               "non-8N1 config fails as Unsupported");
+        clearError();
+        expect(Serial1.begin(115200), "port begins again with default SERIAL_8N1");
+        expect(static_cast<bool>(Serial2), "a begun port is true");
+        expect(Serial2.print("hello, world") == 12, "a write longer than the FIFO completes");
+        expect(Serial2.println(42) == 4, "print reaches the port through Print");
+        expect(test_uart_sent(1) == "hello, world42\r\n", "Serial2's bytes reach instance 1");
+        expect(test_uart_sent(0).empty(), "and nothing reaches Serial1");
+
+        expect(Serial2.available() == 0 && Serial2.read() == -1,
+               "nothing arrived, nothing to read, and no wait");
+        test_uart_feed(1, "ok\n");
+        expect(Serial2.available() == 3 && Serial2.peek() == 'o' && Serial2.read() == 'o',
+               "arrived bytes are available, peeked, and read");
+        expect(Serial2.readStringUntil('\n') == "k", "Stream's parsing works on the port");
+        expect(Serial1.end() && !static_cast<bool>(Serial1) && !test_uart_ready(0),
+               "end releases the port");
+        requestExit(0);
+    }, nullptr);
+    expect(!test_uart_ready(1), "run releases a port the sketch left begun");
+    clearError();
+
+    // A board without UARTs: a port needs pins named first.
+    test_reset_uart();
+    test_set_uart_present(false);
+    run([]{
+        clearError();
+        expect(!Serial2.begin(9600) && lastError() == Status::Unsupported,
+               "Serial2 without a board UART is Unsupported");
+        clearError();
+        expect(Serial2.setTX(4) && Serial2.setRX(5) && Serial2.begin(9600),
+               "setTX and setRX before begin choose the pins");
+        expect(test_uart_ready(1) && test_uart_tx(1) == 4, "Serial2 begins on instance 1 there");
+        expect(Serial2.setTX(4) && !Serial2.setTX(8), "a running port keeps its pins");
+        requestExit(0);
+    }, nullptr);
+    clearError();
+    test_reset_uart();
+
+    // A write to a port never begun fails and marks the sink.
+    run([]{
+        clearError();
+        expect(Serial1.write(static_cast<byte>('x')) == 0 &&
+                   lastError() == Status::NotInitialized && Serial1.getWriteError() != 0,
+               "writing an unbegun port fails");
+        requestExit(0);
+    }, nullptr);
+    clearError();
+    test_reset_uart();
+
+    // Ports outside 1 and 2 fail as unsupported.
+    run([]{
+        clearError();
+        HardwareSerial invalid0{0};
+        HardwareSerial invalid3{3};
+        expect(!invalid0.begin() && lastError() == Status::Unsupported,
+               "HardwareSerial(0) is Unsupported");
+        clearError();
+        expect(!invalid3.begin() && lastError() == Status::Unsupported,
+               "HardwareSerial(3) is Unsupported");
+        clearError();
+        expect(invalid3.write(static_cast<byte>('a')) == 0 &&
+                   lastError() == Status::Unsupported && invalid3.getWriteError() != 0,
+               "writing invalid HardwareSerial fails with Unsupported");
+        requestExit(0);
+    }, nullptr);
+    clearError();
+    test_reset_uart();
+}
+
+void second_wire_bus() {
+    clearError();
+    test_reset_i2c();
+
+    // A board without a second wiring: Wire1 has nothing to begin on.
+    run([]{
+        clearError();
+        expect(!Wire1.begin(), "Wire1.begin fails without a second wiring");
+        expect(lastError() == Status::Unsupported, "Wire1.begin latches Unsupported");
+        requestExit(0);
+    }, nullptr);
+    clearError();
+
+    // With one, Wire1 is instance 1 on the board's second pins, and its
+    // traffic goes there while Wire keeps instance 0.
+    test_reset_i2c();
+    test_set_second_i2c_present(true);
+    run([]{
+        clearError();
+        expect(Wire1.begin(), "Wire1.begin on the second wiring");
+        expect(test_get_i2c_config_instance() == 1 && test_get_i2c_config_data() == 26 &&
+                   test_get_i2c_config_clock() == 27,
+               "Wire1 configures instance 1 on GP26 and GP27");
+        Wire1.beginTransmission(0x48);
+        expect(Wire1.write(static_cast<byte>(0x01)) == 1, "Wire1.write");
+        expect(Wire1.endTransmission() == 0, "Wire1.endTransmission");
+        requestExit(0);
+    }, nullptr);
+    expect(test_get_i2c_written_instance() == 1, "Wire1 writes on instance 1");
+    expect(test_get_i2c_written_address() == 0x48, "Wire1 writes to its address");
+
+    test_reset_i2c();
+    test_set_second_i2c_present(true);
+    run([]{
+        clearError();
+        expect(Wire.begin(), "Wire.begin beside Wire1");
+        Wire.beginTransmission(0x50);
+        Wire.write(static_cast<byte>(0x02));
+        expect(Wire.endTransmission() == 0, "Wire.endTransmission");
+        expect(test_get_i2c_written_instance() == 0, "Wire still writes on instance 0");
+        expect(Wire1.endTransmission() == 4, "Wire1 not begun is its own state");
+        requestExit(0);
+    }, nullptr);
+    clearError();
+
+    // setSDA and setSCL choose pins before begin, even with no board wiring;
+    // after begin a running bus keeps its pins.
+    test_reset_i2c();
+    run([]{
+        clearError();
+        expect(Wire1.setSDA(12) && Wire1.setSCL(13), "pins set before begin");
+        expect(Wire1.begin(), "Wire1.begin on chosen pins");
+        expect(test_get_i2c_config_instance() == 1 && test_get_i2c_config_data() == 12 &&
+                   test_get_i2c_config_clock() == 13,
+               "Wire1 uses the chosen pins on instance 1");
+        expect(Wire1.setSDA(12), "setSDA after begin to the pin in use");
+        expect(!Wire1.setSDA(26), "setSDA after begin to another pin is refused");
+        requestExit(0);
+    }, nullptr);
+    clearError();
+
+    // begin(sda, scl) and begin(sda, scl, frequency) choose the pins at begin.
+    test_reset_i2c();
+    run([]{
+        clearError();
+        expect(!Wire2.begin() && lastError() == Status::Unsupported,
+               "Wire2 has no board wiring to begin on");
+        clearError();
+        expect(Wire2.begin(10, 11) && test_get_i2c_config_instance() == 2,
+               "Wire2 begins on instance 2 on named pins");
+        expect(Wire1.begin(21, 22, 400000UL), "Wire1.begin with pins and a clock");
+        expect(test_get_i2c_config_instance() == 1 && test_get_i2c_config_data() == 21 &&
+                   test_get_i2c_config_clock() == 22,
+               "begin(sda, scl, frequency) uses the given pins on instance 1");
+        requestExit(0);
+    }, nullptr);
+    clearError();
+    test_reset_i2c();
+
+    // A bus outside 0 to 2 fails as unsupported.
+    run([]{
+        clearError();
+        TwoWire invalid_wire{3};
+        expect(!invalid_wire.begin() && lastError() == Status::Unsupported,
+               "TwoWire(3).begin is Unsupported");
+        clearError();
+        expect(!invalid_wire.setSDA(1) && lastError() == Status::Unsupported,
+               "TwoWire(3).setSDA is Unsupported");
+        clearError();
+        expect(invalid_wire.write(static_cast<byte>(1)) == 0 &&
+                   lastError() == Status::Unsupported,
+               "TwoWire(3).write is Unsupported");
+        requestExit(0);
+    }, nullptr);
+    clearError();
+    test_reset_i2c();
 }
 
 void wire_communication() {
@@ -2173,9 +2543,15 @@ const mm::test::case_ cases[] = {
     {"interrupt table mutation during dispatch", &interrupt_table_mutation_during_dispatch},
     {"interrupt edge latched during handler", &interrupt_edge_latched_during_handler},
     {"interrupt dispatch request exit", &interrupt_dispatch_request_exit},
+    {"interrupts held between noInterrupts and interrupts", &interrupts_held_between_no_interrupts_and_interrupts},
     {"interrupt preserved across runs", &interrupt_preserved_across_runs},
     {"spi communication", &spi_communication},
+    {"spi pin names", &spi_pin_names},
+    {"usb storage", &usb_storage},
     {"wire communication", &wire_communication},
+    {"legacy profile", &legacy_profile},
+    {"second wire bus", &second_wire_bus},
+    {"hardware serial ports", &hardware_serial_ports},
     {"analog read operations", &analog_read_operations},
     {"analog write operations", &analog_write_operations},
     {"tone and no tone operations", &tone_and_no_tone_operations},

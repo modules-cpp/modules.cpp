@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <set>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -85,15 +86,21 @@ int main(int argc, char** argv) {
     mm::app::Options options("sketch");
     options.flag("--check");
     options.flag("--library");
+    options.flag("--legacy");
     options.flag("--verbose");
     options.option("--project", "DIR");
     options.help("sketch [-v|--verbose] [-h|--help] [--check] [--library] "
-                 "[--project DIR] [directory]");
+                 "[--legacy] [--project DIR] [directory]");
     const auto cli = options.parse(argc, argv);
     if (cli == mm::app::Cli::help) return 0;
     if (cli != mm::app::Cli::ok) return 64;
 
     const bool check_mode = options.seen("--check");
+    // --legacy puts every application this run generates in the legacy
+    // profile, recording sketch-profile: legacy in its manifest. An
+    // application already recorded there stays there without it; the
+    // manifest, not the command line, is what a later run and the build read.
+    const bool legacy_requested = options.seen("--legacy");
     const bool verbose = options.seen("--verbose");
     std::filesystem::path dir = options.positional().empty()
                                     ? std::filesystem::path(".")
@@ -313,6 +320,67 @@ int main(int argc, char** argv) {
             return 65;
         }
 
+        // Each application's profile: its manifest's, or legacy when asked.
+        for (auto& app_node : plan.app_nodes) {
+            const auto mpath = app_node.dir / "mm.mdy";
+            bool recorded = false;
+            if (std::filesystem::exists(mpath, ec)) {
+                recorded = mm::ino::is_legacy_application(
+                    mm::mdy::Parser::parse_file(mpath));
+            }
+            app_node.legacy = recorded || legacy_requested;
+            if (check_mode && legacy_requested && !recorded) {
+                std::cerr << "sketch: " << mpath.string()
+                          << ": not in the legacy profile; run sketch --legacy\n";
+                return 65;
+            }
+        }
+
+        // The other sketch libraries each example uses, searched for in
+        // MM_SKETCH_LIBRARIES_PATH and beside the library. The result is
+        // recorded in the manifests; --check reads it back and searches
+        // nothing.
+        if (!check_mode) {
+            const auto search_path = mm::ino::sketch_library_search_path(abs_dir);
+            const auto index = mm::ino::index_sketch_libraries(search_path);
+            mm::ino::SketchLibraryEntry library;
+            if (!mm::ino::read_sketch_library(abs_dir, library)) {
+                library.root = abs_dir;
+                library.name = abs_dir.filename().string();
+                library.include_dir = std::filesystem::is_directory(abs_dir / "src", ec)
+                                          ? abs_dir / "src" : abs_dir;
+            }
+            if (verbose) {
+                for (const auto& folder : search_path)
+                    std::cerr << "sketch: searching " << folder.string()
+                              << " for sketch libraries\n";
+            }
+            std::set<std::string> reported;
+            for (auto& app_node : plan.app_nodes) {
+                app_node.extra_sources = mm::ino::sketch_folder_sources(app_node.dir);
+                const auto found =
+                    mm::ino::resolve_sibling_libraries(app_node.dir, library, index);
+                const auto app_physical = std::filesystem::weakly_canonical(app_node.dir, ec);
+                for (const auto& root : found.libraries) {
+                    app_node.sibling_library_rels.push_back(
+                        root.lexically_relative(app_physical).generic_string());
+                    if (verbose) {
+                        std::cerr << "sketch: " << app_node.name << " uses "
+                                  << root.string() << "\n";
+                    }
+                }
+                for (const auto& name : found.unresolved) {
+                    if (!reported.insert(name).second) continue;
+                    std::cerr << "sketch: warning: no sketch library named \"" << name
+                              << "\" in";
+                    for (const auto& folder : search_path)
+                        std::cerr << " " << folder.string();
+                    std::cerr << "; set " << mm::ino::sketch_libraries_path_variable
+                              << " to the folder holding it\n";
+                }
+            }
+        }
+
         if (check_mode) {
             bool check_failed = false;
             if (!std::filesystem::exists(abs_dir / "mm.mdy", ec)) {
@@ -350,7 +418,7 @@ int main(int argc, char** argv) {
                             sources.push_back({s, ss.str()});
                         }
                     }
-                    const auto tr = mm::ino::transform(sources);
+                    const auto tr = mm::ino::transform(sources, app_node.legacy);
                     std::ifstream in_main(main_path);
                     std::ostringstream ss_main;
                     ss_main << in_main.rdbuf();
@@ -368,7 +436,7 @@ int main(int argc, char** argv) {
                     std::ifstream in(header_path);
                     std::ostringstream ss;
                     ss << in.rdbuf();
-                    if (ss.str() != mm::ino::sketch_header()) {
+                    if (ss.str() != mm::ino::sketch_header(app_node.legacy)) {
                         std::cerr << "sketch: committed " << canonical
                                   << " does not match this release in "
                                   << app_node.dir.string() << "\n";
@@ -382,14 +450,14 @@ int main(int argc, char** argv) {
                     std::ifstream in_header(header_path);
                     std::ostringstream ss_header;
                     ss_header << in_header.rdbuf();
-                    if (ss_header.str() != mm::ino::sketch_header()) {
+                    if (ss_header.str() != mm::ino::sketch_header(app_node.legacy)) {
                         std::cerr << "sketch: committed " << canonical
                                   << " does not match this release in "
                                   << app_node.dir.string() << "\n";
                         check_failed = true;
                     }
                 }
-                for (const auto& alias : mm::ino::sketch_alias_headers()) {
+                for (const auto& alias : mm::ino::sketch_alias_headers(app_node.legacy)) {
                     const std::string name(alias);
                     const auto alias_path = app_node.dir / name;
                     if (!std::filesystem::exists(alias_path, ec)) {
@@ -449,7 +517,51 @@ int main(int argc, char** argv) {
             }
         }
         for (const auto& app_node : plan.app_nodes) {
+            if (!mm::ino::is_absent_or_generated(app_node.dir / "main.cpp")) {
+                std::cerr << "sketch: " << (app_node.dir / "main.cpp").string()
+                          << " is the example's own, not generated; example skipped\n";
+                continue;
+            }
             const auto mpath = app_node.dir / "mm.mdy";
+            if (std::filesystem::exists(mpath, ec) && app_node.legacy &&
+                !mm::ino::is_legacy_application(mm::mdy::Parser::parse_file(mpath))) {
+                std::ifstream in_manifest(mpath);
+                std::ostringstream text;
+                text << in_manifest.rdbuf();
+                const auto updated = mm::ino::with_legacy_profile(text.str());
+                if (updated.empty() ||
+                    !mm::ino::write_guarded(app_node.dir, "mm.mdy", updated, err,
+                                            "mm.mdy.tmp")) {
+                    std::cerr << "sketch: cannot add the legacy profile to "
+                              << mpath.string() << "\n";
+                    return 65;
+                }
+            }
+            if (std::filesystem::exists(mpath, ec) &&
+                (!app_node.sibling_library_rels.empty() ||
+                 !app_node.extra_sources.empty())) {
+                std::ifstream in_manifest(mpath);
+                std::ostringstream text;
+                text << in_manifest.rdbuf();
+                auto updated = app_node.sibling_library_rels.empty()
+                    ? text.str()
+                    : mm::ino::with_sketch_libraries(text.str(),
+                                                     app_node.sibling_library_rels);
+                if (!updated.empty() && !app_node.extra_sources.empty())
+                    updated = mm::ino::with_files(updated, app_node.extra_sources);
+                if (updated.empty()) {
+                    std::cerr << "sketch: cannot add sketch libraries to "
+                              << mpath.string() << "\n";
+                    return 65;
+                }
+                if (updated != text.str() &&
+                    !mm::ino::write_guarded(app_node.dir, "mm.mdy", updated, err,
+                                            "mm.mdy.tmp")) {
+                    std::cerr << "sketch: cannot write " << mpath.string()
+                              << ": " << err << "\n";
+                    return 65;
+                }
+            }
             if (!std::filesystem::exists(mpath, ec)) {
                 const std::string content =
                     mm::ino::render_app_manifest(app_node);
@@ -477,7 +589,7 @@ int main(int argc, char** argv) {
                 ss << in.rdbuf();
                 sources.push_back({s, ss.str()});
             }
-            const auto tr = mm::ino::transform(sources);
+            const auto tr = mm::ino::transform(sources, app_node.legacy);
             if (!tr.ok) {
                 std::cerr << "sketch: transformation failed for "
                           << app_node.name << "\n";
@@ -491,13 +603,13 @@ int main(int argc, char** argv) {
             }
             const std::string canonical(mm::ino::sketch_header_name());
             if (!mm::ino::write_guarded(app_node.dir, canonical,
-                                        mm::ino::sketch_header(), err,
+                                        mm::ino::sketch_header(app_node.legacy), err,
                                         canonical + ".tmp")) {
                 std::cerr << "sketch: cannot write " << canonical << " in "
                           << app_node.dir.string() << ": " << err << "\n";
                 return 65;
             }
-            for (const auto& alias : mm::ino::sketch_alias_headers()) {
+            for (const auto& alias : mm::ino::sketch_alias_headers(app_node.legacy)) {
                 const std::string name(alias);
                 if (!mm::ino::write_guarded(
                         app_node.dir, name,
@@ -551,6 +663,12 @@ int main(int argc, char** argv) {
         if (!manifest_exists) {
             std::cerr << "sketch: manifest not found: "
                       << manifest_path.string() << "\n";
+            return 65;
+        }
+
+        if (legacy_requested && !mm::ino::is_legacy_application(self_doc)) {
+            std::cerr << "sketch: " << manifest_path.string()
+                      << ": not in the legacy profile; run sketch --legacy\n";
             return 65;
         }
 
@@ -638,7 +756,12 @@ int main(int argc, char** argv) {
             initial_manifest += "project: " + rel_proj + "\n";
         }
         initial_manifest += "use: mm.sketch\nfile: main.cpp\nsketch: " +
-                            expected_ino + "\n---\n";
+                            expected_ino + "\n";
+        if (legacy_requested) {
+            initial_manifest += std::string(mm::ino::sketch_profile_key) + ": " +
+                                std::string(mm::ino::legacy_profile_name) + "\n";
+        }
+        initial_manifest += "---\n";
 
         std::string write_err;
         if (!mm::ino::write_guarded(abs_dir, "mm.mdy", initial_manifest,
@@ -681,7 +804,25 @@ int main(int argc, char** argv) {
         sources.push_back({file, ss.str()});
     }
 
-    const auto result = mm::ino::transform(sources);
+    // The profile: the manifest's, or legacy when asked, in which case an
+    // existing manifest gains the key before anything is generated from it.
+    const bool legacy =
+        legacy_requested || (manifest_exists && mm::ino::is_legacy_application(self_doc));
+    if (legacy && manifest_exists && !mm::ino::is_legacy_application(self_doc)) {
+        std::ifstream in_manifest(manifest_path);
+        std::ostringstream text;
+        text << in_manifest.rdbuf();
+        const auto updated = mm::ino::with_legacy_profile(text.str());
+        std::string write_err;
+        if (updated.empty() ||
+            !mm::ino::write_guarded(abs_dir, "mm.mdy", updated, write_err, "mm.mdy.tmp")) {
+            std::cerr << "sketch: cannot add the legacy profile to "
+                      << manifest_path.string() << "\n";
+            return 65;
+        }
+    }
+
+    const auto result = mm::ino::transform(sources, legacy);
     if (!result.ok) {
         std::cerr << "sketch: transformation failed\n";
         for (const auto& diag : result.diagnostics) {
@@ -703,6 +844,11 @@ int main(int argc, char** argv) {
     }
 
     std::string main_err;
+    if (!mm::ino::is_absent_or_generated(abs_dir / "main.cpp")) {
+        std::cerr << "sketch: " << (abs_dir / "main.cpp").string()
+                  << " is the sketch's own, not generated; refusing to overwrite it\n";
+        return 65;
+    }
     if (!mm::ino::write_guarded(abs_dir, "main.cpp", result.output,
                                 main_err, "main.cpp.tmp")) {
         std::cerr << "sketch: cannot write main.cpp: " << main_err << "\n";
@@ -721,7 +867,7 @@ int main(int argc, char** argv) {
     const std::string canonical_header(mm::ino::sketch_header_name());
     std::string header_err;
     if (!mm::ino::write_guarded(abs_dir, canonical_header,
-                                mm::ino::sketch_header(), header_err,
+                                mm::ino::sketch_header(legacy), header_err,
                                 canonical_header + ".tmp")) {
         std::cerr << "sketch: cannot write " << canonical_header << ": "
                   << header_err << "\n";
@@ -731,7 +877,7 @@ int main(int argc, char** argv) {
         std::cerr << "sketch: wrote " << canonical_header << " to "
                   << abs_dir.string() << "/" << canonical_header << "\n";
     }
-    for (const auto& alias : mm::ino::sketch_alias_headers()) {
+    for (const auto& alias : mm::ino::sketch_alias_headers(legacy)) {
         const std::string name(alias);
         if (!mm::ino::write_guarded(abs_dir, name,
                                     mm::ino::sketch_alias_header(alias),

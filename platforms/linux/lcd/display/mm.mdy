@@ -1,0 +1,11 @@
+---
+mm: 1.2
+kind: module
+name: linux-lcd-display
+module: platform.linux.lcd.display
+file: display.cppm
+use: mm.display
+use: mm.lcd.st7789
+use: mm.mcu
+option: buildable-host no
+---

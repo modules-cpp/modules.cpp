@@ -1,0 +1,15 @@
+---
+mm: 1.2
+kind: module
+name: pico-usb-device
+module: platform.pico.usb.device
+use: mm.usb
+use: mm.usb.device
+file: device.cppm
+option: buildable-host no
+---
+
+# platform.pico.usb.device
+
+The Pico SDK platform's USB peripheral implementation of mm.usb.device over TinyUSB.
+Active only on boards that assign the native USB port to the application.

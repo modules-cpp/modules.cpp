@@ -1,0 +1,17 @@
+---
+mm: 1.2
+kind: board
+name: pico2_usb_host
+derives-from: pico2-arm
+platform-provider: mm.usb.host platform.pico.usb.host
+---
+
+# pico2_usb_host
+
+A pico2-arm with a second USB port on GP2 (D+) and GP3 (D-), which Pico-PIO-USB
+drives as a USB host through the RP chip's PIO, for a USB flash drive: mm.mcu's
+storage calls read and write it. The native USB port stays the USB console.
+The system clock is 120 MHz, a multiple of 12 MHz as Pico-PIO-USB needs.
+
+Wiring: a USB-A socket's D+ to GP2 and D- to GP3, each through a 22-ohm
+resistor, VBUS to 5 V (VBUS on a USB-powered Pico), and ground to ground.

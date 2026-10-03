@@ -182,6 +182,23 @@ void test_epoch_overflow() {
 
 // --- Duration tests ---
 
+void test_duration_overflow() {
+    // The largest count a Duration holds is read exactly; one more, or any
+    // longer run of digits, is reported as overflow rather than wrapped.
+    const auto largest = parse_time("18446744073709551615s");
+    expect(largest.kind == TimeKind::Duration && !largest.overflow &&
+               largest.duration.value == 18446744073709551615ULL,
+           "the largest duration is exact");
+    const auto past = parse_time("18446744073709551616s");
+    expect(past.kind == TimeKind::Duration && past.overflow &&
+               past.duration.value == 18446744073709551615ULL,
+           "one past the largest duration overflows and saturates");
+    const auto long_run = parse_time("99999999999999999999999999999999w");
+    expect(long_run.kind == TimeKind::Duration && long_run.overflow &&
+               long_run.duration.unit == Duration::Unit::Weeks,
+           "a long run of digits overflows");
+}
+
 void test_duration_seconds() {
     const auto result = parse_time("30s");
     expect(result.kind == TimeKind::Duration, "30s kind");
@@ -322,6 +339,7 @@ const mm::test::case_ cases[]{
     {"epoch too few digits", &test_epoch_too_few_digits},
     {"epoch overflow", &test_epoch_overflow},
     {"duration seconds", &test_duration_seconds},
+    {"duration overflow", &test_duration_overflow},
     {"duration minutes", &test_duration_minutes},
     {"duration hours", &test_duration_hours},
     {"duration days", &test_duration_days},

@@ -17,6 +17,7 @@
 //
 // Pawel Wodnicki (C) 2026
 // 32bitmicro LLC (C) 2026
+#include <algorithm>
 #include <cstddef>
 #include <filesystem>
 #include <iostream>
@@ -366,6 +367,12 @@ int main(int argc, char** argv) {
     // executable rather than strand the new version under the configured tree.
     const std::filesystem::path bin_dir = "out/bin";
 
+    // Applications in the legacy sketch profile, and the sketch libraries
+    // compiled into them, are reported on every build: the profile accepts
+    // what the Arduino core accepts, and a project should see where it does.
+    std::vector<std::string> legacy_apps;
+    std::vector<std::string> legacy_libraries;
+
     std::cout << "\nLink\n";
     for (const auto index : order) {
         const auto& target = tree.targets[index];
@@ -374,6 +381,17 @@ int main(int argc, char** argv) {
         const auto output = context.executable_path(target);
 
         std::cout << "  app " << target.name << " -> " << output.string() << "\n";
+        if (target.sketch_legacy) {
+            std::cout << "    legacy sketch profile\n";
+            legacy_apps.push_back(target.name);
+            for (const auto& library : target.sketch_libraries) {
+                const auto shown = library.generic_string();
+                std::cout << "    legacy sketch library " << shown << "\n";
+                if (std::find(legacy_libraries.begin(), legacy_libraries.end(), shown) ==
+                    legacy_libraries.end())
+                    legacy_libraries.push_back(shown);
+            }
+        }
 
         if (!mm::build::can_link_executable(platform, "build", target.name))
             return mm::build::exit_manifest;
@@ -419,6 +437,17 @@ int main(int argc, char** argv) {
 
     if (!target_lane && !resolved_roots.external_root)
         std::cout << "\nInstalled to " << bin_dir.string() << "\n";
+    if (!legacy_apps.empty()) {
+        std::cout << "\nlegacy: " << legacy_apps.size()
+                  << " application(s) built with the legacy sketch profile:";
+        for (const auto& name : legacy_apps) std::cout << " " << name;
+        std::cout << "\n";
+        if (!legacy_libraries.empty()) {
+            std::cout << "legacy: sketch libraries compiled under it:";
+            for (const auto& library : legacy_libraries) std::cout << " " << library;
+            std::cout << "\n";
+        }
+    }
     if (unavailable_targets != 0)
         std::cout << unavailable_targets << " module/app target(s) skipped; unavailable for the "
                   << (target_lane ? "target" : "host") << " lane\n";

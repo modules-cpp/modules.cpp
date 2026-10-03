@@ -19,4 +19,5 @@ folder: mdy
 folder: stdio-smoke
 folder: target-smoke-any
 folder: shell-smoke
+folder: usb-smoke
 ---

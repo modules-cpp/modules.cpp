@@ -3,7 +3,7 @@ mm: 1.0
 kind: doc
 name: modules.cpp build tool specification
 status: official
-release: v1.3.0
+release: v1.3.1
 ---
 
 # modules.cpp build tool specification
@@ -28,6 +28,8 @@ The optional manifest is an mm.mdy file or a directory containing one. With no m
 --host and --target are mutually exclusive. Supplying both, repeating either, or supplying an unknown option is a usage error and exits 64.
 
 The regular configured build workflow accepts no command-line compiler, compiler version, target triple, build type, compiler flag, linker flag, or output-directory override; those values come from configure. Bootstrap's internal stage-1 invocation supplies compiler and family overrides explicitly so it can create that configuration on a fresh checkout.
+
+Nor does a manifest supply a preprocessor definition. The one definition build adds itself is ARDUINO=10819, on every source of an application whose manifest selects sketch-profile: legacy, for the reason docs/modules-ino.mdy, "The legacy profile", gives.
 
 # macOS bootstrap
 

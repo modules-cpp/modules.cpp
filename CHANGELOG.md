@@ -2,6 +2,204 @@
 
 All notable changes to modules.cpp. Versions follow [semantic versioning](https://semver.org/).
 
+## [v1.3.1] — 2026-10-02
+
+Something to connect and store with. v1.3.0 gave the project a language of its
+own with sketches and a native shell; v1.3.1 gives programs standard USB
+connectivity and mass storage: the USB subsystem (`mm.usb`) introduces device
+and host abstractions, CDC ACM console communication for `mm.stdio`, and SCSI
+Mass Storage Class (`mm.usb.msc`) for block storage; sketches gain secondary
+peripheral buses (`Wire1`, `Wire2`, `Serial1`, `Serial2`), interrupts, SD card
+redirection, and a legacy profile (`sketch --legacy`) for seamless third-party
+Arduino library compatibility; native USB port ownership is unlocked on
+Raspberry Pi Pico; Linux adds emulated ST7789 and ILI9341 display support over
+SDL2; and fenced code blocks arrive in `mm.mdy`.
+
+### Added
+
+- **USB Subsystem (`mm.usb`, `mm.usb.device`, `mm.usb.host`).** Shared vocabulary
+  for USB data transfers (`Status`, `Speed`, `TransferType`, `Direction`,
+  `EndpointAddress`, `SetupPacket`), platform-interfaces for USB device
+  (`mm.usb.device`, nonblocking transfers, descriptors, setup handling) and
+  USB host (`mm.usb.host`, bounded transfers, device enumeration, interface claim).
+- **USB CDC ACM and Stdio Console Provider (`mm.usb.cdc`).** CDC ACM device class
+  function (`CdcDevice`) and `CdcConsole` providing console I/O for `mm.stdio`
+  when the application owns the native USB port.
+- **USB Mass Storage Class (`mm.usb.msc`).** Bulk-Only Transport (BOT / BBB)
+  device class exposing `mm.mcu` block storage to USB hosts via SCSI Transparent
+  commands (Inquiry, Test Unit Ready, Request Sense, Read Capacity 10, Read 10, Write 10).
+- **USB Vendor Class (`mm.usb.vendor`).** Bulk echo device (`DeviceEcho`) and host
+  (`HostEcho`) implementations for qualification and loopback testing.
+- **Native USB Port Ownership on Raspberry Pi Pico.** Support for native USB port
+  ownership configuration (`console` vs `application`) and dedicated boards
+  `pico_usb_device` and `pico2_usb_device`.
+- **Fenced code block support in `mm.mdy`.** Native multi-line fenced code block
+  parsing (`BlockType::CodeBlock`), language tag preservation, indentation and blank
+  line preservation, HTML `<pre><code class="language-...">` generation in `apps/mdy`,
+  and updated developer documentation.
+- **Flash tool `--auto-flash` flag.** Automatic device discovery, bootloader reset,
+  and flashing for Raspberry Pi Pico boards.
+- **`Wire1` in `mm.sketch`.** A second I2C bus beside `Wire`, each with its
+  own buffers, pending write, clock, and pins, so a library handed `&Wire1`
+  talks to the second bus. `Wire1` runs on `mm.mcu`'s new `Board::second_i2c`,
+  which the Pico SDK vendor boards give as instance 1 on GP26 and GP27, the
+  Arduino cores' `Wire1` pins; a composite board has one only when the bridge's
+  board table says so. `setSDA` and `setSCL`, the RP2040 and RP2350 cores'
+  spelling, choose a bus's pins before `begin`. Diagnostics name the bus
+  (`Wire1.begin`).
+- **The legacy sketch profile.** `mm.sketch` exports a namespace
+  `mm::sketch::legacy` with the Arduino core's looser signatures:
+  `digitalWrite` with an integer or `bool` level, `pinMode` with an integer
+  mode, `pulseIn` and `pulseInLong` with an integer level, `shiftIn` and
+  `shiftOut` with an integer bit order, and `analogRead` for `unsigned char`,
+  `int`, `long`, and `unsigned long` pins. Each forwards to the core function
+  and refuses a value the core has no spelling for with `BadArgument`. Only an
+  application generated with `sketch --legacy` sees them: its manifest carries
+  the new `sketch-profile: legacy` key, and its `main.cpp` and `Sketch.h` add
+  `using namespace mm::sketch::legacy`, and its `main.cpp` includes `Sketch.h`
+  ahead of the sketch's own includes, where a sketch toolchain puts
+  `Arduino.h`, so a library header that includes nothing itself (RobTillaart's
+  `Kurtosis.h`) compiles. The build compiles a legacy application, and the
+  sources of its sketch libraries, with `ARDUINO=10819` defined, as a sketch
+  toolchain does, so a library that selects its platform by that macro (RF24)
+  takes its Arduino branch; no board macro is defined. A legacy application
+  also gets `avr/pgmspace.h` as a sixth forwarder and, in its `Sketch.h`,
+  `<cctype>`, `_BV`, `SPI_HAS_TRANSACTION`, and `printf_P`, `sprintf_P`, and
+  `snprintf_P` with AVR's `%S` read as `%s`, which is what RF24 needs to build
+  its examples on the host and the Pico. The core vocabulary is
+  unchanged, so
+  `digitalWrite(pin, 1)` is still refused without it, and a call the core
+  already accepts keeps the core overload with it. The build reports every
+  legacy application and the sketch libraries compiled into it. RobTillaart's
+  AS5600, which passes a `uint8_t` level, builds all 27 of its examples in the
+  legacy profile.
+- **Byte UART in `mm.mcu`.** `uart_configure` (instance, transmit and receive
+  GPIOs, baud), a nonblocking `uart_write` of a byte span that reports what the
+  transmitter took, a nonblocking `uart_read`, and `uart_release`, beside the
+  original text `uart_write`. `Board` gains `uart` and `second_uart` wirings.
+  The Pico provider serves UART0 and UART1 through the FIFOs, validating the
+  pins against the RP2040 and RP2350 UART mux, and describes the board header's
+  default UART and, on the six vendor boards, a second, UART1 on GP8 and GP9.
+  The Linux provider serves the device map's `uart.N` entries, keeping a
+  configured device open so nothing that arrives between reads is lost, and
+  describes `uart.0` and `uart.1`.
+- **`Serial1`, `Serial2`, and `Wire2` in `mm.sketch`.** `HardwareSerial`, a
+  `Stream` over the byte UART: `Serial1` on the board's default UART and
+  `Serial2` on its second, with `setTX` and `setRX` for pins, a write that waits
+  up to the stream's timeout for room, and reads that never wait. `Wire2` is a
+  third I2C bus, instance 2, with no board wiring, so it begins only on named
+  pins.
+- **`Wire.begin(sda, scl)`.** `TwoWire::begin(int sda, int scl)` and
+  `begin(int sda, int scl, unsigned long frequency)` choose a bus's pins,
+  and optionally its clock, at begin.
+- **`noInterrupts()` and `interrupts()` in `mm.sketch`.** They hold off and
+  resume the handlers `attachInterrupt` registered: an edge that arrives in
+  between stays latched, and its handler runs at the first dispatch after
+  `interrupts()`. They do not mask the platform's interrupts. That spec
+  previously declined them; RobTillaart's `PCF8574_interrupt_advanced`
+  example uses them.
+- **Other libraries an example uses.** `sketch --library` finds the other
+  sketch libraries each example needs and records them as further
+  `sketch-library:` entries: headers the example's own files include, and
+  `depends=` in `library.properties`, transitively. It searches the folder
+  holding the library, then the folders `MM_SKETCH_LIBRARIES_PATH` names,
+  colon separated. The build compiles each such library into the application
+  like the first, and accepts one outside the tree provided it declares itself
+  a sketch library. RobTillaart's `ACS712_ESP32_external_ADC` and
+  `waveMix_demo_temperature` find `ADS1X15` and `DHTNEW`, and Adafruit GFX
+  finds Adafruit BusIO. The C and C++ sources beside a sketch are compiled
+  with it, recorded as further `file:` entries, as the Arduino tools compile
+  every source in a sketch folder.
+- **An emulated ST7789 on Linux.** `platforms/linux/lcd` puts a virtual
+  ST7789 behind the `mm.mcu` seam on new `lcd-linux-x86_64` and
+  `lcd-linux-aarch64` boards and shows its glass in an SDL2 window, as the
+  e-paper boards do for the SSD1680. `mm.lcd.st7789` and Adafruit's ST7789
+  library both drive it unmodified, so `apps/gfx-demo` and RF24's
+  `scannerGraphic` draw on a desktop. `scripts/build-linux.sh --board lcd`
+  selects it; `MM_LCD_SNAPSHOT` writes each shown image to a PPM file. The
+  same controller behind an ILI9341 module's glass, on the Uno pins Adafruit's
+  ILI9341 examples use, is the `ili9341-linux-x86_64` and
+  `ili9341-linux-aarch64` boards (`--board ili9341`), so Adafruit GFX's
+  `mock_ili9341` draws in a window too.
+- **A USB flash drive on a Pico through a PIO USB port.** New
+  `pico_usb_host` and `pico2_usb_host` boards turn GP2 and GP3 into a second
+  USB port with Pico-PIO-USB, a USB host for a mass-storage device through
+  TinyUSB, while the Pico's own USB port stays the console. `mm.mcu` gains
+  block storage (`storage_poll`, `storage_geometry`, `storage_read`,
+  `storage_write`), and `mm.sketch` `usbStorageBegin` and its companions in
+  512-byte sectors. `platforms/pico/sdk/pico-sdk/pio-usb/vendor.sh` provisions
+  Pico-PIO-USB. The `mm-usb-storage` sketch library makes a drive an SdFat
+  volume; its `UsbKeyPio` example is SdFat's `UsbKey` without the shield.
+- **`sketch-define:`.** A sketch application may declare preprocessor
+  definitions its libraries are configured by, `NAME` or `NAME=VALUE`, which
+  the build passes to every file of the application after `ARDUINO`.
+- **SD.h in the legacy profile is SdFat.** A legacy application gets an
+  `SD.h` forwarder that includes SdFat and defines `SD` as an `SdFat`, and
+  library mode adds the SdFat library to any example including `SD.h`. An
+  include inside `#if`, `#ifdef`, or `#ifndef` is no longer hoisted in the
+  legacy profile, so SdFat's `USE_SD_H` examples include only what they chose.
+- **SPI pin names.** `mm.sketch` exports `SS`, `MOSI`, `MISO`, and `SCK`,
+  read from the board's default SPI wiring when used, and `mm.mcu`'s
+  `SpiWiring` gains an optional `chip_select_gpio`, the board's default chip
+  select. The Pico SDK boards name GP15, DAT3 in SdFat's SDIO wiring for the
+  Pico, so on a Pico `SS` is GP15 beside SCK GP18, MOSI GP19, and MISO GP16.
+  With them, the SD.h redirect, and RTClib, 18 of SdFat's portable examples
+  build for the Pico.
+- **More of the Arduino core in the legacy profile.** Integer `SPI_MODE0` to
+  `SPI_MODE3` with an `SPISettings` that takes them, `radians` and `degrees`,
+  `__FlashStringHelper`, and `pins_arduino.h` and `wiring_private.h`
+  forwarders; `Sketch.h` also defines its flash readers so that a library's
+  own `pgm_read_byte` macro does not break them. With these, Adafruit GFX
+  (through BusIO) and RF24's `scannerGraphic` (through GFX, SSD1306, and
+  ST7735) build.
+
+With `Wire1` and, for `ADS_pointerToFunction`, the legacy profile, all 27
+examples of RobTillaart's ADS1X15 build; `ADS_RP2040_WIRE1` and
+`ADS_pointerToFunction` did not.
+
+### Fixed
+
+- **`configure` recorded `cross-board-linker-script: .` for a board without
+  a linker script**, every hosted Linux board, and the build then refused the
+  configuration as unsafe, so `scripts/build-linux.sh` failed for the generic,
+  SDL, and e-paper boards. No path is now recorded as no path.
+- **`sketch` no longer overwrites a sketch folder's own `main.cpp`.** A
+  `main.cpp` whose first line is not sketch's generated header is left alone:
+  library mode skips that example, and a single application is refused. It
+  had replaced RF24's `pingpair_maple/main.cpp`.
+- `mm.ino` copied a function's default arguments into the prototype it
+  generates, so a sketch defining `uint16_t f(float &c, bool reset = false)`
+  failed with "default argument given for parameter 2": C++ allows a default
+  in only one declaration. The generated prototype now drops each default
+  whole, including defaults that are calls or literals containing commas, and
+  the definition keeps it. docs/modules-ino.mdy states the rule and its limit.
+
+- `mm.parse` read a duration's count into a signed 64-bit value without a
+  bound, so `parse_time("99999999999999999999s")` overflowed, which is
+  undefined behaviour. The count is read unsigned and checked; one past
+  18446744073709551615 sets `overflow` and saturates there.
+- `scripts/release.sh` reported "cannot reach origin" whenever fetching
+  origin's tags failed, including when a local tag pointed elsewhere than
+  origin's tag of the same name. It now names each such tag, says the two
+  differ, and gives the commands to keep the local one and adopt origin's;
+  any other fetch failure prints git's own message.
+  `tests/scripts/release-fetch.sh`, run by `test.sh`, builds a throwaway
+  origin and clone to prove it.
+- Nothing checked that `test.sh` runs every test suite, which is how four
+  suites, one of them with 19 failures, went unrun until v1.3.0. The model
+  workflow tests now require a `run_test_target` line for every `kind: test`
+  manifest under `tests/` and `libraries/`, and no line for a suite that does
+  not exist.
+- A fresh checkout of v1.3.0 failed `./check.sh` and `sketch --check` on
+  every sketch application with `missing generated Arduino.h`. Both checks
+  require the five forwarders the sketch tool writes beside `Sketch.h` --
+  `Arduino.h`, `Print.h`, `Printable.h`, `Wire.h`, and `SPI.h` -- but
+  `.gitignore` excluded them, a rule left from when the compatibility header
+  itself was named `Arduino.h`. The rule is gone, the forwarders of
+  `apps/ino/blink`, `button`, and `echo` are committed, and
+  docs/modules-ino.mdy says every sketch application commits all six
+  generated headers and what the check compares.
+
 ## [v1.3.0] — 2026-09-29
 
 Something to run sketches with. v1.2.4 gave a program sound; v1.3.0 gives the
@@ -981,6 +1179,8 @@ framework or documentation generator. 77 commits from the initial commit on
   `xfail`, and `xpass` failing the run when a known defect starts passing.
 - GCC and Clang backends, selected per build.
 
+[Unreleased]: https://github.com/modules-cpp/modules.cpp/compare/v1.3.1...HEAD
+[v1.3.1]: https://github.com/modules-cpp/modules.cpp/releases/tag/v1.3.1
 [v1.3.0]: https://github.com/modules-cpp/modules.cpp/releases/tag/v1.3.0
 [v1.2.4]: https://github.com/modules-cpp/modules.cpp/releases/tag/v1.2.4
 [v1.2.3]: https://github.com/modules-cpp/modules.cpp/releases/tag/v1.2.3

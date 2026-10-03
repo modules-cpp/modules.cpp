@@ -130,7 +130,7 @@ Enter enter_manifest(const std::filesystem::path& dir, WalkState& state,
         return Enter::error;
     }
 
-    if (state.policy.strict_tree) {
+    if (state.policy.strict_tree || state.policy.check) {
         // Generated lanes are root siblings: out is the bootstrap/configuration
         // tree, while configured host and target lanes use out-* names. Match
         // the complete first component so a source directory such as "outside"
@@ -143,7 +143,7 @@ Enter enter_manifest(const std::filesystem::path& dir, WalkState& state,
         }
     }
     if (state.contains(state.visited, canonical)) {
-        if (!state.policy.strict_tree) return Enter::skip;
+        if (!state.policy.strict_tree && !state.policy.check) return Enter::skip;
         std::cerr << state.policy.tool << ": repeated canonical manifest directory: "
                   << manifest.string() << "\n";
         return Enter::error;
@@ -266,6 +266,11 @@ bool folder_within_library_source(const std::filesystem::path& source,
 // saw the same bytes.
 void walk_project(const std::filesystem::path& dir, std::size_t parent, Project& project,
                   WalkState& state) {
+    if (state.policy.print_folders || state.policy.check) {
+        const auto display = dir.lexically_normal().generic_string();
+        std::cout << (display.empty() ? "." : display) << "\n";
+    }
+
     std::filesystem::path manifest;
     std::filesystem::path canonical;
 
@@ -549,7 +554,64 @@ void walk_project(const std::filesystem::path& dir, std::size_t parent, Project&
             }
             target.sketches.push_back(sketch);
         }
+        {
+            const auto profiles = all(doc, "sketch-profile");
+            if (!profiles.empty()) {
+                if (target.sketches.empty()) {
+                    std::cerr << state.policy.tool << ": " << manifest.string()
+                              << ": sketch-profile requires sketch:\n";
+                    project.ok = false;
+                    return;
+                }
+                if (profiles.size() != 1 || profiles.front() != "legacy") {
+                    std::cerr << state.policy.tool << ": " << manifest.string()
+                              << ": sketch-profile takes one value, legacy\n";
+                    project.ok = false;
+                    return;
+                }
+                target.sketch_legacy = true;
+            }
+        }
+        for (const auto& definition : all(doc, "sketch-define")) {
+            if (target.sketches.empty()) {
+                std::cerr << state.policy.tool << ": " << manifest.string()
+                          << ": sketch-define requires sketch:\n";
+                project.ok = false;
+                return;
+            }
+            // An identifier, then optionally = and a value of letters, digits,
+            // and . _ - +, so a definition is one argument to the compiler and
+            // nothing a shell reads specially.
+            const auto equals = definition.find('=');
+            const std::string_view name = std::string_view(definition).substr(0, equals);
+            const std::string_view value = equals == std::string::npos
+                ? std::string_view{}
+                : std::string_view(definition).substr(equals + 1);
+            const auto identifier_char = [](char c, bool first) {
+                return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c == '_' ||
+                       (!first && c >= '0' && c <= '9');
+            };
+            bool valid = !name.empty();
+            for (std::size_t i = 0; valid && i < name.size(); ++i)
+                valid = identifier_char(name[i], i == 0);
+            if (equals != std::string::npos && value.empty()) valid = false;
+            for (const char c : value)
+                if (!(identifier_char(c, false) || c == '.' || c == '-' || c == '+')) valid = false;
+            if (!valid) {
+                std::cerr << state.policy.tool << ": " << manifest.string()
+                          << ": sketch-define takes NAME or NAME=VALUE: " << definition << "\n";
+                project.ok = false;
+                return;
+            }
+            target.sketch_defines.push_back(definition);
+        }
+        bool first_library = true;
         for (const auto& entry : all(doc, "sketch-library")) {
+            // The first is the library the example exercises, inside the
+            // tree; the others are libraries it uses, which the sketch tool
+            // found wherever the user keeps them.
+            const bool sibling = !first_library;
+            first_library = false;
             if (target.sketches.empty()) {
                 std::cerr << state.policy.tool << ": " << manifest.string()
                           << ": sketch-library requires sketch:\n";
@@ -570,11 +632,27 @@ void walk_project(const std::filesystem::path& dir, std::size_t parent, Project&
             std::error_code root_ec;
             const auto lib_root = std::filesystem::weakly_canonical(
                 target.source_dir / raw_lib, root_ec);
-            if (root_ec || !path_contained_in(owning_root, lib_root)) {
+            if (root_ec || (!sibling && !path_contained_in(owning_root, lib_root))) {
                 std::cerr << state.policy.tool << ": " << manifest.string()
                           << ": sketch-library outside tree: " << entry << "\n";
                 project.ok = false;
                 return;
+            }
+            // Outside the tree only a sketch library is accepted: a directory
+            // declaring itself one, so a stray path compiles nothing.
+            if (sibling) {
+                std::error_code meta_ec;
+                const bool declared =
+                    std::filesystem::is_regular_file(lib_root / "library.properties", meta_ec) ||
+                    std::filesystem::is_regular_file(lib_root / "library.json", meta_ec);
+                if (!declared) {
+                    std::cerr << state.policy.tool << ": " << manifest.string()
+                              << ": sketch-library is not a sketch library"
+                                 " (no library.properties or library.json): "
+                              << entry << "\n";
+                    project.ok = false;
+                    return;
+                }
             }
             std::error_code lib_ec;
             if (!std::filesystem::is_directory(lib_root, lib_ec) || lib_ec) {
@@ -633,10 +711,16 @@ void walk_project(const std::filesystem::path& dir, std::size_t parent, Project&
                 unit.source = state.is_external
                     ? (displayed_compiled_root / file.lexically_relative(compiled_root)).lexically_normal()
                     : file;
-                const auto relative = file.lexically_relative(compiled_root);
-                unit.path = (state.is_external
-                                 ? target.logical_dir / relative
-                                 : file.lexically_relative(state.root))
+                // Another library's objects go under its own name, so two
+                // libraries with a source of the same name do not collide
+                // and nothing is written outside the application.
+                const auto relative = sibling
+                    ? std::filesystem::path("sketch-libraries") / lib_root.filename() /
+                          file.lexically_relative(compiled_root)
+                    : file.lexically_relative(compiled_root);
+                unit.path = (state.is_external ? target.logical_dir / relative
+                             : sibling         ? target.dir / relative
+                                               : file.lexically_relative(state.root))
                                 .lexically_normal()
                                 .string();
                 target.sources.push_back(std::move(unit));

@@ -7,6 +7,7 @@ module;
 #include <compare>
 #include <concepts>
 #include <cstddef>
+#include <cstdint>
 #include <type_traits>
 #include <string>
 #include <string_view>
@@ -60,6 +61,22 @@ bool digitalWrite(unsigned int pin, Level level);
 
 struct Led {};
 inline constexpr Led LED_BUILTIN{};
+
+// The SPI pin names an Arduino core's board variant defines. Each reads the
+// board's default SPI wiring when it is used, so it names the pin of the
+// board the program runs on: on a Pico, SCK GP18, MOSI GP19, MISO GP16, and
+// SS GP15. A name the board's wiring lacks converts to no_pin, which every
+// pin function refuses.
+struct SpiPin {
+    enum class Role { Select, Transmit, Receive, Clock };
+    Role role;
+    operator unsigned int() const;
+};
+inline constexpr unsigned int no_pin = 0xffff;
+inline constexpr SpiPin SS{SpiPin::Role::Select};
+inline constexpr SpiPin MOSI{SpiPin::Role::Transmit};
+inline constexpr SpiPin MISO{SpiPin::Role::Receive};
+inline constexpr SpiPin SCK{SpiPin::Role::Clock};
 
 bool pinMode(Led, Mode mode);
 bool digitalWrite(Led, Level level);
@@ -304,6 +321,12 @@ bool detachInterrupt(int pin);
 bool detachInterrupt(unsigned int pin);
 [[nodiscard]] int digitalPinToInterrupt(int pin);
 [[nodiscard]] unsigned int digitalPinToInterrupt(unsigned int pin);
+// Hold off and resume the handlers attachInterrupt registered. An edge that
+// arrives in between stays latched and its handler runs at the first dispatch
+// after interrupts. The calls do not nest: interrupts resumes however many
+// noInterrupts came before it.
+void noInterrupts();
+void interrupts();
 
 enum class Base {
     Dec = 10,
@@ -338,6 +361,10 @@ public:
     explicit String(unsigned int value, unsigned char base = 10);
     explicit String(long value, unsigned char base = 10);
     explicit String(unsigned long value, unsigned char base = 10);
+    explicit String(int value, Base base);
+    explicit String(unsigned int value, Base base);
+    explicit String(long value, Base base);
+    explicit String(unsigned long value, Base base);
     explicit String(double value, unsigned char decimal_places = 2);
     explicit String(float value, unsigned char decimal_places = 2);
 
@@ -486,6 +513,8 @@ public:
     std::size_t println(unsigned short n, Base base = DEC) { return println(static_cast<unsigned int>(n), base); }
     std::size_t println();
 
+    std::size_t printf(const char* format, ...) __attribute__((format(printf, 2, 3)));
+
     // A sink's own sticky error, which is what a library reads after
     // printing. It is separate from lastError: this one belongs to the sink
     // and says whether anything printed to it failed, and the latch belongs
@@ -553,6 +582,32 @@ private:
     unsigned long timeout_ms_ = 1000;
 };
 
+// Serial configuration framing constants (data bits, parity, stop bits).
+inline constexpr unsigned int SERIAL_5N1 = 0x00;
+inline constexpr unsigned int SERIAL_6N1 = 0x02;
+inline constexpr unsigned int SERIAL_7N1 = 0x04;
+inline constexpr unsigned int SERIAL_8N1 = 0x06;
+inline constexpr unsigned int SERIAL_5N2 = 0x08;
+inline constexpr unsigned int SERIAL_6N2 = 0x0a;
+inline constexpr unsigned int SERIAL_7N2 = 0x0c;
+inline constexpr unsigned int SERIAL_8N2 = 0x0e;
+inline constexpr unsigned int SERIAL_5E1 = 0x20;
+inline constexpr unsigned int SERIAL_6E1 = 0x22;
+inline constexpr unsigned int SERIAL_7E1 = 0x24;
+inline constexpr unsigned int SERIAL_8E1 = 0x26;
+inline constexpr unsigned int SERIAL_5E2 = 0x28;
+inline constexpr unsigned int SERIAL_6E2 = 0x2a;
+inline constexpr unsigned int SERIAL_7E2 = 0x2c;
+inline constexpr unsigned int SERIAL_8E2 = 0x2e;
+inline constexpr unsigned int SERIAL_5O1 = 0x30;
+inline constexpr unsigned int SERIAL_6O1 = 0x32;
+inline constexpr unsigned int SERIAL_7O1 = 0x34;
+inline constexpr unsigned int SERIAL_8O1 = 0x36;
+inline constexpr unsigned int SERIAL_5O2 = 0x38;
+inline constexpr unsigned int SERIAL_6O2 = 0x3a;
+inline constexpr unsigned int SERIAL_7O2 = 0x3c;
+inline constexpr unsigned int SERIAL_8O2 = 0x3e;
+
 class SerialPort : public Stream {
 public:
     // The console's own overloads answer every call a sketch makes on
@@ -560,8 +615,9 @@ public:
     // a Printable, without displacing any of them.
     using Print::print;
     using Print::println;
+    using Print::printf;
 
-    bool begin(unsigned long baud = 9600);
+    bool begin(unsigned long baud = 9600, unsigned int config = SERIAL_8N1);
     bool end();
 
     std::size_t write(byte b) override;
@@ -627,7 +683,60 @@ public:
 
 extern SerialPort Serial;
 
+// A hardware UART, as a stream. Serial1 is the board's default UART and Serial2
+// its second, where the board has them; Serial is the console, which may be
+// USB and is a different object. setTX and setRX, the RP2040 and RP2350 cores'
+// spelling, choose pins before begin, and with both a port begins on its own
+// instance where the board declares no wiring for it.
+//
+// write queues what the UART takes and waits, up to the stream's timeout, for
+// room for the rest; read, peek, and available never wait. flush returns when
+// everything written has been queued, not when it has left the wire, because
+// mm.mcu reports only what it accepted.
+class HardwareSerial : public Stream {
+public:
+    // Defined out of line: arm-none-eabi-g++ 14 fails with an internal
+    // compiler error compiling mm.sketch when a class derived from Print has
+    // a constructor written in this interface.
+    HardwareSerial();
+    explicit HardwareSerial(unsigned int port);
+
+    using Print::write;
+
+    bool begin(unsigned long baud = 9600, unsigned int config = SERIAL_8N1);
+    bool end();
+    bool setTX(unsigned int pin);
+    bool setRX(unsigned int pin);
+
+    std::size_t write(byte b) override;
+    std::size_t write(const byte* buffer, std::size_t size) override;
+
+    [[nodiscard]] int available() override;
+    int read() override;
+    int peek() override;
+    void flush() override;
+    explicit operator bool() const;
+
+private:
+    unsigned int port_ = 1;
+};
+
+extern HardwareSerial Serial1;
+extern HardwareSerial Serial2;
+
 void onSerial(void (*fn)());
+
+// A USB flash drive on a board with a USB host port, through mm.mcu's block
+// storage, in the 512-byte sectors SdFat's block devices speak.
+// usbStorageBegin polls until a drive with 512-byte sectors is ready or
+// timeout_ms passes, running dispatch between polls as delay does;
+// usbStoragePresent polls once. Read and write take count whole sectors and
+// wait for the drive. Each answers false, and latches the reason, on failure.
+bool usbStorageBegin(unsigned long timeout_ms = 10000);
+[[nodiscard]] bool usbStoragePresent();
+[[nodiscard]] std::uint32_t usbStorageSectorCount();
+bool usbStorageRead(std::uint32_t sector, byte* destination, std::size_t count);
+bool usbStorageWrite(std::uint32_t sector, const byte* source, std::size_t count);
 
 enum class SpiMode { Mode0, Mode1, Mode2, Mode3 };
 inline constexpr SpiMode SPI_MODE0 = SpiMode::Mode0;
@@ -662,11 +771,22 @@ public:
 
 extern SPIClass SPI;
 
+// One I2C bus. Wire is the board's I2C wiring and Wire1 its second, where the
+// board has one; Wire1.begin() on a board without one fails Unsupported unless
+// setSDA and setSCL named its pins first.
 class TwoWire {
 public:
+    constexpr TwoWire() = default;
+    constexpr explicit TwoWire(unsigned int bus) : bus_(bus) {}
+
     bool begin();
+    // Pins, and optionally a clock, chosen at begin. A negative pin keeps the board's.
+    bool begin(int sda, int scl);
+    bool begin(int sda, int scl, unsigned long frequency);
     bool end();
     void setClock(unsigned long clock_speed);
+    bool setSDA(unsigned int pin);
+    bool setSCL(unsigned int pin);
 
     void beginTransmission(byte address);
     void beginTransmission(int address);
@@ -682,8 +802,81 @@ public:
     int read();
     int peek();
     void flush();
+
+private:
+    unsigned int bus_ = 0;
 };
 
 extern TwoWire Wire;
+extern TwoWire Wire1;
+// A third bus, instance 2. No board declares a default wiring for it, so it
+// begins only on pins named by setSDA and setSCL or begin(sda, scl), and on a
+// platform with two I2C controllers, such as the Pico, i2c_configure refuses it.
+extern TwoWire Wire2;
 
 } // namespace mm::sketch
+
+// The legacy profile: the Arduino core's looser signatures, for sketches and
+// vendored libraries written against it. Nothing here is visible to a sketch
+// unless its application is generated with sketch --legacy, which adds
+// using namespace mm::sketch::legacy beside using namespace mm::sketch. Every
+// function forwards to the core one it loosens and behaves exactly as that one
+// does; only what it accepts differs. A call the core already accepts keeps
+// its core overload, because each core parameter is an exact match where the
+// legacy one needs a promotion. docs/modules-sketch.mdy lists why each is here.
+export namespace mm::sketch::legacy {
+
+// A level as an integer or bool: zero is LOW, anything else HIGH.
+bool digitalWrite(unsigned int pin, int level);
+bool digitalWrite(Led, int level);
+
+// A mode as the core's integer: 0 INPUT, 1 OUTPUT, 2 INPUT_PULLUP,
+// 3 INPUT_PULLDOWN. Any other value is refused with BadArgument.
+bool pinMode(unsigned int pin, int mode);
+bool pinMode(Led, int mode);
+
+// A pin of any integer type, so analogRead's address converts to
+// int (*)(uint8_t), the core's signature. A pin no channel can have fails
+// as an unknown pin does rather than wrapping onto a real one.
+[[nodiscard]] int analogRead(unsigned char pin);
+[[nodiscard]] int analogRead(int pin);
+[[nodiscard]] int analogRead(long pin);
+[[nodiscard]] int analogRead(unsigned long pin);
+
+// A pulse level as an integer: zero is LOW, anything else HIGH.
+[[nodiscard]] unsigned long pulseIn(unsigned int pin, int value,
+                                    unsigned long timeout = 1000000UL);
+[[nodiscard]] unsigned long pulseInLong(unsigned int pin, int value,
+                                        unsigned long timeout = 1000000UL);
+
+// A bit order as the core's integer: 0 LSBFIRST, 1 MSBFIRST. Any other value
+// is refused with BadArgument.
+byte shiftIn(unsigned int data_pin, unsigned int clock_pin, int bit_order);
+void shiftOut(unsigned int data_pin, unsigned int clock_pin, int bit_order, byte val);
+
+// A mode as SPI.h's integer: 0 to 3 for SPI_MODE0 to SPI_MODE3, and AVR's
+// 0x04, 0x08, and 0x0C for modes 1 to 3. The two low bits of anything else
+// are the mode.
+[[nodiscard]] constexpr SpiMode spi_mode(int mode) {
+    const int value = (mode & 0x0C) != 0 ? (mode >> 2) & 3 : mode & 3;
+    return value == 1 ? SpiMode::Mode1
+         : value == 2 ? SpiMode::Mode2
+         : value == 3 ? SpiMode::Mode3
+                      : SpiMode::Mode0;
+}
+
+// SPISettings taking the mode as an integer, which is how a library that
+// keeps a mode in a uint8_t hands it back. The legacy Sketch.h names this
+// class SPISettings and SPI_MODE0 to SPI_MODE3 integers, as SPI.h does; it is
+// the core SPISettings with one more constructor, and beginTransaction takes
+// it as one.
+class SPISettings : public mm::sketch::SPISettings {
+public:
+    constexpr SPISettings() = default;
+    constexpr SPISettings(unsigned long clock_speed, BitOrder order, SpiMode mode)
+        : mm::sketch::SPISettings(clock_speed, order, mode) {}
+    constexpr SPISettings(unsigned long clock_speed, BitOrder order, int mode)
+        : mm::sketch::SPISettings(clock_speed, order, spi_mode(mode)) {}
+};
+
+}  // namespace mm::sketch::legacy

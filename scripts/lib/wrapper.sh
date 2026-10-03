@@ -14,7 +14,7 @@
 # caller's, so every platform option -- --flash, --arch, --run, --keep,
 # --dry-run -- passes straight through.
 #
-# On the sdl and epaper Linux boards --run is --run-must-succeed: those lanes
+# On the sdl, epaper, lcd, and ili9341 Linux boards --run is --run-must-succeed: those lanes
 # open a window and need nothing an ordinary desktop session withholds.
 
 . "$(dirname -- "$0")/lib/manifest.sh"
@@ -57,7 +57,7 @@ wrapper_main() {
         linux)
             extra="$extra $wrapper_linux"
             case "$board" in
-                sdl|epaper|sdl-linux-*|epaper-linux-*)
+                sdl|epaper|lcd|ili9341|sdl-linux-*|epaper-linux-*|lcd-linux-*|ili9341-linux-*)
                     if [ "$run_requested" = yes ]; then
                         # Word by word, not sed: \| alternation is GNU sed
                         # only, and BSD sed on macOS leaves --run unchanged.

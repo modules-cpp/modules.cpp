@@ -5,9 +5,12 @@ module;
 #include <cctype>
 #include <charconv>
 #include <climits>
+#include <cstdarg>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
+#include <limits>
 #include <optional>
 #include <random>
 #include <span>
@@ -148,6 +151,9 @@ bool fill_ring() {
 }
 
 static bool dispatching_ = false;
+// Set between noInterrupts and interrupts: dispatch leaves the attached
+// handlers' edges latched until it is cleared.
+static bool interrupts_held_ = false;
 
 static std::minstd_rand random_engine_{1};
 
@@ -189,36 +195,162 @@ static bool spi_begun_ = false;
 static SPISettings spi_current_settings_{};
 
 constexpr std::size_t wire_buffer_capacity = 32;
-static bool wire_begun_ = false;
-static unsigned long wire_clock_ = 100'000;
-static unsigned int wire_tx_address_ = 0;
-static bool wire_transmitting_ = false;
-static bool wire_tx_overflow_ = false;
-static bool wire_pending_write_read_ = false;
-static std::byte wire_tx_buf_[wire_buffer_capacity];
-static std::size_t wire_tx_len_ = 0;
+constexpr unsigned int wire_bus_count = 3;
 
-static std::byte wire_rx_buf_[wire_buffer_capacity];
-static std::size_t wire_rx_len_ = 0;
-static std::size_t wire_rx_head_ = 0;
+// One I2C bus as a sketch sees it: Wire is bus 0 on the board's I2C wiring,
+// Wire1 bus 1 on its second. setSDA and setSCL replace a wiring's pins before
+// begin; the instance stays the bus's own.
+struct WireState {
+    bool begun = false;
+    unsigned long clock = 100'000;
+    unsigned int tx_address = 0;
+    bool transmitting = false;
+    bool tx_overflow = false;
+    bool pending_write_read = false;
+    std::byte tx_buf[wire_buffer_capacity]{};
+    std::size_t tx_len = 0;
+    std::byte rx_buf[wire_buffer_capacity]{};
+    std::size_t rx_len = 0;
+    std::size_t rx_head = 0;
+    std::optional<unsigned int> sda;
+    std::optional<unsigned int> scl;
+    std::optional<mm::mcu::I2cWiring> wiring;  // the one begin configured
+};
 
-bool flush_pending_wire_write() {
-    if (!wire_pending_write_read_) return true;
-    wire_pending_write_read_ = false;
-    bool ok = true;
+static WireState wire_states_[wire_bus_count];
+
+// The call name a diagnostic carries: Wire.x for bus 0, Wire1.x for bus 1.
+struct WireNames {
+    const char* begin;
+    const char* end;
+    const char* set_clock;
+    const char* set_sda;
+    const char* set_scl;
+    const char* begin_transmission;
+    const char* write;
+    const char* end_transmission;
+    const char* request_from;
+    const char* available;
+    const char* read;
+    const char* peek;
+    const char* flush;
+};
+
+constexpr WireNames wire_names_[wire_bus_count] = {
+    {"Wire.begin", "Wire.end", "Wire.setClock", "Wire.setSDA", "Wire.setSCL",
+     "Wire.beginTransmission", "Wire.write", "Wire.endTransmission",
+     "Wire.requestFrom", "Wire.available", "Wire.read", "Wire.peek", "Wire.flush"},
+    {"Wire1.begin", "Wire1.end", "Wire1.setClock", "Wire1.setSDA", "Wire1.setSCL",
+     "Wire1.beginTransmission", "Wire1.write", "Wire1.endTransmission",
+     "Wire1.requestFrom", "Wire1.available", "Wire1.read", "Wire1.peek", "Wire1.flush"},
+    {"Wire2.begin", "Wire2.end", "Wire2.setClock", "Wire2.setSDA", "Wire2.setSCL",
+     "Wire2.beginTransmission", "Wire2.write", "Wire2.endTransmission",
+     "Wire2.requestFrom", "Wire2.available", "Wire2.read", "Wire2.peek", "Wire2.flush"},
+};
+
+// The board's default wiring for a bus, if it has one. No board has one for
+// Wire2.
+std::optional<mm::mcu::I2cWiring> board_wiring(unsigned int bus) {
     const auto board = mm::mcu::board();
-    if (board.i2c && wire_tx_len_ > 0) {
-        const auto st = mm::mcu::i2c_write(board.i2c->instance, wire_tx_address_,
-                                           std::span<const std::byte>(wire_tx_buf_, wire_tx_len_));
+    if (bus == 0) return board.i2c;
+    if (bus == 1) return board.second_i2c;
+    return std::nullopt;
+}
+
+// Serial1 and Serial2: a hardware UART each, with pins chosen by setTX and
+// setRX before begin, and a receive buffer that available fills.
+constexpr unsigned int serial_port_count = 3;  // index 0 unused: ports are 1 and 2
+constexpr std::size_t serial_buffer_capacity = 64;
+
+struct SerialState {
+    bool begun = false;
+    std::optional<unsigned int> tx;
+    std::optional<unsigned int> rx;
+    std::optional<mm::mcu::UartWiring> wiring;
+    std::byte buffer[serial_buffer_capacity]{};
+    std::size_t head = 0;
+    std::size_t length = 0;
+};
+
+static SerialState serial_states_[serial_port_count];
+
+struct SerialNames {
+    const char* begin;
+    const char* end;
+    const char* write;
+    const char* read;
+};
+
+constexpr SerialNames serial_names_[serial_port_count] = {
+    {"Serial.begin", "Serial.end", "Serial.write", "Serial.read"},
+    {"Serial1.begin", "Serial1.end", "Serial1.write", "Serial1.read"},
+    {"Serial2.begin", "Serial2.end", "Serial2.write", "Serial2.read"},
+};
+
+std::optional<mm::mcu::UartWiring> board_uart(unsigned int port) {
+    const auto board = mm::mcu::board();
+    if (port == 1) return board.uart;
+    if (port == 2) return board.second_uart;
+    return std::nullopt;
+}
+
+// Moves what has arrived into the port's buffer, keeping what is unread.
+void fill_serial(unsigned int port) {
+    if (port < 1 || port >= serial_port_count) return;
+    auto& state = serial_states_[port];
+    if (!state.begun || !state.wiring) return;
+    if (state.head > 0) {
+        for (std::size_t i = 0; i < state.length; ++i)
+            state.buffer[i] = state.buffer[state.head + i];
+        state.head = 0;
+    }
+    const std::span<std::byte> room{state.buffer + state.length,
+                                    serial_buffer_capacity - state.length};
+    if (room.empty()) return;
+    std::size_t count = 0;
+    const auto st = mm::mcu::uart_read(state.wiring->instance, room, count);
+    if (st != mm::mcu::Status::Ok) {
+        record_failure(from(st), serial_names_[port].read);
+        return;
+    }
+    state.length += count;
+}
+
+void reset_wire(WireState& state) {
+    state.begun = false;
+    state.transmitting = false;
+    state.tx_overflow = false;
+    state.pending_write_read = false;
+    state.tx_len = 0;
+    state.rx_len = 0;
+    state.rx_head = 0;
+}
+
+bool flush_pending_wire_write(unsigned int bus) {
+    if (bus >= wire_bus_count) return true;
+    auto& state = wire_states_[bus];
+    if (!state.pending_write_read) return true;
+    state.pending_write_read = false;
+    bool ok = true;
+    if (state.wiring && state.tx_len > 0) {
+        const auto st = mm::mcu::i2c_write(state.wiring->instance, state.tx_address,
+                                           std::span<const std::byte>(state.tx_buf, state.tx_len));
         if (st != mm::mcu::Status::Ok) {
             const char* const saved_call = active_call_;
             active_call_ = nullptr;
-            record_failure(from(st), "Wire.endTransmission");
+            record_failure(from(st), wire_names_[bus].end_transmission);
             active_call_ = saved_call;
             ok = false;
         }
     }
-    wire_tx_len_ = 0;
+    state.tx_len = 0;
+    return ok;
+}
+
+bool flush_pending_wire_writes() {
+    bool ok = true;
+    for (unsigned int bus = 0; bus < wire_bus_count; ++bus)
+        ok = flush_pending_wire_write(bus) && ok;
     return ok;
 }
 
@@ -346,7 +478,7 @@ void dispatch() {
     }
 
     for (std::size_t i = 0; i < max_interrupts; ++i) {
-        if (exit_requested_) break;
+        if (exit_requested_ || interrupts_held_) break;
         if (!interrupt_table_[i].active) {
             continue;
         }
@@ -389,14 +521,15 @@ int run(Setup setup, Loop loop) {
     serial_callback_ = nullptr;
     Serial.setTimeout(1000);
     dispatching_ = false;
+    interrupts_held_ = false;
     spi_begun_ = false;
-    wire_begun_ = false;
-    wire_transmitting_ = false;
-    wire_tx_overflow_ = false;
-    wire_pending_write_read_ = false;
-    wire_tx_len_ = 0;
-    wire_rx_len_ = 0;
-    wire_rx_head_ = 0;
+    for (auto& state : wire_states_) {
+        reset_wire(state);
+        state.sda.reset();
+        state.scl.reset();
+        state.wiring.reset();
+    }
+    for (auto& state : serial_states_) state = {};
     analog_read_resolution_ = 10;
     analog_write_resolution_ = 8;
 
@@ -450,7 +583,15 @@ int run(Setup setup, Loop loop) {
         dispatch();
     }
 
-    flush_pending_wire_write();
+    flush_pending_wire_writes();
+    for (unsigned int port = 1; port < serial_port_count; ++port) {
+        auto& state = serial_states_[port];
+        if (state.begun && state.wiring) {
+            const auto st = mm::mcu::uart_release(state.wiring->instance);
+            if (st != mm::mcu::Status::Ok) record_failure(from(st), "run");
+        }
+        state.begun = false;
+    }
     for (std::size_t i = 0; i < max_pwm_outputs; ++i) {
         if (pwm_states_[i].configured) {
             const auto st = mm::mcu::pwm_release(i);
@@ -529,6 +670,106 @@ Level digitalRead(unsigned int pin) {
         return LOW;
     }
     return high ? HIGH : LOW;
+}
+
+namespace {
+
+constexpr std::size_t usb_sector_size = 512;
+std::uint32_t usb_storage_sectors_ = 0;
+
+}  // namespace
+
+bool usbStoragePresent() {
+    CallScope scope{"usbStoragePresent"};
+    bool present = false;
+    const auto status = mm::mcu::storage_poll(present);
+    if (status != mm::mcu::Status::Ok) {
+        record_failure(from(status), "usbStoragePresent");
+        return false;
+    }
+    return present;
+}
+
+bool usbStorageBegin(unsigned long timeout_ms) {
+    CallScope scope{"usbStorageBegin"};
+    usb_storage_sectors_ = 0;
+    const unsigned long start = millis();
+    while (true) {
+        bool present = false;
+        const auto status = mm::mcu::storage_poll(present);
+        if (status != mm::mcu::Status::Ok) {
+            record_failure(from(status), "usbStorageBegin");
+            return false;
+        }
+        if (present) {
+            mm::mcu::StorageGeometry geometry;
+            const auto read = mm::mcu::storage_geometry(geometry);
+            if (read != mm::mcu::Status::Ok) {
+                record_failure(from(read), "usbStorageBegin");
+                return false;
+            }
+            if (geometry.block_size != usb_sector_size ||
+                geometry.block_count > 0xffffffffULL) {
+                record_failure(Status::Unsupported, "usbStorageBegin");
+                return false;
+            }
+            usb_storage_sectors_ = static_cast<std::uint32_t>(geometry.block_count);
+            return true;
+        }
+        if (millis() - start >= timeout_ms) {
+            record_failure(Status::Timeout, "usbStorageBegin");
+            return false;
+        }
+        if (!delay(10)) return false;
+    }
+}
+
+std::uint32_t usbStorageSectorCount() { return usb_storage_sectors_; }
+
+bool usbStorageRead(std::uint32_t sector, byte* destination, std::size_t count) {
+    CallScope scope{"usbStorageRead"};
+    if (destination == nullptr || count == 0 ||
+        count > std::numeric_limits<std::size_t>::max() / usb_sector_size) {
+        record_failure(Status::BadArgument, "usbStorageRead");
+        return false;
+    }
+    const auto status = mm::mcu::storage_read(
+        sector, std::span<std::byte>{reinterpret_cast<std::byte*>(destination),
+                                     count * usb_sector_size});
+    if (status != mm::mcu::Status::Ok) {
+        record_failure(from(status), "usbStorageRead");
+        return false;
+    }
+    return true;
+}
+
+bool usbStorageWrite(std::uint32_t sector, const byte* source, std::size_t count) {
+    CallScope scope{"usbStorageWrite"};
+    if (source == nullptr || count == 0 ||
+        count > std::numeric_limits<std::size_t>::max() / usb_sector_size) {
+        record_failure(Status::BadArgument, "usbStorageWrite");
+        return false;
+    }
+    const auto status = mm::mcu::storage_write(
+        sector, std::span<const std::byte>{reinterpret_cast<const std::byte*>(source),
+                                           count * usb_sector_size});
+    if (status != mm::mcu::Status::Ok) {
+        record_failure(from(status), "usbStorageWrite");
+        return false;
+    }
+    return true;
+}
+
+SpiPin::operator unsigned int() const {
+    const auto board = mm::mcu::board();
+    if (!board.spi) return no_pin;
+    switch (role) {
+        case Role::Select: return board.spi->chip_select_gpio.value_or(no_pin);
+        case Role::Transmit: return board.spi->transmit_gpio;
+        case Role::Receive: return board.spi->receive_gpio.value_or(no_pin);
+        case Role::Clock: return board.spi->clock_gpio;
+    }
+    return no_pin;
 }
 
 bool hasBuiltinLed() {
@@ -631,6 +872,7 @@ int analogRead(unsigned int pin) {
     }
     return static_cast<int>(scaled);
 }
+
 
 void analogReadResolution(int bits) {
     CallScope scope{"analogReadResolution"};
@@ -1448,6 +1690,14 @@ bool detachInterrupt(int pin) {
     return detachInterrupt(static_cast<unsigned int>(pin));
 }
 
+void noInterrupts() {
+    interrupts_held_ = true;
+}
+
+void interrupts() {
+    interrupts_held_ = false;
+}
+
 int digitalPinToInterrupt(int pin) {
     return pin;
 }
@@ -1459,7 +1709,7 @@ unsigned int digitalPinToInterrupt(unsigned int pin) {
 // Serial implementation
 SerialPort Serial;
 
-bool SerialPort::begin(unsigned long) {
+bool SerialPort::begin(unsigned long, unsigned int) {
     CallScope scope{"Serial.begin"};
     if (console_init_status_ == mm::stdio::Status::NotInitialized) {
         console_init_status_ = mm::stdio::selected_console().initialize();
@@ -1653,6 +1903,18 @@ String::String(long value, unsigned char base)
 
 String::String(unsigned long value, unsigned char base)
     : text_(unsigned_text(value, base)) {}
+
+String::String(int value, Base base)
+    : String(value, static_cast<unsigned char>(base)) {}
+
+String::String(unsigned int value, Base base)
+    : String(value, static_cast<unsigned char>(base)) {}
+
+String::String(long value, Base base)
+    : String(value, static_cast<unsigned char>(base)) {}
+
+String::String(unsigned long value, Base base)
+    : String(value, static_cast<unsigned char>(base)) {}
 
 String::String(double value, unsigned char decimal_places)
     : text_(double_text(value, decimal_places)) {}
@@ -2102,6 +2364,23 @@ std::size_t Print::println(unsigned long long n, Base base) { return print(n, ba
 std::size_t Print::println(const Printable& object) { return print(object) + print("\r\n"); }
 std::size_t Print::println(const String& s) { return print(s) + print("\r\n"); }
 std::size_t Print::println() { return print("\r\n"); }
+
+std::size_t Print::printf(const char* format, ...) {
+    char buffer[256];
+    std::va_list args;
+    va_start(args, format);
+    const int len = std::vsnprintf(buffer, sizeof buffer, format, args);
+    va_end(args);
+    if (len <= 0) return 0;
+    if (static_cast<std::size_t>(len) < sizeof buffer) {
+        return write(reinterpret_cast<const byte*>(buffer), static_cast<std::size_t>(len));
+    }
+    std::vector<char> dynamic_buf(static_cast<std::size_t>(len) + 1);
+    va_start(args, format);
+    std::vsnprintf(dynamic_buf.data(), dynamic_buf.size(), format, args);
+    va_end(args);
+    return write(reinterpret_cast<const byte*>(dynamic_buf.data()), static_cast<std::size_t>(len));
+}
 
 // --- Stream ------------------------------------------------------------
 //
@@ -2979,167 +3258,233 @@ void SPIClass::transfer(byte* buffer, std::size_t size) {
 
 SPIClass SPI;
 
-// TwoWire implementation
+// TwoWire implementation. Each object is one bus; all of its state lives in
+// wire_states_[bus_].
 bool TwoWire::begin() {
-    CallScope scope{"Wire.begin"};
-    flush_pending_wire_write();
-    const auto board = mm::mcu::board();
-    if (!board.i2c) {
+    if (bus_ >= wire_bus_count) {
         record_failure(Status::Unsupported, "Wire.begin");
         return false;
     }
-    wire_clock_ = 100'000;
-    const mm::mcu::I2cConfiguration config{
-        board.i2c->instance,
-        board.i2c->data_gpio,
-        board.i2c->clock_gpio,
-        wire_clock_
-    };
-    const auto st = mm::mcu::i2c_configure(config);
-    if (st != mm::mcu::Status::Ok) {
-        record_failure(from(st), "Wire.begin");
+    const auto& names = wire_names_[bus_];
+    auto& state = wire_states_[bus_];
+    CallScope scope{names.begin};
+    flush_pending_wire_write(bus_);
+    auto wiring = board_wiring(bus_);
+    if (!wiring && state.sda && state.scl) wiring = mm::mcu::I2cWiring{bus_, 0, 0};
+    if (!wiring) {
+        record_failure(Status::Unsupported, names.begin);
         return false;
     }
-    wire_begun_ = true;
-    wire_transmitting_ = false;
-    wire_tx_overflow_ = false;
-    wire_pending_write_read_ = false;
-    wire_tx_len_ = 0;
-    wire_rx_len_ = 0;
-    wire_rx_head_ = 0;
+    if (state.sda) wiring->data_gpio = *state.sda;
+    if (state.scl) wiring->clock_gpio = *state.scl;
+    state.clock = 100'000;
+    const mm::mcu::I2cConfiguration config{
+        wiring->instance, wiring->data_gpio, wiring->clock_gpio, state.clock};
+    const auto st = mm::mcu::i2c_configure(config);
+    if (st != mm::mcu::Status::Ok) {
+        record_failure(from(st), names.begin);
+        return false;
+    }
+    reset_wire(state);
+    state.wiring = wiring;
+    state.begun = true;
     return true;
 }
 
+bool TwoWire::begin(int sda, int scl) {
+    if (bus_ >= wire_bus_count) {
+        record_failure(Status::Unsupported, "Wire.begin");
+        return false;
+    }
+    auto& state = wire_states_[bus_];
+    if (!state.begun) {
+        if (sda >= 0) state.sda = static_cast<unsigned int>(sda);
+        if (scl >= 0) state.scl = static_cast<unsigned int>(scl);
+    }
+    return begin();
+}
+
+bool TwoWire::begin(int sda, int scl, unsigned long frequency) {
+    if (!begin(sda, scl)) return false;
+    if (frequency != 0) setClock(frequency);
+    return bus_ < wire_bus_count && wire_states_[bus_].begun;
+}
+
 bool TwoWire::end() {
-    CallScope scope{"Wire.end"};
-    const bool flushed = flush_pending_wire_write();
-    wire_begun_ = false;
-    wire_transmitting_ = false;
-    wire_tx_overflow_ = false;
-    wire_pending_write_read_ = false;
-    wire_tx_len_ = 0;
-    wire_rx_len_ = 0;
-    wire_rx_head_ = 0;
+    if (bus_ >= wire_bus_count) {
+        record_failure(Status::Unsupported, "Wire.end");
+        return false;
+    }
+    CallScope scope{wire_names_[bus_].end};
+    const bool flushed = flush_pending_wire_write(bus_);
+    reset_wire(wire_states_[bus_]);
     return flushed;
 }
 
-void TwoWire::setClock(unsigned long clock_speed) {
-    CallScope scope{"Wire.setClock"};
-    if (!wire_begun_) {
-        record_failure(Status::NotInitialized, "Wire.setClock");
-        return;
+// The RP2040 and RP2350 cores' spelling: a pin chosen before begin. A running
+// bus keeps its pins, so after begin the pin must be the one in use.
+bool TwoWire::setSDA(unsigned int pin) {
+    if (bus_ >= wire_bus_count) {
+        record_failure(Status::Unsupported, "Wire.setSDA");
+        return false;
     }
-    const auto board = mm::mcu::board();
-    if (!board.i2c) {
+    CallScope scope{wire_names_[bus_].set_sda};
+    auto& state = wire_states_[bus_];
+    if (state.begun) return state.wiring && state.wiring->data_gpio == pin;
+    state.sda = pin;
+    return true;
+}
+
+bool TwoWire::setSCL(unsigned int pin) {
+    if (bus_ >= wire_bus_count) {
+        record_failure(Status::Unsupported, "Wire.setSCL");
+        return false;
+    }
+    CallScope scope{wire_names_[bus_].set_scl};
+    auto& state = wire_states_[bus_];
+    if (state.begun) return state.wiring && state.wiring->clock_gpio == pin;
+    state.scl = pin;
+    return true;
+}
+
+void TwoWire::setClock(unsigned long clock_speed) {
+    if (bus_ >= wire_bus_count) {
         record_failure(Status::Unsupported, "Wire.setClock");
         return;
     }
-    wire_clock_ = clock_speed;
+    const auto& names = wire_names_[bus_];
+    auto& state = wire_states_[bus_];
+    CallScope scope{names.set_clock};
+    if (!state.begun || !state.wiring) {
+        record_failure(Status::NotInitialized, names.set_clock);
+        return;
+    }
+    state.clock = clock_speed;
     const mm::mcu::I2cConfiguration config{
-        board.i2c->instance,
-        board.i2c->data_gpio,
-        board.i2c->clock_gpio,
-        wire_clock_
-    };
+        state.wiring->instance, state.wiring->data_gpio, state.wiring->clock_gpio,
+        state.clock};
     const auto st = mm::mcu::i2c_configure(config);
     if (st != mm::mcu::Status::Ok) {
-        record_failure(from(st), "Wire.setClock");
+        record_failure(from(st), names.set_clock);
     }
 }
 
 void TwoWire::beginTransmission(byte address) {
-    CallScope scope{"Wire.beginTransmission"};
-    if (address > 0x7F) {
-        record_failure(Status::BadArgument, "Wire.beginTransmission");
+    if (bus_ >= wire_bus_count) {
+        record_failure(Status::Unsupported, "Wire.beginTransmission");
         return;
     }
-    flush_pending_wire_write();
-    wire_tx_address_ = static_cast<unsigned int>(address);
-    wire_tx_len_ = 0;
-    wire_tx_overflow_ = false;
-    wire_transmitting_ = true;
+    const auto& names = wire_names_[bus_];
+    auto& state = wire_states_[bus_];
+    CallScope scope{names.begin_transmission};
+    if (address > 0x7F) {
+        record_failure(Status::BadArgument, names.begin_transmission);
+        return;
+    }
+    flush_pending_wire_write(bus_);
+    state.tx_address = static_cast<unsigned int>(address);
+    state.tx_len = 0;
+    state.tx_overflow = false;
+    state.transmitting = true;
 }
 
 void TwoWire::beginTransmission(int address) {
+    if (bus_ >= wire_bus_count) {
+        record_failure(Status::Unsupported, "Wire.beginTransmission");
+        return;
+    }
     if (address < 0 || address > 0x7F) {
-        CallScope scope{"Wire.beginTransmission"};
-        record_failure(Status::BadArgument, "Wire.beginTransmission");
+        CallScope scope{wire_names_[bus_].begin_transmission};
+        record_failure(Status::BadArgument, wire_names_[bus_].begin_transmission);
         return;
     }
     beginTransmission(static_cast<byte>(address));
 }
 
 std::size_t TwoWire::write(byte val) {
-    CallScope scope{"Wire.write"};
-    if (!wire_transmitting_) return 0;
-    if (wire_tx_len_ >= wire_buffer_capacity) {
-        wire_tx_overflow_ = true;
+    if (bus_ >= wire_bus_count) {
+        record_failure(Status::Unsupported, "Wire.write");
         return 0;
     }
-    wire_tx_buf_[wire_tx_len_++] = static_cast<std::byte>(val);
+    auto& state = wire_states_[bus_];
+    CallScope scope{wire_names_[bus_].write};
+    if (!state.transmitting) return 0;
+    if (state.tx_len >= wire_buffer_capacity) {
+        state.tx_overflow = true;
+        return 0;
+    }
+    state.tx_buf[state.tx_len++] = static_cast<std::byte>(val);
     return 1;
 }
 
 std::size_t TwoWire::write(const byte* buffer, std::size_t size) {
-    CallScope scope{"Wire.write"};
-    if (!wire_transmitting_ || !buffer || size == 0) return 0;
-    const std::size_t space = wire_buffer_capacity - wire_tx_len_;
+    if (bus_ >= wire_bus_count) {
+        record_failure(Status::Unsupported, "Wire.write");
+        return 0;
+    }
+    auto& state = wire_states_[bus_];
+    CallScope scope{wire_names_[bus_].write};
+    if (!state.transmitting || !buffer || size == 0) return 0;
+    const std::size_t space = wire_buffer_capacity - state.tx_len;
     const std::size_t count = std::min(size, space);
     for (std::size_t i = 0; i < count; ++i) {
-        wire_tx_buf_[wire_tx_len_++] = static_cast<std::byte>(buffer[i]);
+        state.tx_buf[state.tx_len++] = static_cast<std::byte>(buffer[i]);
     }
     if (size > space) {
-        wire_tx_overflow_ = true;
+        state.tx_overflow = true;
     }
     return count;
 }
 
 std::size_t TwoWire::write(const char* s) {
-    CallScope scope{"Wire.write"};
+    if (bus_ >= wire_bus_count) {
+        record_failure(Status::Unsupported, "Wire.write");
+        return 0;
+    }
+    CallScope scope{wire_names_[bus_].write};
     if (!s) return 0;
     return write(reinterpret_cast<const byte*>(s), std::strlen(s));
 }
 
 byte TwoWire::endTransmission(bool send_stop) {
-    CallScope scope{"Wire.endTransmission"};
-    if (!wire_begun_) {
-        record_failure(Status::NotInitialized, "Wire.endTransmission");
-        wire_transmitting_ = false;
-        wire_tx_len_ = 0;
-        return 4;
-    }
-    const auto board = mm::mcu::board();
-    if (!board.i2c) {
+    if (bus_ >= wire_bus_count) {
         record_failure(Status::Unsupported, "Wire.endTransmission");
-        wire_transmitting_ = false;
-        wire_tx_len_ = 0;
         return 4;
     }
-    if (!wire_transmitting_) {
+    const auto& names = wire_names_[bus_];
+    auto& state = wire_states_[bus_];
+    CallScope scope{names.end_transmission};
+    if (!state.begun || !state.wiring) {
+        record_failure(Status::NotInitialized, names.end_transmission);
+        state.transmitting = false;
+        state.tx_len = 0;
         return 4;
     }
-    wire_transmitting_ = false;
-    if (wire_tx_overflow_) {
-        record_failure(Status::BadArgument, "Wire.endTransmission");
-        wire_tx_len_ = 0;
-        wire_tx_overflow_ = false;
+    if (!state.transmitting) {
+        return 4;
+    }
+    state.transmitting = false;
+    if (state.tx_overflow) {
+        record_failure(Status::BadArgument, names.end_transmission);
+        state.tx_len = 0;
+        state.tx_overflow = false;
         return 1;
     }
     if (!send_stop) {
-        if (wire_tx_address_ > 0x7F) {
-            record_failure(Status::BadArgument, "Wire.endTransmission");
-            wire_tx_len_ = 0;
+        if (state.tx_address > 0x7F) {
+            record_failure(Status::BadArgument, names.end_transmission);
+            state.tx_len = 0;
             return 2;
         }
-        wire_pending_write_read_ = true;
+        state.pending_write_read = true;
         return 0;
     }
-    wire_pending_write_read_ = false;
-    const auto st = mm::mcu::i2c_write(board.i2c->instance, wire_tx_address_,
-                                       std::span<const std::byte>(wire_tx_buf_, wire_tx_len_));
-    wire_tx_len_ = 0;
+    state.pending_write_read = false;
+    const auto st = mm::mcu::i2c_write(state.wiring->instance, state.tx_address,
+                                       std::span<const std::byte>(state.tx_buf, state.tx_len));
+    state.tx_len = 0;
     if (st != mm::mcu::Status::Ok) {
-        record_failure(from(st), "Wire.endTransmission");
+        record_failure(from(st), names.end_transmission);
         switch (st) {
             case mm::mcu::Status::BadArgument: return 2;
             case mm::mcu::Status::Timeout: return 5;
@@ -3150,54 +3495,59 @@ byte TwoWire::endTransmission(bool send_stop) {
 }
 
 std::size_t TwoWire::requestFrom(byte address, std::size_t quantity, bool send_stop) {
-    CallScope scope{"Wire.requestFrom"};
+    if (bus_ >= wire_bus_count) {
+        record_failure(Status::Unsupported, "Wire.requestFrom");
+        return 0;
+    }
+    const auto& names = wire_names_[bus_];
+    auto& state = wire_states_[bus_];
+    CallScope scope{names.request_from};
     (void)send_stop;
     if (address > 0x7F) {
-        record_failure(Status::BadArgument, "Wire.requestFrom");
+        record_failure(Status::BadArgument, names.request_from);
         return 0;
     }
-    if (!wire_begun_) {
-        record_failure(Status::NotInitialized, "Wire.requestFrom");
-        return 0;
-    }
-    const auto board = mm::mcu::board();
-    if (!board.i2c) {
-        record_failure(Status::Unsupported, "Wire.requestFrom");
+    if (!state.begun || !state.wiring) {
+        record_failure(Status::NotInitialized, names.request_from);
         return 0;
     }
     if (quantity == 0) return 0;
     const std::size_t count = std::min(quantity, wire_buffer_capacity);
-    wire_rx_len_ = 0;
-    wire_rx_head_ = 0;
+    state.rx_len = 0;
+    state.rx_head = 0;
 
     mm::mcu::Status st;
-    if (wire_pending_write_read_ && wire_tx_address_ == static_cast<unsigned int>(address)) {
-        wire_pending_write_read_ = false;
+    if (state.pending_write_read && state.tx_address == static_cast<unsigned int>(address)) {
+        state.pending_write_read = false;
         st = mm::mcu::i2c_write_read(
-            board.i2c->instance, address,
-            std::span<const std::byte>(wire_tx_buf_, wire_tx_len_),
-            std::span<std::byte>(wire_rx_buf_, count));
-        wire_tx_len_ = 0;
+            state.wiring->instance, address,
+            std::span<const std::byte>(state.tx_buf, state.tx_len),
+            std::span<std::byte>(state.rx_buf, count));
+        state.tx_len = 0;
     } else {
-        if (!flush_pending_wire_write()) {
+        if (!flush_pending_wire_write(bus_)) {
             return 0;
         }
-        st = mm::mcu::i2c_read(board.i2c->instance, address,
-                               std::span<std::byte>(wire_rx_buf_, count));
+        st = mm::mcu::i2c_read(state.wiring->instance, address,
+                               std::span<std::byte>(state.rx_buf, count));
     }
 
     if (st != mm::mcu::Status::Ok) {
-        record_failure(from(st), "Wire.requestFrom");
+        record_failure(from(st), names.request_from);
         return 0;
     }
-    wire_rx_len_ = count;
+    state.rx_len = count;
     return count;
 }
 
 std::size_t TwoWire::requestFrom(int address, int quantity, int send_stop) {
+    if (bus_ >= wire_bus_count) {
+        record_failure(Status::Unsupported, "Wire.requestFrom");
+        return 0;
+    }
     if (address < 0 || address > 0x7F) {
-        CallScope scope{"Wire.requestFrom"};
-        record_failure(Status::BadArgument, "Wire.requestFrom");
+        CallScope scope{wire_names_[bus_].request_from};
+        record_failure(Status::BadArgument, wire_names_[bus_].request_from);
         return 0;
     }
     if (quantity <= 0) return 0;
@@ -3205,26 +3555,304 @@ std::size_t TwoWire::requestFrom(int address, int quantity, int send_stop) {
 }
 
 int TwoWire::available() {
-    CallScope scope{"Wire.available"};
-    return static_cast<int>(wire_rx_len_ - wire_rx_head_);
+    if (bus_ >= wire_bus_count) return 0;
+    const auto& state = wire_states_[bus_];
+    CallScope scope{wire_names_[bus_].available};
+    return static_cast<int>(state.rx_len - state.rx_head);
 }
 
 int TwoWire::read() {
-    CallScope scope{"Wire.read"};
-    if (wire_rx_head_ >= wire_rx_len_) return -1;
-    return static_cast<int>(static_cast<byte>(wire_rx_buf_[wire_rx_head_++]));
+    if (bus_ >= wire_bus_count) return -1;
+    auto& state = wire_states_[bus_];
+    CallScope scope{wire_names_[bus_].read};
+    if (state.rx_head >= state.rx_len) return -1;
+    return static_cast<int>(static_cast<byte>(state.rx_buf[state.rx_head++]));
 }
 
 int TwoWire::peek() {
-    CallScope scope{"Wire.peek"};
-    if (wire_rx_head_ >= wire_rx_len_) return -1;
-    return static_cast<int>(static_cast<byte>(wire_rx_buf_[wire_rx_head_]));
+    if (bus_ >= wire_bus_count) return -1;
+    const auto& state = wire_states_[bus_];
+    CallScope scope{wire_names_[bus_].peek};
+    if (state.rx_head >= state.rx_len) return -1;
+    return static_cast<int>(static_cast<byte>(state.rx_buf[state.rx_head]));
 }
 
 void TwoWire::flush() {
-    CallScope scope{"Wire.flush"};
+    if (bus_ >= wire_bus_count) return;
+    CallScope scope{wire_names_[bus_].flush};
 }
 
-TwoWire Wire;
+TwoWire Wire{0};
+TwoWire Wire1{1};
+TwoWire Wire2{2};
+
+// HardwareSerial implementation. Each object is one port; its state lives in
+// serial_states_[port_].
+bool HardwareSerial::begin(unsigned long baud, unsigned int config) {
+    if (port_ < 1 || port_ >= serial_port_count) {
+        record_failure(Status::Unsupported, "HardwareSerial.begin");
+        return false;
+    }
+    const auto& names = serial_names_[port_];
+    auto& state = serial_states_[port_];
+    CallScope scope{names.begin};
+    if (config != SERIAL_8N1) {
+        record_failure(Status::Unsupported, names.begin);
+        return false;
+    }
+    auto wiring = board_uart(port_);
+    if (!wiring && state.tx && state.rx) wiring = mm::mcu::UartWiring{port_ - 1, 0, 0};
+    if (!wiring) {
+        record_failure(Status::Unsupported, names.begin);
+        return false;
+    }
+    if (state.tx) wiring->transmit_gpio = *state.tx;
+    if (state.rx) wiring->receive_gpio = *state.rx;
+    if (state.begun && state.wiring) (void)mm::mcu::uart_release(state.wiring->instance);
+    const mm::mcu::UartConfiguration uart_config{wiring->instance, wiring->transmit_gpio,
+                                                  wiring->receive_gpio, baud};
+    const auto st = mm::mcu::uart_configure(uart_config);
+    if (st != mm::mcu::Status::Ok) {
+        state.begun = false;
+        record_failure(from(st), names.begin);
+        return false;
+    }
+    state.wiring = wiring;
+    state.begun = true;
+    state.head = 0;
+    state.length = 0;
+    return true;
+}
+
+bool HardwareSerial::end() {
+    if (port_ < 1 || port_ >= serial_port_count) {
+        record_failure(Status::Unsupported, "HardwareSerial.end");
+        return false;
+    }
+    auto& state = serial_states_[port_];
+    CallScope scope{serial_names_[port_].end};
+    if (!state.begun || !state.wiring) return true;
+    const auto st = mm::mcu::uart_release(state.wiring->instance);
+    state.begun = false;
+    state.head = 0;
+    state.length = 0;
+    if (st != mm::mcu::Status::Ok) {
+        record_failure(from(st), serial_names_[port_].end);
+        return false;
+    }
+    return true;
+}
+
+bool HardwareSerial::setTX(unsigned int pin) {
+    if (port_ < 1 || port_ >= serial_port_count) return false;
+    auto& state = serial_states_[port_];
+    if (state.begun) return state.wiring && state.wiring->transmit_gpio == pin;
+    state.tx = pin;
+    return true;
+}
+
+bool HardwareSerial::setRX(unsigned int pin) {
+    if (port_ < 1 || port_ >= serial_port_count) return false;
+    auto& state = serial_states_[port_];
+    if (state.begun) return state.wiring && state.wiring->receive_gpio == pin;
+    state.rx = pin;
+    return true;
+}
+
+HardwareSerial::HardwareSerial() = default;
+HardwareSerial::HardwareSerial(unsigned int port) : port_(port) {}
+
+std::size_t HardwareSerial::write(byte b) { return write(&b, 1); }
+
+// Queues all of buffer, waiting for room up to the stream's timeout. What was
+// queued is returned; a timeout or a failure records the error.
+std::size_t HardwareSerial::write(const byte* buffer, std::size_t size) {
+    if (port_ < 1 || port_ >= serial_port_count) {
+        record_failure(Status::Unsupported, "HardwareSerial.write");
+        setWriteError();
+        return 0;
+    }
+    const auto& names = serial_names_[port_];
+    auto& state = serial_states_[port_];
+    CallScope scope{names.write};
+    if (!state.begun || !state.wiring) {
+        record_failure(Status::NotInitialized, names.write);
+        setWriteError();
+        return 0;
+    }
+    if (buffer == nullptr || size == 0) return 0;
+    std::size_t done = 0;
+    auto start = millis();
+    while (done < size) {
+        std::size_t accepted = 0;
+        const auto st = mm::mcu::uart_write(
+            state.wiring->instance,
+            std::span<const std::byte>(reinterpret_cast<const std::byte*>(buffer) + done,
+                                       size - done),
+            accepted);
+        if (st != mm::mcu::Status::Ok) {
+            record_failure(from(st), names.write);
+            setWriteError();
+            return done;
+        }
+        done += accepted;
+        if (done == size) break;
+        if (exit_requested_) break;
+        if (accepted > 0) {
+            start = millis();
+        } else {
+            if (millis() - start >= getTimeout()) {
+                record_failure(Status::Timeout, names.write);
+                setWriteError();
+                break;
+            }
+            (void)mm::mcu::delay_us(100);
+        }
+    }
+    return done;
+}
+
+int HardwareSerial::available() {
+    if (port_ < 1 || port_ >= serial_port_count) return 0;
+    fill_serial(port_);
+    return static_cast<int>(serial_states_[port_].length);
+}
+
+int HardwareSerial::read() {
+    if (port_ < 1 || port_ >= serial_port_count) return -1;
+    auto& state = serial_states_[port_];
+    if (state.length == 0) fill_serial(port_);
+    if (state.length == 0) return -1;
+    const auto value = static_cast<int>(static_cast<byte>(state.buffer[state.head]));
+    ++state.head;
+    --state.length;
+    return value;
+}
+
+int HardwareSerial::peek() {
+    if (port_ < 1 || port_ >= serial_port_count) return -1;
+    auto& state = serial_states_[port_];
+    if (state.length == 0) fill_serial(port_);
+    if (state.length == 0) return -1;
+    return static_cast<int>(static_cast<byte>(state.buffer[state.head]));
+}
+
+void HardwareSerial::flush() {}
+
+HardwareSerial::operator bool() const {
+    if (port_ < 1 || port_ >= serial_port_count) return false;
+    return serial_states_[port_].begun;
+}
+
+HardwareSerial Serial1{1};
+HardwareSerial Serial2{2};
+
+// The legacy profile. Each forwards to the core function it loosens; a value
+// the core has no spelling for is refused here with BadArgument, under the
+// core function's name, and the core function is not called.
+namespace legacy {
+
+namespace {
+
+constexpr unsigned int no_analog_pin = ~0u;
+
+[[nodiscard]] Level level_of(int value) { return value == 0 ? LOW : HIGH; }
+
+[[nodiscard]] bool mode_of(int value, Mode& mode) {
+    switch (value) {
+        case 0: mode = INPUT; return true;
+        case 1: mode = OUTPUT; return true;
+        case 2: mode = INPUT_PULLUP; return true;
+        case 3: mode = INPUT_PULLDOWN; return true;
+        default: return false;
+    }
+}
+
+[[nodiscard]] bool bit_order_of(int value, BitOrder& order) {
+    switch (value) {
+        case 0: order = LSBFIRST; return true;
+        case 1: order = MSBFIRST; return true;
+        default: return false;
+    }
+}
+
+}  // namespace
+
+bool digitalWrite(unsigned int pin, int level) {
+    return mm::sketch::digitalWrite(pin, level_of(level));
+}
+
+bool digitalWrite(Led led, int level) {
+    return mm::sketch::digitalWrite(led, level_of(level));
+}
+
+bool pinMode(unsigned int pin, int mode) {
+    Mode chosen = INPUT;
+    if (!mode_of(mode, chosen)) {
+        CallScope scope{"pinMode"};
+        record_failure(Status::BadArgument, "pinMode");
+        return false;
+    }
+    return mm::sketch::pinMode(pin, chosen);
+}
+
+bool pinMode(Led led, int mode) {
+    Mode chosen = INPUT;
+    if (!mode_of(mode, chosen)) {
+        CallScope scope{"pinMode"};
+        record_failure(Status::BadArgument, "pinMode");
+        return false;
+    }
+    return mm::sketch::pinMode(led, chosen);
+}
+
+int analogRead(unsigned char pin) {
+    return mm::sketch::analogRead(static_cast<unsigned int>(pin));
+}
+
+int analogRead(int pin) {
+    return mm::sketch::analogRead(pin < 0 ? no_analog_pin : static_cast<unsigned int>(pin));
+}
+
+int analogRead(long pin) {
+    return mm::sketch::analogRead(pin < 0 || static_cast<unsigned long>(pin) > no_analog_pin
+                                      ? no_analog_pin
+                                      : static_cast<unsigned int>(pin));
+}
+
+int analogRead(unsigned long pin) {
+    return mm::sketch::analogRead(pin > no_analog_pin ? no_analog_pin
+                                                      : static_cast<unsigned int>(pin));
+}
+
+unsigned long pulseIn(unsigned int pin, int value, unsigned long timeout) {
+    return mm::sketch::pulseIn(pin, level_of(value), timeout);
+}
+
+unsigned long pulseInLong(unsigned int pin, int value, unsigned long timeout) {
+    return mm::sketch::pulseInLong(pin, level_of(value), timeout);
+}
+
+byte shiftIn(unsigned int data_pin, unsigned int clock_pin, int bit_order) {
+    BitOrder order = MSBFIRST;
+    if (!bit_order_of(bit_order, order)) {
+        CallScope scope{"shiftIn"};
+        record_failure(Status::BadArgument, "shiftIn");
+        return 0;
+    }
+    return mm::sketch::shiftIn(data_pin, clock_pin, order);
+}
+
+void shiftOut(unsigned int data_pin, unsigned int clock_pin, int bit_order, byte val) {
+    BitOrder order = MSBFIRST;
+    if (!bit_order_of(bit_order, order)) {
+        CallScope scope{"shiftOut"};
+        record_failure(Status::BadArgument, "shiftOut");
+        return;
+    }
+    mm::sketch::shiftOut(data_pin, clock_pin, order, val);
+}
+
+}  // namespace legacy
 
 } // namespace mm::sketch

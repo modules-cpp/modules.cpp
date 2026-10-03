@@ -15,16 +15,56 @@ export LC_ALL
 
 set -e
 
+# Parse optional arguments.
+MCCP=""
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --compiler)
+            shift
+            if [ $# -eq 0 ]; then
+                echo "bootstrap.sh: --compiler requires an argument" >&2
+                exit 64
+            fi
+            MCCP="$1"
+            ;;
+        --compiler=*)
+            MCCP="${1#*=}"
+            ;;
+        -h|--help)
+            echo "Usage: ./bootstrap.sh [--compiler <CXX>]"
+            exit 0
+            ;;
+        *)
+            echo "bootstrap.sh: unknown option: $1" >&2
+            echo "Usage: ./bootstrap.sh [--compiler <CXX>]" >&2
+            exit 64
+            ;;
+    esac
+    shift
+done
+
 # Use Apple's clang++ driver on macOS. On other hosts retain the generic c++
 # driver so the bootstrap continues to follow the platform's default toolchain.
+# A specific compiler can be passed with --compiler <CXX>.
 # Compiler selection happens only afterwards, when configure writes the
 # project-wide out/config.mdy consumed by build and test; see
 # models/configuration/configuration.cppm.
-case "$(uname -s)" in
-    Darwin) MCCP="clang++"; MM_COMPILER_FAMILY="clang" ;;
-    *) MCCP="c++"; MM_COMPILER_FAMILY="gcc" ;;
-esac
+if [ -z "${MCCP}" ]; then
+    case "$(uname -s)" in
+        Darwin) MCCP="clang++"; MM_COMPILER_FAMILY="clang" ;;
+        *) MCCP="c++"; MM_COMPILER_FAMILY="gcc" ;;
+    esac
+else
+    case "${MCCP}" in
+        *clang*|*Clang*) MM_COMPILER_FAMILY="clang" ;;
+        *) MM_COMPILER_FAMILY="gcc" ;;
+    esac
+fi
 MCCP_VERSION=$($MCCP --version)
+case "${MCCP_VERSION}" in
+    *clang*|*Clang*) MM_COMPILER_FAMILY="clang" ;;
+esac
 echo
 echo "Compiler version"
 echo
@@ -66,8 +106,8 @@ echo "Flags ${MM_CPPFLAGS}"
 
 # GCC uses its C++ modules TS mapper. Apple Clang uses Clang's C++ modules
 # switch and does not understand GCC's -fmodules-ts/-fmodule-mapper options.
-case "$(uname -s)" in
-    Darwin)
+case "${MM_COMPILER_FAMILY}" in
+    clang)
         # Clang only recognizes a .cppm as a standard module unit when the
         # driver is allowed to infer the language (do not force -x c++).  Keep
         # the generated PCM files in the bootstrap-local cache and make that

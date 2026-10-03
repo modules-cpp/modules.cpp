@@ -96,7 +96,26 @@ esac
 
 # Check the remote, not only the local refs: a stale remote-tracking branch can
 # name something origin does not actually have, and the reverse is worse.
-git fetch --quiet --tags origin || fail "cannot reach origin"
+# git refuses to move an existing local tag, so a local tag that points
+# elsewhere than origin's tag of the same name fails the fetch although
+# origin is reachable; say which tags, and how to adopt origin's. --quiet
+# would suppress the rejection lines this reads, so it is not used.
+if ! fetch_output=$(git fetch --tags origin 2>&1); then
+    clobbered=$(printf '%s\n' "$fetch_output" |
+        sed -n 's/.*\[rejected\] *\([^ ]*\) .*would clobber existing tag.*/\1/p')
+    if [ -n "$clobbered" ]; then
+        for tag in $clobbered; do
+            echo "release: local tag $tag and origin's $tag differ" >&2
+        done
+        echo "        origin's published tags are authoritative; to keep the local ones" >&2
+        echo "        and adopt origin's, for each tag T:" >&2
+        echo "          git update-ref refs/backup/local-tags/T T" >&2
+        echo "          git fetch origin --force refs/tags/T:refs/tags/T" >&2
+        exit 65
+    fi
+    printf '%s\n' "$fetch_output" >&2
+    fail "cannot fetch from origin"
+fi
 
 git rev-parse -q --verify "refs/tags/$version" >/dev/null \
     && fail "tag $version already exists locally"

@@ -76,21 +76,14 @@ test-*.sh
 debug-*.sh
 
 # local release scripts
-release-*.sh
+/release-*.sh
 
-#local run scripts
-run_*.sh
-
-# the compatibility headers the sketch tool synthesises beside every
-# generated main.cpp; no directory prefix, so each is ignored at any depth
-Arduino.h
-Print.h
-Printable.h
-Wire.h
-SPI.h
+# local run scripts
+/run_*.sh
 
 # vendored library checkouts, provisioned by each library's vendor.sh
 platforms/pico/sdk/pico-sdk/upstream/
+platforms/pico/sdk/pico-sdk/pio-usb/upstream/
 
 # locally installed Pico SDK tools (compiler, picotool, OpenOCD, and pioasm)
 platforms/pico/pico-sdk/

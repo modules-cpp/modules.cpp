@@ -18,13 +18,15 @@ export enum class BlockType {
     Heading2,
     Heading3,
     Paragraph,
-    UnorderedList
+    UnorderedList,
+    CodeBlock
 };
 
 // Export the structure holding parsed tokens
 export struct Block {
     BlockType type;
     std::string content;
+    std::string language = "";
 };
 
 // Whether parse_file actually read a file, distinct from whether what it

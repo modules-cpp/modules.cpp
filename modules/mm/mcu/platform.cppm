@@ -12,6 +12,8 @@ import :status;
 import :board;
 import :spi_types;
 import :i2c_types;
+import :uart_types;
+import :storage_types;
 import :i2s_types;
 import :transport_types;
 import :adc_types;
@@ -31,6 +33,7 @@ struct Capabilities {
     bool timer = false;
     bool adc = false;
     bool pwm = false;
+    bool storage = false;
 };
 
 // The seam. A name declared in a module's purview is attached to that module and
@@ -122,6 +125,29 @@ public:
     [[nodiscard]] virtual Status i2s_release(unsigned int) { return Status::Unsupported; }
 
     [[nodiscard]] virtual Status uart_write(unsigned int, const char*) {
+        return Status::Unsupported;
+    }
+    [[nodiscard]] virtual Status uart_configure(const UartConfiguration&) {
+        return Status::Unsupported;
+    }
+    [[nodiscard]] virtual Status uart_write(unsigned int, std::span<const std::byte>,
+                                            std::size_t&) {
+        return Status::Unsupported;
+    }
+    [[nodiscard]] virtual Status uart_read(unsigned int, std::span<std::byte>,
+                                           std::size_t&) {
+        return Status::Unsupported;
+    }
+    [[nodiscard]] virtual Status uart_release(unsigned int) { return Status::Unsupported; }
+
+    [[nodiscard]] virtual Status storage_poll(bool&) { return Status::Unsupported; }
+    [[nodiscard]] virtual Status storage_geometry(StorageGeometry&) {
+        return Status::Unsupported;
+    }
+    [[nodiscard]] virtual Status storage_read(std::uint64_t, std::span<std::byte>) {
+        return Status::Unsupported;
+    }
+    [[nodiscard]] virtual Status storage_write(std::uint64_t, std::span<const std::byte>) {
         return Status::Unsupported;
     }
 

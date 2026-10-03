@@ -1,0 +1,6 @@
+---
+mm: 1.0
+kind: dir
+name: pico2-usb-device-platform
+folder: board
+---

@@ -7,6 +7,8 @@ cpu: x86_64
 instruction-set: native
 float-abi: native
 platform-provider: platform.linux.map platform.linux.generic_x86_64.map
+platform-provider: mm.usb.host platform.linux.usb.host
+platform-provider: mm.usb.device platform.linux.usb.device
 ---
 
 # generic-linux-x86_64

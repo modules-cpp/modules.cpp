@@ -16,6 +16,9 @@ void mm_test_set_level(unsigned int pin, bool high);
 unsigned long mm_test_ticks();
 unsigned int mm_test_uart_instance();
 bool mm_test_uart_written();
+unsigned long mm_test_uart_baud(unsigned int instance);
+std::size_t mm_test_uart_sent_size(unsigned int instance);
+void mm_test_uart_feed(unsigned int instance, std::byte value);
 bool mm_test_spi_ready();
 unsigned long mm_test_spi_baud();
 std::size_t mm_test_spi_size();
@@ -132,6 +135,37 @@ void uart_reports_an_absent_instance() {
            "a null string is the platform's BadArgument");
 }
 
+void uart_configures_sends_and_receives() {
+    mm_test_reset();
+    std::size_t accepted = 99;
+    const std::byte bytes[6] = {std::byte{'h'}, std::byte{'e'}, std::byte{'l'},
+                                std::byte{'l'}, std::byte{'o'}, std::byte{0}};
+    expect(mm::mcu::uart_write(1, bytes, accepted) == Status::BadArgument && accepted == 99,
+           "an unconfigured instance refuses a write and leaves accepted alone");
+    expect(mm::mcu::uart_configure({1, 8, 9, 9600}) == Status::Ok && mm_test_uart_baud(1) == 9600,
+           "instance 1 configures at its rate");
+    expect(mm::mcu::uart_write(1, bytes, accepted) == Status::Ok && accepted == 4 &&
+               mm_test_uart_sent_size(1) == 4,
+           "a write queues what the transmitter has room for and says how much");
+    expect(mm::mcu::uart_write(1, std::span<const std::byte>{bytes}.subspan(accepted), accepted) ==
+                   Status::Ok &&
+               mm_test_uart_sent_size(1) == 6,
+           "the rest follows, a zero byte included");
+
+    std::byte received[4]{};
+    std::size_t count = 99;
+    expect(mm::mcu::uart_read(1, received, count) == Status::Ok && count == 0,
+           "a read with nothing arrived takes nothing and does not wait");
+    mm_test_uart_feed(1, std::byte{'o'});
+    mm_test_uart_feed(1, std::byte{'k'});
+    expect(mm::mcu::uart_read(1, received, count) == Status::Ok && count == 2 &&
+               received[0] == std::byte{'o'} && received[1] == std::byte{'k'},
+           "a read takes what arrived");
+    expect(mm::mcu::uart_release(1) == Status::Ok &&
+               mm::mcu::uart_read(1, received, count) == Status::BadArgument,
+           "a released instance refuses a read");
+}
+
 void timer_advances_and_reads_back() {
     mm_test_reset();
     unsigned long before = 1;
@@ -229,6 +263,16 @@ void an_unserved_facility_answers_unsupported() {
     expect(bare.gpio_write(0, true) == Status::Unsupported,
            "an unimplemented facility answers Unsupported rather than failing to link");
     expect(bare.uart_write(0, "x") == Status::Unsupported, "so does an unimplemented uart");
+    {
+        std::size_t moved = 7;
+        std::byte one[1]{};
+        expect(bare.uart_configure({}) == Status::Unsupported &&
+                   bare.uart_write(0, std::span<const std::byte>{one}, moved) ==
+                       Status::Unsupported &&
+                   bare.uart_read(0, one, moved) == Status::Unsupported &&
+                   bare.uart_release(0) == Status::Unsupported && moved == 7,
+               "and the byte UART calls, which leave their count alone");
+    }
     expect(bare.spi_configure({}) == Status::Unsupported,
            "so does an unimplemented SPI controller");
     expect(bare.i2c_configure({}) == Status::Unsupported,
@@ -435,6 +479,7 @@ const mm::test::case_ cases[] = {
     {"gpio rejects what the platform rejects", &gpio_rejects_what_the_platform_rejects},
     {"a failed read leaves its output alone", &a_failed_read_leaves_its_output_alone},
     {"uart reports an absent instance", &uart_reports_an_absent_instance},
+    {"uart configures sends and receives", &uart_configures_sends_and_receives},
     {"timer advances and reads back", &timer_advances_and_reads_back},
     {"spi configures and transfers spans", &spi_configures_and_transfers_spans},
     {"spi rejects invalid use", &spi_rejects_invalid_configuration_and_transfer},

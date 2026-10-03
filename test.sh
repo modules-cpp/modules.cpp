@@ -207,6 +207,7 @@ echo
 echo test build scripts
 echo
 sh tests/scripts/run.sh || exit $?
+sh tests/scripts/release-fetch.sh || exit $?
 
 echo
 echo test test
@@ -239,6 +240,7 @@ run_test_target tests/mm/sketch/ || exit $?
 run_test_target tests/mm/json/ || exit $?
 run_test_target tests/mm/lcd/ || exit $?
 run_test_target tests/mm/rtc/ || exit $?
+run_test_target tests/mm/usb/ || exit $?
 case "$(uname -s)" in
     Darwin)
         echo "Skipping tests/mm/linux/: Linux DRM headers are unavailable on macOS"
