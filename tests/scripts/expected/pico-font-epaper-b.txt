@@ -8,5 +8,6 @@ build-pico: dry run
   provider platform.pico_epaper_b.display 1
   driver mm::epaper::ssd1680
   symbol mm::fonts::kMono12Data
+  delay     500 ms
   uf2 rp2040
 exit 0

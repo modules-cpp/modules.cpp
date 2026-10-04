@@ -14,5 +14,6 @@ build-pico: dry run
   driver mm::lcd::st7789
   driver mm::rtc::pcf85063
   driver mm::touch::cst328
+  delay     500 ms
   uf2 rp2350
 exit 0

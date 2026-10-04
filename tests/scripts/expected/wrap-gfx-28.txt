@@ -12,5 +12,6 @@ build-pico: dry run
   provider platform.rp2350_touch_lcd_28.touch 0
   driver mm::lcd::st7789
   no-symbol mm::fonts
+  delay     500 ms
   uf2 rp2350
 exit 0

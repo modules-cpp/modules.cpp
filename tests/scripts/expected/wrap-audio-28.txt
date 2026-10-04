@@ -12,5 +12,6 @@ build-pico: dry run
   provider platform.rp2350_touch_lcd_28.touch 0
   abi mm_pico_mcu_i2s_configure
   abi mm_pico_mcu_i2s_write
+  delay     500 ms
   uf2 rp2350
 exit 0

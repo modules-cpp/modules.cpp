@@ -11,5 +11,6 @@ build-pico: dry run
   provider platform.rp2350_touch_lcd_154.touch 0
   driver mm::audio::es8311
   abi mm_pico_mcu_i2s_write
+  delay     500 ms
   uf2 rp2350
 exit 0

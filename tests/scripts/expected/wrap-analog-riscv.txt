@@ -9,6 +9,7 @@ build-pico: dry run
   abi mm_pico_mcu_adc_read
   abi mm_pico_mcu_pwm_configure
   abi mm_pico_mcu_pwm_write
+  delay     500 ms
   uf2 rp2350
   control   ./build --target apps/target-smoke-any/
   control provider platform.pico.mcu 0

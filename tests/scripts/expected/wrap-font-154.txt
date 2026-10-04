@@ -12,6 +12,7 @@ build-pico: dry run
   driver mm::lcd::st7789
   symbol mm::fonts::kMono12Data
   symbol mm::fonts::kMono16Data
+  delay     500 ms
   uf2 rp2350
   flash     ./flash.sh apps/font-demo/
 exit 0

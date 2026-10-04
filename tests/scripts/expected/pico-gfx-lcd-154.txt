@@ -9,6 +9,7 @@ build-pico: dry run
   provider platform.rp2350_touch_lcd_154.display 1
   provider platform.rp2350_touch_lcd_154.imu 0
   driver mm::lcd::st7789
+  delay     500 ms
   uf2 rp2350
   keep      rp2350_lcd_154
 exit 0

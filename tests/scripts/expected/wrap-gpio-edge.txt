@@ -7,6 +7,7 @@ build-pico: dry run
   provider platform.pico.stdio 1
   abi mm_pico_mcu_gpio_watch
   abi mm_pico_mcu_gpio_wait
+  delay     500 ms
   uf2 rp2040
   control   ./build --target apps/target-smoke-any/
   control provider platform.pico.mcu 0
