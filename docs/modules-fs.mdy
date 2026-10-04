@@ -1,0 +1,145 @@
+---
+mm: 1.0
+kind: doc
+name: modules.cpp file system interface
+status: official
+release: v1.3.1
+---
+
+# modules.cpp file system interface
+
+# Status and authority
+
+status: official gives the implemented portions of this document the same
+authority as the other specifications. This document specifies mm.fs, the
+portable file interface, and mm.fs.conformance, the checks every volume is
+held to. Both exist and are tested on the host and build for every target.
+No driver exists yet: FAT, littlefs, and a Linux directory provider are
+planned in drafts/plan-mm-fs-5.mdy, which this document does not make
+official.
+
+# What mm.fs is
+
+One API for every volume. A program opens, reads, writes, and lists files
+through mm.fs; a driver implements Volume; a device implements BlockDevice
+or FlashDevice. mm.fs holds no driver, is not a platform-interface, and needs
+no provider. It allocates nothing and serves one caller at a time: its path
+buffers and mount table are static.
+
+# Paths
+
+A path is absolute, '/'-separated UTF-8. normalize makes it canonical before
+any driver sees it: repeated '/' collapse, "." drops, ".." removes the
+previous component and never climbs above "/", a trailing '/' is ignored.
+The result is "/" or "/" followed by components joined by single '/'.
+
+- An empty path, one not starting with '/', or one holding a NUL is
+  BadArgument.
+- A component over max_name (255) bytes, or a result over max_path (255)
+  bytes or the caller's buffer, is NameTooLong. The path is resolved left to
+  right, so it must fit at every step.
+- out and length change only on Ok.
+
+A driver therefore receives a volume-relative path with no leading '/', no
+"." or "..", and "" for its root, and cannot be handed a way out of its
+volume.
+
+Names are case-preserving; whether two spellings name one file is the
+volume's, and mm.fs does not hide the difference.
+
+# The mount table
+
+mount(prefix, volume) attaches a volume the caller owns at "/" or "/"
+followed by one component. Another shape is BadArgument; a mounted prefix is
+Exists; a volume already mounted elsewhere is Busy; more than max_mounts (8)
+is TooMany. unmount(prefix) asks the volume to flush, returns a failed flush
+and keeps the volume mounted, is Busy while any File or Directory on it is
+open, and is NotFound for a prefix not mounted.
+
+Every path call resolves its normalised path to the longest mounted prefix.
+Prefixes are one component deep, so at most one non-root mount matches, and
+it beats "/". "/usbstick" is not under "/usb". A path under no mount is
+NotFound.
+
+mm.fs keeps three rules itself, the same on every volume: rename between
+mounts is CrossVolume; a mount point exists (make_directory is Exists) and
+cannot be removed or renamed (BadArgument); a File's access is checked
+before the driver is asked.
+
+# Files and directories
+
+File and Directory are move-only values holding a mount slot, the driver's
+handle, and for a File its access. Their destructors close, ignoring the
+result; a program that cares about a failed flush calls close. close leaves
+the value closed whatever it returns, because the driver frees its handle
+either way.
+
+- open and open_directory into a value that is already open are
+  BadArgument: mm.fs does not close it silently.
+- Every call on a closed value is BadArgument.
+- read on a file opened Write or Append, and write or truncate on one opened
+  Read, are BadArgument. seek past the end of a file opened Read is
+  BadArgument; on a writable file it is allowed, and the next write extends
+  the file with zeros.
+- read's count short of the request, including zero, is end of file.
+  write's count short of the request comes with NoSpace, and the count is
+  set then too; otherwise counts and offsets change only on Ok.
+- A write is durable after sync or close; what durable means is the
+  volume's.
+- Directory::next returns entries without "." or "..", in the volume's
+  order, with done set once they are exhausted. A name buffer too small is
+  NameTooLong and the entry is not consumed; max_name bytes always suffice.
+
+stat, make_directory (the parent must exist), remove (a file, or an empty
+directory), rename (never replacing a target: Exists), and space take paths.
+
+# The clock
+
+set_clock installs a function pointer answering seconds since 1970-01-01,
+and now() is what a driver stamps: the clock's answer, or 0. mm.fs names no
+clock module, so a program without a clock pulls in none.
+
+# The driver seams
+
+Volume has one virtual per operation, keyed by the driver's handles, every
+one answering Unsupported by default except flush, which answers Ok. The
+rules a driver keeps beyond what mm.fs enforces are written on Volume:
+
+- a file open for writing cannot be opened again, removed, or renamed: Busy;
+- a file open for reading can be opened again for reading;
+- rename never replaces an existing target: Exists;
+- close frees the handle even when it fails.
+
+BlockDevice is fixed-size blocks rewritten in place, which FAT wants;
+FlashDevice is raw flash -- read anywhere, program only erased bytes, erase
+whole blocks -- which littlefs wants. They are different promises and mm.fs
+keeps both. McuStorage is mm.mcu's block storage as a BlockDevice, polling
+the device on every call and answering TransportError while none is ready;
+it is the only device mm.fs supplies, and the reason it uses mm.mcu.
+
+# Conformance
+
+mm.fs.conformance::run(prefix, report) runs the contract as 25 checks inside
+a scratch directory, mm-fs-conformance, beneath the prefix, removing it
+before and after. It covers the four dispositions, append after a seek, short
+reads, extension past the end, truncate, sync, stat, access refusals, seek
+past the end of a read-only file, the IsDirectory and NotDirectory
+refusals, directory listing and its NameTooLong retry, make_directory,
+remove, rename, the Busy rules, sharing between readers, paths through "."
+and "..", space, and calls on a closed File. It leaves to the volume what the
+contract does: case sensitivity, timestamps, entry order. run answers Ok when
+the checks could run and reports passes, failures, and the first failure's
+description; when the scratch directory cannot be made it returns that
+status and leaves the report untouched.
+
+Every driver is meant to pass it, on the host or in a target smoke
+application, which is what the same API everywhere means in practice.
+
+# Tests
+
+tests/mm/fs exercises normalize and its limits, mount shapes and slots,
+resolution, mm.fs's own rules, a failed flush, moves and destructors, the
+clock, NoSpace, and McuStorage on an unserved platform, and runs the
+conformance checks over an in-memory reference volume at "/" and under a
+prefix. Breaking one rule of the reference volume -- letting rename replace
+its target -- makes the conformance test fail.

@@ -13,6 +13,8 @@ folder: epaper
 folder: fonts
 folder: gfx
 folder: flash
+folder: fs
+folder: fs/conformance
 folder: imu
 folder: ino
 folder: json

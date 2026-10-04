@@ -1,0 +1,45 @@
+---
+mm: 1.2
+kind: module
+name: fs
+module: mm.fs
+use: mm.mcu
+file: status.cppm mm.fs:status
+file: types.cppm mm.fs:types
+file: path.cppm mm.fs:path
+file: clock.cppm mm.fs:clock
+file: device.cppm mm.fs:device
+file: volume.cppm mm.fs:volume
+file: file.cppm mm.fs:file
+file: storage.cppm mm.fs:storage
+file: fs.cppm mm.fs
+file: src/path.cpp
+file: src/fs.cpp
+file: src/storage.cpp
+---
+
+# mm.fs
+
+A portable file interface: one API for every volume, whatever holds the files
+-- FAT on a card, littlefs in flash, a directory of the host's file system.
+It holds no driver and needs no provider; drivers implement Volume, and
+devices implement BlockDevice or FlashDevice.
+
+A path is absolute, '/'-separated UTF-8, and normalize makes it canonical
+before any driver sees it, so a driver can never be handed a ".." to escape
+with. A bounded table maps a mount prefix -- "/" or "/" followed by one
+component -- to a Volume the caller owns, and every path call resolves to the
+longest mounted prefix.
+
+File and Directory are move-only values that close on destruction. mm.fs
+counts what is open on each mount, refuses to unmount a volume in use, and
+checks a File's access itself, so a read of a file opened for writing is
+BadArgument on every volume alike. What a driver must promise beyond that is
+written on Volume and checked by mm.fs.conformance.
+
+The clock is a function pointer a program installs, so mm.fs names no clock
+module. McuStorage is mm.mcu's block storage as a BlockDevice, the only
+device mm.fs supplies itself; it is why the module uses mm.mcu.
+
+Nothing here allocates. mm.fs serves one caller at a time: its path buffers
+and mount table are static.

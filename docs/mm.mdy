@@ -16,6 +16,7 @@ file: modules-epaper.mdy
 file: modules-execution.mdy
 file: modules-flash.mdy
 file: modules-fonts.mdy
+file: modules-fs.mdy
 file: modules-gfx.mdy
 file: modules-imu.mdy
 file: modules-ino.mdy

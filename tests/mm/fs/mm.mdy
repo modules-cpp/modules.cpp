@@ -1,0 +1,20 @@
+---
+mm: 1.0
+kind: test
+name: fs
+use: mm.test
+use: mm.fs
+use: mm.fs.conformance
+unit: tests/mm/fs/memory.cpp
+unit: tests/mm/fs/fs.cpp
+unit: tests/main.cpp
+---
+
+# mm.fs tests
+
+Exercises path normalisation and its limits, mount shapes and slots,
+longest-prefix resolution, the rules mm.fs keeps itself (CrossVolume, the
+mount point, Busy unmount, a failed flush), File and Directory moves and
+destructors, the clock hook, NoSpace, McuStorage on an unserved platform, and
+the conformance checks over an in-memory reference volume at "/" and under a
+prefix.

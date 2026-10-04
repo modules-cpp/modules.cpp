@@ -37,6 +37,13 @@ All notable changes to modules.cpp. Versions follow [semantic versioning](https:
   transport. The Pico bridge implements it with a four-instruction PIO program
   whose ticks per bit and divider it plans from the requested timing;
   every other platform answers Unsupported.
+- **`mm.fs` and `mm.fs.conformance`.** A portable file interface: path
+  normalisation, a mount table of up to eight volumes resolved by longest
+  prefix, move-only `File` and `Directory` values, operations by path, a
+  clock hook, and the `Volume`, `BlockDevice`, and `FlashDevice` seams drivers
+  implement, with `McuStorage` over `mm.mcu` block storage. No allocation.
+  `mm.fs.conformance` runs the contract as 25 checks against any mounted
+  volume. No driver yet; see `drafts/plan-mm-fs-5.mdy`.
 - **`apps/rgb-led-smoke` and `scripts/build-rgb-led.sh`.** Red, green, blue,
   white, and a colour wheel on any board that binds `mm.led`; the default board
   is `rp2040_zero`.

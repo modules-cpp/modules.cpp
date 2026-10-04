@@ -1,0 +1,25 @@
+---
+mm: 1.2
+kind: module
+name: fs-conformance
+module: mm.fs.conformance
+use: mm.fs
+file: conformance.cppm
+file: src/conformance.cpp
+---
+
+# mm.fs.conformance
+
+The mm.fs contract as checks that run against whatever volume is mounted at a
+prefix: the dispositions, append, short reads, extension by seeking past the
+end, truncate, sync, stat, access refusals, directory listing and its
+NameTooLong retry, make_directory, remove, rename, the Busy rules for open
+files, and paths through "..". A host test runs it over an in-memory volume,
+and the same checks are meant for every driver and for a target smoke
+application, which is what "the same API everywhere" means in practice.
+
+It works inside a scratch directory it makes beneath the prefix and removes
+afterwards, and it touches nothing else. What the contract leaves to the
+volume -- case sensitivity, timestamps, the order of directory entries --
+it does not check. CrossVolume needs two mounts and is mm.fs's own rule, so
+mm.fs's tests check it instead.

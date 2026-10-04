@@ -16,6 +16,7 @@ folder: epaper
 folder: fonts
 folder: gfx
 folder: flash
+folder: fs
 folder: shell
 folder: shell/mcu
 folder: shell/full
