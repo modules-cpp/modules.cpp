@@ -25,6 +25,9 @@ All notable changes to modules.cpp. Versions follow [semantic versioning](https:
   `waveshare_rp2350_pizero` header in place of `pico2` for it: 48 GPIOs, 16MB
   of flash, UART1 on GP4/GP5, no LED. 3300 mV ADC reference. Wiring is from
   Waveshare's schematic; not yet qualified on hardware.
+- **`rp2350_pizero_usb_host` board.** `rp2350_pizero` with its PIO-USB socket
+  as a USB host on GP28/GP29, binding `platform.pico.usb.host`, as
+  `pico2_usb_host` does on GP2/GP3.
 - **`mm.led` and `mm.led.ws2812b`.** A platform interface for chains of
   addressable RGB LEDs, with mm.display's lifecycle (`initialize`, `write`,
   `refresh`, `clear`, `sleep`), and a portable WS2812B controller that owns the

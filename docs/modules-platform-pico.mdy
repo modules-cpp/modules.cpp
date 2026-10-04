@@ -214,6 +214,8 @@ forty-eight GPIOs, 16MB of flash, UART1 on GP4 and GP5, and no LED;
 PICO_PLATFORM stays pico2-arm's, because the cores are the same, and the board
 chain the model sees is unchanged. Its row adds a 3,300 millivolt reference and
 claims no second I2C or UART, the header's defaults already being instance one.
+rp2350_pizero_usb_host derives from it, shares its row, and adds the PIO-USB
+host port on GP28 and GP29 with the platform.pico.usb.host binding.
 
 pico2-arm and pico2-w-arm declare security-domain: secure and select the Arm
 Secure processor row. rp2350-ram omits the key, keeps the non-secure default,
@@ -315,7 +317,8 @@ Wi-Fi, and Bluetooth are not enabled merely by recognizing the W board.
 ## USB CDC console
 
 On the pico_usb_host and pico2_usb_host boards the native port stays this
-console while a second USB port, D+ on GP2 and D- on GP3, is a USB host
+console while a second USB port, D+ on GP2 and D- on GP3 -- on
+rp2350_pizero_usb_host GP28 and GP29, its PIO-USB socket -- is a USB host
 driven by Pico-PIO-USB through the chip's PIO, for one USB mass-storage
 device, which mm.mcu's block storage reads and writes. A board opts in with
 MM_BOARD_HAS_USB_HOST and MM_BOARD_USB_HOST_DP_PIN in resolve-board.cmake.
@@ -392,7 +395,7 @@ On application-port boards:
 
 ## USB host: storage and non-storage peripherals
 
-On boards with a second USB host port driven by Pico-PIO-USB (`pico_usb_host` and `pico2_usb_host`):
+On boards with a second USB host port driven by Pico-PIO-USB (`pico_usb_host`, `pico2_usb_host`, and `rp2350_pizero_usb_host`, whose port is the RP2350-PiZero's PIO-USB socket on GP28 and GP29):
 - `mm.mcu`'s block storage calls continue to address USB mass-storage devices through TinyUSB's host MSC class.
 - `platform.pico.usb.host` binds `mm.usb.host` to serve non-storage USB peripherals attached to the port via TinyUSB's host API (`tuh_*`).
 - When a mass-storage device is claimed by `mm.mcu`, `platform.pico.usb.host::claim` refuses to claim the interface and answers `Busy`, preventing conflicts with the storage stack.

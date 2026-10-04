@@ -84,13 +84,19 @@ endif()
 # on MM_BOARD_USB_HOST_DP_PIN and D- on the next; the native port stays the
 # USB console. Only a board that says so has one: the pico_usb_host and
 # pico2_usb_host composite boards, on GP2 and GP3, which the vendor boards'
-# default wiring leaves free. The clock becomes 120 MHz on such a board.
+# default wiring leaves free, and rp2350_pizero_usb_host, on the GP28 and GP29
+# the Waveshare RP2350-PiZero wires to its PIO-USB socket. The clock becomes
+# 120 MHz on such a board.
 set(MM_BOARD_HAS_USB_HOST 0)
 set(MM_BOARD_USB_HOST_DP_PIN 0)
 if(MM_BOARD STREQUAL "pico_usb_host" OR
    MM_BOARD STREQUAL "pico2_usb_host")
   set(MM_BOARD_HAS_USB_HOST 1)
   set(MM_BOARD_USB_HOST_DP_PIN 2)
+endif()
+if(MM_BOARD STREQUAL "rp2350_pizero_usb_host")
+  set(MM_BOARD_HAS_USB_HOST 1)
+  set(MM_BOARD_USB_HOST_DP_PIN 28)
 endif()
 
 # A second UART, instance 1 on GP8 and GP9, the pins the Arduino cores for
@@ -140,9 +146,11 @@ endif()
 # MM_PICO_BOARD_HEADER, which the bridge uses in place of the vendor board's;
 # that header sets the B package, 16MB of flash, UART1 on GP4 and GP5, and no
 # LED. ADC_AVDD is the 3V3 rail. No second I2C or UART: the header's defaults
-# are already instance one on the 40-pin header's pins.
+# are already instance one on the 40-pin header's pins. rp2350_pizero_usb_host
+# is the same board, so the same row.
 set(MM_PICO_BOARD_HEADER "")
-if(MM_BOARD STREQUAL "rp2350_pizero")
+if(MM_BOARD STREQUAL "rp2350_pizero" OR
+   MM_BOARD STREQUAL "rp2350_pizero_usb_host")
   set(MM_PICO_BOARD_HEADER waveshare_rp2350_pizero)
   set(MM_ADC_REFERENCE_MV 3300)
   set(MM_BOARD_HAS_LED 0)

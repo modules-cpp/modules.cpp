@@ -3,6 +3,7 @@ mm: 1.0
 kind: dir
 name: pizero-platform
 folder: board-rp2350
+folder: board-rp2350-usb-host
 ---
 
 # pizero-platform
@@ -10,8 +11,9 @@ folder: board-rp2350
 The Waveshare PiZero family: an RP2 chip on a board in the Raspberry Pi Zero's
 outline, with its 40-pin header, a DVI connector, a TF card socket, and two
 USB-C sockets, the native port and a PIO-USB port. rp2350_pizero is the
-RP2350-PiZero.
+RP2350-PiZero, and rp2350_pizero_usb_host the same board with its PIO-USB port
+a USB host.
 
-The board binds no provider yet: modules/mm has no DVI output, and the TF
-card and PIO-USB port are described here and in its manifest for the
-providers that will use them.
+rp2350_pizero binds no provider yet: modules/mm has no DVI output, and the
+TF card is described in its manifest for the provider that will use it.
+rp2350_pizero_usb_host binds platform.pico.usb.host to the PIO-USB port.
