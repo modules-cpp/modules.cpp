@@ -31,6 +31,9 @@
 #if !MM_BOARD_USB_PORT_APPLICATION || MM_BOARD_HAS_USB_HOST
 #include "tusb.h"
 #endif
+#if !MM_BOARD_USB_PORT_APPLICATION
+#include "device/usbd_pvt.h"
+#endif
 #if MM_BOARD_HAS_USB_HOST
 #include "pio_usb.h"
 #endif
@@ -89,6 +92,59 @@ static int mm_pico_usb_is_connected(void) {
 #else
     return 1;
 #endif
+}
+
+// The CDC data interface's bulk IN endpoint, read once from the configuration
+// descriptor pico_stdio_usb supplies; 0 if there is none.
+static uint8_t mm_pico_usb_cdc_in_ep(void) {
+    static int searched;
+    static uint8_t found;
+    if (searched) return found;
+    searched = 1;
+    uint8_t const* p = tud_descriptor_configuration_cb(0);
+    if (p == NULL) return found;
+    uint8_t const* const end = p + tu_u16(p[3], p[2]);
+    int data = 0;
+    for (; p + 2 <= end && p[0] >= 2; p += p[0]) {
+        if (p[1] == TUSB_DESC_INTERFACE) {
+            data = p[5] == TUSB_CLASS_CDC_DATA;
+        } else if (data && p[1] == TUSB_DESC_ENDPOINT &&
+                   (p[2] & TUSB_DIR_IN_MASK) &&
+                   (p[3] & 3) == TUSB_XFER_BULK) {
+            found = p[2];
+            break;
+        }
+    }
+    return found;
+}
+
+// pico_stdio_usb's flush only starts a transfer. An application that returns
+// straight after flushing stops at _exit's breakpoint with its last bytes
+// still on the board, and they never reach the host. While a terminal holds
+// DTR, and so is reading, flush therefore waits until the transmit FIFO is
+// empty and no IN transfer is in flight: the host has acknowledged every
+// byte. Without DTR nothing is reading, so it does not wait. The wait is
+// bounded by time and, because a debugger can stop the timer, by a count.
+#define MM_PICO_STDIO_DRAIN_MS 500
+#define MM_PICO_STDIO_DRAIN_SPINS 200000u
+
+static int mm_pico_usb_drain(void) {
+    const uint8_t ep = mm_pico_usb_cdc_in_ep();
+    if (ep == 0) return MM_PICO_STDIO_OK;
+    const absolute_time_t deadline =
+        make_timeout_time_ms(MM_PICO_STDIO_DRAIN_MS);
+    for (uint32_t spin = 0; spin < MM_PICO_STDIO_DRAIN_SPINS; ++spin) {
+        if (!stdio_usb_connected() || !tud_cdc_connected()) {
+            return MM_PICO_STDIO_OK;
+        }
+        if (tud_cdc_write_available() == CFG_TUD_CDC_TX_BUFSIZE &&
+            !usbd_edpt_busy(0, ep)) {
+            return MM_PICO_STDIO_OK;
+        }
+        if (time_reached(deadline)) break;
+        stdio_usb.out_flush();
+    }
+    return MM_PICO_STDIO_TIMEOUT;
 }
 #endif
 
@@ -249,7 +305,7 @@ int mm_pico_stdio_flush(void) {
 #else
     if (stdio_usb.out_flush == NULL) return MM_PICO_STDIO_UNSUPPORTED;
     stdio_usb.out_flush();
-    return MM_PICO_STDIO_OK;
+    return mm_pico_usb_drain();
 #endif
 }
 
@@ -1608,3 +1664,24 @@ int mm_pico_mcu_storage_write(unsigned long long block, const void* data, unsign
 
 #include "adapter_usb_device.c"
 #include "adapter_usb_host.c"
+
+// TinyUSB 0.18.0, in the pinned Pico SDK 2.3.1, panics with "Can't continue
+// xfer on inactive ep" when the controller reports a finished buffer for an
+// endpoint whose transfer has already ended. A host that abandons a
+// double-buffered control IN transfer (a configuration descriptor) while it
+// re-enumerates the board leaves exactly that notification behind; it was
+// caught on endpoint 0x80. Upstream TinyUSB now ignores such a notification,
+// returning false for an idle endpoint. The bridge links with
+// --wrap=hw_endpoint_xfer_continue so that this wrapper does the same until
+// the pinned SDK carries that fix; the SDK checkout itself stays untouched.
+#include "tusb.h"
+#include "portable/raspberrypi/rp2040/rp2040_usb.h"
+
+bool __real_hw_endpoint_xfer_continue(struct hw_endpoint* ep);
+bool __wrap_hw_endpoint_xfer_continue(struct hw_endpoint* ep);
+
+bool __not_in_flash_func(__wrap_hw_endpoint_xfer_continue)(
+    struct hw_endpoint* ep) {
+    if (!ep->active) return false;
+    return __real_hw_endpoint_xfer_continue(ep);
+}

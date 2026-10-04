@@ -99,6 +99,13 @@ connected first. Neither DTR nor the delay proves that the host is draining
 output. The delay is measured with the system timer, which stops while a
 debugger halts either core; when the host asserts DTR it does not matter.
 
+flush waits for delivery while a terminal holds DTR: it returns Ok once the
+transmit FIFO is empty and no IN transfer is in flight, so the host has
+acknowledged every byte, and Timeout if that has not happened within 500 ms.
+The SDK's own flush only starts a transfer, and an application that returned
+straight after it stopped at _exit with its last bytes still on the board.
+Without DTR nothing is reading, and flush returns at once.
+
 Pico SDK performs USB work from its default timer and low-priority IRQ. A caller
 does not call tud_task and mm.stdio exposes no pump operation.
 

@@ -334,6 +334,16 @@ connected callback returns, but cannot observe a timeout partway through that
 callback. docs/modules-stdio.mdy owns the portable console contract and records
 this provider-specific limitation.
 
+TinyUSB 0.18.0, in the pinned Pico SDK 2.3.1, panics with "Can't continue xfer
+on inactive ep" when the controller reports a finished buffer for an endpoint
+whose transfer has already ended. A host that abandons a double-buffered
+control IN transfer while it re-enumerates the board leaves exactly that
+notification behind; it was observed on endpoint 0x80 with a terminal holding
+the port across a reset. Upstream TinyUSB now ignores such a notification. The
+bridge links every image with --wrap=hw_endpoint_xfer_continue, and the
+adapter's wrapper returns false for an inactive endpoint the same way, leaving
+the SDK checkout untouched. It is removed once the pinned SDK carries the fix.
+
 ## Native USB port ownership: application vs console
 
 By default every Pico board keeps the native USB port as the CDC console (`MM_BOARD_USB_PORT="console"`). A board opts into giving the native USB port to the application by specifying `MM_BOARD_USB_PORT="application"` in `resolve-board.cmake`:

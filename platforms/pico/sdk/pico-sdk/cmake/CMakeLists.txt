@@ -108,6 +108,10 @@ if(MM_BOARD_HAS_USB_HOST)
   target_link_libraries(mm_external tinyusb_device tinyusb_host tinyusb_pico_pio_usb)
 endif()
 pico_enable_stdio_semihosting(mm_external 1)
+# Every image links TinyUSB's RP2040 device driver; ext/adapter.c wraps one of
+# its functions to tolerate a stale buffer notification instead of panicking.
+target_link_options(mm_external PRIVATE
+  "LINKER:--wrap=hw_endpoint_xfer_continue")
 pico_add_extra_outputs(mm_external)
 add_custom_command(TARGET mm_external POST_BUILD
   COMMAND ${CMAKE_COMMAND}
