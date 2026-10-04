@@ -106,6 +106,20 @@ if(MM_BOARD STREQUAL "rp2350_lcd_154" OR
     PICO_DEFAULT_UART_RX_PIN=27)
 endif()
 
+# The Waveshare RP2040-GEEK and RP2350-GEEK, per their schematics: ADC_AVDD is
+# the 3V3 rail; GP25, the vendor board's LED, is the panel backlight, so there
+# is no LED; and GP0 and GP1 go nowhere, so the default UART is UART1 on the
+# header labelled UART, GP4 and GP5, as the SDK's own GEEK headers have it.
+if(MM_BOARD STREQUAL "rp2040_geek" OR
+   MM_BOARD STREQUAL "rp2350_geek")
+  set(MM_ADC_REFERENCE_MV 3300)
+  set(MM_BOARD_HAS_LED 0)
+  list(APPEND MM_BOARD_DEFINITIONS
+    PICO_DEFAULT_UART=1
+    PICO_DEFAULT_UART_TX_PIN=4
+    PICO_DEFAULT_UART_RX_PIN=5)
+endif()
+
 # The Waveshare RP2350-Touch-LCD-2.8, per its schematic: ADC_AVDD is the 3V3
 # rail, and GP25, pico2's LED, is the battery key, so there is no LED. Its
 # GP0 and GP1 are the exposed UART, so pico2's default UART stands.

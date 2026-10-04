@@ -1,0 +1,21 @@
+---
+mm: 1.2
+kind: module
+name: geek-display
+module: platform.geek.display
+use: mm.display
+use: mm.lcd.st7789
+use: mm.mcu
+file: display.cppm
+option: buildable-host no
+---
+
+# platform.geek.display
+
+The GEEK boards' ST7789 panel: 240 by 135 in landscape, RGB565, on SPI1 with
+the backlight on GP25, clocked at 62.5 MHz as the family's other ST7789 boards
+are, which the Pico's SPI rounds down to what its divider holds. The 135-row
+panel sits inside the controller's 240 by 320 frame memory at column 40 and
+row 53 once memory access 0x70 turns it on its side. It owns the wiring and
+the panel's porch, power, and gamma settings, and registers the controller as
+mm.display. rp2040_geek and rp2350_geek both bind it.

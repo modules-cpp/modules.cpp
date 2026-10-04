@@ -2,6 +2,17 @@
 
 All notable changes to modules.cpp. Versions follow [semantic versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **`rp2040_geek` and `rp2350_geek` boards.** The Waveshare RP2040-GEEK and
+  RP2350-GEEK, under `boards/geek`, deriving from `pico` and `pico2-arm` and
+  sharing `platform.geek.display`, the 1.14 inch 240×135 ST7789 panel on SPI1.
+  The Pico bridge's board table reports no LED (GP25 is the backlight), a
+  3300 mV ADC reference, and UART1 on GP4/GP5 as the default UART. Wiring is
+  from Waveshare's schematics; not yet qualified on hardware.
+
 ## [v1.3.1] — 2026-10-02
 
 Something to connect and store with. v1.3.0 gave the project a language of its

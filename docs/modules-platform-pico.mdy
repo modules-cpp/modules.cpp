@@ -183,6 +183,17 @@ The RP2350-Touch-LCD-2.8 has a row of its own on the same grounds: a 3,300
 millivolt reference, and no LED, its GP25 being the battery key; its GP0 and
 GP1 are its exposed UART, so pico2's default UART stands.
 
+boards/geek holds the Waveshare RP2040-GEEK and RP2350-GEEK, two USB-stick
+boards with one wiring. rp2040_geek derives from pico and rp2350_geek from
+pico2-arm, and both bind platform.geek.display, the 1.14 inch 240 by 135
+ST7789 panel on SPI1. The SDK ships waveshare_rp2040_geek and
+waveshare_rp2350_geek headers, but the bridge selects PICO_BOARD from its six
+vendor names, so the GEEK boards derive and the board table corrects, as every
+other composite board does. Their row gives both a 3,300 millivolt reference,
+ADC_AVDD being the 3V3 rail; no LED, GP25 being the panel backlight; and
+PICO_DEFAULT_UART as UART1 on GP4 and GP5, the header labelled UART, the same
+default the SDK's GEEK headers name.
+
 pico2-arm and pico2-w-arm declare security-domain: secure and select the Arm
 Secure processor row. rp2350-ram omits the key, keeps the non-secure default,
 and therefore keeps its three-argument commands unchanged.
