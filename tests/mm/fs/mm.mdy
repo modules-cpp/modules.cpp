@@ -5,6 +5,7 @@ name: fs
 use: mm.test
 use: mm.fs
 use: mm.fs.conformance
+use: mm.fs.littlefs
 use: mm.fs.local
 use: mm.fs.native
 unit: tests/mm/fs/memory.cpp

@@ -14,9 +14,10 @@ status: official gives the implemented portions of this document the same
 authority as the other specifications. This document specifies mm.fs, the
 portable file interface; mm.fs.conformance, the checks every volume is held
 to; the mount interfaces mm.fs.local and mm.fs.native; and platform.linux.fs,
-their Linux provider. All exist and are tested; mm.fs and mm.fs.conformance
-build for every target. FAT and littlefs are planned in
-drafts/plan-mm-fs-5.mdy, which this document does not make official.
+their Linux provider; mm.fs.littlefs and platform.pico.fs.littlefs, littlefs
+on Pico. All exist and are tested; mm.fs and mm.fs.conformance build for
+every target. FAT is planned in drafts/plan-mm-fs-5.mdy, which this document
+does not make official.
 
 # What mm.fs is
 
@@ -136,17 +137,21 @@ never handed to its provider.
 - mm.fs.local, mount(prefix, options): the board's own storage, whatever the
   platform calls that. Options carry read_only and format_if_blank, the
   latter for platforms whose storage can be blank.
+- mm.fs.littlefs, mount(prefix, device, options), unmount(prefix), and
+  format(device): littlefs on a FlashDevice. mount is Corrupt for a device
+  holding no littlefs volume and erases nothing; format writes an empty
+  volume over the whole device. Options carry read_only and block_cycles.
 - mm.fs.native, mount(prefix, root, options): an absolute directory of the
   platform's own file system. A relative root is BadArgument, a missing one
   NotFound, a file NotDirectory. With contain_symlinks, on by default, a
   symbolic link whose target lies outside the root is treated as absent.
 
 Opening fence
-SDK            mm.fs.local          mm.fs.native
-linux-x86_64   platform.linux.fs    platform.linux.fs
-linux-aarch64  platform.linux.fs    platform.linux.fs
-pico-arm       (none yet)           (none)
-pico-riscv     (none yet)           (none)
+SDK            mm.fs.local                mm.fs.native       mm.fs.littlefs
+linux-x86_64   platform.linux.fs          platform.linux.fs  (none)
+linux-aarch64  platform.linux.fs          platform.linux.fs  (none)
+pico-arm       platform.pico.fs.littlefs  (none)             platform.pico.fs.littlefs
+pico-riscv     platform.pico.fs.littlefs  (none)             platform.pico.fs.littlefs
 Closing fence
 
 # The Linux provider
@@ -188,6 +193,64 @@ with 32 open files and 8 open directories.
   stream call reports through errno, as the other Linux providers read it.
 - Names are case-sensitive bytes, and other processes may change the
   directory under the volume.
+
+# littlefs on Pico
+
+platform.pico.fs.littlefs serves mm.fs.littlefs and mm.fs.local on every Pico
+board. mm.fs.local mounts littlefs on McuFlash, mm.mcu's flash region at the
+top of program flash, which a program flashed over UF2 leaves intact; with
+format_if_blank, the default, a region whose first two erase blocks are all
+0xFF -- littlefs's superblock pair never written -- is formatted, and any
+other region that does not mount is Corrupt and left as it is.
+
+littlefs v2.11.3 is vendored by platforms/pico/sdk/pico-sdk/littlefs/vendor.sh
+at commit 6cb4e86540eca0d9ba62500a298385c9d863c8be into a git-ignored
+upstream/, with its BSD-3-Clause licence committed beside it, and compiled by
+the Pico bridge only for a program that links the provider;
+docs/modules-platform-pico.mdy says how.
+
+The provider follows platform.pico.mcu's pattern. littlefs/adapter.c, C,
+includes littlefs and owns its state in static pools -- two volumes, eight
+open files each with its own 256-byte cache, four open directories -- behind
+a private ABI, littlefs/lfs-c.h; the C++ module includes only that header,
+through littlefs/lfs-cxx.h, maps results and paths, and adapts a FlashDevice
+to the adapter's device record through C-linkage callbacks.
+
+The adapter keeps the Volume rules in C:
+
+- Each disposition is decided from lfs_stat first. littlefs cannot create or
+  truncate through a read-only open, so a Read open that must do either
+  makes the file with a writable open and close first.
+- A file open for writing cannot be opened again, removed, or renamed; an
+  open directory cannot be removed or renamed; lfs_rename's replacing of a
+  target is refused as Exists; a directory cannot be moved into itself.
+- Directory listings leave out the "." and ".." littlefs returns, and an
+  entry whose name does not fit stays pending for the next call.
+- littlefs records no times. The adapter keeps each file's modification time
+  in custom attribute 0x74, eight bytes of seconds from the mm.fs clock,
+  which littlefs writes atomically with the file's data on sync and close.
+  littlefs reads attributes on open only with read access, so the adapter
+  loads the stored time before every open: a file opened for writing and
+  closed unchanged keeps its time.
+- littlefs's configuration: one erase block is a littlefs block, the caches
+  are one program unit (256 bytes on Pico, at most 256), the lookahead is 32
+  bytes, block_cycles comes from the options (500 for mm.fs.local), and
+  littlefs is built with LFS_NO_MALLOC, LFS_NO_DEBUG, LFS_NO_WARN, and
+  LFS_NO_ERROR.
+- Errors map from littlefs's: NOENT NotFound, EXIST Exists, NOTDIR
+  NotDirectory, ISDIR IsDirectory, NOTEMPTY NotEmpty, NOSPC and FBIG NoSpace,
+  NAMETOOLONG NameTooLong, NOMEM TooMany, CORRUPT Corrupt, BADF and INVAL
+  BadArgument. An I/O error the device explained is the device's own answer,
+  so a flash timeout is Timeout.
+
+scripts/test-littlefs.sh compiles adapter.c and the pinned littlefs for the
+build machine with its C compiler, against a RAM NOR flash that refuses to
+program a byte that is not erased, and runs littlefs/test/harness.c's 77
+checks through the ABI, under valgrind when it is installed: the
+dispositions, append, extension, truncate, timestamps kept and updated,
+listing and its retry, the Busy rules, rename, the file pool, NoSpace,
+remounting, read-only mounts, a device timeout, and a damaged volume left
+unerased. The module build compiles no C, so test.sh does not run it.
 
 # Conformance
 

@@ -84,6 +84,7 @@ debug-*.sh
 # vendored library checkouts, provisioned by each library's vendor.sh
 platforms/pico/sdk/pico-sdk/upstream/
 platforms/pico/sdk/pico-sdk/pio-usb/upstream/
+platforms/pico/sdk/pico-sdk/littlefs/upstream/
 
 # locally installed Pico SDK tools (compiler, picotool, OpenOCD, and pioasm)
 platforms/pico/pico-sdk/

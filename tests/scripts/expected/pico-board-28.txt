@@ -3,6 +3,7 @@ build-pico: dry run
   configure ./configure --target arm-none-eabi --compiler arm-none-eabi-gcc --sdk pico-arm --board rp2350_touch_lcd_28 --build debug
   build     ./build --target apps/board-smoke/
   image     out-target-arm-none-eabi/apps/board-smoke/board-smoke
+  provider platform.pico.fs.littlefs 0
   provider platform.pico.mcu 1
   provider platform.pico.stdio 0
   provider platform.rp2350_touch_lcd_28.audio 0

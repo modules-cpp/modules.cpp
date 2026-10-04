@@ -10,6 +10,7 @@ folder: mcu
 folder: stdio
 folder: usb/device
 folder: usb/host
+folder: littlefs/provider
 ---
 
 # Raspberry Pi Pico SDK

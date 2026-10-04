@@ -246,6 +246,19 @@ Busy. A program onto bytes that are not erased is not checked here; NOR flash
 ANDs it, which is the caller's to avoid. The bridge links hardware_flash and
 pico_flash into every image.
 
+pico-arm and pico-riscv also bind mm.fs.littlefs and mm.fs.local to
+platform.pico.fs.littlefs, littlefs on the flash region; docs/modules-fs.mdy
+specifies it. littlefs is vendored like Pico-PIO-USB: littlefs/vendor.sh
+provisions commit 6cb4e86540eca0d9ba62500a298385c9d863c8be, v2.11.3, into
+littlefs/upstream, ignored like the SDK's checkout, cloning from GitHub or
+from MM_LITTLEFS_SOURCE, and no tool runs it. The bridge recognises a program
+that linked the provider by the provider's object among MM_OBJECTS, whose
+paths mirror source paths, and only then requires the checkout -- failing the
+configure with the vendor.sh command when it is absent -- and builds lfs.c,
+lfs_util.c, and littlefs/adapter.c into a static library with LFS_NO_MALLOC,
+LFS_NO_DEBUG, LFS_NO_WARN, and LFS_NO_ERROR, adapter.c with -Wall -Wextra
+-Werror. The adapter includes no Pico SDK header.
+
 pico2-arm and pico2-w-arm declare security-domain: secure and select the Arm
 Secure processor row. rp2350-ram omits the key, keeps the non-secure default,
 and therefore keeps its three-argument commands unchanged.

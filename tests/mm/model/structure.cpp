@@ -205,12 +205,16 @@ void repository_exposes_provider_declarations() {
     mm::test::expect(pico_arm != nullptr, "expected the Pico ARM SDK definition");
     if (pico_arm != nullptr) {
         const auto bindings = pico_arm->platform_providers();
-        mm::test::expect(bindings.size() == 2 &&
+        mm::test::expect(bindings.size() == 4 &&
                              bindings[0].interface_module == "mm.mcu" &&
                              bindings[0].provider_module == "platform.pico.mcu" &&
                              bindings[1].interface_module == "mm.stdio" &&
-                             bindings[1].provider_module == "platform.pico.stdio",
-                         "expected the SDK's authored MCU and console bindings");
+                             bindings[1].provider_module == "platform.pico.stdio" &&
+                             bindings[2].interface_module == "mm.fs.littlefs" &&
+                             bindings[2].provider_module == "platform.pico.fs.littlefs" &&
+                             bindings[3].interface_module == "mm.fs.local" &&
+                             bindings[3].provider_module == "platform.pico.fs.littlefs",
+                         "expected the SDK's authored MCU, console, and file bindings");
     }
 
     const models::BoardNode* rp2040 = nullptr;

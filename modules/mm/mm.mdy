@@ -17,6 +17,7 @@ folder: fs
 folder: fs/conformance
 folder: fs/local
 folder: fs/native
+folder: fs/littlefs
 folder: imu
 folder: ino
 folder: json

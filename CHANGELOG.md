@@ -58,6 +58,15 @@ All notable changes to modules.cpp. Versions follow [semantic versioning](https:
   and on Linux an image file named by `flash.*` device-map keys, which refuses
   to program unerased bytes. The Pico bridge's UF2 validation now refuses an
   image that reaches the region, skipping picotool's RP2350-E10 block.
+- **`mm.fs.littlefs` and littlefs on every Pico board.** littlefs v2.11.3,
+  vendored by `platforms/pico/sdk/pico-sdk/littlefs/vendor.sh` and compiled by
+  the Pico bridge for programs that use it, behind
+  `platform.pico.fs.littlefs`, which the Pico SDKs bind for `mm.fs.littlefs`
+  and `mm.fs.local`: `mm.fs.local` mounts littlefs on the flash region,
+  formatting a region never written and leaving a damaged one alone.
+  Timestamps live in a littlefs attribute. `scripts/test-littlefs.sh` runs the
+  adapter's 77-check native harness; `scripts/build-fs.sh` now defaults to
+  `pico`.
 - **`apps/rgb-led-smoke` and `scripts/build-rgb-led.sh`.** Red, green, blue,
   white, and a colour wheel on any board that binds `mm.led`; the default board
   is `rp2040_zero`.

@@ -10,6 +10,7 @@
 
 import mm.fs;
 import mm.fs.conformance;
+import mm.fs.littlefs;
 import mm.fs.local;
 import mm.fs.native;
 import mm.test;
@@ -386,6 +387,52 @@ void mount_interfaces_attach_publish_and_detach() {
     mm::fs::native::set_provider(fallback_native);
 }
 
+struct RecordingLittlefs final : mm::fs::littlefs::Provider {
+    Status attach(mm::fs::FlashDevice& device, const mm::fs::littlefs::Options& options,
+                  mm::fs::Volume*& volume) override {
+        last_device = &device;
+        last_cycles = options.block_cycles;
+        volume = &mm_test_fs_memory(1);
+        return Status::Ok;
+    }
+    Status detach(mm::fs::Volume&) override {
+        ++detaches;
+        return Status::Ok;
+    }
+    Status format(mm::fs::FlashDevice& device) override {
+        formatted = &device;
+        return Status::Ok;
+    }
+    mm::fs::FlashDevice* last_device = nullptr;
+    mm::fs::FlashDevice* formatted = nullptr;
+    std::int32_t last_cycles = 0;
+    unsigned int detaches = 0;
+};
+
+void littlefs_interface_forwards_to_its_provider() {
+    reset();
+    mm::fs::FlashDevice device;
+    expect(mm::fs::littlefs::mount("/flash", device) == Status::Unsupported &&
+               mm::fs::littlefs::format(device) == Status::Unsupported,
+           "with no provider, littlefs mount and format are Unsupported");
+
+    RecordingLittlefs recording;
+    mm::fs::littlefs::set_provider(recording);
+    mm::fs::littlefs::Options options;
+    options.block_cycles = 123;
+    expect(mm::fs::littlefs::mount("/flash", device, options) == Status::Ok &&
+               recording.last_device == &device && recording.last_cycles == 123,
+           "mount hands the device and options to the provider");
+    expect(mm::fs::local::unmount("/flash") == Status::BadArgument,
+           "another interface will not unmount it");
+    expect(mm::fs::littlefs::unmount("/flash") == Status::Ok && recording.detaches == 1,
+           "unmount detaches");
+    expect(mm::fs::littlefs::format(device) == Status::Ok && recording.formatted == &device,
+           "format forwards the device");
+    mm::fs::littlefs::Provider fallback;
+    mm::fs::littlefs::set_provider(fallback);
+}
+
 const mm::test::case_ cases[] = {
     {"normalize makes paths canonical", &normalize_makes_paths_canonical},
     {"normalize enforces limits", &normalize_enforces_limits},
@@ -401,6 +448,7 @@ const mm::test::case_ cases[] = {
     {"conformance reports a failing volume", &conformance_reports_a_failing_volume},
     {"mount interfaces fall back to Unsupported", &mount_interfaces_fall_back_to_unsupported},
     {"mount interfaces attach, publish, and detach", &mount_interfaces_attach_publish_and_detach},
+    {"the littlefs interface forwards to its provider", &littlefs_interface_forwards_to_its_provider},
 };
 
 const mm::test::registrar reg{"mm.fs", cases};

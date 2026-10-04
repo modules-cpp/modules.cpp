@@ -119,6 +119,28 @@ if(MM_BOARD_HAS_USB_HOST)
   target_compile_definitions(mm_external PRIVATE PICO_STDIO_USB_USE_DEFAULT_DESCRIPTORS=1)
   target_link_libraries(mm_external tinyusb_device tinyusb_host tinyusb_pico_pio_usb)
 endif()
+# littlefs, for a program that linked its provider: object paths mirror
+# source paths, so the provider's object is recognisable among MM_OBJECTS. A
+# static library, so a member nothing references is not linked; built
+# without malloc, since the adapter supplies every buffer.
+if(MM_OBJECTS MATCHES "/platforms/pico/sdk/pico-sdk/littlefs/provider/")
+  set(MM_LITTLEFS ${CMAKE_CURRENT_LIST_DIR}/../littlefs)
+  if(NOT EXISTS ${MM_LITTLEFS}/upstream/lfs.c)
+    message(FATAL_ERROR "this program uses littlefs; the littlefs checkout is absent: "
+      "run platforms/pico/sdk/pico-sdk/littlefs/vendor.sh")
+  endif()
+  add_library(mm_littlefs STATIC
+    ${MM_LITTLEFS}/upstream/lfs.c
+    ${MM_LITTLEFS}/upstream/lfs_util.c
+    ${MM_LITTLEFS}/adapter.c)
+  target_include_directories(mm_littlefs PRIVATE ${MM_LITTLEFS} ${MM_LITTLEFS}/upstream)
+  target_compile_definitions(mm_littlefs PRIVATE
+    LFS_NO_MALLOC LFS_NO_DEBUG LFS_NO_WARN LFS_NO_ERROR)
+  set_source_files_properties(${MM_LITTLEFS}/adapter.c PROPERTIES
+    COMPILE_OPTIONS "-std=gnu11;-Wall;-Wextra;-Werror")
+  target_link_libraries(mm_littlefs PRIVATE pico_platform_headers)
+  target_link_libraries(mm_external mm_littlefs)
+endif()
 pico_enable_stdio_semihosting(mm_external 1)
 # Every image links TinyUSB's RP2040 device driver; ext/adapter.c wraps one of
 # its functions to tolerate a stale buffer notification instead of panicking.
