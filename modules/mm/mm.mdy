@@ -15,6 +15,8 @@ folder: gfx
 folder: flash
 folder: fs
 folder: fs/conformance
+folder: fs/local
+folder: fs/native
 folder: imu
 folder: ino
 folder: json

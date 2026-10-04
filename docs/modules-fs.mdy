@@ -12,11 +12,11 @@ release: v1.3.1
 
 status: official gives the implemented portions of this document the same
 authority as the other specifications. This document specifies mm.fs, the
-portable file interface, and mm.fs.conformance, the checks every volume is
-held to. Both exist and are tested on the host and build for every target.
-No driver exists yet: FAT, littlefs, and a Linux directory provider are
-planned in drafts/plan-mm-fs-5.mdy, which this document does not make
-official.
+portable file interface; mm.fs.conformance, the checks every volume is held
+to; the mount interfaces mm.fs.local and mm.fs.native; and platform.linux.fs,
+their Linux provider. All exist and are tested; mm.fs and mm.fs.conformance
+build for every target. FAT and littlefs are planned in
+drafts/plan-mm-fs-5.mdy, which this document does not make official.
 
 # What mm.fs is
 
@@ -92,6 +92,8 @@ either way.
 
 stat, make_directory (the parent must exist), remove (a file, or an empty
 directory), rename (never replacing a target: Exists), and space take paths.
+mounted(prefix, volume) answers the volume mounted at a prefix, which is how
+a mount interface finds what it attached.
 
 # The clock
 
@@ -117,6 +119,74 @@ keeps both. McuStorage is mm.mcu's block storage as a BlockDevice, polling
 the device on every call and answering TransportError while none is ready;
 it is the only device mm.fs supplies, and the reason it uses mm.mcu.
 
+# Mount interfaces
+
+A driver's volume reaches a program through a mount interface, a
+platform-interface module whose provider the selected SDK or board binds:
+a portable surface, a Provider seam, and an Unsupported fallback. A program
+that reaches an interface its lane binds no provider for is unavailable on
+that lane, as with every platform-interface. Each interface's mount asks the
+provider to attach a volume and publishes it with mm::fs::mount, detaching it
+again if publishing fails; its unmount refuses with BadArgument a volume it
+did not attach, so a volume mounted at the same prefix by other means is
+never handed to its provider.
+
+- mm.fs.local, mount(prefix, options): the board's own storage, whatever the
+  platform calls that. Options carry read_only and format_if_blank, the
+  latter for platforms whose storage can be blank.
+- mm.fs.native, mount(prefix, root, options): an absolute directory of the
+  platform's own file system. A relative root is BadArgument, a missing one
+  NotFound, a file NotDirectory. With contain_symlinks, on by default, a
+  symbolic link whose target lies outside the root is treated as absent.
+
+Opening fence
+SDK            mm.fs.local          mm.fs.native
+linux-x86_64   platform.linux.fs    platform.linux.fs
+linux-aarch64  platform.linux.fs    platform.linux.fs
+pico-arm       (none yet)           (none)
+pico-riscv     (none yet)           (none)
+Closing fence
+
+# The Linux provider
+
+platform.linux.fs serves both interfaces through the C++ standard library
+alone: std::filesystem, with its std::error_code overloads, for the tree,
+and std::filebuf for the bytes. Four volumes may be attached at once, each
+with 32 open files and 8 open directories.
+
+- mm.fs.local mounts the device map's directory.0, read-only unless
+  directory.0.writable is yes, or, when the map names no directory, the
+  working directory, writable. A map that failed to resolve is BadArgument,
+  as for every Linux provider.
+- Opening decides from status() first, because std::filebuf before C++23
+  has no no-replace mode: CreateNew checks for the file, and a file that
+  must be made or emptied is made by a separate truncating open. Another
+  process could create the file between the two; mm.fs's one-caller promise
+  covers this program, not the host.
+- A file open for both reading and writing is repositioned between a write
+  and a read, as a C stream must be.
+- rename checks the target first, because std::filesystem::rename replaces
+  it; remove and rename of anything open beneath the path is Busy; a file
+  open for writing cannot be opened again.
+- Offsets are std::streamoff, sixty-four bits in libstdc++ on every Linux
+  lane, the 32-bit Arm one included.
+- modified is last_write_time converted with std::chrono::clock_cast; the
+  mm.fs clock is not used, because the kernel stamps files itself.
+  read_only is the volume's flag or a missing owner write permission.
+- sync is std::filebuf::pubsync: the bytes reach the kernel. The standard
+  library has no fsync, so this provider does not promise they survive a
+  power cut.
+- Errors map from std::errc in one table: no_such_file_or_directory
+  NotFound, file_exists Exists, not_a_directory NotDirectory, is_a_directory
+  IsDirectory, directory_not_empty NotEmpty, no_space_on_device NoSpace,
+  read_only_file_system, permission_denied, and operation_not_permitted
+  ReadOnly, filename_too_long NameTooLong, too_many_files_open and
+  too_many_files_open_in_system TooMany, device_or_resource_busy Busy,
+  cross_device_link CrossVolume, anything else TransportError. A failed
+  stream call reports through errno, as the other Linux providers read it.
+- Names are case-sensitive bytes, and other processes may change the
+  directory under the volume.
+
 # Conformance
 
 mm.fs.conformance::run(prefix, report) runs the contract as 25 checks inside
@@ -135,11 +205,24 @@ status and leaves the report untouched.
 Every driver is meant to pass it, on the host or in a target smoke
 application, which is what the same API everywhere means in practice.
 
+apps/fs-smoke mounts mm.fs.local at "/data", runs the checks there, prints
+the counts and the first failure, and unmounts; scripts/build-fs.sh builds it,
+and on Linux runs it with --run. It skips, exiting 0, where mm.fs.local
+answers Unsupported or NotFound.
+
 # Tests
 
 tests/mm/fs exercises normalize and its limits, mount shapes and slots,
 resolution, mm.fs's own rules, a failed flush, moves and destructors, the
 clock, NoSpace, and McuStorage on an unserved platform, and runs the
 conformance checks over an in-memory reference volume at "/" and under a
-prefix. Breaking one rule of the reference volume -- letting rename replace
-its target -- makes the conformance test fail.
+prefix, and the mount interfaces against their fallbacks and recording
+providers. Breaking one rule of the reference volume -- letting rename
+replace its target -- makes the conformance test fail.
+
+tests/mm/linux runs the same checks over platform.linux.fs on a temporary
+directory, and checks that files are the host's files both ways, that
+symlinks stay inside the root, that a read-only volume refuses every write,
+that roots are checked, that mm.fs.local mounts the working directory, the
+directory.N map keys, and the errc table. Dropping the provider's rename
+target check makes the Linux conformance run fail on exactly that check.

@@ -108,6 +108,13 @@ struct StorageEntry {
     bool writable = false;
 };
 
+// A directory of the host's file system that mm.fs.local mounts as the
+// board's own storage; entry 0 is the one it uses.
+struct DirectoryEntry {
+    std::string path;
+    bool writable = false;
+};
+
 struct UsbHostEntry {
     bool detach_kernel_drivers = false;
 };
@@ -135,6 +142,7 @@ struct Map {
     std::vector<AdcEntry> adcs;
     std::vector<PwmEntry> pwms;
     std::vector<StorageEntry> storages;
+    std::vector<DirectoryEntry> directories;
     UsbHostEntry usb_host;
     UsbDeviceEntry usb_device;
 };

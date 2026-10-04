@@ -133,6 +133,18 @@ Status unmount(std::string_view prefix) {
     return Status::NotFound;
 }
 
+Status mounted(std::string_view prefix, Volume*& volume) {
+    std::string_view name;
+    const auto shaped = prefix_of(prefix, first_path, name);
+    if (shaped != Status::Ok) return shaped;
+    for (const auto& mount : mounts) {
+        if (mount.volume == nullptr || mount.name() != name) continue;
+        volume = mount.volume;
+        return Status::Ok;
+    }
+    return Status::NotFound;
+}
+
 Status open(std::string_view path, Access access, Disposition disposition, File& file) {
     if (file.is_open()) return Status::BadArgument;
     Resolved resolved;

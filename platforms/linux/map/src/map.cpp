@@ -186,6 +186,13 @@ bool apply(Map& map, std::string_view key, std::string_view text) {
         if(field=="parity"){text=trim(text);if(text=="none")e.parity=0;else if(text=="even")e.parity=1;else if(text=="odd")e.parity=2;else return false;return true;}
         return false;
     }
+    if (indexed_key(key, "directory", index, field)) {
+        if (map.directories.size() <= index) map.directories.resize(index + 1);
+        auto& e = map.directories[index];
+        if (field == "path") return quoted(text, e.path);
+        if (field == "writable") return boolean(text, e.writable);
+        return false;
+    }
     if (indexed_key(key, "storage", index, field)) {
         if (map.storages.size() <= index) map.storages.resize(index + 1);
         auto& e = map.storages[index];
@@ -253,6 +260,17 @@ MapStatus validate(Map& map, const std::string& path, ParseError& error) {
         }
         if (!s.path.empty() && !s.path.starts_with('/')) {
             error = {path, 0, 0, "storage." + std::to_string(i) + ".path", "relative path"};
+            return MapStatus::SyntaxError;
+        }
+    }
+    for (std::size_t i = 0; i < map.directories.size(); ++i) {
+        const auto& d = map.directories[i];
+        if (d.path.empty()) {
+            error = {path, 0, 0, "directory." + std::to_string(i) + ".path", "missing path"};
+            return MapStatus::SyntaxError;
+        }
+        if (!d.path.starts_with('/')) {
+            error = {path, 0, 0, "directory." + std::to_string(i) + ".path", "relative path"};
             return MapStatus::SyntaxError;
         }
     }

@@ -1,0 +1,30 @@
+---
+mm: 1.2
+kind: app
+name: fs-smoke
+use: mm.fs
+use: mm.fs.conformance
+use: mm.fs.local
+use: mm.stdio
+file: main.cpp
+---
+
+# fs-smoke
+
+A portable application that mounts the board's own storage at "/data" with
+mm.fs.local, runs mm.fs.conformance's checks inside it, prints a line per
+result on the console, and unmounts. It names no board, SDK, or file system:
+on Linux the storage is the device map's directory.0, or the working
+directory, and the checks leave nothing behind in it.
+
+It skips, exiting 0, when mm.fs.local answers Unsupported or NotFound.
+
+Exit codes:
+
+| Code | Meaning |
+| --- | --- |
+| 0 | Every check passed, or there is no local storage and the run skipped. |
+| 1 | Mounting failed for another reason. |
+| 2 | The checks could not run: the scratch directory could not be made. |
+| 3 | Unmounting failed. |
+| 4 | At least one check failed; the console names the first. |

@@ -1,0 +1,26 @@
+---
+mm: 1.2
+kind: module
+name: fs-native
+module: mm.fs.native
+platform-interface:
+use: mm.fs
+file: native.cppm
+file: src/native.cpp
+---
+
+# mm.fs.native
+
+A directory of the platform's own file system, mounted at a prefix: a test's
+temporary directory, a tool's working tree, a host directory a program
+shares. Linux serves it over the C++ standard library. A platform without a
+file system of its own binds no provider, and a program reaching
+mm.fs.native is unavailable there.
+
+contain_symlinks, on by default, keeps the volume inside its root: a
+symbolic link whose target lies outside the root is treated as absent. mm.fs
+has already made ".." unable to climb out.
+
+unmount detaches only volumes this module attached. The platform-interface
+marker makes the provider part of an executable only when its closure
+reaches mm.fs.native; with none bound the fallback answers Unsupported.

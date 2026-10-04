@@ -43,7 +43,14 @@ All notable changes to modules.cpp. Versions follow [semantic versioning](https:
   clock hook, and the `Volume`, `BlockDevice`, and `FlashDevice` seams drivers
   implement, with `McuStorage` over `mm.mcu` block storage. No allocation.
   `mm.fs.conformance` runs the contract as 25 checks against any mounted
-  volume. No driver yet; see `drafts/plan-mm-fs-5.mdy`.
+  volume. See `drafts/plan-mm-fs-5.mdy` for the drivers still to come.
+- **`mm.fs.local`, `mm.fs.native`, and `platform.linux.fs`.** Mount
+  interfaces for the board's own storage and for a directory of the
+  platform's file system, bound on the Linux SDKs to a provider over
+  `std::filesystem` and `std::filebuf`. The device map gains
+  `directory.N.path` and `directory.N.writable`; with none, `mm.fs.local`
+  mounts the working directory. `apps/fs-smoke` and `scripts/build-fs.sh`
+  run the conformance checks on the board's storage: 25 of 25 pass on Linux.
 - **`apps/rgb-led-smoke` and `scripts/build-rgb-led.sh`.** Red, green, blue,
   white, and a colour wheel on any board that binds `mm.led`; the default board
   is `rp2040_zero`.

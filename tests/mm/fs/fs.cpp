@@ -10,6 +10,8 @@
 
 import mm.fs;
 import mm.fs.conformance;
+import mm.fs.local;
+import mm.fs.native;
 import mm.test;
 
 mm::fs::Volume& mm_test_fs_memory(unsigned int which);
@@ -294,6 +296,90 @@ void conformance_reports_a_failing_volume() {
            "a scratch directory that cannot be made is reported, report untouched");
 }
 
+// A provider that hands out the second memory volume and records what it was
+// asked, for both mount interfaces.
+struct RecordingLocal final : mm::fs::local::Provider {
+    Status attach(const mm::fs::local::Options& options, mm::fs::Volume*& volume) override {
+        ++attaches;
+        read_only = options.read_only;
+        volume = &mm_test_fs_memory(1);
+        return Status::Ok;
+    }
+    Status detach(mm::fs::Volume& volume) override {
+        ++detaches;
+        return &volume == &mm_test_fs_memory(1) ? Status::Ok : Status::BadArgument;
+    }
+    unsigned int attaches = 0;
+    unsigned int detaches = 0;
+    bool read_only = false;
+};
+
+struct RecordingNative final : mm::fs::native::Provider {
+    Status attach(std::string_view root, const mm::fs::native::Options&,
+                  mm::fs::Volume*& volume) override {
+        last_root = std::string{root};
+        volume = &mm_test_fs_memory(1);
+        return Status::Ok;
+    }
+    Status detach(mm::fs::Volume&) override {
+        ++detaches;
+        return Status::Ok;
+    }
+    std::string last_root;
+    unsigned int detaches = 0;
+};
+
+void mount_interfaces_fall_back_to_unsupported() {
+    reset();
+    // Nothing in this binary binds a provider, so the fallbacks answer.
+    expect(mm::fs::local::mount("/data") == Status::Unsupported,
+           "mm.fs.local without a provider is Unsupported");
+    expect(mm::fs::native::mount("/host", "/tmp") == Status::Unsupported,
+           "mm.fs.native without a provider is Unsupported");
+    mm::fs::Volume* volume = nullptr;
+    expect(mm::fs::mounted("/data", volume) == Status::NotFound && volume == nullptr,
+           "and nothing was mounted");
+}
+
+void mount_interfaces_attach_publish_and_detach() {
+    reset();
+    RecordingLocal local;
+    RecordingNative native;
+    mm::fs::local::set_provider(local);
+    mm::fs::native::set_provider(native);
+
+    mm::fs::local::Options options;
+    options.read_only = true;
+    expect(mm::fs::local::mount("/data", options) == Status::Ok && local.attaches == 1 &&
+               local.read_only,
+           "local mount attaches with the caller's options");
+    mm::fs::Volume* volume = nullptr;
+    expect(mm::fs::mounted("/data", volume) == Status::Ok && volume == &mm_test_fs_memory(1),
+           "and publishes the attached volume");
+    expect(mm::fs::local::mount("/data") == Status::Exists && local.detaches == 1,
+           "a failed publish detaches what it attached");
+    expect(mm::fs::native::unmount("/data") == Status::BadArgument,
+           "another interface will not unmount it");
+    expect(mm::fs::local::unmount("/data") == Status::Ok && local.detaches == 2,
+           "local unmount detaches");
+
+    expect(mm::fs::mount("/mem", mm_test_fs_memory(0)) == Status::Ok, "a volume mounts directly");
+    expect(mm::fs::local::unmount("/mem") == Status::BadArgument,
+           "local will not unmount a volume it did not attach");
+    expect(mm::fs::unmount("/mem") == Status::Ok, "mm.fs unmounts it");
+
+    expect(mm::fs::native::mount("/host", "/srv/export") == Status::Ok &&
+               native.last_root == "/srv/export",
+           "native mount hands the root to the provider");
+    expect(mm::fs::native::unmount("/host") == Status::Ok && native.detaches == 1,
+           "native unmount detaches");
+
+    mm::fs::local::Provider fallback_local;
+    mm::fs::native::Provider fallback_native;
+    mm::fs::local::set_provider(fallback_local);
+    mm::fs::native::set_provider(fallback_native);
+}
+
 const mm::test::case_ cases[] = {
     {"normalize makes paths canonical", &normalize_makes_paths_canonical},
     {"normalize enforces limits", &normalize_enforces_limits},
@@ -307,6 +393,8 @@ const mm::test::case_ cases[] = {
     {"McuStorage answers for the platform", &mcu_storage_answers_for_the_platform},
     {"conformance passes on the memory volume", &conformance_passes_on_the_memory_volume},
     {"conformance reports a failing volume", &conformance_reports_a_failing_volume},
+    {"mount interfaces fall back to Unsupported", &mount_interfaces_fall_back_to_unsupported},
+    {"mount interfaces attach, publish, and detach", &mount_interfaces_attach_publish_and_detach},
 };
 
 const mm::test::registrar reg{"mm.fs", cases};

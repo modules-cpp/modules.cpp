@@ -168,6 +168,9 @@ pwm.N.group = Q                    # optional; a known shared counter
 storage.N.path = "/dev/..."        # whole-disk block device path
 storage.N.writable = yes|no        # default no; writing needs yes
 
+directory.N.path = "/..."          # a directory for mm.fs.local; 0 is used
+directory.N.writable = yes|no      # default no
+
 usb.host.detach-kernel-drivers = yes|no  # default no; allows detaching driver
 
 usb.device.functionfs = "/dev/..."      # FunctionFS mount point
@@ -212,7 +215,10 @@ it. The SPI and I2C wiring fields exist so that a caller's configuration is
 checked against the board rather than trusted: a configuration naming other
 pins is BadArgument, as it would be on a microcontroller whose mux does not
 route the bus there. An unknown storage field, a relative path, or
-storage.N.writable without a path is an error at resolution.
+storage.N.writable without a path is an error at resolution, and so is a
+directory entry without a path, with a relative one, or with an unknown
+field. With no directory entry, mm.fs.local mounts the working directory,
+writable.
 
 ## An example
 
@@ -300,6 +306,9 @@ pad is GPIO 3 so that pwm_output_for_gpio(3) finds output 0.
   analog claim closes a plain GPIO line request and is refused on a watched
   one; a pinmux the kernel or firmware changed outside the process is not in
   that record and surfaces as the kernel's answer.
+- platform.linux.fs serves mm.fs.local and mm.fs.native over the C++
+  standard library alone, std::filesystem and std::filebuf;
+  docs/modules-fs.mdy specifies it.
 - platform.linux.rtc uses RTC_RD_TIME, RTC_SET_TIME, RTC_VL_READ and RTC_VL_CLR,
   or CLOCK_REALTIME when no RTC path is configured.
 - platform.linux.display uses legacy DRM/KMS dumb buffers. It publishes RGB565

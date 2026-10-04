@@ -26,6 +26,10 @@ export namespace mm::fs {
 // open; NotFound when nothing is mounted there.
 [[nodiscard]] Status unmount(std::string_view prefix);
 
+// The volume mounted at prefix, which a mount interface uses to find what it
+// attached. NotFound when nothing is mounted there; volume changes only on Ok.
+[[nodiscard]] Status mounted(std::string_view prefix, Volume*& volume);
+
 class File;
 class Directory;
 

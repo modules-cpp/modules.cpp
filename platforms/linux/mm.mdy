@@ -11,6 +11,7 @@ folder: defaults
 folder: stdio
 folder: mcu
 folder: rtc
+folder: fs
 folder: drm
 folder: evdev
 folder: iio
