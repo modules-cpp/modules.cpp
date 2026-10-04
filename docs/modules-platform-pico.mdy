@@ -319,13 +319,14 @@ The bridge enables pico_stdio_usb and keeps semihosting enabled. The provider
 initializes the Pico stdio subsystem once, then addresses the USB driver directly
 for reads, writes, flushing, and connection state; it does not redirect mm.stdio
 through the aggregate stdio multiplexer. The compile definition
-PICO_STDIO_USB_CONNECTION_WITHOUT_DTR=1 and the adapter's connection logic
-report connected immediately when the host asserts DTR, or after a
-configurable post-enumeration stabilization delay (default 500 ms via
-MM_PICO_STDIO_USB_CONNECT_DELAY_MS) once USB CDC is enumerated, accommodating
-terminals without DTR while protecting against dropped initial output on slow
-hosts. Pico SDK's default background IRQ task services TinyUSB, so
-applications do not call tud_task or another transport pump.
+PICO_STDIO_USB_CONNECTION_WITHOUT_DTR=1 makes the SDK's own connection test
+mean enumeration; the adapter reports connected when the host asserts DTR, or,
+for a terminal that never does, once MM_PICO_STDIO_USB_CONNECT_DELAY_MS
+(default 500 ms; scripts/build-pico.sh --connect-delay) has passed since the
+device was configured or resumed, and reads and writes follow the same answer.
+docs/modules-stdio.mdy records what this does and does not promise. Pico SDK's
+default background IRQ task services TinyUSB, so applications do not call
+tud_task or another transport pump.
 
 Pico SDK's public USB output callback does not return a byte count. Consequently
 the provider reports zero bytes while disconnected and the complete size after a

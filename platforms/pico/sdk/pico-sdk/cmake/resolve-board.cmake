@@ -73,6 +73,10 @@ if(NOT DEFINED MM_PICO_STDIO_USB_CONNECT_DELAY_MS)
     set(MM_PICO_STDIO_USB_CONNECT_DELAY_MS 500)
   endif()
 endif()
+if(NOT MM_PICO_STDIO_USB_CONNECT_DELAY_MS MATCHES "^[0-9]+$")
+  message(FATAL_ERROR "MM_PICO_STDIO_USB_CONNECT_DELAY_MS must be a non-negative "
+    "integer number of milliseconds, not '${MM_PICO_STDIO_USB_CONNECT_DELAY_MS}'")
+endif()
 
 # A PIO USB host port, two GPIOs Pico-PIO-USB drives as a second USB port, D+
 # on MM_BOARD_USB_HOST_DP_PIN and D- on the next; the native port stays the

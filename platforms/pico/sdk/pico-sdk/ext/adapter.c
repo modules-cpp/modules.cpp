@@ -45,45 +45,50 @@ static int mm_pico_stdio_ready;
 #endif
 
 #if !MM_BOARD_USB_PORT_APPLICATION
-static volatile uint64_t mm_pico_usb_mounted_time;
+// When the device was last configured or resumed. Only TinyUSB's device
+// callbacks write these, from the SDK's USB worker interrupt; the connection
+// query only reads them. The stamp is 32-bit milliseconds so that every read
+// and write is a single access the interrupt cannot split, and it is written
+// before the flag, so a reader that sees the flag sees its stamp.
+static volatile uint32_t mm_pico_usb_mounted_ms;
 static volatile int mm_pico_usb_mounted;
 
+static uint32_t mm_pico_usb_now_ms(void) {
+    return to_ms_since_boot(get_absolute_time());
+}
+
 void tud_mount_cb(void) {
-    mm_pico_usb_mounted_time = time_us_64();
+    mm_pico_usb_mounted_ms = mm_pico_usb_now_ms();
     mm_pico_usb_mounted = 1;
 }
 
 void tud_umount_cb(void) {
-    mm_pico_usb_mounted_time = 0;
     mm_pico_usb_mounted = 0;
 }
 
 void tud_suspend_cb(bool remote_wakeup_en) {
     (void)remote_wakeup_en;
-    mm_pico_usb_mounted_time = 0;
     mm_pico_usb_mounted = 0;
 }
 
 void tud_resume_cb(void) {
-    mm_pico_usb_mounted_time = time_us_64();
+    mm_pico_usb_mounted_ms = mm_pico_usb_now_ms();
     mm_pico_usb_mounted = 1;
 }
 
+// Connected once the host asserts DTR, or, for a terminal that never does,
+// once the delay has passed since the device was configured or resumed. The
+// delay is measured with the system timer, which stops while a debugger
+// halts either core; DTR does not depend on it.
 static int mm_pico_usb_is_connected(void) {
-    if (!stdio_usb_connected()) {
-        mm_pico_usb_mounted = 0;
-        mm_pico_usb_mounted_time = 0;
-        return 0;
-    }
+    if (!stdio_usb_connected() || !mm_pico_usb_mounted) return 0;
     if (tud_cdc_connected()) return 1;
-    if (MM_PICO_STDIO_USB_CONNECT_DELAY_MS == 0) return 1;
-    if (!mm_pico_usb_mounted) {
-        mm_pico_usb_mounted_time = time_us_64();
-        mm_pico_usb_mounted = 1;
-        return 0;
-    }
-    return (time_us_64() - mm_pico_usb_mounted_time >=
-            ((uint64_t)MM_PICO_STDIO_USB_CONNECT_DELAY_MS * 1000ULL)) ? 1 : 0;
+#if MM_PICO_STDIO_USB_CONNECT_DELAY_MS > 0
+    return (uint32_t)(mm_pico_usb_now_ms() - mm_pico_usb_mounted_ms) >=
+           (uint32_t)MM_PICO_STDIO_USB_CONNECT_DELAY_MS;
+#else
+    return 1;
+#endif
 }
 #endif
 

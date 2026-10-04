@@ -86,13 +86,18 @@ continues through Pico's aggregate stdio path; mm.stdio addresses USB directly,
 so its connected and byte-count answers are about CDC rather than an ambiguous
 union of enabled outputs.
 
-The bridge defines PICO_STDIO_USB_CONNECTION_WITHOUT_DTR=1. connected checks
-whether the host has asserted DTR (Data Terminal Ready) via tud_cdc_connected()
-for an immediate connection, falling back to a post-enumeration stabilization
-delay (default 500 ms, configurable via MM_PICO_STDIO_USB_CONNECT_DELAY_MS)
-after tud_ready() before reporting connected. A terminal that does not assert
-DTR cannot leave a bounded caller waiting forever, while slow hosts have time
-to bind cdc_acm and open the port before target output begins.
+The bridge defines PICO_STDIO_USB_CONNECTION_WITHOUT_DTR=1, so the Pico SDK's
+own stdio_usb_connected() reports enumeration through tud_ready() and ignores
+DTR. The provider's connected is stricter: it is true as soon as the host
+asserts DTR (Data Terminal Ready, tud_cdc_connected()), and otherwise once
+MM_PICO_STDIO_USB_CONNECT_DELAY_MS (default 500 ms) has passed since the device
+was configured or last resumed. A terminal that never asserts DTR therefore
+cannot leave a bounded caller waiting forever. Until connected, write accepts
+no bytes and read returns none; output written before a terminal opens the
+port is not delivered to it, so a caller that wants to be heard waits for
+connected first. Neither DTR nor the delay proves that the host is draining
+output. The delay is measured with the system timer, which stops while a
+debugger halts either core; when the host asserts DTR it does not matter.
 
 Pico SDK performs USB work from its default timer and low-priority IRQ. A caller
 does not call tud_task and mm.stdio exposes no pump operation.
