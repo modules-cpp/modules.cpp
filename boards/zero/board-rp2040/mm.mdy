@@ -3,6 +3,7 @@ mm: 1.2
 kind: board
 name: rp2040_zero
 derives-from: pico
+platform-provider: mm.led platform.zero.led
 ---
 
 # rp2040_zero
@@ -16,6 +17,9 @@ Pico SDK configures as pico. The SDK publishes a waveshare_rp2040_zero header,
 but the bridge selects PICO_BOARD from its six vendor names, so the board
 derives and the board table corrects, as every other composite board here
 does.
+
+It binds platform.zero.led, which drives the WS2812B on GP16 as mm.led
+through mm.led.ws2812b and mm.mcu pulse instance zero.
 
 The 23-pin header carries GP0 to GP15 and GP26 to GP29, with 3V3, GND, and
 VSYS; ten castellated pads carry GP17 to GP25. GP16 drives the WS2812B's data

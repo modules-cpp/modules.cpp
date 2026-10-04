@@ -96,6 +96,15 @@ int mm_pico_mcu_i2s_progress(unsigned int instance, int receive,
 int mm_pico_mcu_i2s_stop(unsigned int instance, int receive);
 int mm_pico_mcu_i2s_release(unsigned int instance);
 
+// A one-wire pulse-width-coded output over PIO, instances zero and one: each
+// bit is bit_period_ns, high for zero_high_ns or one_high_ns, most significant
+// bit first. write blocks until the frame is out and reset_ns has passed.
+int mm_pico_mcu_pulse_configure(unsigned int instance, unsigned int pin,
+                                unsigned long bit_period_ns, unsigned long zero_high_ns,
+                                unsigned long one_high_ns, unsigned long reset_ns);
+int mm_pico_mcu_pulse_write(unsigned int instance, const unsigned char* data, size_t size);
+int mm_pico_mcu_pulse_release(unsigned int instance);
+
 // A critical section on the calling core: the SDK's save_and_disable_interrupts
 // and restore_interrupts. saved is the core's mask word, PRIMASK on Arm and
 // mstatus.MIE on RISC-V, handed back unchanged.

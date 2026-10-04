@@ -4,6 +4,7 @@ kind: dir
 name: zero-platform
 folder: board-rp2040
 folder: board-rp2350
+folder: led
 ---
 
 # zero-platform
@@ -14,7 +15,8 @@ port, a WS2812B RGB LED on GP16, BOOT and RESET keys, and every other GPIO on
 its edge -- GP0 to GP15 and GP26 to GP29 on the 23-pin header, the rest on
 castellated pads.
 
-rp2040_zero derives from pico and rp2350_zero from pico2-arm. Neither binds a
-provider: there is no panel or sensor to describe, and nothing in modules/mm
-drives the WS2812B yet. What the boards change is in the Pico bridge's board
-table, which corrects the defaults their vendor ancestors set for a Pico.
+rp2040_zero derives from pico and rp2350_zero from pico2-arm, and both bind
+platform.zero.led, the WS2812B on GP16, as mm.led. The device driver is the
+portable mm.led.ws2812b, and the provider is the only place that knows the
+pin. The rest of what the boards change is in the Pico bridge's board table,
+which corrects the defaults their vendor ancestors set for a Pico.

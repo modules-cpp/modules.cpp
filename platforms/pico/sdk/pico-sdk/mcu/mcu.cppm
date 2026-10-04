@@ -606,6 +606,23 @@ public:
         return mm::mcu::Status::Ok;
     }
 
+    [[nodiscard]] mm::mcu::Status pulse_configure(
+        const mm::mcu::PulseConfiguration& configuration) override {
+        return from(mm_pico_mcu_pulse_configure(
+            configuration.instance, configuration.gpio, configuration.bit_period_ns,
+            configuration.zero_high_ns, configuration.one_high_ns, configuration.reset_ns));
+    }
+
+    [[nodiscard]] mm::mcu::Status pulse_write(unsigned int instance,
+                                              std::span<const std::byte> data) override {
+        return from(mm_pico_mcu_pulse_write(
+            instance, reinterpret_cast<const unsigned char*>(data.data()), data.size()));
+    }
+
+    [[nodiscard]] mm::mcu::Status pulse_release(unsigned int instance) override {
+        return from(mm_pico_mcu_pulse_release(instance));
+    }
+
 private:
     // Frames packed per adapter call.
     static constexpr std::size_t i2s_chunk = 32;

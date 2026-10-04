@@ -1,0 +1,17 @@
+---
+mm: 1.2
+kind: module
+name: zero-led
+module: platform.zero.led
+use: mm.led
+use: mm.led.ws2812b
+use: mm.mcu
+file: led.cppm
+option: buildable-host no
+---
+
+# platform.zero.led
+
+The Zero boards' WS2812B: one LED, its data input on GP16, driven by mm.mcu
+pulse instance zero. It owns the wiring and the one-LED frame, and registers
+the controller as mm.led. rp2040_zero and rp2350_zero both bind it.

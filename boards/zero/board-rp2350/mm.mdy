@@ -3,6 +3,7 @@ mm: 1.2
 kind: board
 name: rp2350_zero
 derives-from: pico2-arm
+platform-provider: mm.led platform.zero.led
 ---
 
 # rp2350_zero
@@ -17,6 +18,9 @@ Pico SDK configures as pico2. As with rp2040_zero, the SDK's
 waveshare_rp2350_zero header is outside the bridge's vendor vocabulary, so the
 board derives and the board table corrects. The chip, the SDK, and the ABI
 come from pico2-arm.
+
+It binds platform.zero.led, which drives the WS2812B on GP16 as mm.led
+through mm.led.ws2812b and mm.mcu pulse instance zero.
 
 The 23-pin header carries GP0 to GP15 and GP26 to GP29, with 3V3, GND, and
 VBUS; ten castellated pads carry GP17 to GP25. GP16 drives the WS2812B and is

@@ -737,6 +737,37 @@ nor RP2350 has an I2S peripheral. docs/modules-platform-pico.mdy says how.
 The Linux provider answers Unsupported: on Linux, I2S is behind the sound
 card.
 
+## Pulse output
+
+Opening fence
+struct PulseConfiguration {
+    unsigned int instance = 0;
+    unsigned int gpio = 0;
+    std::uint32_t bit_period_ns = 0;
+    std::uint32_t zero_high_ns = 0;
+    std::uint32_t one_high_ns = 0;
+    std::uint32_t reset_ns = 0;
+};
+
+[[nodiscard]] Status pulse_configure(const PulseConfiguration&);
+[[nodiscard]] Status pulse_write(unsigned int instance, std::span<const std::byte>);
+[[nodiscard]] Status pulse_release(unsigned int instance);
+Closing fence
+
+A one-wire pulse-width-coded output, the transport of WS2812-style LEDs: each
+bit one period, high for the zero or the one time and low for the rest, most
+significant bit first, and the line low for at least the reset time after
+the last bit. Times must satisfy 0 < zero < one < period, or the
+configuration is BadArgument, as is one the platform's clock cannot get near.
+The same configuration again is idempotent, and another of a configured
+instance is Busy until release. pulse_write sends one whole frame and returns
+once the reset time has passed; an unconfigured instance is BadArgument.
+pulse_release is idempotent.
+
+The Pico provider implements instances zero and one over PIO, planning the
+program's ticks and divider from the requested times; docs/modules-led.mdy
+says how. Every other provider answers Unsupported.
+
 ## Block storage
 
 Opening fence
@@ -808,12 +839,12 @@ nothing that waits, and it ends on the core that began it.
 
 ## Pad ownership
 
-The selected platform owns GPIO, ADC, DAC, PWM, and I2S state together, and a
-pad is one thing at a time. A plain GPIO configuration is a replaceable claim:
+The selected platform owns GPIO, ADC, DAC, PWM, I2S, and pulse state together,
+and a pad is one thing at a time. A plain GPIO configuration is a replaceable claim:
 adc_configure or pwm_configure may take it over, and on success the digital
-mode -- and, for an output, its level -- is gone; so may dac_configure and
-i2s_configure. A watched GPIO answers Busy, and its latch is untouched. An ADC,
-DAC, PWM, or I2S claim blocks gpio_configure,
+mode -- and, for an output, its level -- is gone; so may dac_configure,
+i2s_configure, and pulse_configure. A watched GPIO answers Busy, and its latch
+is untouched. An ADC, DAC, PWM, I2S, or pulse claim blocks gpio_configure,
 gpio_watch, gpio_write, gpio_read, and a competing analog claim with Busy;
 a refused gpio_read leaves its output unchanged. Release returns the pad to
 an unconfigured state.

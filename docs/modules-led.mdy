@@ -1,0 +1,170 @@
+---
+mm: 1.0
+kind: doc
+name: modules.cpp addressable RGB LEDs
+status: official
+release: v1.3.1
+---
+
+# modules.cpp addressable RGB LEDs
+
+# Status and authority
+
+status: official gives the implemented portions of this document the same
+authority as the other specifications. This document specifies the portable
+LED interface mm.led, its WS2812B controller, and the mm.mcu pulse facility
+beneath it. mm.led, mm.led.ws2812b, the pulse facility with its Pico
+implementation, the platform.zero.led provider on the rp2040_zero and
+rp2350_zero boards, and the rgb-led-smoke application exist. Light on
+hardware remains a hardware-qualification requirement rather than a
+completed claim.
+
+docs/modules-platform-mcu.mdy owns the MCU provider model, and
+docs/modules-platform-pico.mdy the Pico SDK bridge. docs/modules-lcd.mdy is
+the pattern this follows: an interface, a portable controller beneath it, and
+a board provider that owns the wiring.
+
+# Separation of responsibilities
+
+Four layers own four different facts:
+
+- mm.mcu owns the pulse transport: one GPIO, bit timing, a reset gap.
+- A controller module owns the device's protocol: its timing, its byte order,
+  and its frame.
+- An LED provider owns the wiring and the length of the chain.
+- A board profile states that the provider's LEDs are actually attached.
+
+The Pico SDK adapter knows bit periods and high times, not LEDs. The
+controller includes no Pico SDK header. The portable application does not
+know which controller or GPIO was selected.
+
+# Portable interface
+
+mm.led::Led is a chain of addressable RGB LEDs; one LED is a chain of one.
+
+Opening fence
+struct Color { std::uint8_t red, green, blue; };
+
+class Led {
+    unsigned int count() const;
+    Status initialize();
+    Status write(unsigned int first, std::span<const Color> colors);
+    Status refresh();
+    Status clear();
+    Status sleep();
+};
+void set_led(Led&);
+Led& selected_led();
+Closing fence
+
+Every method answers Unsupported by default and count answers zero, so an
+executable whose board binds no provider links against the fallback and
+learns that at run time. The lifecycle is mm.display's: write changes what
+the controller holds, refresh makes it visible. initialize leaves every LED
+off; clear turns them off and refreshes; sleep turns them off and returns
+the transport. A write or refresh before initialize or after sleep is
+NotInitialized, and a run of colours that does not fit the chain is
+BadArgument.
+
+Color is red, green, blue in the caller's terms. The order on the wire is the
+controller's, and brightness and perceptual correction are the caller's.
+
+# The pulse facility
+
+Opening fence
+struct PulseConfiguration {
+    unsigned int instance;
+    unsigned int gpio;
+    std::uint32_t bit_period_ns;
+    std::uint32_t zero_high_ns;
+    std::uint32_t one_high_ns;
+    std::uint32_t reset_ns;
+};
+Status pulse_configure(const PulseConfiguration&);
+Status pulse_write(unsigned int instance, std::span<const std::byte>);
+Status pulse_release(unsigned int instance);
+Closing fence
+
+Each bit is one period starting high, high for the zero or the one time, low
+for the rest; bytes go most significant bit first; after the last bit the
+line stays low for at least the reset time. Times must satisfy
+0 < zero < one < period. write sends one whole frame and returns once the
+reset time has passed. A pad another facility holds is Busy, and a pulse
+instance's pad is held as an analog claim is.
+
+The Pico bridge runs each instance, zero and one, on a PIO state machine with
+a four-instruction program built at configure:
+
+Opening fence
+0: out x, 1     side 0 [t3 - 1]
+1: jmp !x 3     side 1 [t1 - 1]
+2: jmp 0        side 1 [t2 - 1]
+3: nop          side 0 [t2 - 1]
+Closing fence
+
+A bit is t3 ticks low, t1 high, then t2 more high for a one or low for a
+zero. The bridge chooses the ticks per bit and their split so that both high
+times come nearest what was asked within the one-to-sixteen ticks a delay
+field holds, and the clock divider that makes those ticks one period. The
+WS2812B's 1250, 400, and 800 ns come out exact at 125 and 150 MHz: 25 ticks
+of 8, 8, and 9, at a divider of 6.25 or 7.5. The state machine idles stalled
+on the out with the line low, takes a byte per FIFO word, and write waits
+for the FIFO to empty and then for the last byte and the reset time. Pins
+above GP31 are BadArgument, as they are for I2S. Every other platform
+answers Unsupported.
+
+# Controller driver
+
+mm.led.ws2812b owns the WS2812B protocol: 1.25 us bits, 0.4 and 0.8 us high
+times, 24 bits an LED in green, red, blue order, and a 280 us reset, which
+current parts need and the original's 50 us is contained in.
+
+Opening fence
+struct Wiring { unsigned int instance; unsigned int gpio; };
+enum class Order { Grb, Rgb };
+struct Chain { unsigned int count; Order order; std::span<std::byte> frame; };
+Closing fence
+
+The frame is provider-owned static storage, three bytes an LED, and must
+outlive the Controller; a frame too short for the chain is BadArgument at
+initialize. write composes into the frame in wire order and sends nothing;
+refresh sends the whole frame. initialize configures the pulse instance and
+sends the chain dark, because the LEDs power up showing whatever they took
+from the noise on their input. A transport failure during a refresh returns
+the controller to Idle, as mm.lcd.st7789 does, because the LEDs' state is
+then unknown.
+
+# Provider binding
+
+Opening fence
+platform-provider: mm.led platform.zero.led
+Closing fence
+
+platform.zero.led owns GP16, pulse instance zero, and a one-LED frame, and
+registers the controller as mm.led. Existing provider validation,
+conditional closure injection, and core platform-edge rules apply unchanged:
+an executable that does not reach mm.led carries neither the provider nor the
+controller.
+
+# Test strategy
+
+tests/mm/led drives the controller through a recording MCU platform: the
+pulse configuration it claims, the dark frame at initialize, GRB and RGB
+order, writes at an offset, range and frame-length validation, clear, sleep
+and reinitialize, and transport failure. tests/mm/mcu checks that an
+unserved platform answers Unsupported for the pulse calls.
+
+scripts/build-rgb-led.sh builds rgb-led-smoke through the real Pico bridge,
+checks the pulse adapter symbols are in the image, and checks that
+target-smoke-any carries no provider.
+
+# What this does not settle
+
+- Light on hardware is not qualified.
+- write blocks with the core feeding the FIFO a byte at a time. A handler
+  that holds the core for longer than the FIFO's eight bytes take to send,
+  80 us, breaks the frame early; DMA would remove that limit.
+- Gamma, brightness, and colour temperature are the caller's.
+- Other one-wire LEDs -- SK6812, WS2811, APA106 -- fit the pulse facility
+  with their own timing and are not implemented; SPI-clocked LEDs such as the
+  APA102 belong on mm.mcu SPI and are not implemented.

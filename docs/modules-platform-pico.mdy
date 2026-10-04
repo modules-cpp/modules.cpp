@@ -195,9 +195,9 @@ PICO_DEFAULT_UART as UART1 on GP4 and GP5, the header labelled UART, the same
 default the SDK's GEEK headers name.
 
 boards/zero holds the Waveshare RP2040-Zero and RP2350-Zero mini boards.
-rp2040_zero derives from pico and rp2350_zero from pico2-arm, and neither
-binds a provider: the boards are a bare chip, a USB-C socket, and a WS2812B on
-GP16 that nothing in modules/mm drives yet. Their row in the board table gives
+rp2040_zero derives from pico and rp2350_zero from pico2-arm, and both bind
+platform.zero.led, which drives the WS2812B on GP16 as mm.led through
+mm.led.ws2812b and the pulse facility, a PIO program in the adapter. Their row in the board table gives
 both a 3,300 millivolt reference; no LED, GP25 being a free pad and the WS2812B
 not a GPIO-driven LED; and the second I2C and UART wirings, whose GP8, GP9,
 GP26, and GP27 are free header pins. GP0 and GP1 are on the header, so the

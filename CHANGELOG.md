@@ -14,10 +14,23 @@ All notable changes to modules.cpp. Versions follow [semantic versioning](https:
   from Waveshare's schematics; not yet qualified on hardware.
 - **`rp2040_zero` and `rp2350_zero` boards.** The Waveshare RP2040-Zero and
   RP2350-Zero mini boards, under `boards/zero`, deriving from `pico` and
-  `pico2-arm` with no providers of their own. The board table reports no LED
-  (the only LED is a WS2812B on GP16), a 3300 mV ADC reference, and the second
-  I2C and UART wirings on free header pins. Wiring is from Waveshare's
+  `pico2-arm` and binding `platform.zero.led` as `mm.led`. The board table
+  reports no LED (the only LED is a WS2812B on GP16, which a GPIO write cannot
+  light), a 3300 mV ADC reference, and the second I2C and UART wirings on free
+  header pins. Wiring is from Waveshare's
   schematics; not yet qualified on hardware.
+- **`mm.led` and `mm.led.ws2812b`.** A platform interface for chains of
+  addressable RGB LEDs, with mm.display's lifecycle (`initialize`, `write`,
+  `refresh`, `clear`, `sleep`), and a portable WS2812B controller that owns the
+  protocol's timing and GRB byte order.
+- **`mm.mcu` pulse facility.** `pulse_configure`, `pulse_write`, and
+  `pulse_release`: a one-wire pulse-width-coded output, the WS2812's
+  transport. The Pico bridge implements it with a four-instruction PIO program
+  whose ticks per bit and divider it plans from the requested timing;
+  every other platform answers Unsupported.
+- **`apps/rgb-led-smoke` and `scripts/build-rgb-led.sh`.** Red, green, blue,
+  white, and a colour wheel on any board that binds `mm.led`; the default board
+  is `rp2040_zero`.
 
 ## [v1.3.1] — 2026-10-02
 

@@ -17,6 +17,8 @@ folder: imu
 folder: ino
 folder: json
 folder: lcd
+folder: led
+folder: led/ws2812b
 folder: imu/qmi8658
 folder: mcu
 folder: mdy

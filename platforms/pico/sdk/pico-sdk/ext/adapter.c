@@ -349,15 +349,18 @@ enum {
     MM_PICO_OWNER_WATCHED = 2,
     MM_PICO_OWNER_ADC = 3,
     MM_PICO_OWNER_PWM = 4,
-    MM_PICO_OWNER_I2S = 5
+    MM_PICO_OWNER_I2S = 5,
+    MM_PICO_OWNER_PULSE = 6
 };
 static unsigned char mm_pico_pin_owner[NUM_BANK0_GPIOS];
 
-// A pad a peripheral holds: an analog claim, or an I2S link's.
+// A pad a peripheral holds: an analog claim, an I2S link's, or a pulse
+// output's.
 static int mm_pico_analog_holds(unsigned int pin) {
     return mm_pico_pin_owner[pin] == MM_PICO_OWNER_ADC ||
            mm_pico_pin_owner[pin] == MM_PICO_OWNER_PWM ||
-           mm_pico_pin_owner[pin] == MM_PICO_OWNER_I2S;
+           mm_pico_pin_owner[pin] == MM_PICO_OWNER_I2S ||
+           mm_pico_pin_owner[pin] == MM_PICO_OWNER_PULSE;
 }
 
 static void mm_pico_gpio_callback(unsigned int pin, uint32_t events) {
@@ -809,7 +812,8 @@ int mm_pico_mcu_adc_configure(unsigned int channel) {
         if (!mm_pico_pin_valid(pin)) return MM_PICO_MCU_UNSUPPORTED;
         if (mm_pico_pin_owner[pin] == MM_PICO_OWNER_WATCHED ||
             mm_pico_pin_owner[pin] == MM_PICO_OWNER_PWM ||
-            mm_pico_pin_owner[pin] == MM_PICO_OWNER_I2S)
+            mm_pico_pin_owner[pin] == MM_PICO_OWNER_I2S ||
+            mm_pico_pin_owner[pin] == MM_PICO_OWNER_PULSE)
             return MM_PICO_MCU_BUSY;
         if (!mm_pico_adc_ready) {
             adc_init();
@@ -1451,6 +1455,183 @@ int mm_pico_mcu_i2s_release(unsigned int instance) {
     mm_pico_i2s.in.started = 0;
     restore_interrupts(saved);
     mm_pico_i2s_release_all();
+    return MM_PICO_MCU_OK;
+}
+
+// A one-wire pulse-width-coded output over PIO, the WS2812's transport. One
+// state machine an instance runs four instructions, each bit taking t3 ticks
+// low, t1 high, and then t2 more high for a one or low for a zero:
+//
+//   0: out x, 1     side 0 [t3 - 1]
+//   1: jmp !x 3     side 1 [t1 - 1]
+//   2: jmp 0        side 1 [t2 - 1]
+//   3: nop          side 0 [t2 - 1]
+//
+// With the transmit FIFO empty the state machine stalls on the out, and the
+// side-set has already taken the line low, so idle is low. Autopull takes a
+// byte a word, most significant bit first. One side-set bit leaves four delay
+// bits, so each of t1, t2, and t3 is one to sixteen ticks.
+
+#define MM_PICO_PULSE_INSTANCES 2u
+#define MM_PICO_PULSE_MOST_TICKS 16u
+#define MM_PICO_PULSE_MOST_PERIOD_NS 10000000ul
+
+typedef struct {
+    int configured;
+    unsigned int pin;
+    unsigned long bit_period_ns;
+    unsigned long zero_high_ns;
+    unsigned long one_high_ns;
+    unsigned long reset_ns;
+    PIO pio;
+    unsigned int sm;
+    unsigned int offset;
+    uint16_t instructions[4];
+    pio_program_t program;
+} mm_pico_pulse_t;
+
+static mm_pico_pulse_t mm_pico_pulse[MM_PICO_PULSE_INSTANCES];
+
+static uint64_t mm_pico_pulse_distance(uint64_t a, uint64_t b) {
+    return a > b ? a - b : b - a;
+}
+
+// Ticks per bit, n, and its split into t1, t2, and t3, choosing the n whose
+// worse high time is nearest what was asked, ties to the fewer ticks; and
+// the divider, in 256ths, that makes n ticks one period. Zero when no n fits
+// the instruction delays and the divider's range.
+static int mm_pico_pulse_plan(unsigned long period, unsigned long zero, unsigned long one,
+                              unsigned int* t1, unsigned int* t2, unsigned int* t3,
+                              uint32_t* divider_x256) {
+    const uint64_t clock = (uint64_t)clock_get_hz(clk_sys);
+    int found = 0;
+    uint64_t best_error = 0;
+    unsigned int best_n = 0;
+    for (unsigned int n = 3; n <= 3u * MM_PICO_PULSE_MOST_TICKS; ++n) {
+        const uint64_t a = ((uint64_t)zero * n + period / 2u) / period;
+        const uint64_t b = ((uint64_t)one * n + period / 2u) / period;
+        if (a < 1u || b <= a || b >= n) continue;
+        if (a > MM_PICO_PULSE_MOST_TICKS || b - a > MM_PICO_PULSE_MOST_TICKS ||
+            n - b > MM_PICO_PULSE_MOST_TICKS)
+            continue;
+        const uint64_t ns_per_tick_scale = (uint64_t)n * 1000000000ull;
+        const uint64_t divider =
+            (clock * period * 256ull + ns_per_tick_scale / 2u) / ns_per_tick_scale;
+        if (divider < 256ull || divider > 65535ull * 256ull + 255ull) continue;
+        // Errors in nanoseconds times n, compared across n by cross-multiplying.
+        const uint64_t e0 = mm_pico_pulse_distance(a * period, (uint64_t)zero * n);
+        const uint64_t e1 = mm_pico_pulse_distance(b * period, (uint64_t)one * n);
+        const uint64_t error = e0 > e1 ? e0 : e1;
+        if (!found || error * best_n < best_error * n) {
+            found = 1;
+            best_error = error;
+            best_n = n;
+            *t1 = (unsigned int)a;
+            *t2 = (unsigned int)(b - a);
+            *t3 = (unsigned int)(n - b);
+            *divider_x256 = (uint32_t)divider;
+        }
+    }
+    return found;
+}
+
+static void mm_pico_pulse_build_program(mm_pico_pulse_t* p, unsigned int t1, unsigned int t2,
+                                        unsigned int t3) {
+    uint16_t* i = p->instructions;
+    i[0] = (uint16_t)(pio_encode_out(pio_x, 1) | pio_encode_sideset(1, 0u) |
+                      pio_encode_delay(t3 - 1u));
+    i[1] = (uint16_t)(pio_encode_jmp_not_x(3) | pio_encode_sideset(1, 1u) |
+                      pio_encode_delay(t1 - 1u));
+    i[2] = (uint16_t)(pio_encode_jmp(0) | pio_encode_sideset(1, 1u) |
+                      pio_encode_delay(t2 - 1u));
+    i[3] = (uint16_t)(pio_encode_nop() | pio_encode_sideset(1, 0u) |
+                      pio_encode_delay(t2 - 1u));
+    p->program.instructions = p->instructions;
+    p->program.length = 4;
+    p->program.origin = -1;
+}
+
+int mm_pico_mcu_pulse_configure(unsigned int instance, unsigned int pin,
+                                unsigned long bit_period_ns, unsigned long zero_high_ns,
+                                unsigned long one_high_ns, unsigned long reset_ns) {
+    if (instance >= MM_PICO_PULSE_INSTANCES) return MM_PICO_MCU_UNSUPPORTED;
+    if (!mm_pico_pin_valid(pin) || pin > 31u) return MM_PICO_MCU_BAD_ARGUMENT;
+    if (zero_high_ns == 0 || zero_high_ns >= one_high_ns || one_high_ns >= bit_period_ns ||
+        bit_period_ns > MM_PICO_PULSE_MOST_PERIOD_NS)
+        return MM_PICO_MCU_BAD_ARGUMENT;
+    mm_pico_pulse_t* p = &mm_pico_pulse[instance];
+    if (p->configured)
+        return p->pin == pin && p->bit_period_ns == bit_period_ns &&
+                       p->zero_high_ns == zero_high_ns && p->one_high_ns == one_high_ns &&
+                       p->reset_ns == reset_ns
+                   ? MM_PICO_MCU_OK
+                   : MM_PICO_MCU_BUSY;
+    if (mm_pico_gpio_watched[pin] || mm_pico_analog_holds(pin)) return MM_PICO_MCU_BUSY;
+
+    unsigned int t1 = 0, t2 = 0, t3 = 0;
+    uint32_t divider_x256 = 0;
+    if (!mm_pico_pulse_plan(bit_period_ns, zero_high_ns, one_high_ns, &t1, &t2, &t3,
+                            &divider_x256))
+        return MM_PICO_MCU_BAD_ARGUMENT;
+
+    mm_pico_pulse_build_program(p, t1, t2, t3);
+    PIO pio;
+    uint sm;
+    uint offset;
+    if (!pio_claim_free_sm_and_add_program(&p->program, &pio, &sm, &offset))
+        return MM_PICO_MCU_BUSY;
+
+    pio_sm_config c = pio_get_default_sm_config();
+    sm_config_set_wrap(&c, offset, offset + 3u);
+    sm_config_set_sideset(&c, 1, false, false);
+    sm_config_set_sideset_pins(&c, pin);
+    sm_config_set_out_shift(&c, false, true, 8);
+    sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_TX);
+    sm_config_set_clkdiv_int_frac8(&c, divider_x256 >> 8, (uint8_t)(divider_x256 & 255u));
+    pio_sm_set_pins_with_mask(pio, sm, 0u, 1u << pin);
+    pio_sm_set_consecutive_pindirs(pio, sm, pin, 1, true);
+    pio_gpio_init(pio, pin);
+    pio_sm_init(pio, sm, offset, &c);
+    pio_sm_set_enabled(pio, sm, true);
+
+    p->pin = pin;
+    p->bit_period_ns = bit_period_ns;
+    p->zero_high_ns = zero_high_ns;
+    p->one_high_ns = one_high_ns;
+    p->reset_ns = reset_ns;
+    p->pio = pio;
+    p->sm = sm;
+    p->offset = offset;
+    p->configured = 1;
+    mm_pico_pin_owner[pin] = MM_PICO_OWNER_PULSE;
+    return MM_PICO_MCU_OK;
+}
+
+// A byte a FIFO word. Once the FIFO is empty the state machine holds the last
+// byte, at most eight bits from done, so the wait covers those and the reset
+// time after them.
+int mm_pico_mcu_pulse_write(unsigned int instance, const unsigned char* data, size_t size) {
+    if (instance >= MM_PICO_PULSE_INSTANCES) return MM_PICO_MCU_UNSUPPORTED;
+    mm_pico_pulse_t* p = &mm_pico_pulse[instance];
+    if (!p->configured || (data == NULL && size != 0)) return MM_PICO_MCU_BAD_ARGUMENT;
+    for (size_t i = 0; i < size; ++i)
+        pio_sm_put_blocking(p->pio, p->sm, (uint32_t)data[i] << 24);
+    while (!pio_sm_is_tx_fifo_empty(p->pio, p->sm)) tight_loop_contents();
+    const uint64_t tail_ns = 8ull * p->bit_period_ns + p->reset_ns;
+    busy_wait_us((tail_ns + 999ull) / 1000ull + 1ull);
+    return MM_PICO_MCU_OK;
+}
+
+int mm_pico_mcu_pulse_release(unsigned int instance) {
+    if (instance >= MM_PICO_PULSE_INSTANCES) return MM_PICO_MCU_UNSUPPORTED;
+    mm_pico_pulse_t* p = &mm_pico_pulse[instance];
+    if (!p->configured) return MM_PICO_MCU_OK;
+    pio_sm_set_enabled(p->pio, p->sm, false);
+    pio_remove_program_and_unclaim_sm(&p->program, p->pio, p->sm, p->offset);
+    gpio_deinit(p->pin);
+    mm_pico_pin_owner[p->pin] = MM_PICO_OWNER_NONE;
+    p->configured = 0;
+    p->pio = NULL;
     return MM_PICO_MCU_OK;
 }
 

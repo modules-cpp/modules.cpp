@@ -317,6 +317,11 @@ void an_unserved_facility_answers_unsupported() {
                bare.adc_pace_progress(0, progress) == Status::Unsupported &&
                bare.adc_pace_stop(0) == Status::Unsupported,
            "so does unserved paced capture");
+    const std::byte pulse_bytes[1] = {};
+    expect(bare.pulse_configure({}) == Status::Unsupported &&
+               bare.pulse_write(0, pulse_bytes) == Status::Unsupported &&
+               bare.pulse_release(0) == Status::Unsupported,
+           "so does an unimplemented pulse output");
     expect(bare.delay_ms(1) == Status::Unsupported, "so does an unimplemented timer");
     bool pending = true;
     expect(bare.gpio_watch(1, Pull::Up, Edge::Rising) == Status::Unsupported &&

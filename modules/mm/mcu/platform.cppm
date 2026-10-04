@@ -19,6 +19,7 @@ import :transport_types;
 import :adc_types;
 import :dac_types;
 import :pwm_types;
+import :pulse_types;
 
 export namespace mm::mcu {
 
@@ -219,6 +220,14 @@ public:
         return Status::Unsupported;
     }
     [[nodiscard]] virtual Status pwm_release(unsigned int) { return Status::Unsupported; }
+
+    [[nodiscard]] virtual Status pulse_configure(const PulseConfiguration&) {
+        return Status::Unsupported;
+    }
+    [[nodiscard]] virtual Status pulse_write(unsigned int, std::span<const std::byte>) {
+        return Status::Unsupported;
+    }
+    [[nodiscard]] virtual Status pulse_release(unsigned int) { return Status::Unsupported; }
 };
 
 // Registered by the platform's module from a static initialiser, which runs
