@@ -80,6 +80,41 @@ if(NOT MM_PICO_STDIO_USB_CONNECT_DELAY_MS MATCHES "^[0-9]+$")
     "integer number of milliseconds, not '${MM_PICO_STDIO_USB_CONNECT_DELAY_MS}'")
 endif()
 
+# The flash region: data storage at the top of the flash the build assumes,
+# PICO_FLASH_SIZE_BYTES, which mm.mcu's flash-region calls address and
+# littlefs uses for a board's own files. A whole number of 4 KiB erase
+# sectors, zero for none. Keyed on the vendor board, because the build's flash
+# size is the vendor header's: 2 MB for pico and pico-w, 4 MB for the pico2
+# family, whatever a board's chip has; rp2350_pizero, which selects its own
+# 16 MB header, has a larger region. MM_BOARD_FLASH_REGION_BYTES given to
+# CMake or in the environment takes precedence, which is how the bridge's
+# overlap check is exercised.
+if(MM_VENDOR_BOARD STREQUAL "pico" OR MM_VENDOR_BOARD STREQUAL "pico-w")
+  set(MM_BOARD_FLASH_REGION_DEFAULT 262144)
+else()
+  set(MM_BOARD_FLASH_REGION_DEFAULT 524288)
+endif()
+if(MM_BOARD STREQUAL "rp2350_pizero" OR
+   MM_BOARD STREQUAL "rp2350_pizero_usb_host")
+  set(MM_BOARD_FLASH_REGION_DEFAULT 4194304)
+endif()
+if(NOT DEFINED MM_BOARD_FLASH_REGION_BYTES)
+  if(DEFINED ENV{MM_BOARD_FLASH_REGION_BYTES})
+    set(MM_BOARD_FLASH_REGION_BYTES $ENV{MM_BOARD_FLASH_REGION_BYTES})
+  else()
+    set(MM_BOARD_FLASH_REGION_BYTES ${MM_BOARD_FLASH_REGION_DEFAULT})
+  endif()
+endif()
+if(NOT MM_BOARD_FLASH_REGION_BYTES MATCHES "^[0-9]+$")
+  message(FATAL_ERROR "MM_BOARD_FLASH_REGION_BYTES must be a non-negative number of "
+    "bytes, not '${MM_BOARD_FLASH_REGION_BYTES}'")
+endif()
+math(EXPR MM_BOARD_FLASH_REGION_REMAINDER "${MM_BOARD_FLASH_REGION_BYTES} % 4096")
+if(NOT MM_BOARD_FLASH_REGION_REMAINDER EQUAL 0)
+  message(FATAL_ERROR "MM_BOARD_FLASH_REGION_BYTES must be a whole number of 4096-byte "
+    "erase sectors, not ${MM_BOARD_FLASH_REGION_BYTES}")
+endif()
+
 # A PIO USB host port, two GPIOs Pico-PIO-USB drives as a second USB port, D+
 # on MM_BOARD_USB_HOST_DP_PIN and D- on the next; the native port stays the
 # USB console. Only a board that says so has one: the pico_usb_host and

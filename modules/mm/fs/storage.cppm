@@ -26,4 +26,17 @@ public:
     [[nodiscard]] Status sync() override;
 };
 
+// mm.mcu's flash region -- the top of a Pico's program flash, or a Linux
+// device map's image file -- as a FlashDevice: the geometry in erase blocks,
+// and reads, programs, and erases passed through with their offsets.
+class McuFlash final : public FlashDevice {
+public:
+    [[nodiscard]] Status geometry(FlashGeometry& geometry) override;
+    [[nodiscard]] Status read(std::uint64_t offset, std::span<std::byte> data) override;
+    [[nodiscard]] Status program(std::uint64_t offset, std::span<const std::byte> data) override;
+    [[nodiscard]] Status erase(std::uint64_t offset, std::uint64_t size) override;
+    // Every flash-region call returns when the flash is done.
+    [[nodiscard]] Status sync() override;
+};
+
 }

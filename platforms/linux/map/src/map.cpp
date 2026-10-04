@@ -118,6 +118,25 @@ bool apply(Map& map, std::string_view key, std::string_view text) {
     if (key == "imu.trigger") return selector(text, map.imu.trigger);
     if (key == "imu.timeout-ms") return number(text, map.imu.timeout_ms) && map.imu.timeout_ms > 0;
     if (key == "adc.device") return selector(text, map.adc_device);
+    if (key == "flash.path") return quoted(text, map.flash.path);
+    if (key == "flash.size") {
+        unsigned long value = 0;
+        if (!number(text, value) || value == 0) return false;
+        map.flash.size = value;
+        return true;
+    }
+    if (key == "flash.erase-size") {
+        unsigned long value = 0;
+        if (!number(text, value) || value == 0 || value > 0xffffffffUL) return false;
+        map.flash.erase_size = static_cast<unsigned int>(value);
+        return true;
+    }
+    if (key == "flash.program-size") {
+        unsigned long value = 0;
+        if (!number(text, value) || value == 0 || value > 0xffffffffUL) return false;
+        map.flash.program_size = static_cast<unsigned int>(value);
+        return true;
+    }
     if (key == "usb.host.detach-kernel-drivers") return boolean(text, map.usb_host.detach_kernel_drivers);
     if (key == "usb.device.functionfs") return quoted(text, map.usb_device.functionfs);
     if (key == "usb.device.gadget") return quoted(text, map.usb_device.gadget);
@@ -273,6 +292,18 @@ MapStatus validate(Map& map, const std::string& path, ParseError& error) {
             error = {path, 0, 0, "directory." + std::to_string(i) + ".path", "relative path"};
             return MapStatus::SyntaxError;
         }
+    }
+    if (!map.flash.path.empty() && !map.flash.path.starts_with('/')) {
+        error = {path, 0, 0, "flash.path", "relative path"};
+        return MapStatus::SyntaxError;
+    }
+    if (map.flash.erase_size % map.flash.program_size != 0) {
+        error = {path, 0, 0, "flash.erase-size", "not a whole number of program units"};
+        return MapStatus::SyntaxError;
+    }
+    if (map.flash.size % map.flash.erase_size != 0) {
+        error = {path, 0, 0, "flash.size", "not a whole number of erase blocks"};
+        return MapStatus::SyntaxError;
     }
     if (!map.usb_device.functionfs.empty() && !map.usb_device.functionfs.starts_with('/')) {
         error = {path, 0, 0, "usb.device.functionfs", "relative path"};

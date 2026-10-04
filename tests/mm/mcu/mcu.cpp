@@ -322,6 +322,13 @@ void an_unserved_facility_answers_unsupported() {
                bare.pulse_write(0, pulse_bytes) == Status::Unsupported &&
                bare.pulse_release(0) == Status::Unsupported,
            "so does an unimplemented pulse output");
+    mm::mcu::FlashRegionGeometry region{7, 7, 7, 7};
+    std::byte region_bytes[1] = {};
+    expect(bare.flash_region_geometry(region) == Status::Unsupported && region.size == 7 &&
+               bare.flash_region_read(0, region_bytes) == Status::Unsupported &&
+               bare.flash_region_program(0, region_bytes) == Status::Unsupported &&
+               bare.flash_region_erase(0, 4096) == Status::Unsupported,
+           "so does an unimplemented flash region, leaving its geometry alone");
     expect(bare.delay_ms(1) == Status::Unsupported, "so does an unimplemented timer");
     bool pending = true;
     expect(bare.gpio_watch(1, Pull::Up, Edge::Rising) == Status::Unsupported &&

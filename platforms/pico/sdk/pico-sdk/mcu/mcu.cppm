@@ -623,6 +623,34 @@ public:
         return from(mm_pico_mcu_pulse_release(instance));
     }
 
+    [[nodiscard]] mm::mcu::Status flash_region_geometry(
+        mm::mcu::FlashRegionGeometry& geometry) override {
+        unsigned long long size = 0;
+        unsigned int read_size = 0;
+        unsigned int program_size = 0;
+        unsigned int erase_size = 0;
+        const auto status = from(
+            mm_pico_mcu_flash_region_geometry(&size, &read_size, &program_size, &erase_size));
+        if (status == mm::mcu::Status::Ok)
+            geometry = {size, read_size, program_size, erase_size};
+        return status;
+    }
+
+    [[nodiscard]] mm::mcu::Status flash_region_read(std::uint64_t offset,
+                                                    std::span<std::byte> data) override {
+        return from(mm_pico_mcu_flash_region_read(offset, data.data(), data.size()));
+    }
+
+    [[nodiscard]] mm::mcu::Status flash_region_program(
+        std::uint64_t offset, std::span<const std::byte> data) override {
+        return from(mm_pico_mcu_flash_region_program(offset, data.data(), data.size()));
+    }
+
+    [[nodiscard]] mm::mcu::Status flash_region_erase(std::uint64_t offset,
+                                                     std::uint64_t size) override {
+        return from(mm_pico_mcu_flash_region_erase(offset, size));
+    }
+
 private:
     // Frames packed per adapter call.
     static constexpr std::size_t i2s_chunk = 32;

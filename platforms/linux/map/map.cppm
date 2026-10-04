@@ -2,6 +2,7 @@
 // 32bitmicro LLC (C) 2026
 module;
 
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -115,6 +116,16 @@ struct DirectoryEntry {
     bool writable = false;
 };
 
+// An image file standing in for raw flash: mm.mcu's flash region. A file that
+// exists keeps its contents and its size; one that does not is made at size
+// bytes, erased. size, erase_size, and program_size are in bytes.
+struct FlashEntry {
+    std::string path;
+    std::uint64_t size = 1u << 20;
+    unsigned int erase_size = 4096;
+    unsigned int program_size = 256;
+};
+
 struct UsbHostEntry {
     bool detach_kernel_drivers = false;
 };
@@ -143,6 +154,7 @@ struct Map {
     std::vector<PwmEntry> pwms;
     std::vector<StorageEntry> storages;
     std::vector<DirectoryEntry> directories;
+    FlashEntry flash;
     UsbHostEntry usb_host;
     UsbDeviceEntry usb_device;
 };

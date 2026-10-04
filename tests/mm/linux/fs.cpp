@@ -1,5 +1,6 @@
 // Pawel Wodnicki (C) 2026
 // 32bitmicro LLC (C) 2026
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <filesystem>
@@ -8,15 +9,18 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <vector>
 
 import mm.fs;
 import mm.fs.conformance;
 import mm.fs.local;
 import mm.fs.native;
+import mm.mcu;
 import mm.test;
 import platform.linux.defaults;
 import platform.linux.fs;
 import platform.linux.map;
+import platform.linux.mcu;
 
 namespace {
 
@@ -252,6 +256,104 @@ void errors_map_to_status() {
            "anything else is TransportError");
 }
 
+void the_flash_region_is_an_image_file() {
+    const mm::test::scoped_tree tree{"linux_fs_flash"};
+    const auto image = tree.root() / "flash.img";
+    platform::linux::mcu_detail::StorageTestHooks hooks;
+    hooks.flash = platform::linux::FlashEntry{image.string(), 16384, 4096, 256};
+    platform::linux::mcu_detail::set_storage_test_hooks(&hooks);
+
+    mm::mcu::FlashRegionGeometry geometry;
+    expect(mm::mcu::flash_region_geometry(geometry) == mm::mcu::Status::Ok &&
+               geometry.size == 16384 && geometry.read_size == 1 &&
+               geometry.program_size == 256 && geometry.erase_size == 4096,
+           "a new image reports the configured geometry");
+    std::error_code error;
+    expect(std::filesystem::file_size(image, error) == 16384, "and is made at its size");
+
+    std::vector<std::byte> read(256);
+    expect(mm::mcu::flash_region_read(0, read) == mm::mcu::Status::Ok &&
+               std::all_of(read.begin(), read.end(),
+                           [](std::byte b) { return b == std::byte{0xff}; }),
+           "a new image reads erased");
+
+    std::vector<std::byte> page(256, std::byte{0x5a});
+    expect(mm::mcu::flash_region_program(4096, page) == mm::mcu::Status::Ok,
+           "an erased page programs");
+    expect(mm::mcu::flash_region_read(4096, read) == mm::mcu::Status::Ok && read == page,
+           "and reads back");
+    expect(mm::mcu::flash_region_program(4096, page) == mm::mcu::Status::BadArgument,
+           "programming bytes that are not erased is refused");
+    expect(mm::mcu::flash_region_program(100, page) == mm::mcu::Status::BadArgument &&
+               mm::mcu::flash_region_program(0, std::span{page}.first(100)) ==
+                   mm::mcu::Status::BadArgument &&
+               mm::mcu::flash_region_program(16384, page) == mm::mcu::Status::BadArgument,
+           "a misaligned, partial, or out-of-range program is refused");
+    expect(mm::mcu::flash_region_erase(100, 4096) == mm::mcu::Status::BadArgument &&
+               mm::mcu::flash_region_erase(0, 100) == mm::mcu::Status::BadArgument &&
+               mm::mcu::flash_region_erase(12288, 8192) == mm::mcu::Status::BadArgument,
+           "a misaligned or out-of-range erase is refused");
+    expect(mm::mcu::flash_region_erase(4096, 4096) == mm::mcu::Status::Ok &&
+               mm::mcu::flash_region_read(4096, read) == mm::mcu::Status::Ok &&
+               std::all_of(read.begin(), read.end(),
+                           [](std::byte b) { return b == std::byte{0xff}; }),
+           "an erase makes the block read erased again");
+    expect(mm::mcu::flash_region_program(4096, page) == mm::mcu::Status::Ok,
+           "and lets it be programmed again");
+
+    std::ifstream in(image, std::ios::binary);
+    in.seekg(4096);
+    char first = 0;
+    in.get(first);
+    expect(static_cast<unsigned char>(first) == 0x5a, "the program reached the file");
+
+    mm::fs::McuFlash flash;
+    mm::fs::FlashGeometry device;
+    expect(flash.geometry(device) == Status::Ok && device.erase_count == 4 &&
+               device.erase_size == 4096 && device.program_size == 256,
+           "McuFlash presents the region as four erase blocks");
+
+    hooks.flash = platform::linux::FlashEntry{};
+    expect(mm::mcu::flash_region_geometry(geometry) == mm::mcu::Status::Unsupported &&
+               flash.geometry(device) == Status::Unsupported,
+           "with no image named the region is Unsupported");
+    platform::linux::mcu_detail::set_storage_test_hooks(nullptr);
+}
+
+void map_flash_keys_parse_and_validate() {
+    platform::linux::Map map;
+    platform::linux::ParseError error;
+    const mm::test::scoped_file good{"mm_linux_flash_good.mdy",
+                                     "flash.path = \"/srv/flash.img\"\n"
+                                     "flash.size = 524288\n"
+                                     "flash.erase-size = 4096\n"
+                                     "flash.program-size = 256\n"};
+    expect(platform::linux::apply_override(map, good.path().string(), error) ==
+               platform::linux::MapStatus::Ok &&
+               map.flash.path == "/srv/flash.img" && map.flash.size == 524288,
+           "valid flash keys parse");
+    platform::linux::Map relative;
+    const mm::test::scoped_file rel{"mm_linux_flash_rel.mdy", "flash.path = \"flash.img\"\n"};
+    expect(platform::linux::apply_override(relative, rel.path().string(), error) ==
+               platform::linux::MapStatus::SyntaxError &&
+               error.key == "flash.path",
+           "a relative image path is refused");
+    platform::linux::Map ragged;
+    const mm::test::scoped_file odd{"mm_linux_flash_odd.mdy",
+                                    "flash.path = \"/srv/flash.img\"\nflash.size = 5000\n"};
+    expect(platform::linux::apply_override(ragged, odd.path().string(), error) ==
+               platform::linux::MapStatus::SyntaxError &&
+               error.key == "flash.size",
+           "a size that is not whole erase blocks is refused");
+    platform::linux::Map uneven;
+    const mm::test::scoped_file mixed{"mm_linux_flash_mixed.mdy",
+                                      "flash.erase-size = 4096\nflash.program-size = 3000\n"};
+    expect(platform::linux::apply_override(uneven, mixed.path().string(), error) ==
+               platform::linux::MapStatus::SyntaxError &&
+               error.key == "flash.erase-size",
+           "an erase block that is not whole program units is refused");
+}
+
 const mm::test::case_ cases[] = {
     {"map directory keys parse and validate", &map_directory_keys_parse_and_validate},
     {"conformance passes on a host directory", &conformance_passes_on_a_host_directory},
@@ -261,6 +363,8 @@ const mm::test::case_ cases[] = {
     {"mounting checks the root", &mounting_checks_the_root},
     {"the local storage is the working directory", &the_local_storage_is_the_working_directory},
     {"errors map to Status", &errors_map_to_status},
+    {"the flash region is an image file", &the_flash_region_is_an_image_file},
+    {"map flash keys parse and validate", &map_flash_keys_parse_and_validate},
 };
 
 const mm::test::registrar reg{"platform.linux.fs", cases};

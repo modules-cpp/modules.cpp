@@ -266,6 +266,12 @@ void mcu_storage_answers_for_the_platform() {
            "with no storage facility, geometry is Unsupported and untouched");
     expect(storage.read(0, block) == Status::Unsupported, "and so is a read");
     expect(storage.sync() == Status::Ok, "sync has nothing to do");
+
+    mm::fs::McuFlash flash;
+    mm::fs::FlashGeometry flash_geometry{1, 2, 3, 4};
+    expect(flash.geometry(flash_geometry) == Status::Unsupported && flash_geometry.erase_count == 4,
+           "with no flash region, McuFlash's geometry is Unsupported and untouched");
+    expect(flash.erase(0, 4096) == Status::Unsupported, "and so is an erase");
 }
 
 void conformance_passes_on_the_memory_volume() {

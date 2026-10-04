@@ -105,6 +105,16 @@ int mm_pico_mcu_pulse_configure(unsigned int instance, unsigned int pin,
 int mm_pico_mcu_pulse_write(unsigned int instance, const unsigned char* data, size_t size);
 int mm_pico_mcu_pulse_release(unsigned int instance);
 
+// The data region at the top of program flash, MM_BOARD_FLASH_REGION_BYTES
+// long and ending at PICO_FLASH_SIZE_BYTES. Offsets are bytes from its start.
+// UNSUPPORTED on a board whose region is zero bytes, or whose image reaches
+// into it, which the bridge's UF2 check refuses at build time already.
+int mm_pico_mcu_flash_region_geometry(unsigned long long* size, unsigned int* read_size,
+                                      unsigned int* program_size, unsigned int* erase_size);
+int mm_pico_mcu_flash_region_read(unsigned long long offset, void* data, size_t size);
+int mm_pico_mcu_flash_region_program(unsigned long long offset, const void* data, size_t size);
+int mm_pico_mcu_flash_region_erase(unsigned long long offset, unsigned long long size);
+
 // A critical section on the calling core: the SDK's save_and_disable_interrupts
 // and restore_interrupts. saved is the core's mask word, PRIMASK on Arm and
 // mstatus.MIE on RISC-V, handed back unchanged.

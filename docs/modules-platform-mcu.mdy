@@ -768,6 +768,37 @@ The Pico provider implements instances zero and one over PIO, planning the
 program's ticks and divider from the requested times; docs/modules-led.mdy
 says how. Every other provider answers Unsupported.
 
+## Flash region
+
+Opening fence
+struct FlashRegionGeometry {
+    std::uint64_t size = 0;
+    std::uint32_t read_size = 1;
+    std::uint32_t program_size = 0;
+    std::uint32_t erase_size = 0;
+};
+
+[[nodiscard]] Status flash_region_geometry(FlashRegionGeometry&);
+[[nodiscard]] Status flash_region_read(std::uint64_t offset, std::span<std::byte>);
+[[nodiscard]] Status flash_region_program(std::uint64_t offset, std::span<const std::byte>);
+[[nodiscard]] Status flash_region_erase(std::uint64_t offset, std::uint64_t size);
+Closing fence
+
+Raw flash set aside for data, the way littlefs wants it. Offsets are bytes
+from the region's start; size is a whole number of erase blocks. A read may
+start and end anywhere inside the region. A program must start and end on
+program_size and lands only on erased bytes; an erase must start and end on
+erase_size. An empty transfer, a misaligned one, or one past the end is
+BadArgument; mm.mcu refuses the empty ones before asking the platform. Each
+call waits until the flash is done. geometry is Unsupported where there is
+no region, and the others are then Unsupported too.
+
+The Pico provider's region is the top of the program flash;
+docs/modules-platform-pico.mdy says how it is sized and kept clear of the
+image. The Linux provider's is an image file the device map names, which
+docs/modules-platform-linux.mdy describes. Every other provider answers
+Unsupported.
+
 ## Block storage
 
 Opening fence

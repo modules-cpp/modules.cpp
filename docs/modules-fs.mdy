@@ -117,7 +117,9 @@ FlashDevice is raw flash -- read anywhere, program only erased bytes, erase
 whole blocks -- which littlefs wants. They are different promises and mm.fs
 keeps both. McuStorage is mm.mcu's block storage as a BlockDevice, polling
 the device on every call and answering TransportError while none is ready;
-it is the only device mm.fs supplies, and the reason it uses mm.mcu.
+McuFlash is mm.mcu's flash region as a FlashDevice: its geometry in erase
+blocks, and reads, programs, and erases passed through. These two are the
+devices mm.fs supplies, and the reason it uses mm.mcu.
 
 # Mount interfaces
 

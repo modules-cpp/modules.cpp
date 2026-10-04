@@ -7,6 +7,7 @@
 #include "hardware/adc.h"
 #include "hardware/clocks.h"
 #include "hardware/dma.h"
+#include "hardware/flash.h"
 #include "hardware/pio.h"
 #include "hardware/pio_instructions.h"
 #include "hardware/pwm.h"
@@ -16,6 +17,7 @@
 #include "hardware/sync.h"
 #include "hardware/timer.h"
 #include "hardware/uart.h"
+#include "pico/flash.h"
 #include "pico/stdio/driver.h"
 #include "pico/stdlib.h"
 #include "pico/stdio_semihosting.h"
@@ -1632,6 +1634,112 @@ int mm_pico_mcu_pulse_release(unsigned int instance) {
     mm_pico_pin_owner[p->pin] = MM_PICO_OWNER_NONE;
     p->configured = 0;
     p->pio = NULL;
+    return MM_PICO_MCU_OK;
+}
+
+// The flash region: the top MM_BOARD_FLASH_REGION_BYTES of the flash the
+// build assumes, PICO_FLASH_SIZE_BYTES. Reads come straight from the
+// execute-in-place window; programs and erases go through flash_safe_execute,
+// which keeps the other core and this core's interrupts off the flash while
+// it cannot be read. Programs are bounced through a page in RAM, because the
+// data being programmed must not itself live in the flash being programmed.
+
+#define MM_PICO_FLASH_REGION_START \
+    ((unsigned long long)PICO_FLASH_SIZE_BYTES - (unsigned long long)MM_BOARD_FLASH_REGION_BYTES)
+#define MM_PICO_FLASH_SAFE_TIMEOUT_MS 1000u
+
+extern char __flash_binary_end;
+
+static uint8_t mm_pico_flash_page[FLASH_PAGE_SIZE];
+
+typedef struct {
+    uint32_t flash_offset;
+    size_t size;
+} mm_pico_flash_operation_t;
+
+// Usable only when the board gives it bytes and the image ends below it. The
+// bridge refuses an overlapping image at build time; this is the same check
+// at run time, for an image linked some other way.
+static int mm_pico_flash_region_usable(void) {
+    if (MM_BOARD_FLASH_REGION_BYTES == 0) return 0;
+    if ((unsigned long long)MM_BOARD_FLASH_REGION_BYTES >= (unsigned long long)PICO_FLASH_SIZE_BYTES)
+        return 0;
+    return (uintptr_t)&__flash_binary_end <= (uintptr_t)XIP_BASE + MM_PICO_FLASH_REGION_START;
+}
+
+static int mm_pico_flash_in_region(unsigned long long offset, unsigned long long size) {
+    return size <= (unsigned long long)MM_BOARD_FLASH_REGION_BYTES &&
+           offset <= (unsigned long long)MM_BOARD_FLASH_REGION_BYTES - size;
+}
+
+static int mm_pico_flash_from_safe(int result) {
+    if (result == PICO_OK) return MM_PICO_MCU_OK;
+    if (result == PICO_ERROR_TIMEOUT) return MM_PICO_MCU_TIMEOUT;
+    return MM_PICO_MCU_BUSY;
+}
+
+static void mm_pico_flash_program_page(void* parameter) {
+    const mm_pico_flash_operation_t* operation = (const mm_pico_flash_operation_t*)parameter;
+    flash_range_program(operation->flash_offset, mm_pico_flash_page, operation->size);
+}
+
+static void mm_pico_flash_erase_sector(void* parameter) {
+    const mm_pico_flash_operation_t* operation = (const mm_pico_flash_operation_t*)parameter;
+    flash_range_erase(operation->flash_offset, operation->size);
+}
+
+int mm_pico_mcu_flash_region_geometry(unsigned long long* size, unsigned int* read_size,
+                                      unsigned int* program_size, unsigned int* erase_size) {
+    if (size == NULL || read_size == NULL || program_size == NULL || erase_size == NULL)
+        return MM_PICO_MCU_BAD_ARGUMENT;
+    if (!mm_pico_flash_region_usable()) return MM_PICO_MCU_UNSUPPORTED;
+    *size = (unsigned long long)MM_BOARD_FLASH_REGION_BYTES;
+    *read_size = 1u;
+    *program_size = FLASH_PAGE_SIZE;
+    *erase_size = FLASH_SECTOR_SIZE;
+    return MM_PICO_MCU_OK;
+}
+
+int mm_pico_mcu_flash_region_read(unsigned long long offset, void* data, size_t size) {
+    if (!mm_pico_flash_region_usable()) return MM_PICO_MCU_UNSUPPORTED;
+    if (data == NULL || size == 0 || !mm_pico_flash_in_region(offset, size))
+        return MM_PICO_MCU_BAD_ARGUMENT;
+    memcpy(data, (const void*)(XIP_BASE + (uintptr_t)(MM_PICO_FLASH_REGION_START + offset)),
+           size);
+    return MM_PICO_MCU_OK;
+}
+
+// One page per safe section, so interrupts are held off for one page's
+// program time at a time rather than for the whole transfer.
+int mm_pico_mcu_flash_region_program(unsigned long long offset, const void* data, size_t size) {
+    if (!mm_pico_flash_region_usable()) return MM_PICO_MCU_UNSUPPORTED;
+    if (data == NULL || size == 0 || offset % FLASH_PAGE_SIZE != 0 ||
+        size % FLASH_PAGE_SIZE != 0 || !mm_pico_flash_in_region(offset, size))
+        return MM_PICO_MCU_BAD_ARGUMENT;
+    const uint8_t* bytes = (const uint8_t*)data;
+    for (size_t done = 0; done < size; done += FLASH_PAGE_SIZE) {
+        memcpy(mm_pico_flash_page, bytes + done, FLASH_PAGE_SIZE);
+        mm_pico_flash_operation_t operation = {
+            (uint32_t)(MM_PICO_FLASH_REGION_START + offset + done), FLASH_PAGE_SIZE};
+        const int status = mm_pico_flash_from_safe(flash_safe_execute(
+            mm_pico_flash_program_page, &operation, MM_PICO_FLASH_SAFE_TIMEOUT_MS));
+        if (status != MM_PICO_MCU_OK) return status;
+    }
+    return MM_PICO_MCU_OK;
+}
+
+int mm_pico_mcu_flash_region_erase(unsigned long long offset, unsigned long long size) {
+    if (!mm_pico_flash_region_usable()) return MM_PICO_MCU_UNSUPPORTED;
+    if (size == 0 || offset % FLASH_SECTOR_SIZE != 0 || size % FLASH_SECTOR_SIZE != 0 ||
+        !mm_pico_flash_in_region(offset, size))
+        return MM_PICO_MCU_BAD_ARGUMENT;
+    for (unsigned long long done = 0; done < size; done += FLASH_SECTOR_SIZE) {
+        mm_pico_flash_operation_t operation = {
+            (uint32_t)(MM_PICO_FLASH_REGION_START + offset + done), FLASH_SECTOR_SIZE};
+        const int status = mm_pico_flash_from_safe(flash_safe_execute(
+            mm_pico_flash_erase_sector, &operation, MM_PICO_FLASH_SAFE_TIMEOUT_MS));
+        if (status != MM_PICO_MCU_OK) return status;
+    }
     return MM_PICO_MCU_OK;
 }
 

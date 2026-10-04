@@ -51,6 +51,13 @@ All notable changes to modules.cpp. Versions follow [semantic versioning](https:
   `directory.N.path` and `directory.N.writable`; with none, `mm.fs.local`
   mounts the working directory. `apps/fs-smoke` and `scripts/build-fs.sh`
   run the conformance checks on the board's storage: 25 of 25 pass on Linux.
+- **`mm.mcu` flash region and `mm.fs::McuFlash`.** Raw flash for data: the top
+  of a Pico's program flash, sized by a new board-table column
+  (`MM_BOARD_FLASH_REGION_BYTES`: 256 KiB on pico builds, 512 KiB on pico2,
+  4 MiB on the PiZero), programmed and erased through `flash_safe_execute`;
+  and on Linux an image file named by `flash.*` device-map keys, which refuses
+  to program unerased bytes. The Pico bridge's UF2 validation now refuses an
+  image that reaches the region, skipping picotool's RP2350-E10 block.
 - **`apps/rgb-led-smoke` and `scripts/build-rgb-led.sh`.** Red, green, blue,
   white, and a colour wheel on any board that binds `mm.led`; the default board
   is `rp2040_zero`.

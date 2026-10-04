@@ -20,6 +20,7 @@ import :adc_types;
 import :dac_types;
 import :pwm_types;
 import :pulse_types;
+import :flash_region_types;
 
 export namespace mm::mcu {
 
@@ -228,6 +229,20 @@ public:
         return Status::Unsupported;
     }
     [[nodiscard]] virtual Status pulse_release(unsigned int) { return Status::Unsupported; }
+
+    [[nodiscard]] virtual Status flash_region_geometry(FlashRegionGeometry&) {
+        return Status::Unsupported;
+    }
+    [[nodiscard]] virtual Status flash_region_read(std::uint64_t, std::span<std::byte>) {
+        return Status::Unsupported;
+    }
+    [[nodiscard]] virtual Status flash_region_program(std::uint64_t,
+                                                      std::span<const std::byte>) {
+        return Status::Unsupported;
+    }
+    [[nodiscard]] virtual Status flash_region_erase(std::uint64_t, std::uint64_t) {
+        return Status::Unsupported;
+    }
 };
 
 // Registered by the platform's module from a static initialiser, which runs
