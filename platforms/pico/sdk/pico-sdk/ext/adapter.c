@@ -118,12 +118,11 @@ static uint8_t mm_pico_usb_cdc_in_ep(void) {
     return found;
 }
 
-// pico_stdio_usb's flush only starts a transfer. An application that returns
-// straight after flushing stops at _exit's breakpoint with its last bytes
-// still on the board, and they never reach the host. While a terminal holds
-// DTR, and so is reading, flush therefore waits until the transmit FIFO is
-// empty and no IN transfer is in flight: the host has acknowledged every
-// byte. Without DTR nothing is reading, so it does not wait. The wait is
+// pico_stdio_usb's flush only starts a transfer. While DTR is asserted, wait
+// for the FIFO and IN endpoint to drain so an immediate _exit does not leave
+// the last bytes on the board. With no terminal open, pending output may
+// never drain: without DTR this remains a best-effort flush with no added
+// wait. DTR is a policy gate, not proof that the host is reading. The wait is
 // bounded by time and, because a debugger can stop the timer, by a count.
 #define MM_PICO_STDIO_DRAIN_MS 500
 #define MM_PICO_STDIO_DRAIN_SPINS 200000u
@@ -134,13 +133,17 @@ static int mm_pico_usb_drain(void) {
     const absolute_time_t deadline =
         make_timeout_time_ms(MM_PICO_STDIO_DRAIN_MS);
     for (uint32_t spin = 0; spin < MM_PICO_STDIO_DRAIN_SPINS; ++spin) {
-        if (!stdio_usb_connected() || !tud_cdc_connected()) {
-            return MM_PICO_STDIO_OK;
-        }
-        if (tud_cdc_write_available() == CFG_TUD_CDC_TX_BUFSIZE &&
-            !usbd_edpt_busy(0, ep)) {
-            return MM_PICO_STDIO_OK;
-        }
+        // Take one snapshot without the local USB worker changing the FIFO or
+        // completing/resetting the endpoint between these observations.
+        const uint32_t saved = save_and_disable_interrupts();
+        const bool connected = stdio_usb_connected();
+        const bool dtr = tud_cdc_connected();
+        const bool drained =
+            tud_cdc_write_available() == CFG_TUD_CDC_TX_BUFSIZE &&
+            !usbd_edpt_busy(0, ep);
+        restore_interrupts(saved);
+        if (drained) return MM_PICO_STDIO_OK;
+        if (!connected || !dtr) return MM_PICO_STDIO_OK;
         if (time_reached(deadline)) break;
         stdio_usb.out_flush();
     }
