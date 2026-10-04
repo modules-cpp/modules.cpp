@@ -12,6 +12,12 @@ All notable changes to modules.cpp. Versions follow [semantic versioning](https:
   The Pico bridge's board table reports no LED (GP25 is the backlight), a
   3300 mV ADC reference, and UART1 on GP4/GP5 as the default UART. Wiring is
   from Waveshare's schematics; not yet qualified on hardware.
+- **`rp2040_zero` and `rp2350_zero` boards.** The Waveshare RP2040-Zero and
+  RP2350-Zero mini boards, under `boards/zero`, deriving from `pico` and
+  `pico2-arm` with no providers of their own. The board table reports no LED
+  (the only LED is a WS2812B on GP16), a 3300 mV ADC reference, and the second
+  I2C and UART wirings on free header pins. Wiring is from Waveshare's
+  schematics; not yet qualified on hardware.
 
 ## [v1.3.1] — 2026-10-02
 

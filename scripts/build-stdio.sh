@@ -4,7 +4,9 @@
 # the USB CDC console; a build does not prove a host received the bytes. On
 # the Waveshare GEEK boards, rp2040_geek and rp2350_geek, the native port is
 # the stick's USB-A plug, so the console appears once the board is plugged
-# straight into the host; the UART header is not the console.
+# straight into the host; the UART header is not the console. The Waveshare
+# Zero boards, rp2040_zero and rp2350_zero, give the console on their USB-C
+# socket.
 
 # Sort, compare, and match bytes, and keep tool messages untranslated,
 # whatever the caller's locale.
@@ -23,7 +25,8 @@ wrapper_both="--control target-smoke-any"
 wrapper_pico=""
 wrapper_linux=""
 wrapper_usage="apps/stdio-smoke: the portable console
-GEEK boards: --board rp2040_geek or --board rp2350_geek"
+GEEK boards: --board rp2040_geek or --board rp2350_geek
+Zero boards: --board rp2040_zero or --board rp2350_zero"
 
 wrapper_after() {
     echo "Hardware check: flash apps/stdio-smoke/, open the USB CDC terminal, then"

@@ -1,0 +1,20 @@
+---
+mm: 1.0
+kind: dir
+name: zero-platform
+folder: board-rp2040
+folder: board-rp2350
+---
+
+# zero-platform
+
+The Waveshare Zero family, sold as the RP2040-Zero and RP2350-Zero mini
+boards: a bare chip on a 23.5 by 18 mm board with a USB-C socket on the native
+port, a WS2812B RGB LED on GP16, BOOT and RESET keys, and every other GPIO on
+its edge -- GP0 to GP15 and GP26 to GP29 on the 23-pin header, the rest on
+castellated pads.
+
+rp2040_zero derives from pico and rp2350_zero from pico2-arm. Neither binds a
+provider: there is no panel or sensor to describe, and nothing in modules/mm
+drives the WS2812B yet. What the boards change is in the Pico bridge's board
+table, which corrects the defaults their vendor ancestors set for a Pico.

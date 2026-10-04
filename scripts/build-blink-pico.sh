@@ -28,7 +28,7 @@ while [ "$#" -gt 0 ]; do
         -h|--help)
             echo "usage: $0 [-b|--board BOARD]"
             echo "boards: pico, pico-w, pico2-arm, pico2-w-arm, pico2-riscv, pico2-w-riscv,"
-            echo "  rp2040_geek, rp2350_geek"
+            echo "  rp2040_geek, rp2350_geek, rp2040_zero, rp2350_zero"
             exit 0
             ;;
         *)
@@ -39,13 +39,13 @@ while [ "$#" -gt 0 ]; do
 done
 
 case "$board" in
-    pico|pico-w|rp2040_geek)
+    pico|pico-w|rp2040_geek|rp2040_zero)
         target=arm-none-eabi
         compiler=arm-none-eabi-gcc
         sdk=pico-arm
         family=rp2040
         ;;
-    pico2-arm|pico2-w-arm|rp2350_geek)
+    pico2-arm|pico2-w-arm|rp2350_geek|rp2350_zero)
         target=arm-none-eabi
         compiler=arm-none-eabi-gcc
         sdk=pico-arm
@@ -229,9 +229,10 @@ trap - 0
 
 echo "PASS: $test_name"
 case "$board" in
-    rp2040_geek|rp2350_geek)
-        # GP25, the vendor board's LED, is the GEEK's panel backlight, so the
-        # board reports no LED and blink's LED calls answer Unsupported.
+    rp2040_geek|rp2350_geek|rp2040_zero|rp2350_zero)
+        # GP25, the vendor board's LED, is the GEEK's panel backlight and a free
+        # pad on the Zero, whose only LED is a WS2812B on GP16, so these boards
+        # report no LED and blink's LED calls answer Unsupported.
         echo "Hardware check: flash $app_path/ and observe USB CDC output; the board has no LED"
         ;;
     *)

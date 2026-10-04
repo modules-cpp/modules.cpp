@@ -50,7 +50,9 @@ if(MM_BOARD STREQUAL "pico" OR
    MM_BOARD STREQUAL "pico2-w-arm" OR
    MM_BOARD STREQUAL "pico2-w-riscv" OR
    MM_BOARD STREQUAL "pico_usb_device" OR
-   MM_BOARD STREQUAL "pico2_usb_device")
+   MM_BOARD STREQUAL "pico2_usb_device" OR
+   MM_BOARD STREQUAL "rp2040_zero" OR
+   MM_BOARD STREQUAL "rp2350_zero")
   set(MM_BOARD_HAS_SECOND_I2C 1)
 endif()
 
@@ -118,6 +120,18 @@ if(MM_BOARD STREQUAL "rp2040_geek" OR
     PICO_DEFAULT_UART=1
     PICO_DEFAULT_UART_TX_PIN=4
     PICO_DEFAULT_UART_RX_PIN=5)
+endif()
+
+# The Waveshare RP2040-Zero and RP2350-Zero, per their schematics: ADC_VREF,
+# and on the RP2350 ADC_AVDD, is the 3V3 rail; GP25, the vendor board's LED, is
+# a free pad and the only LED is a WS2812B on GP16, so there is no LED. Their
+# GP0 and GP1 are on the header, so the vendor board's default UART stands, and
+# GP8, GP9, GP26, and GP27 are free header pins, so the second I2C and UART
+# rows above include them.
+if(MM_BOARD STREQUAL "rp2040_zero" OR
+   MM_BOARD STREQUAL "rp2350_zero")
+  set(MM_ADC_REFERENCE_MV 3300)
+  set(MM_BOARD_HAS_LED 0)
 endif()
 
 # The Waveshare RP2350-Touch-LCD-2.8, per its schematic: ADC_AVDD is the 3V3
