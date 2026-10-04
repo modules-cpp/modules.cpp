@@ -24,6 +24,7 @@ static size_t mm_pico_str_lens[MM_PICO_USB_STR_COUNT_MAX];
 static size_t mm_pico_str_count = 0;
 
 static int mm_pico_usb_state_val = MM_PICO_USB_STATE_DETACHED;
+static int mm_pico_usb_unmount_state = MM_PICO_USB_STATE_DETACHED;
 static int mm_pico_usb_initialized = 0;
 
 static struct mm_pico_usb_event mm_pico_events[MM_PICO_USB_EVENT_QUEUE_SIZE];
@@ -88,7 +89,7 @@ void tud_mount_cb(void) {
 }
 
 void tud_umount_cb(void) {
-    mm_pico_usb_state_val = MM_PICO_USB_STATE_DEFAULT;
+    mm_pico_usb_state_val = mm_pico_usb_unmount_state;
     mm_pico_queue_event(MM_PICO_USB_EVENT_DECONFIGURED, NULL);
 }
 
@@ -115,6 +116,12 @@ static bool mm_pico_driver_deinit(void) {
 
 static void mm_pico_driver_reset(uint8_t rhport) {
     (void)rhport;
+    // TinyUSB 0.18 calls the class reset before clearing its device state.
+    // SET_CONFIGURATION(0) still has a connection here and retains the USB
+    // address; an unplug event has already cleared connected in the DCD
+    // event handler. By tud_umount_cb(), both paths have cleared connected.
+    mm_pico_usb_unmount_state = tud_connected()
+        ? MM_PICO_USB_STATE_ADDRESS : MM_PICO_USB_STATE_DETACHED;
     mm_pico_driver_init();
     mm_pico_usb_state_val = MM_PICO_USB_STATE_DEFAULT;
     mm_pico_queue_event(MM_PICO_USB_EVENT_RESET, NULL);
