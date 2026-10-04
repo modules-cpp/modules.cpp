@@ -14,6 +14,7 @@
 #include "hardware/i2c.h"
 #include "hardware/irq.h"
 #include "hardware/sync.h"
+#include "hardware/timer.h"
 #include "hardware/uart.h"
 #include "pico/stdio/driver.h"
 #include "pico/stdlib.h"
@@ -27,8 +28,10 @@
 #include <stdio.h>
 #include <string.h>
 
-#if MM_BOARD_HAS_USB_HOST
+#if !MM_BOARD_USB_PORT_APPLICATION || MM_BOARD_HAS_USB_HOST
 #include "tusb.h"
+#endif
+#if MM_BOARD_HAS_USB_HOST
 #include "pio_usb.h"
 #endif
 
@@ -36,6 +39,53 @@
 
 static int mm_pico_stdio_attempted;
 static int mm_pico_stdio_ready;
+
+#ifndef MM_PICO_STDIO_USB_CONNECT_DELAY_MS
+#define MM_PICO_STDIO_USB_CONNECT_DELAY_MS 500
+#endif
+
+#if !MM_BOARD_USB_PORT_APPLICATION
+static volatile uint64_t mm_pico_usb_mounted_time;
+static volatile int mm_pico_usb_mounted;
+
+void tud_mount_cb(void) {
+    mm_pico_usb_mounted_time = time_us_64();
+    mm_pico_usb_mounted = 1;
+}
+
+void tud_umount_cb(void) {
+    mm_pico_usb_mounted_time = 0;
+    mm_pico_usb_mounted = 0;
+}
+
+void tud_suspend_cb(bool remote_wakeup_en) {
+    (void)remote_wakeup_en;
+    mm_pico_usb_mounted_time = 0;
+    mm_pico_usb_mounted = 0;
+}
+
+void tud_resume_cb(void) {
+    mm_pico_usb_mounted_time = time_us_64();
+    mm_pico_usb_mounted = 1;
+}
+
+static int mm_pico_usb_is_connected(void) {
+    if (!stdio_usb_connected()) {
+        mm_pico_usb_mounted = 0;
+        mm_pico_usb_mounted_time = 0;
+        return 0;
+    }
+    if (tud_cdc_connected()) return 1;
+    if (MM_PICO_STDIO_USB_CONNECT_DELAY_MS == 0) return 1;
+    if (!mm_pico_usb_mounted) {
+        mm_pico_usb_mounted_time = time_us_64();
+        mm_pico_usb_mounted = 1;
+        return 0;
+    }
+    return (time_us_64() - mm_pico_usb_mounted_time >=
+            ((uint64_t)MM_PICO_STDIO_USB_CONNECT_DELAY_MS * 1000ULL)) ? 1 : 0;
+}
+#endif
 
 #if MM_BOARD_HAS_USB_HOST
 // A board with a PIO USB host port. Pico-PIO-USB bit-bangs full-speed USB and
@@ -138,7 +188,7 @@ int mm_pico_stdio_write(const unsigned char* data, size_t size, size_t* written)
     return MM_PICO_STDIO_UNSUPPORTED;
 #endif
 #else
-    if (size == 0 || !stdio_usb_connected()) return MM_PICO_STDIO_OK;
+    if (size == 0 || !mm_pico_usb_is_connected()) return MM_PICO_STDIO_OK;
     if (stdio_usb.out_chars == NULL) return MM_PICO_STDIO_UNSUPPORTED;
 
     stdio_usb.out_chars((const char*)data, (int)size);
@@ -168,7 +218,7 @@ int mm_pico_stdio_read(unsigned char* data, size_t size, size_t* count) {
     return MM_PICO_STDIO_UNSUPPORTED;
 #endif
 #else
-    if (size == 0 || !stdio_usb_connected()) return MM_PICO_STDIO_OK;
+    if (size == 0 || !mm_pico_usb_is_connected()) return MM_PICO_STDIO_OK;
     if (stdio_usb.in_chars == NULL) return MM_PICO_STDIO_UNSUPPORTED;
 
     const int result = stdio_usb.in_chars((char*)data, (int)size);
@@ -205,7 +255,7 @@ int mm_pico_stdio_connected(int* connected) {
     *connected = 1;
     return MM_PICO_STDIO_OK;
 #else
-    *connected = stdio_usb_connected() ? 1 : 0;
+    *connected = mm_pico_usb_is_connected();
     return MM_PICO_STDIO_OK;
 #endif
 }

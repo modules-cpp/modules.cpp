@@ -61,6 +61,19 @@ if(MM_BOARD STREQUAL "pico_usb_device" OR
   set(MM_BOARD_USB_PORT "application")
 endif()
 
+# USB CDC connect delay in milliseconds (default 500 ms).
+# Slower hosts (such as Raspberry Pi acting as test host) need time after
+# USB enumeration for the cdc_acm driver to bind and serial terminals to open.
+# An explicit CMake -DMM_PICO_STDIO_USB_CONNECT_DELAY_MS takes precedence,
+# followed by environment variable MM_PICO_STDIO_USB_CONNECT_DELAY_MS.
+if(NOT DEFINED MM_PICO_STDIO_USB_CONNECT_DELAY_MS)
+  if(DEFINED ENV{MM_PICO_STDIO_USB_CONNECT_DELAY_MS})
+    set(MM_PICO_STDIO_USB_CONNECT_DELAY_MS $ENV{MM_PICO_STDIO_USB_CONNECT_DELAY_MS})
+  else()
+    set(MM_PICO_STDIO_USB_CONNECT_DELAY_MS 500)
+  endif()
+endif()
+
 # A PIO USB host port, two GPIOs Pico-PIO-USB drives as a second USB port, D+
 # on MM_BOARD_USB_HOST_DP_PIN and D- on the next; the native port stays the
 # USB console. Only a board that says so has one: the pico_usb_host and
