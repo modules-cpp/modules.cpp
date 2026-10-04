@@ -88,7 +88,7 @@ void tud_mount_cb(void) {
 }
 
 void tud_umount_cb(void) {
-    mm_pico_usb_state_val = MM_PICO_USB_STATE_DECONFIGURED;
+    mm_pico_usb_state_val = MM_PICO_USB_STATE_DEFAULT;
     mm_pico_queue_event(MM_PICO_USB_EVENT_DECONFIGURED, NULL);
 }
 
