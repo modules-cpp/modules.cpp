@@ -134,6 +134,20 @@ if(MM_BOARD STREQUAL "rp2040_zero" OR
   set(MM_BOARD_HAS_LED 0)
 endif()
 
+# The Waveshare RP2350-PiZero is an RP2350B, and pico2.h defines PICO_RP2350A
+# as one without a guard, so no definition here can make a pico2 build see the
+# B package's forty-eight GPIOs. Its row selects the SDK's own header instead,
+# MM_PICO_BOARD_HEADER, which the bridge uses in place of the vendor board's;
+# that header sets the B package, 16MB of flash, UART1 on GP4 and GP5, and no
+# LED. ADC_AVDD is the 3V3 rail. No second I2C or UART: the header's defaults
+# are already instance one on the 40-pin header's pins.
+set(MM_PICO_BOARD_HEADER "")
+if(MM_BOARD STREQUAL "rp2350_pizero")
+  set(MM_PICO_BOARD_HEADER waveshare_rp2350_pizero)
+  set(MM_ADC_REFERENCE_MV 3300)
+  set(MM_BOARD_HAS_LED 0)
+endif()
+
 # The Waveshare RP2350-Touch-LCD-2.8, per its schematic: ADC_AVDD is the 3V3
 # rail, and GP25, pico2's LED, is the battery key, so there is no LED. Its
 # GP0 and GP1 are the exposed UART, so pico2's default UART stands.

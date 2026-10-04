@@ -19,6 +19,12 @@ All notable changes to modules.cpp. Versions follow [semantic versioning](https:
   light), a 3300 mV ADC reference, and the second I2C and UART wirings on free
   header pins. Wiring is from Waveshare's
   schematics; not yet qualified on hardware.
+- **`rp2350_pizero` board.** The Waveshare RP2350-PiZero, under
+  `boards/pizero`, deriving from `pico2-arm`. It is an RP2350B, so the Pico
+  bridge's board table gains `MM_PICO_BOARD_HEADER`, which selects the SDK's
+  `waveshare_rp2350_pizero` header in place of `pico2` for it: 48 GPIOs, 16MB
+  of flash, UART1 on GP4/GP5, no LED. 3300 mV ADC reference. Wiring is from
+  Waveshare's schematic; not yet qualified on hardware.
 - **`mm.led` and `mm.led.ws2812b`.** A platform interface for chains of
   addressable RGB LEDs, with mm.display's lifecycle (`initialize`, `write`,
   `refresh`, `clear`, `sleep`), and a portable WS2812B controller that owns the

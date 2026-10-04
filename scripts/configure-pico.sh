@@ -4,7 +4,7 @@
 #   scripts/configure-pico.sh [-b|--board BOARD] [--print]
 #
 # Boards: pico, pico-w, pico2-arm, pico2-w-arm, pico2-riscv, pico2-w-riscv,
-# rp2040_geek, rp2350_geek, rp2040_zero, rp2350_zero.
+# rp2040_geek, rp2350_geek, rp2040_zero, rp2350_zero, rp2350_pizero.
 #
 # Two calls to configure, not one. The first resolves the configuration back
 # to the host alone, so a board, SDK, or compiler left by a previous lane
@@ -58,7 +58,7 @@ done
 
 # The one table. Everything else that needs to know what a board is asks here.
 case "$board" in
-    pico|pico-w|pico2-arm|pico2-w-arm|rp2040_geek|rp2350_geek|rp2040_zero|rp2350_zero)
+    pico|pico-w|pico2-arm|pico2-w-arm|rp2040_geek|rp2350_geek|rp2040_zero|rp2350_zero|rp2350_pizero)
         target=arm-none-eabi
         compiler=arm-none-eabi-gcc
         sdk=pico-arm
@@ -72,7 +72,7 @@ case "$board" in
         echo "$script_name: unsupported board: $board" >&2
         echo "  boards: pico, pico-w, pico2-arm, pico2-w-arm, pico2-riscv," >&2
         echo "          pico2-w-riscv, rp2040_geek, rp2350_geek, rp2040_zero," >&2
-        echo "          rp2350_zero" >&2
+        echo "          rp2350_zero, rp2350_pizero" >&2
         exit 64
         ;;
 esac

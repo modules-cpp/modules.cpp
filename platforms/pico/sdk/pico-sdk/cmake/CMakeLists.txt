@@ -27,6 +27,13 @@ elseif(MM_VENDOR_BOARD STREQUAL "pico2-w-riscv")
   set(PICO_PLATFORM rp2350-riscv CACHE STRING "" FORCE)
 endif()
 
+# A board whose chip differs from its vendor ancestor's in what only an SDK
+# board header can say -- the RP2350B package -- names that header in the
+# board table. PICO_PLATFORM stays the vendor board's: the cores are the same.
+if(MM_PICO_BOARD_HEADER)
+  set(PICO_BOARD ${MM_PICO_BOARD_HEADER} CACHE STRING "" FORCE)
+endif()
+
 get_filename_component(MM_COMPILER_DIRECTORY ${MM_C_COMPILER} DIRECTORY)
 set(PICO_TOOLCHAIN_PATH ${MM_COMPILER_DIRECTORY} CACHE PATH "" FORCE)
 set(CMAKE_C_COMPILER ${MM_C_COMPILER} CACHE FILEPATH "" FORCE)

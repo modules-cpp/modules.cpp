@@ -6,7 +6,8 @@
 # and GP3, GP4 and GP5, and GP28 and GP29 on the three headers -- so on them
 # the build is the whole check. The Waveshare Zero boards, rp2040_zero and
 # rp2350_zero, have GPIO14 and GPIO15 on header pins 15 and 16, so the wired
-# run works on them as on a Pico.
+# run works on them as on a Pico. So it does on the Waveshare RP2350-PiZero,
+# rp2350_pizero, whose GPIO14 and GPIO15 are 40-pin header pins 7 and 29.
 
 # Sort, compare, and match bytes, and keep tool messages untranslated,
 # whatever the caller's locale.
@@ -26,7 +27,8 @@ wrapper_pico="--abi mm_pico_mcu_gpio_watch --abi mm_pico_mcu_gpio_wait"
 wrapper_linux=""
 wrapper_usage="apps/gpio-edge-smoke: the GPIO edge latch on a Pico board
 GEEK boards: --board rp2040_geek or --board rp2350_geek (build only)
-Zero boards: --board rp2040_zero or --board rp2350_zero"
+Zero boards: --board rp2040_zero or --board rp2350_zero
+PiZero board: --board rp2350_pizero"
 
 wrapper_after() {
     case "$board" in
@@ -34,6 +36,11 @@ wrapper_after() {
             echo "Hardware check: none on $board; GPIO14 and GPIO15 reach no header,"
             echo "  so the GPIO14 to GPIO15 jumper cannot be fitted."
             return
+            ;;
+    esac
+    case "$board" in
+        rp2350_pizero)
+            echo "On rp2350_pizero GPIO14 is 40-pin header pin 7 and GPIO15 pin 29."
             ;;
     esac
     echo "Hardware check: join GPIO14 (driver) to GPIO15 (sensor), then flash"

@@ -203,6 +203,18 @@ not a GPIO-driven LED; and the second I2C and UART wirings, whose GP8, GP9,
 GP26, and GP27 are free header pins. GP0 and GP1 are on the header, so the
 vendor board's default UART stands.
 
+boards/pizero holds the Waveshare RP2350-PiZero, rp2350_pizero, which derives
+from pico2-arm but is an RP2350B. pico2.h defines PICO_RP2350A as one without a
+guard, so no definition the board table passes can make a pico2 build see the
+B package. The table therefore carries one more column, MM_PICO_BOARD_HEADER:
+an SDK board header the bridge selects as PICO_BOARD in place of the vendor
+board's, for a board whose chip differs in what only a header can say.
+rp2350_pizero names waveshare_rp2350_pizero, which sets the B package's
+forty-eight GPIOs, 16MB of flash, UART1 on GP4 and GP5, and no LED;
+PICO_PLATFORM stays pico2-arm's, because the cores are the same, and the board
+chain the model sees is unchanged. Its row adds a 3,300 millivolt reference and
+claims no second I2C or UART, the header's defaults already being instance one.
+
 pico2-arm and pico2-w-arm declare security-domain: secure and select the Arm
 Secure processor row. rp2350-ram omits the key, keeps the non-secure default,
 and therefore keeps its three-argument commands unchanged.

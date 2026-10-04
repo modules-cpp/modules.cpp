@@ -6,7 +6,8 @@
 # the stick's USB-A plug, so the console appears once the board is plugged
 # straight into the host; the UART header is not the console. The Waveshare
 # Zero boards, rp2040_zero and rp2350_zero, give the console on their USB-C
-# socket.
+# socket, and the RP2350-PiZero, rp2350_pizero, on its native USB-C socket,
+# not the one marked PIO-USB.
 
 # Sort, compare, and match bytes, and keep tool messages untranslated,
 # whatever the caller's locale.
@@ -26,7 +27,8 @@ wrapper_pico=""
 wrapper_linux=""
 wrapper_usage="apps/stdio-smoke: the portable console
 GEEK boards: --board rp2040_geek or --board rp2350_geek
-Zero boards: --board rp2040_zero or --board rp2350_zero"
+Zero boards: --board rp2040_zero or --board rp2350_zero
+PiZero board: --board rp2350_pizero"
 
 wrapper_after() {
     echo "Hardware check: flash apps/stdio-smoke/, open the USB CDC terminal, then"
