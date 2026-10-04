@@ -25,6 +25,19 @@ wrapper_usage="apps/rgb-led-smoke: the board's RGB LEDs through mm.led
 Zero boards: --board rp2040_zero or --board rp2350_zero"
 
 wrapper_after() {
+    case "$board" in
+        rp2040_zero|rp2350_zero)
+            # The Zero boards' only LED is the WS2812B; GP16 reaches no pin, so
+            # there is nothing to wire and nothing to probe from the header.
+            echo "Hardware check: hold BOOT and press RESET to enter BOOTSEL over the"
+            echo "  USB-C socket, flash apps/rgb-led-smoke/, and watch the WS2812B on"
+            echo "  GP16, the board's only LED: red, green, blue, and white for a second"
+            echo "  each, about eight seconds of colour wheel, then dark. Red and green"
+            echo "  swapped mean the byte order is wrong; no light at all means the"
+            echo "  pulse output never reached GP16."
+            return
+            ;;
+    esac
     echo "Hardware check: flash apps/rgb-led-smoke/ and watch the LED: red, green,"
     echo "  blue, and white for a second each, a colour wheel, then dark. Red and"
     echo "  green swapped mean the controller's byte order is wrong."
