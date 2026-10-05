@@ -208,6 +208,7 @@ The source tree is organized by responsibility.
 |   +-- modules-lcd.mdy       portable colour LCD controllers and ST7789
 |   +-- modules-led.mdy       addressable RGB LEDs, WS2812B, and mm.mcu pulse
 |   +-- modules-libraries.mdy vendored library and wrapper specification
+|   +-- modules-linux-storage.mdy  emulated SD card and SPI flash on Linux
 |   +-- modules-mm.mdy        manifest schema specification, every mm: version
 |   +-- modules-model.mdy     the abstract data model
 |   +-- modules-parse.mdy     shared shell scanner, number and time readers
@@ -220,6 +221,7 @@ The source tree is organized by responsibility.
 |   +-- modules-run.mdy       run tool and runner specification
 |   +-- modules-shell.mdy     the project shell, embedded to full profile
 |   +-- modules-sketch.mdy    mm.sketch, the Arduino-compatible vocabulary
+|   +-- modules-spiflash.mdy  SPI NOR flash chips as an mm.fs flash device
 |   +-- modules-stdio.mdy     portable console and Pico USB CDC provider
 |   +-- modules-test.mdy      test tool and target execution specification
 |   +-- modules-touch.mdy     portable touch interface and CST328 driver

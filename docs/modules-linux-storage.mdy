@@ -1,0 +1,174 @@
+---
+mm: 1.0
+kind: doc
+name: modules.cpp Linux storage emulation
+status: official
+release: v1.3.1
+---
+
+# modules.cpp Linux storage emulation
+
+# Status and authority
+
+status: official gives the implemented portions of this document the same
+authority as the other specifications. This document specifies the
+storage-linux board and the modules under
+platforms/linux/storage: a virtual SD card in SPI mode and a virtual
+W25Q-family SPI NOR flash on one SPI bus, each keeping its contents in an
+image file. They exist, mm.sdcard and mm.spiflash are tested against them,
+and apps/socket-smoke runs on them. FAT on the card and littlefs on the flash
+need FatFs and littlefs compiled for Linux, which is stage 8 of
+drafts/plan-mm-fs-5.mdy; until then mm.fs.fat and mm.fs.littlefs are unbound
+on these boards, and a program reaching them is unavailable there.
+
+docs/modules-sdcard.mdy and docs/modules-spiflash.mdy own the drivers;
+docs/modules-platform-linux.mdy owns the device map keys.
+
+# Layout
+
+Opening fence
+platforms/linux/storage/store      platform.linux.storage.store     BlockStore, MemoryStore, FileStore
+platforms/linux/storage/sdcard     platform.linux.storage.sdcard    the virtual SD card
+platforms/linux/storage/spiflash   platform.linux.storage.spiflash  the virtual NOR flash
+platforms/linux/storage/bus        platform.linux.storage.bus       mm.mcu over both, registering nothing
+platforms/linux/storage/device     platform.linux.storage.device    the bus over image files, as mm.mcu
+platforms/linux/storage/socket     platform.linux.storage.socket    the card as mm.sdcard.socket
+platforms/linux/storage/board      storage-linux-x86_64
+platforms/linux/storage/board-aarch64  storage-linux-aarch64
+Closing fence
+
+storage-linux is one board on every Linux machine: --board storage-linux,
+and storage for short, select the manifest for the machine's architecture,
+storage-linux-x86_64 or storage-linux-aarch64, as sdl, epaper, and lcd do.
+There are two manifests because a board fixes its SDK and processor.
+
+The store, the chips, and the bus use only the standard library and mm.mcu,
+so tests build them over memory. The boards derive from generic-linux-* and
+bind mm.mcu to the device, mm.sdcard.socket to the socket, and
+platform.linux.map to platform.linux.defaults, the SDK's own map, which reads
+MM_LINUX_DEVICE_MAP. Selecting the board is the only way anything pays for
+the emulation; the host's own GPIO, SPI, I2C, UART, ADC, and PWM are not
+reachable on it.
+
+# Wiring
+
+Opening fence
+SPI 0         clock GPIO 18, transmit GPIO 19, receive GPIO 20
+SD card       chip select GPIO 23
+SPI flash     chip select GPIO 17
+Closing fence
+
+The card's wiring is rp2040_geek's TF socket. Both selects start high. A
+chip whose select is high ignores the bus and leaves the receive line high; a
+byte clocked with both low is answered 0xFF and counted as a wiring error. A
+configuration naming other pins or another instance is BadArgument. Time is
+the host's steady clock, and delays sleep. mm.mcu's board names the five
+GPIOs and the SPI wiring, with the card's select as its chip select.
+
+# The images
+
+sdcard.path, sdcard.size (default 64 MiB), sdcard.kind (sdhc or sdsc),
+spiflash.path, and spiflash.size (default 16 MiB) name and size them; without
+a path they are sdcard.img and spiflash.img in the working directory. They
+are opened at the first mm.mcu call. A missing image is made at its size --
+the card zero-filled, the flash all 0xFF, as a new card and an erased chip
+read -- and an existing one keeps its contents and its own size. Every block
+or page is written through and flushed as it is written, so a program killed
+mid-run leaves an image as consistent as the file system on it made it. An
+image the chip cannot be -- an SDHC size that is not whole 512 KiB, an SDSC
+size that is not whole 256 KiB or is over 1 GiB, a flash size that is not a
+power of two from 64 KiB to 16 MiB -- or that cannot be opened leaves that
+chip absent, with one line on standard error; an SD size that does not fit is
+refused before the file is made.
+
+The images are ordinary files in standard formats. An SD image is a whole
+card, which dd writes to a real card and reads back from one, and which host
+tools make and inspect:
+
+Opening fence
+mkfs.fat -F 32 -C sdcard.img 65536           # 64 MiB, size in KiB
+mcopy -i sdcard.img config.txt ::/
+mdir -i sdcard.img ::/
+fsck.fat -n sdcard.img
+Closing fence
+
+A flash image is a W25Q's whole contents, which a programmer writes to a real
+chip; littlefs-python makes and reads littlefs images with the 4096-byte
+block size mm.fs.littlefs uses:
+
+Opening fence
+littlefs-python create data/ spiflash.img --fs-size=16mb --block-size=4096
+littlefs-python extract spiflash.img out/ --block-size=4096
+Closing fence
+
+mkfs.fat and fsck.fat are dosfstools, mcopy and mdir mtools, and
+littlefs-python is on PyPI.
+
+# The virtual SD card
+
+platform.linux.storage.sdcard answers every byte the host clocks with the
+byte a card would put on MISO, 0xFF when it has nothing to say, following the
+SD Physical Layer Simplified Specification's SPI mode:
+
+- CMD0 with a correct CRC enters SPI mode, idle; a CMD0 with a bad CRC is
+  ignored. CMD8 is always CRC-checked, and every command once CMD59 turns
+  checking on: a bad CRC7 is the CRC error bit.
+- In the idle state only CMD0, CMD1, CMD8, CMD55, ACMD41, CMD58, and CMD59
+  are legal; anything else is the illegal-command bit.
+- CMD8 echoes its voltage and pattern on a version 2 card and is illegal on a
+  version 1 one. ACMD41 answers idle for two polls and ready on the third;
+  an SDHC card asked without HCS stays idle.
+- CMD58 reports CCS on SDHC. CMD9 sends a CSD -- version 2 on SDHC, version 1
+  with READ_BL_LEN 9 and C_SIZE_MULT 7 otherwise -- describing the image,
+  and CMD10 a CID naming the emulator, each a data block with its CRC16 and
+  its own CRC7.
+- CMD16 must be 512. CMD17 reads a block; CMD18 streams blocks until CMD12,
+  which is answered after a stuff byte. CMD24 writes one block after a 0xFE
+  token; CMD25 writes blocks after 0xFC tokens until the 0xFD stop token.
+  Each block is answered 0x05 accepted, 0x0B on a bad CRC16 with checking on,
+  or 0x0D on a write error, and then busy. CMD13 answers R2, its second byte
+  0x04 while write-protected.
+- SDHC addresses blocks and SDSC bytes; an address past the end, or a byte
+  address that is not a whole block, is the address-error bit.
+
+Test hooks, not map keys, inject faults: remove (no answer at all), insert
+(powered up afresh, contents kept), write_protect, fail_writes_after a number
+of blocks, and corrupt_next_read's CRC16. commands() records every command
+index received.
+
+# The virtual SPI flash
+
+platform.linux.storage.spiflash is a W25Q at its image's size, answering
+JEDEC EF 40 n for 2^n bytes -- EF 40 18 for 16 MiB, a W25Q128. It answers
+JEDEC ID, status 1 and 2 (0x05, 0x35), write enable and disable (0x06,
+0x04), read and fast read (0x03, 0x0B), page program (0x02), 4, 32, and
+64 KiB erases (0x20, 0x52, 0xD8), chip erase (0xC7, 0x60), power-down and
+release (0xB9, 0xAB), and reset enable then reset (0x66, 0x99).
+
+- Program ANDs the page's bytes into the array; bits it would set from 0 to
+  1 stay and are counted (unerased_bits). Bytes past the page's end wrap to
+  its start, and later bytes replace earlier ones in the latch.
+- Program and erase take effect when chip select rises, need WEL, clear it,
+  and are ignored and counted without it (unenabled_writes).
+- After a program or erase, BUSY shows in busy_reads status reads, at least
+  one, and any command but a status read meanwhile is ignored and counted
+  (busy_violations), so a driver that never polls is caught.
+- In power-down only release power-down is answered.
+
+# apps/socket-smoke
+
+Opening fence
+sh scripts/build-socket.sh --run                     # storage-linux
+MM_LINUX_DEVICE_MAP=/path/to/storage.map sh scripts/build-socket.sh --run
+Closing fence
+
+prints the card's geometry and writes, reads back, and restores its last
+block; on the default image, socket-smoke: 131072 blocks of 512 bytes.
+
+# Tests
+
+tests/mm/linux checks the chips on their own -- the card's SPI-mode replies
+byte by byte, the flash's NOR behaviour, wrap, latches, BUSY, power-down,
+and reset -- and with mm.sdcard and mm.spiflash driving them through the bus,
+both drivers in turn on one bus with no wiring errors, FileStore's making and
+keeping of an image, and the five device-map keys with their refusals.

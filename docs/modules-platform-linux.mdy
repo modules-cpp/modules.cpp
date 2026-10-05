@@ -176,6 +176,12 @@ flash.size = BYTES                 # default 1 MiB; a new image's size
 flash.erase-size = BYTES           # default 4096
 flash.program-size = BYTES         # default 256
 
+sdcard.path = "/..."               # storage-linux: the SD card image
+sdcard.size = BYTES                # default 64 MiB; whole 512-byte blocks
+sdcard.kind = sdhc|sdsc            # default sdhc
+spiflash.path = "/..."             # storage-linux: the SPI NOR flash image
+spiflash.size = BYTES              # default 16 MiB; a power of two, 64 KiB-16 MiB
+
 usb.host.detach-kernel-drivers = yes|no  # default no; allows detaching driver
 
 usb.device.functionfs = "/dev/..."      # FunctionFS mount point
@@ -233,6 +239,19 @@ rather than ANDed as NOR flash would, so a driver that programs without
 erasing is caught. A relative path, a size that is not whole erase blocks, or
 an erase size that is not whole program units is an error at resolution.
 Without flash.path the region is Unsupported.
+
+sdcard.* and spiflash.* are read only on the storage-linux-x86_64 and
+storage-linux-aarch64 boards, whose mm.mcu is platform.linux.storage.device:
+an emulated SD card and W25Q-family flash on SPI 0, each keeping its contents
+in an image file. Without a path, the images are sdcard.img and spiflash.img
+in the working directory. A missing file is made at its size, the card's
+zero-filled and the flash's all 0xFF; one that exists keeps its contents and
+its size. A relative path, an SD size that is not whole 512-byte blocks, or a
+flash size that is not a power of two from 64 KiB to 16 MiB is an error at
+resolution. An image whose own size the card kind cannot describe -- SDHC
+wants whole 512 KiB, SDSC whole 256 KiB up to 1 GiB -- or that cannot be
+opened leaves that chip absent, with one line on standard error saying why.
+docs/modules-linux-storage.mdy describes the emulation.
 
 ## An example
 

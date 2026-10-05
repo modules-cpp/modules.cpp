@@ -1,0 +1,92 @@
+---
+mm: 1.0
+kind: doc
+name: modules.cpp SPI flash
+status: official
+release: v1.3.1
+---
+
+# modules.cpp SPI flash
+
+# Status and authority
+
+status: official gives the implemented portions of this document the same
+authority as the other specifications. This document specifies mm.spiflash,
+an SPI NOR flash chip of the Winbond W25Q family as an mm.fs FlashDevice. It
+exists and is tested on Linux against the emulated chip of
+docs/modules-linux-storage.mdy. No board binds a chip yet, and behaviour on a
+real chip remains a hardware-qualification requirement.
+
+docs/modules-fs.mdy owns the FlashDevice seam and mm.fs.littlefs, which mounts
+what this module presents. docs/modules-platform-mcu.mdy owns the SPI and
+GPIO facilities it drives.
+
+# mm.spiflash
+
+Opening fence
+namespace mm::spiflash {
+
+struct Wiring {
+    mm::mcu::SpiConfiguration spi;    // instance and pins; baud 0 is default_baud
+    unsigned int chip_select_gpio = 0;
+};
+
+inline constexpr unsigned long default_baud = 20'000'000;
+
+class Chip final : public mm::fs::FlashDevice {
+public:
+    explicit Chip(Wiring wiring);
+    Status geometry(FlashGeometry&);              // 1, 256, 4096, size / 4096
+    Status read(std::uint64_t offset, std::span<std::byte>);
+    Status program(std::uint64_t offset, std::span<const std::byte>);
+    Status erase(std::uint64_t offset, std::uint64_t size);
+    Status sync();                                // Ok: nothing is held back
+    std::uint32_t jedec_id() const;               // 0 until identified
+};
+
+}
+Closing fence
+
+The chip is identified on first use, not at construction. Identification
+configures SPI in mode 0, most significant bit first, at the wiring's baud,
+makes the chip select an output and raises it, sends release power-down
+(0xAB) and waits 5 us, reads status register 1 (0x05), waits for BUSY to
+clear, and reads the JEDEC ID (0x9F). A status of 0xFF -- a receive line
+nobody drives -- or a manufacturer byte of 0x00 or 0xFF is no chip,
+TransportError. The capacity byte n gives 2^n bytes; n outside 16 to 24,
+64 KiB to 16 MiB, the range three address bytes reach, is Unsupported.
+
+Opening fence
+0x9F  JEDEC ID          manufacturer, memory type, capacity
+0x05  read status 1     BUSY (bit 0), WEL (bit 1)
+0x06  write enable      before every program and erase
+0x03  read              24-bit address, any length
+0x02  page program      24-bit address, one 256-byte page
+0x20  sector erase      4 KiB
+0xD8  block erase       64 KiB, where an erase covers a whole aligned block
+0xAB  release power-down
+Closing fence
+
+read takes any offset and length inside the chip. program takes whole pages
+at page-aligned offsets, and erase whole sectors at sector-aligned offsets;
+anything else, or a range past the end, is BadArgument before the bus is
+touched. Each page program and each erase is: write enable, a status read
+that must show WEL, the command with its address and data, chip select
+raised, and status reads until BUSY clears -- within 10 ms for a page, 1 s
+for a sector, 4 s for a block, each well past the datasheets' maxima -- or
+Timeout. Any failure forgets the chip and the next call identifies it again.
+Chip select is low only inside a command, so the bus can be shared.
+
+littlefs on a chip uses a block size of 4096, the erase size, which is also
+what littlefs-python's images use.
+
+# Tests
+
+tests/mm/linux drives Chip, unmodified, against the emulated W25Q through the
+storage-linux bus: geometry and the JEDEC ID, an erase that uses one block
+and two sectors and touches exactly its range, programs read back from any
+byte, refusals of unaligned and out-of-range arguments, a missing chip
+answered at once, and a capacity below 64 KiB. The emulator counts programs
+of unerased bits, programs and erases without write enable, and commands sent
+while busy; the tests require all three to stay zero, and removing the BUSY
+poll after a page program makes them fail.

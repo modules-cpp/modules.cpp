@@ -62,8 +62,8 @@ void repository_exposes_platform_definitions() {
     const auto boards = loaded.repository().boards();
     mm::test::expect(ok && sdks.size() == 9,
                      "expected all nine SDK definitions from the manifest walk");
-    mm::test::expect(boards.size() == 35,
-                     "expected all thirty-five board definitions from the manifest walk");
+    mm::test::expect(boards.size() == 37,
+                     "expected all thirty-seven board definitions from the manifest walk");
 
     // An SDL board binds one provider module to two interfaces. Two bindings
     // naming one module is the shape a board takes when a single provider

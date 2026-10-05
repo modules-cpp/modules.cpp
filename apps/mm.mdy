@@ -11,6 +11,7 @@ folder: rgb-led-smoke
 folder: fs-smoke
 folder: fat-smoke
 folder: sd-smoke
+folder: socket-smoke
 folder: font-demo
 folder: gpio-edge-smoke
 folder: gfx-demo

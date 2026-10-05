@@ -1,0 +1,24 @@
+---
+mm: 1.2
+kind: board
+name: storage-linux-x86_64
+derives-from: generic-linux-x86_64
+platform-provider: platform.linux.map platform.linux.defaults
+platform-provider: mm.mcu platform.linux.storage.device
+platform-provider: mm.sdcard.socket platform.linux.storage.socket
+---
+
+# storage-linux-x86_64
+
+The generic hosted x86-64 board with its MCU pointed at the emulated storage
+bus: a virtual SD card in SPI mode and a virtual W25Q-family flash on SPI 0,
+each kept in an image file, and the card published as mm.sdcard.socket.
+Everything else is inherited: the same SDK and the same RTC and file-system
+providers. The device map is the SDK's own, platform.linux.defaults, rather
+than the generic board's named one, because it reads MM_LINUX_DEVICE_MAP, the
+file that names the images.
+
+Rebinding mm.mcu is what puts the chips behind the seam mm.sdcard and
+mm.spiflash talk to, so they run unmodified. Selecting this board is the only
+way anything pays for the emulation; the GPIO, SPI, I2C, UART, ADC, and PWM
+of the Linux host are not reachable on it.

@@ -83,6 +83,23 @@ All notable changes to modules.cpp. Versions follow [semantic versioning](https:
   `platform.rp2350_touch_lcd_154.sdcard`, and `platform.pizero.sdcard` for the
   GEEK, LCD 1.54, and PiZero boards. `apps/sd-smoke` and `scripts/build-sd.sh`
   check FAT on the socket's card.
+- **`storage-linux`: SD card and SPI flash emulation.** A virtual SD card in SPI mode and a virtual W25Q-family NOR
+  flash on one emulated SPI bus, each kept in an image file -- `sdcard.img`
+  and `spiflash.img` in the working directory, or wherever the new
+  `sdcard.*` and `spiflash.*` device-map keys say -- behind `mm.mcu` on a
+  board that also publishes the card as `mm.sdcard.socket`. The card follows
+  the SD specification's SPI mode, SDHC or SDSC, with CRC checking and
+  injectable faults; the flash ANDs on program, wraps pages, needs write
+  enable, reports BUSY, and counts a driver's mistakes. Images are ordinary
+  files that `mkfs.fat`, `fsck.fat`, `mtools`, and `littlefs-python` make and
+  read. `apps/socket-smoke` and `scripts/build-socket.sh` round-trip the
+  socket's last block; `--board storage-linux` selects it on any Linux machine. See
+  `docs/modules-linux-storage.mdy`.
+- **`mm.spiflash`.** A W25Q-family SPI NOR flash chip over `mm.mcu` SPI as an
+  `mm.fs` flash device: identified by JEDEC ID, 64 KiB to 16 MiB, page
+  programs and 4 KiB or 64 KiB erases behind write enable and BUSY polling,
+  re-identified after any failure. Tested against the emulated chip; see
+  `docs/modules-spiflash.mdy`.
 - **`apps/rgb-led-smoke` and `scripts/build-rgb-led.sh`.** Red, green, blue,
   white, and a colour wheel on any board that binds `mm.led`; the default board
   is `rp2040_zero`.

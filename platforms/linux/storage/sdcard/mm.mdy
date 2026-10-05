@@ -1,0 +1,44 @@
+---
+mm: 1.2
+kind: module
+name: linux-storage-sdcard
+module: platform.linux.storage.sdcard
+use: platform.linux.storage.store
+file: sdcard.cppm
+file: src/sdcard.cpp
+---
+
+# platform.linux.storage.sdcard
+
+A virtual SD card in SPI mode, byte by byte: every byte the host clocks out is
+answered by the byte a card would put on MISO, 0xFF when it has nothing to
+say. It follows the SD Physical Layer Simplified Specification's SPI mode as
+far as a driver can see:
+
+- CMD0 with chip select low and a correct CRC enters SPI mode and answers
+  idle; a CMD0 with a bad CRC is ignored, as a card ignores it.
+- In the idle state only CMD0, CMD1, CMD8, CMD55, ACMD41, CMD58, and CMD59
+  are legal; anything else is the illegal-command bit.
+- CMD8 echoes the voltage and check pattern on a version 2 card and is
+  illegal on a version 1 one. CMD55 then ACMD41 answers idle for two polls
+  and ready on the third; an SDHC card asked without HCS stays idle.
+- CMD58 reports CCS for an SDHC card; CMD9 and CMD10 send a CSD -- version 2
+  for SDHC, version 1 with READ_BL_LEN 9 and C_SIZE_MULT 7 otherwise -- and a
+  CID naming the emulator, each as a data block with its CRC16.
+- CMD16 must be 512. CMD17 and CMD18 read, CMD18 streaming until CMD12;
+  CMD24 and CMD25 write after the 0xFE or 0xFC token, CMD25 ending at the
+  0xFD stop token, each block answered 0x05 and a few bytes of busy.
+- CMD59 turns CRC checking on, after which a command with a bad CRC7 is
+  answered with the CRC error bit and a data block with a bad CRC16 with
+  0x0B, unwritten. CMD0 and CMD8 are always checked. CMD13 answers R2.
+- An address past the end, or a byte address that is not a whole block on a
+  standard-capacity card, is the address error bit.
+
+Faults are part of the model, set from tests: the card removed (no answer at
+all) and inserted (powered up afresh, its contents kept), write protection
+(writes answered 0x0D, unwritten), a write failing after a number of blocks,
+and the next read's CRC16 corrupted.
+
+It uses only the standard library and the store, and builds on the host lane.
+SDHC wants a size of whole 512 KiB; standard capacity whole 256 KiB, at most
+1 GiB, which the version 1 CSD's fields can describe.

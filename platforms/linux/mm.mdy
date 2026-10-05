@@ -23,6 +23,7 @@ folder: generic-x86_64
 folder: sdl-x86_64
 folder: epaper
 folder: lcd
+folder: storage
 folder: libusb
 folder: usb/device
 ---

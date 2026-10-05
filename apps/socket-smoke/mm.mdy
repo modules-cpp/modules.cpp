@@ -1,0 +1,34 @@
+---
+mm: 1.2
+kind: app
+name: socket-smoke
+use: mm.fs
+use: mm.sdcard.socket
+use: mm.stdio
+file: main.cpp
+---
+
+# socket-smoke
+
+A portable application for the board's SD socket below any file system: it
+asks mm.sdcard.socket's card for its geometry, prints the block count and
+size, then saves the last block, writes a pattern over it, reads the pattern
+back, and writes the saved block back, checking each step. It names no pin:
+the board's socket provider knows them. On storage-linux-x86_64 and
+storage-linux-aarch64 the card is the emulated one in sdcard.img; on a Pico
+board it is the card in the TF socket.
+
+The last block is outside every file system mkfs.fat makes on a whole card,
+and it is restored, so the card's contents are as they were. An empty socket
+skips, exiting 0.
+
+Exit codes:
+
+| Code | Meaning |
+| --- | --- |
+| 0 | The round trip passed, or the socket was empty and the run skipped. |
+| 1 | The card answered its geometry with another failure. |
+| 2 | Reading the last block failed. |
+| 3 | Writing the pattern failed. |
+| 4 | The pattern did not read back. |
+| 5 | Restoring the saved block failed; the last block holds the pattern. |

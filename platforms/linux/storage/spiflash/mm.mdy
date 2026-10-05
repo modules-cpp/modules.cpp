@@ -1,0 +1,37 @@
+---
+mm: 1.2
+kind: module
+name: linux-storage-spiflash
+module: platform.linux.storage.spiflash
+use: platform.linux.storage.store
+file: spiflash.cppm
+file: src/spiflash.cpp
+---
+
+# platform.linux.storage.spiflash
+
+A virtual W25Q-family SPI NOR flash at the size of its store, byte by byte,
+with the JEDEC ID of the Winbond part of that size: EF 40 18 for 16 MiB, EF 40
+17 for 8 MiB, and so on down to 64 KiB. It answers the command set mm.spiflash
+uses -- JEDEC ID 0x9F, status 0x05, write enable 0x06, read 0x03, page program
+0x02, the 4 KiB sector erase 0x20 and the 64 KiB block erase 0xD8, release
+power-down 0xAB -- and, so other drivers find what they expect, fast read
+0x0B, the 32 KiB erase 0x52, chip erase 0xC7 and 0x60, write disable 0x04,
+status register 2 0x35, power-down 0xB9, and reset 0x66 then 0x99.
+
+It behaves as NOR does, so a driver's mistakes show:
+
+- Program ANDs the data into the array: a 1 can become 0, never back. A
+  program that would set a 0 to 1 leaves that bit and is counted, so a test
+  can assert a file system never programs without erasing.
+- A page program that runs past its 256-byte page wraps to the page's start.
+- Program and erase need WEL, which write enable sets and every program and
+  erase clears; without it they are ignored and counted.
+- Program and erase take effect when chip select rises, and leave BUSY set
+  for a number of status reads, at least one, so a driver that never polls is
+  caught. Any command but a status read while BUSY is ignored and counted.
+- In power-down only release power-down is answered.
+
+It uses only the standard library and the store, and builds on the host lane.
+The size must be a power of two from 64 KiB to 16 MiB, the range 24-bit
+addressing reaches.

@@ -137,6 +137,26 @@ bool apply(Map& map, std::string_view key, std::string_view text) {
         map.flash.program_size = static_cast<unsigned int>(value);
         return true;
     }
+    if (key == "sdcard.path") return quoted(text, map.sdcard.path);
+    if (key == "sdcard.size") {
+        unsigned long value = 0;
+        if (!number(text, value) || value == 0) return false;
+        map.sdcard.size = value;
+        return true;
+    }
+    if (key == "sdcard.kind") {
+        text = trim(text);
+        if (text == "sdhc") { map.sdcard.kind = SdCardKind::Sdhc; return true; }
+        if (text == "sdsc") { map.sdcard.kind = SdCardKind::Sdsc; return true; }
+        return false;
+    }
+    if (key == "spiflash.path") return quoted(text, map.spiflash.path);
+    if (key == "spiflash.size") {
+        unsigned long value = 0;
+        if (!number(text, value) || value == 0) return false;
+        map.spiflash.size = value;
+        return true;
+    }
     if (key == "usb.host.detach-kernel-drivers") return boolean(text, map.usb_host.detach_kernel_drivers);
     if (key == "usb.device.functionfs") return quoted(text, map.usb_device.functionfs);
     if (key == "usb.device.gadget") return quoted(text, map.usb_device.gadget);
@@ -303,6 +323,23 @@ MapStatus validate(Map& map, const std::string& path, ParseError& error) {
     }
     if (map.flash.size % map.flash.erase_size != 0) {
         error = {path, 0, 0, "flash.size", "not a whole number of erase blocks"};
+        return MapStatus::SyntaxError;
+    }
+    if (!map.sdcard.path.empty() && !map.sdcard.path.starts_with('/')) {
+        error = {path, 0, 0, "sdcard.path", "relative path"};
+        return MapStatus::SyntaxError;
+    }
+    if (map.sdcard.size % 512 != 0) {
+        error = {path, 0, 0, "sdcard.size", "not a whole number of 512-byte blocks"};
+        return MapStatus::SyntaxError;
+    }
+    if (!map.spiflash.path.empty() && !map.spiflash.path.starts_with('/')) {
+        error = {path, 0, 0, "spiflash.path", "relative path"};
+        return MapStatus::SyntaxError;
+    }
+    if ((map.spiflash.size & (map.spiflash.size - 1)) != 0 || map.spiflash.size < (1u << 16) ||
+        map.spiflash.size > (1u << 24)) {
+        error = {path, 0, 0, "spiflash.size", "not a power of two from 64 KiB to 16 MiB"};
         return MapStatus::SyntaxError;
     }
     if (!map.usb_device.functionfs.empty() && !map.usb_device.functionfs.starts_with('/')) {

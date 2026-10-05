@@ -126,6 +126,23 @@ struct FlashEntry {
     unsigned int program_size = 256;
 };
 
+// The storage-linux boards' emulated chips: an SD card image and a SPI NOR
+// flash image. An empty path is the default name in the working directory. A
+// file that exists keeps its contents and its size; one that does not is made
+// at size bytes, zeros for the card and 0xFF for the flash.
+enum class SdCardKind { Sdhc, Sdsc };
+
+struct SdCardEntry {
+    std::string path;
+    std::uint64_t size = 64u << 20;
+    SdCardKind kind = SdCardKind::Sdhc;
+};
+
+struct SpiFlashEntry {
+    std::string path;
+    std::uint64_t size = 16u << 20;
+};
+
 struct UsbHostEntry {
     bool detach_kernel_drivers = false;
 };
@@ -155,6 +172,8 @@ struct Map {
     std::vector<StorageEntry> storages;
     std::vector<DirectoryEntry> directories;
     FlashEntry flash;
+    SdCardEntry sdcard;
+    SpiFlashEntry spiflash;
     UsbHostEntry usb_host;
     UsbDeviceEntry usb_device;
 };

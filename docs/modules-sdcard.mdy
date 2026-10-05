@@ -114,7 +114,11 @@ provider                               socket wiring                      boards
 platform.geek.sdcard                   SPI0 GP18/19/20, CS GP23           rp2040_geek, rp2350_geek
 platform.rp2350_touch_lcd_154.sdcard   SPI0 GP18/19/20, CS GP23           rp2350_lcd_154, rp2350_touch_lcd_154
 platform.pizero.sdcard                 SPI1 GP30/31/40, CS GP43           rp2350_pizero, rp2350_pizero_usb_host
+platform.linux.storage.socket          SPI0 GPIO 18/19/20, CS GPIO 23     storage-linux-x86_64, storage-linux-aarch64
 Closing fence
+
+The storage-linux boards' socket holds the emulated card of
+docs/modules-linux-storage.mdy, on the GEEK's wiring.
 
 The RP2350-Touch-LCD-2.8's socket is on GP19 to GP24, where GP19 is an SPI TX
 position and GP20 an RX one, so hardware SPI cannot drive it and it has no
@@ -143,3 +147,17 @@ missing card, one that never leaves idle, a corrupt read and recovery, a card
 pulled mid-read and put back, chip select between transactions, and the
 socket fallback. Dropping the CRC16 check, or always block addressing, makes
 them fail.
+
+tests/mm/linux also drives SpiCard, unmodified, against the storage-linux
+emulator's card through its mm.mcu bus: SDHC and both SDSC kinds, single and
+multiple blocks landing at the right bytes of the store, and the emulator's
+faults -- removal and reinsertion, write protection, a corrupt read, and a
+write failing partway -- each reaching the driver as TransportError and
+recovered from.
+
+# apps/socket-smoke
+
+socket-smoke works on mm.sdcard.socket's card below any file system: it
+prints the geometry, then saves the last block, writes a pattern over it,
+reads it back, and restores it. scripts/build-socket.sh builds it, by default
+for storage, the emulated card, where --run runs it.

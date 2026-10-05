@@ -34,6 +34,7 @@ folder: rtc
 folder: rtc/pcf85063
 folder: sdcard
 folder: sdcard/socket
+folder: spiflash
 folder: run
 folder: shell
 folder: shell/mcu
