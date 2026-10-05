@@ -15,9 +15,10 @@ authority as the other specifications. This document specifies mm.fs, the
 portable file interface; mm.fs.conformance, the checks every volume is held
 to; the mount interfaces mm.fs.local and mm.fs.native; and platform.linux.fs,
 their Linux provider; mm.fs.littlefs and platform.pico.fs.littlefs, littlefs
-on Pico. All exist and are tested; mm.fs and mm.fs.conformance build for
-every target. FAT is planned in drafts/plan-mm-fs-5.mdy, which this document
-does not make official.
+on Pico; mm.fs.fat and platform.pico.fs.fat, FAT on Pico. All exist and are
+tested; mm.fs and mm.fs.conformance build for every target. What remains is
+planned in drafts/plan-mm-fs-5.mdy, which this document does not make
+official.
 
 # What mm.fs is
 
@@ -141,17 +142,24 @@ never handed to its provider.
   format(device): littlefs on a FlashDevice. mount is Corrupt for a device
   holding no littlefs volume and erases nothing; format writes an empty
   volume over the whole device. Options carry read_only and block_cycles.
+- mm.fs.fat, mount(prefix, device, options), unmount(prefix), and
+  format(device, format): FAT12, FAT16, and FAT32 on a BlockDevice of
+  512-byte blocks. mount is Corrupt for a device holding no FAT volume and
+  writes nothing to it. format writes an empty volume over the whole device
+  in an MBR partition, as a PC expects; Format::Fat is FAT12 or FAT16 as
+  FAT's rules choose for the size, Format::Fat32 FAT32, Format::Automatic
+  either. Options carry read_only.
 - mm.fs.native, mount(prefix, root, options): an absolute directory of the
   platform's own file system. A relative root is BadArgument, a missing one
   NotFound, a file NotDirectory. With contain_symlinks, on by default, a
   symbolic link whose target lies outside the root is treated as absent.
 
 Opening fence
-SDK            mm.fs.local                mm.fs.native       mm.fs.littlefs
-linux-x86_64   platform.linux.fs          platform.linux.fs  (none)
-linux-aarch64  platform.linux.fs          platform.linux.fs  (none)
-pico-arm       platform.pico.fs.littlefs  (none)             platform.pico.fs.littlefs
-pico-riscv     platform.pico.fs.littlefs  (none)             platform.pico.fs.littlefs
+SDK            mm.fs.local                mm.fs.native       mm.fs.littlefs             mm.fs.fat
+linux-x86_64   platform.linux.fs          platform.linux.fs  (none)                     (none)
+linux-aarch64  platform.linux.fs          platform.linux.fs  (none)                     (none)
+pico-arm       platform.pico.fs.littlefs  (none)             platform.pico.fs.littlefs  platform.pico.fs.fat
+pico-riscv     platform.pico.fs.littlefs  (none)             platform.pico.fs.littlefs  platform.pico.fs.fat
 Closing fence
 
 # The Linux provider
@@ -251,6 +259,72 @@ dispositions, append, extension, truncate, timestamps kept and updated,
 listing and its retry, the Busy rules, rename, the file pool, NoSpace,
 remounting, read-only mounts, a device timeout, and a damaged volume left
 unerased. The module build compiles no C, so test.sh does not run it.
+
+# FAT on Pico
+
+platform.pico.fs.fat serves mm.fs.fat on every Pico board, over FatFs R0.16:
+on a host-port board, FAT on the USB drive through McuStorage. It follows
+platform.pico.fs.littlefs's shape: fatfs/adapter.c, C, includes FatFs,
+supplies its disk I/O layer and get_fattime, and owns its state in static
+pools -- two FATFS work areas, eight open files, four open directories --
+behind a private ABI, fatfs/fat-c.h, which the C++ module reaches through
+fatfs/fat-cxx.h.
+
+FatFs is vendored by platforms/pico/sdk/pico-sdk/fatfs/vendor.sh: ChaN's
+ff16.zip, refused unless its SHA-256 is
+99f7dc1f7e095356e4a9e3dbe29959090d8b948afe2bbc5441e52fdf4b85449e, unpacked
+into a git-ignored upstream/, or taken from MM_FATFS_ARCHIVE; its licence is
+committed beside it. The configuration is fatfs/ffconf.h, upstream's with
+these values changed and passed to every FatFs translation unit with
+-include, so upstream's copy is never read: FF_USE_MKFS 1, FF_CODE_PAGE 437
+(upstream's 932 carries far larger tables), FF_USE_LFN 1 with UTF-8 names
+(FF_LFN_UNICODE 2), FF_VOLUMES 2, FF_FS_TINY 1, FF_FS_LOCK 12, and
+FF_NORTC_YEAR 2026. exFAT stays off: a commercial product needs a licence
+from Microsoft for it.
+
+The adapter keeps the Volume rules FatFs does not keep by itself:
+
+- Each disposition is decided from f_stat first; a Read open that must make
+  or empty its file does so with a writable open first.
+- A file open for writing cannot be opened again, removed, or renamed, and an
+  open directory cannot be removed or renamed. FatFs's lock table,
+  FF_FS_LOCK, refuses the same under another spelling of the name, since FAT
+  matches names without regard to case.
+- rename refuses an existing target and a directory moving into itself.
+- Every Append write seeks to the end first; FatFs's FA_OPEN_APPEND moves to
+  the end only at open.
+- A seek past the end is remembered rather than applied, because f_lseek
+  would extend the file with whatever the clusters held; the next write fills
+  the gap with zeros, reads in between return nothing, and tell reports the
+  remembered offset.
+- The root has a stat, which f_stat refuses to give, and directory listings
+  leave out "." and ".." should FatFs ever return them.
+- Timestamps are FAT's local date and time read as UTC, two-second
+  resolution, from the mm.fs clock through get_fattime, or 1 January 2026
+  with no clock.
+- A device must have 512-byte blocks, FF_MAX_SS; formatting borrows a free
+  FatFs drive for the length of f_mkfs.
+- FR_DENIED is read by what was being done: NoSpace when making something,
+  NotEmpty when removing a directory, ReadOnly otherwise. FR_DISK_ERR is the
+  device's own answer when it gave one. The rest map one for one: FR_NO_FILE
+  and FR_NO_PATH NotFound, FR_EXIST Exists, FR_NO_FILESYSTEM and FR_INT_ERR
+  Corrupt, FR_LOCKED Busy, FR_TOO_MANY_OPEN_FILES TooMany, FR_TIMEOUT
+  Timeout, the invalid-argument results BadArgument.
+
+scripts/test-fatfs.sh compiles adapter.c and the pinned FatFs, with
+ffconf.h, for the build machine against a RAM block device filled with 0xA5,
+so a byte nothing wrote cannot pass for zero, and runs fatfs/test/harness.c's
+84 checks under valgrind when it is installed: the dispositions, appends after
+seeks, a zero-filled gap, truncate, timestamps, long names, listing and its
+retry, the Busy rules including a name under another case, rename, the file
+pool, NoSpace with a short count, remounting, read-only mounts, a device
+timeout, an unformatted device left unwritten, and FAT and FAT32 formats.
+Dropping the gap fill, or FatFs's lock table, makes it fail.
+
+apps/fat-smoke waits up to ten seconds for the board's block storage, mounts
+its FAT volume at "/usb", runs the conformance checks, and unmounts; it never
+formats, and skips without storage or a drive. scripts/build-fat.sh builds
+it, by default for pico2_usb_host.
 
 # Conformance
 

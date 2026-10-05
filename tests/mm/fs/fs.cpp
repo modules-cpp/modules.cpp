@@ -10,6 +10,7 @@
 
 import mm.fs;
 import mm.fs.conformance;
+import mm.fs.fat;
 import mm.fs.littlefs;
 import mm.fs.local;
 import mm.fs.native;
@@ -433,6 +434,56 @@ void littlefs_interface_forwards_to_its_provider() {
     mm::fs::littlefs::set_provider(fallback);
 }
 
+struct RecordingFat final : mm::fs::fat::Provider {
+    Status attach(mm::fs::BlockDevice& device, const mm::fs::fat::Options& options,
+                  mm::fs::Volume*& volume) override {
+        last_device = &device;
+        read_only = options.read_only;
+        volume = &mm_test_fs_memory(1);
+        return Status::Ok;
+    }
+    Status detach(mm::fs::Volume&) override {
+        ++detaches;
+        return Status::Ok;
+    }
+    Status format(mm::fs::BlockDevice& device, mm::fs::fat::Format format) override {
+        formatted = &device;
+        last_format = format;
+        return Status::Ok;
+    }
+    mm::fs::BlockDevice* last_device = nullptr;
+    mm::fs::BlockDevice* formatted = nullptr;
+    mm::fs::fat::Format last_format = mm::fs::fat::Format::Automatic;
+    bool read_only = false;
+    unsigned int detaches = 0;
+};
+
+void fat_interface_forwards_to_its_provider() {
+    reset();
+    mm::fs::BlockDevice device;
+    expect(mm::fs::fat::mount("/usb", device) == Status::Unsupported &&
+               mm::fs::fat::format(device) == Status::Unsupported,
+           "with no provider, FAT mount and format are Unsupported");
+
+    RecordingFat recording;
+    mm::fs::fat::set_provider(recording);
+    mm::fs::fat::Options options;
+    options.read_only = true;
+    expect(mm::fs::fat::mount("/usb", device, options) == Status::Ok &&
+               recording.last_device == &device && recording.read_only,
+           "mount hands the device and options to the provider");
+    expect(mm::fs::littlefs::unmount("/usb") == Status::BadArgument,
+           "another interface will not unmount it");
+    expect(mm::fs::fat::unmount("/usb") == Status::Ok && recording.detaches == 1,
+           "unmount detaches");
+    expect(mm::fs::fat::format(device, mm::fs::fat::Format::Fat32) == Status::Ok &&
+               recording.formatted == &device &&
+               recording.last_format == mm::fs::fat::Format::Fat32,
+           "format forwards the device and the format");
+    mm::fs::fat::Provider fallback;
+    mm::fs::fat::set_provider(fallback);
+}
+
 const mm::test::case_ cases[] = {
     {"normalize makes paths canonical", &normalize_makes_paths_canonical},
     {"normalize enforces limits", &normalize_enforces_limits},
@@ -449,6 +500,7 @@ const mm::test::case_ cases[] = {
     {"mount interfaces fall back to Unsupported", &mount_interfaces_fall_back_to_unsupported},
     {"mount interfaces attach, publish, and detach", &mount_interfaces_attach_publish_and_detach},
     {"the littlefs interface forwards to its provider", &littlefs_interface_forwards_to_its_provider},
+    {"the FAT interface forwards to its provider", &fat_interface_forwards_to_its_provider},
 };
 
 const mm::test::registrar reg{"mm.fs", cases};

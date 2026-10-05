@@ -67,6 +67,15 @@ All notable changes to modules.cpp. Versions follow [semantic versioning](https:
   Timestamps live in a littlefs attribute. `scripts/test-littlefs.sh` runs the
   adapter's 77-check native harness; `scripts/build-fs.sh` now defaults to
   `pico`.
+- **`mm.fs.fat` and FAT on every Pico board.** FatFs R0.16, vendored by
+  `platforms/pico/sdk/pico-sdk/fatfs/vendor.sh` from ChaN's checksummed
+  archive and configured by a project `ffconf.h` passed with `-include`,
+  behind `platform.pico.fs.fat`, which the Pico SDKs bind for `mm.fs.fat`:
+  FAT12/16/32 with long names on 512-byte block devices, never written when it
+  holds no FAT volume, with zero-filled extension and true appends.
+  `scripts/test-fatfs.sh` runs the adapter's 84-check native harness;
+  `apps/fat-smoke` and `scripts/build-fat.sh` check FAT on a host-port board's
+  USB drive.
 - **`apps/rgb-led-smoke` and `scripts/build-rgb-led.sh`.** Red, green, blue,
   white, and a colour wheel on any board that binds `mm.led`; the default board
   is `rp2040_zero`.

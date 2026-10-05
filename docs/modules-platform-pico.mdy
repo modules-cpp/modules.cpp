@@ -259,6 +259,13 @@ lfs_util.c, and littlefs/adapter.c into a static library with LFS_NO_MALLOC,
 LFS_NO_DEBUG, LFS_NO_WARN, and LFS_NO_ERROR, adapter.c with -Wall -Wextra
 -Werror. The adapter includes no Pico SDK header.
 
+They bind mm.fs.fat to platform.pico.fs.fat too, FAT over FatFs R0.16, which
+fatfs/vendor.sh provisions from ChaN's pinned, checksummed archive. The
+bridge recognises a program that linked that provider the same way and
+builds ff.c, ffunicode.c, and fatfs/adapter.c into a static library, every
+FatFs translation unit compiled with -include naming the project's
+fatfs/ffconf.h, adapter.c with -Wall -Wextra -Werror.
+
 pico2-arm and pico2-w-arm declare security-domain: secure and select the Arm
 Secure processor row. rp2350-ram omits the key, keeps the non-secure default,
 and therefore keeps its three-argument commands unchanged.

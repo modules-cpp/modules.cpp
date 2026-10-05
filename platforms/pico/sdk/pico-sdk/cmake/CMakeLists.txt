@@ -141,6 +141,27 @@ if(MM_OBJECTS MATCHES "/platforms/pico/sdk/pico-sdk/littlefs/provider/")
   target_link_libraries(mm_littlefs PRIVATE pico_platform_headers)
   target_link_libraries(mm_external mm_littlefs)
 endif()
+# FatFs, for a program that linked its provider, recognised the same way.
+# Every FatFs translation unit is compiled with the project's ffconf.h
+# included first, so FatFs never reads upstream's configuration; the sample
+# diskio.c is replaced by adapter.c, and ffsystem.c serves options left off.
+if(MM_OBJECTS MATCHES "/platforms/pico/sdk/pico-sdk/fatfs/provider/")
+  set(MM_FATFS ${CMAKE_CURRENT_LIST_DIR}/../fatfs)
+  if(NOT EXISTS ${MM_FATFS}/upstream/source/ff.c)
+    message(FATAL_ERROR "this program uses FAT; the FatFs checkout is absent: "
+      "run platforms/pico/sdk/pico-sdk/fatfs/vendor.sh")
+  endif()
+  add_library(mm_fatfs STATIC
+    ${MM_FATFS}/upstream/source/ff.c
+    ${MM_FATFS}/upstream/source/ffunicode.c
+    ${MM_FATFS}/adapter.c)
+  target_include_directories(mm_fatfs PRIVATE ${MM_FATFS} ${MM_FATFS}/upstream/source)
+  target_compile_options(mm_fatfs PRIVATE -include ${MM_FATFS}/ffconf.h)
+  set_source_files_properties(${MM_FATFS}/adapter.c PROPERTIES
+    COMPILE_OPTIONS "-std=gnu11;-Wall;-Wextra;-Werror")
+  target_link_libraries(mm_fatfs PRIVATE pico_platform_headers)
+  target_link_libraries(mm_external mm_fatfs)
+endif()
 pico_enable_stdio_semihosting(mm_external 1)
 # Every image links TinyUSB's RP2040 device driver; ext/adapter.c wraps one of
 # its functions to tolerate a stale buffer notification instead of panicking.

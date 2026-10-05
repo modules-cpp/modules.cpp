@@ -1,0 +1,35 @@
+---
+mm: 1.2
+kind: app
+name: fat-smoke
+use: mm.fs
+use: mm.fs.conformance
+use: mm.fs.fat
+use: mm.mcu
+use: mm.stdio
+file: main.cpp
+---
+
+# fat-smoke
+
+A portable application for FAT on the board's block storage: it waits up to
+ten seconds for a device -- a USB flash drive on a PIO-USB host-port board --
+mounts its FAT volume at "/usb" with mm.fs.fat, runs mm.fs.conformance's
+checks inside it, prints the counts and the first failure on the console,
+and unmounts. The checks work in a scratch directory and remove it; nothing
+else on the drive is touched.
+
+It never formats. A drive holding no FAT volume is reported and left alone.
+It skips, exiting 0, on a board with no block storage or when no drive
+appears.
+
+Exit codes:
+
+| Code | Meaning |
+| --- | --- |
+| 0 | Every check passed, or there was no storage or no drive and the run skipped. |
+| 1 | Mounting failed for another reason. |
+| 2 | The drive holds no FAT volume; it was not formatted. |
+| 3 | The checks could not run: the scratch directory could not be made. |
+| 4 | Unmounting failed. |
+| 5 | At least one check failed; the console names the first. |

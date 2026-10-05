@@ -205,7 +205,7 @@ void repository_exposes_provider_declarations() {
     mm::test::expect(pico_arm != nullptr, "expected the Pico ARM SDK definition");
     if (pico_arm != nullptr) {
         const auto bindings = pico_arm->platform_providers();
-        mm::test::expect(bindings.size() == 4 &&
+        mm::test::expect(bindings.size() == 5 &&
                              bindings[0].interface_module == "mm.mcu" &&
                              bindings[0].provider_module == "platform.pico.mcu" &&
                              bindings[1].interface_module == "mm.stdio" &&
@@ -213,7 +213,9 @@ void repository_exposes_provider_declarations() {
                              bindings[2].interface_module == "mm.fs.littlefs" &&
                              bindings[2].provider_module == "platform.pico.fs.littlefs" &&
                              bindings[3].interface_module == "mm.fs.local" &&
-                             bindings[3].provider_module == "platform.pico.fs.littlefs",
+                             bindings[3].provider_module == "platform.pico.fs.littlefs" &&
+                             bindings[4].interface_module == "mm.fs.fat" &&
+                             bindings[4].provider_module == "platform.pico.fs.fat",
                          "expected the SDK's authored MCU, console, and file bindings");
     }
 

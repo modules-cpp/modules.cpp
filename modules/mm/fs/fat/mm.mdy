@@ -1,0 +1,23 @@
+---
+mm: 1.2
+kind: module
+name: fs-fat
+module: mm.fs.fat
+platform-interface:
+use: mm.fs
+file: fat.cppm
+file: src/fat.cpp
+---
+
+# mm.fs.fat
+
+FAT12, FAT16, and FAT32 with long file names on a BlockDevice, mounted at a
+prefix: the format removable media carry, so a USB drive or SD card a board
+writes reads on any PC. mount answers Corrupt for a device holding no FAT
+volume and writes nothing to it; format makes one, partitioned as a PC
+expects, erasing what was there.
+
+The Pico SDKs bind platform.pico.fs.fat, which runs FatFs compiled by the
+Pico bridge. A program reaching mm.fs.fat is unavailable on a lane that binds
+no provider; with none bound the fallback answers Unsupported. unmount
+detaches only volumes this module attached.
