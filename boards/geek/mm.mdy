@@ -5,6 +5,7 @@ name: geek-platform
 folder: board-rp2040
 folder: board-rp2350
 folder: display
+folder: sdcard
 ---
 
 # geek-platform
@@ -19,5 +20,7 @@ panel's wiring is written once.
 
 rp2040_geek derives from pico and rp2350_geek from pico2-arm; neither can
 derive from the other, because the chip is what the base supplies. Each binds
-platform.geek.display. The device driver is the portable mm.lcd.st7789, and the
-provider is the only place that knows which pin is which.
+platform.geek.display, the panel, and platform.geek.sdcard, the TF socket on
+SPI0 as mm.sdcard.socket. The device drivers are the portable mm.lcd.st7789
+and mm.sdcard, and the providers are the only place that knows which pin is
+which.

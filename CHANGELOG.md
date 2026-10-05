@@ -76,6 +76,13 @@ All notable changes to modules.cpp. Versions follow [semantic versioning](https:
   `scripts/test-fatfs.sh` runs the adapter's 84-check native harness;
   `apps/fat-smoke` and `scripts/build-fat.sh` check FAT on a host-port board's
   USB drive.
+- **`mm.sdcard` and `mm.sdcard.socket`: FAT on TF sockets.** An SD card in SPI
+  mode over `mm.mcu` SPI as an `mm.fs` block device -- SDSC, SDHC, and SDXC,
+  CRC7 and CRC16 throughout, re-identified after any failure -- and a
+  board-bound socket interface, provided by `platform.geek.sdcard`,
+  `platform.rp2350_touch_lcd_154.sdcard`, and `platform.pizero.sdcard` for the
+  GEEK, LCD 1.54, and PiZero boards. `apps/sd-smoke` and `scripts/build-sd.sh`
+  check FAT on the socket's card.
 - **`apps/rgb-led-smoke` and `scripts/build-rgb-led.sh`.** Red, green, blue,
   white, and a colour wheel on any board that binds `mm.led`; the default board
   is `rp2040_zero`.

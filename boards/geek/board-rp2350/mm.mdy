@@ -4,6 +4,7 @@ kind: board
 name: rp2350_geek
 derives-from: pico2-arm
 platform-provider: mm.display platform.geek.display
+platform-provider: mm.sdcard.socket platform.geek.sdcard
 ---
 
 # rp2350_geek

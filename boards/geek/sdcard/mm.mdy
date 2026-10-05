@@ -1,0 +1,20 @@
+---
+mm: 1.2
+kind: module
+name: geek-sdcard
+module: platform.geek.sdcard
+use: mm.fs
+use: mm.mcu
+use: mm.sdcard
+use: mm.sdcard.socket
+file: sdcard.cppm
+option: buildable-host no
+---
+
+# platform.geek.sdcard
+
+The GEEK boards' TF socket, wired for four-bit SDIO and used here in SPI mode through
+mm.sdcard: SPI0: clock GP18, MOSI GP19 (the card's CMD), MISO GP20 (DAT0), chip select GP23 (DAT3),
+from Waveshare's RP2040-GEEK and RP2350-GEEK schematics. rp2040_geek and
+rp2350_geek bind it. The panel is on SPI1, so the two never share a bus. The card runs at 25 MHz once identified, which the Pico's
+SPI divider rounds down to what it holds.

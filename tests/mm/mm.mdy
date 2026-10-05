@@ -32,6 +32,7 @@ folder: json
 folder: lcd
 folder: led
 folder: rtc
+folder: sdcard
 folder: sketch
 folder: linux
 folder: usb

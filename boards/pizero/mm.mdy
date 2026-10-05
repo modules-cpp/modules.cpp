@@ -4,6 +4,7 @@ kind: dir
 name: pizero-platform
 folder: board-rp2350
 folder: board-rp2350-usb-host
+folder: sdcard
 ---
 
 # pizero-platform
@@ -14,6 +15,6 @@ USB-C sockets, the native port and a PIO-USB port. rp2350_pizero is the
 RP2350-PiZero, and rp2350_pizero_usb_host the same board with its PIO-USB port
 a USB host.
 
-rp2350_pizero binds no provider yet: modules/mm has no DVI output, and the
-TF card is described in its manifest for the provider that will use it.
-rp2350_pizero_usb_host binds platform.pico.usb.host to the PIO-USB port.
+rp2350_pizero binds platform.pizero.sdcard, its TF socket on SPI1 as
+mm.sdcard.socket; modules/mm has no DVI output yet. rp2350_pizero_usb_host
+inherits the socket and binds platform.pico.usb.host to the PIO-USB port.

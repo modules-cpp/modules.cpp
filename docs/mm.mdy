@@ -32,6 +32,7 @@ file: modules-platform-linux.mdy
 file: modules-platform-pico.mdy
 file: modules-platforms.mdy
 file: modules-rtc.mdy
+file: modules-sdcard.mdy
 file: modules-run.mdy
 file: modules-sketch.mdy
 file: modules-stdio.mdy

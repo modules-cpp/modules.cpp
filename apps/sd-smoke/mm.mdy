@@ -1,0 +1,33 @@
+---
+mm: 1.2
+kind: app
+name: sd-smoke
+use: mm.fs
+use: mm.fs.conformance
+use: mm.fs.fat
+use: mm.sdcard.socket
+use: mm.stdio
+file: main.cpp
+---
+
+# sd-smoke
+
+A portable application for the board's TF socket: it mounts the card's FAT
+volume at "/sd" through mm.sdcard.socket and mm.fs.fat, runs
+mm.fs.conformance's checks inside it, prints the counts and the first
+failure on the console, and unmounts. It names no pin: the board's socket
+provider knows them. The checks work in a scratch directory and remove it.
+
+It never formats; a card holding no FAT volume is reported and left alone. An
+empty socket skips, exiting 0.
+
+Exit codes:
+
+| Code | Meaning |
+| --- | --- |
+| 0 | Every check passed, or the socket was empty and the run skipped. |
+| 1 | Mounting failed for another reason. |
+| 2 | The card holds no FAT volume; it was not formatted. |
+| 3 | The checks could not run: the scratch directory could not be made. |
+| 4 | Unmounting failed. |
+| 5 | At least one check failed; the console names the first. |

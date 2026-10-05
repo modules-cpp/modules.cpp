@@ -241,6 +241,7 @@ run_test_target tests/mm/json/ || exit $?
 run_test_target tests/mm/lcd/ || exit $?
 run_test_target tests/mm/led/ || exit $?
 run_test_target tests/mm/fs/ || exit $?
+run_test_target tests/mm/sdcard/ || exit $?
 run_test_target tests/mm/rtc/ || exit $?
 run_test_target tests/mm/usb/ || exit $?
 case "$(uname -s)" in

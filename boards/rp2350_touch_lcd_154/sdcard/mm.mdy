@@ -1,0 +1,20 @@
+---
+mm: 1.2
+kind: module
+name: rp2350-touch-lcd-154-sdcard
+module: platform.rp2350_touch_lcd_154.sdcard
+use: mm.fs
+use: mm.mcu
+use: mm.sdcard
+use: mm.sdcard.socket
+file: sdcard.cppm
+option: buildable-host no
+---
+
+# platform.rp2350_touch_lcd_154.sdcard
+
+The RP2350 LCD 1.54 family's microSD socket, wired for four-bit SDIO and used here in SPI mode through
+mm.sdcard: SPI0: clock GP18, MOSI GP19 (CMD), MISO GP20 (DAT0), chip select GP23 (DAT3), from
+Waveshare's RP2350-Touch-LCD-1.54 schematic. rp2350_lcd_154 binds it and
+rp2350_touch_lcd_154 inherits it. The panel is on SPI1. The card runs at 25 MHz once identified, which the Pico's
+SPI divider rounds down to what it holds.

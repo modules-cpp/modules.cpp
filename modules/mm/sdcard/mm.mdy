@@ -1,0 +1,36 @@
+---
+mm: 1.2
+kind: module
+name: sdcard
+module: mm.sdcard
+use: mm.mcu
+use: mm.fs
+file: sdcard.cppm
+file: src/sdcard.cpp
+---
+
+# mm.sdcard
+
+An SD card in SPI mode, over portable mm.mcu SPI and one chip-select GPIO,
+presented as an mm.fs BlockDevice of 512-byte blocks: what mm.fs.fat mounts
+on a board's TF socket. It contains no vendor header and no board pin number;
+a board's provider, through mm.sdcard.socket, or a program supplies the
+wiring.
+
+It follows the SD Association's Physical Layer Simplified Specification for
+SPI mode: at 400 kHz, at least 74 clocks with chip select high, CMD0 into SPI
+mode, CMD8 to tell a version 2 card from a version 1, ACMD41 until the card
+leaves idle, CMD58 for the capacity class, CMD59 to turn CRC checking on,
+CMD16 for 512-byte blocks on a standard-capacity card, and CMD9 for the CSD
+the capacity is read from; then the data clock. Reads are CMD17 or CMD18 with
+CMD12, writes CMD24 or CMD25 with the stop token and CMD13 after; every
+command carries its CRC7, every data block its CRC16, and a block whose CRC
+does not match is TransportError.
+
+The card initialises on first use, not at construction, so a static card
+object costs nothing on a board without one. Any transport failure forgets
+the card, so the next call starts again from CMD0: a card pulled and
+reinserted, or swapped for another, is found again. SDSC cards are
+byte-addressed and SDHC and SDXC cards block-addressed; geometry hides the
+difference. The SPI bus may be shared; the chip select is the only line this
+module owns, and it is high between operations.

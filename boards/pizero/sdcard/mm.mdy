@@ -1,0 +1,21 @@
+---
+mm: 1.2
+kind: module
+name: pizero-sdcard
+module: platform.pizero.sdcard
+use: mm.fs
+use: mm.mcu
+use: mm.sdcard
+use: mm.sdcard.socket
+file: sdcard.cppm
+option: buildable-host no
+---
+
+# platform.pizero.sdcard
+
+The RP2350-PiZero's TF socket, wired for four-bit SDIO and used here in SPI mode through
+mm.sdcard: SPI1: clock GP30, MOSI GP31 (CMD), MISO GP40 (DAT0), chip select GP43 (DAT3), from
+Waveshare's RP2350-PiZero schematic -- pins only the RP2350B has, which is why
+the board builds against the SDK's own PiZero header. rp2350_pizero binds it
+and rp2350_pizero_usb_host inherits it. The card runs at 25 MHz once identified, which the Pico's
+SPI divider rounds down to what it holds.
