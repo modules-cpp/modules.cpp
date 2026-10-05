@@ -219,9 +219,11 @@ the Pico bridge only for a program that links the provider;
 docs/modules-platform-pico.mdy says how.
 
 The provider follows platform.pico.mcu's pattern. littlefs/adapter.c, C,
-includes littlefs and owns its state in static pools -- two volumes, eight
-open files each with its own 256-byte cache, four open directories -- behind
-a private ABI, littlefs/lfs-c.h; the C++ module includes only that header,
+includes littlefs and owns its state in static pools -- by default one
+volume, four open files each with its own 256-byte cache, and two open
+directories, sized per board by the board table's MM_BOARD_LFS_* columns
+(docs/modules-platform-pico.mdy) -- behind a private ABI, littlefs/lfs-c.h,
+whose mm_pico_lfs_limits reports them; the C++ module includes only that header,
 through littlefs/lfs-cxx.h, maps results and paths, and adapts a FlashDevice
 to the adapter's device record through C-linkage callbacks.
 
@@ -254,10 +256,12 @@ The adapter keeps the Volume rules in C:
 
 scripts/test-littlefs.sh compiles adapter.c and the pinned littlefs for the
 build machine with its C compiler, against a RAM NOR flash that refuses to
-program a byte that is not erased, and runs littlefs/test/harness.c's 77
-checks through the ABI, under valgrind when it is installed: the
+program a byte that is not erased, and runs littlefs/test/harness.c's 76
+checks through the ABI, twice -- at the default pools and at the largest row
+of the board table, the PiZero's -- under valgrind when it is installed: the
 dispositions, append, extension, truncate, timestamps kept and updated,
-listing and its retry, the Busy rules, rename, the file pool, NoSpace,
+listing and its retry, the Busy rules, rename, the file pool -- as many
+files as mm_pico_lfs_limits reports, and one more refused -- NoSpace,
 remounting, read-only mounts, a device timeout, and a damaged volume left
 unerased. The module build compiles no C, so test.sh does not run it.
 
@@ -361,7 +365,9 @@ which apps/sd-smoke does unchanged, and littlefs on the emulated flash
 through mm.spiflash; the flash-region image through McuFlash; the map's
 storage entries through McuStorage. mm.fs.local on Linux stays the
 directory. scripts/test-littlefs.sh and scripts/test-fatfs.sh run each
-tree's native harness, --tree pico, linux, or both.
+tree's native harness, --tree pico, linux, or both. The Linux littlefs pools
+are their own, two volumes, eight files, and four directories, and are not
+in a board table: the Pico columns are for RAM a host has plenty of.
 
 # The full shell: mm.fs.shell
 

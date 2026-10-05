@@ -15,9 +15,19 @@
 #include <stdint.h>
 #include <string.h>
 
-#define MM_PICO_LFS_VOLUMES 2u
-#define MM_PICO_LFS_FILES 8u
-#define MM_PICO_LFS_DIRECTORIES 4u
+// The pools: volumes attached at once, files and directories open at once
+// across them. The bridge passes each board's from its board table
+// (resolve-board.cmake's MM_BOARD_LFS_* columns); these are the defaults,
+// sized for an RP2040, for a build that passes none, such as the harness's.
+#ifndef MM_PICO_LFS_VOLUMES
+#define MM_PICO_LFS_VOLUMES 1u
+#endif
+#ifndef MM_PICO_LFS_FILES
+#define MM_PICO_LFS_FILES 4u
+#endif
+#ifndef MM_PICO_LFS_DIRECTORIES
+#define MM_PICO_LFS_DIRECTORIES 2u
+#endif
 #define MM_PICO_LFS_CACHE 256u
 #define MM_PICO_LFS_LOOKAHEAD 32u
 // "/", a normalised volume-relative path of at most 255 bytes, a NUL.
@@ -259,6 +269,13 @@ static void mm_pico_lfs_describe(mm_pico_lfs_volume_t* volume, const char* full,
     stat->size = info->type == LFS_TYPE_DIR ? 0u : info->size;
     stat->modified = info->type == LFS_TYPE_DIR ? 0u : mm_pico_lfs_path_modified(volume, full);
     stat->read_only = volume->read_only;
+}
+
+void mm_pico_lfs_limits(unsigned int* volumes, unsigned int* files,
+                        unsigned int* directories) {
+    if (volumes != NULL) *volumes = MM_PICO_LFS_VOLUMES;
+    if (files != NULL) *files = MM_PICO_LFS_FILES;
+    if (directories != NULL) *directories = MM_PICO_LFS_DIRECTORIES;
 }
 
 int mm_pico_lfs_attach(const mm_pico_lfs_device* device, int read_only, int format_if_blank,

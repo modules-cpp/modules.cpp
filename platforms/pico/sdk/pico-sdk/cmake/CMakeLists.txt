@@ -135,7 +135,10 @@ if(MM_OBJECTS MATCHES "/platforms/pico/sdk/pico-sdk/littlefs/provider/")
     ${MM_LITTLEFS}/adapter.c)
   target_include_directories(mm_littlefs PRIVATE ${MM_LITTLEFS} ${MM_LITTLEFS}/upstream)
   target_compile_definitions(mm_littlefs PRIVATE
-    LFS_NO_MALLOC LFS_NO_DEBUG LFS_NO_WARN LFS_NO_ERROR)
+    LFS_NO_MALLOC LFS_NO_DEBUG LFS_NO_WARN LFS_NO_ERROR
+    MM_PICO_LFS_VOLUMES=${MM_BOARD_LFS_VOLUMES}u
+    MM_PICO_LFS_FILES=${MM_BOARD_LFS_FILES}u
+    MM_PICO_LFS_DIRECTORIES=${MM_BOARD_LFS_DIRECTORIES}u)
   set_source_files_properties(${MM_LITTLEFS}/adapter.c PROPERTIES
     COMPILE_OPTIONS "-std=gnu11;-Wall;-Wextra;-Werror")
   target_link_libraries(mm_littlefs PRIVATE pico_platform_headers)

@@ -238,19 +238,21 @@ Measured again with the file commands, release builds, the same method:
 Opening fence
 lane          build                     shell flash  control flash  delta flash  shell RAM
 RP2040        mcu-shell, no files            205452          77664       127788      65844
-RP2040        mcu-shell, littlefs /data      273424          77664       195760      78544
+RP2040        mcu-shell, littlefs /data      272616          77664       194952      74072
 RP2350 Arm    mcu-shell, no files            197172          73664       123508      66340
-RP2350 Arm    mcu-shell, littlefs /data      259824          73664       186160      79080
+RP2350 Arm    mcu-shell, littlefs /data      259080          73664       185416      74616
 Closing fence
 
 The control itself has grown since v1.3.1, with the I2S, PWM, pulse, and
 SDIO facilities in the adapter. The shell without files meets the flash
 ceilings and is 308 bytes over the RAM one; with littlefs at /data, as
-mcu-shell now always mounts it, the RP2040 build exceeds all three: 11,280
-bytes over the total flash ceiling, 31,920 over the incremental one, and
-13,008 over the RAM one. littlefs's code is about 49 KB of that, and its
-adapter's pools of two volumes, eight files, and four directories about
-9 KB of the RAM. The ceilings are unchanged here; whether to raise them for
+mcu-shell now always mounts it, the RP2040 build exceeds all three: 10,472
+bytes over the total flash ceiling, 31,112 over the incremental one, and
+8,536 over the RAM one. littlefs's code is about 49 KB of that. Its
+adapter's pools, sized per board by the board table's MM_BOARD_LFS_*
+columns, are about 4.5 KB of the RAM at the default of one volume, four
+files, and two directories; they were about 9 KB before the columns
+existed. The ceilings are unchanged here; whether to raise them for
 the file-capable shell or to shrink littlefs's pools is an open decision.
 
 # Foundation API

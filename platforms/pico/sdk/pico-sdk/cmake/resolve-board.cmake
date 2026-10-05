@@ -115,6 +115,43 @@ if(NOT MM_BOARD_FLASH_REGION_REMAINDER EQUAL 0)
     "erase sectors, not ${MM_BOARD_FLASH_REGION_BYTES}")
 endif()
 
+# littlefs's pools: volumes attached at once, and files and directories open
+# at once across them. Every pool entry is static RAM in every program that
+# links littlefs -- about 770 bytes a volume, 650 a file, and 590 a directory
+# -- so the default suits an RP2040's 264 KB: one volume, the board's own
+# storage, four files, two directories. A board with RAM to spare, or more
+# volumes to mount, says so in its row. MM_BOARD_LFS_VOLUMES,
+# MM_BOARD_LFS_FILES, and MM_BOARD_LFS_DIRECTORIES given to CMake or in the
+# environment take precedence over the table.
+set(MM_BOARD_LFS_VOLUMES_DEFAULT 1)
+set(MM_BOARD_LFS_FILES_DEFAULT 4)
+set(MM_BOARD_LFS_DIRECTORIES_DEFAULT 2)
+if(MM_BOARD STREQUAL "rp2350_pizero" OR
+   MM_BOARD STREQUAL "rp2350_pizero_usb_host")
+  # A 4 MiB region on an RP2350B: room for the pools littlefs had before.
+  set(MM_BOARD_LFS_VOLUMES_DEFAULT 2)
+  set(MM_BOARD_LFS_FILES_DEFAULT 8)
+  set(MM_BOARD_LFS_DIRECTORIES_DEFAULT 4)
+endif()
+foreach(MM_POOL IN ITEMS VOLUMES:4 FILES:32 DIRECTORIES:16)
+  string(REPLACE ":" ";" MM_POOL_PARTS ${MM_POOL})
+  list(GET MM_POOL_PARTS 0 MM_POOL_NAME)
+  list(GET MM_POOL_PARTS 1 MM_POOL_MOST)
+  set(MM_POOL_VARIABLE MM_BOARD_LFS_${MM_POOL_NAME})
+  if(NOT DEFINED ${MM_POOL_VARIABLE})
+    if(DEFINED ENV{${MM_POOL_VARIABLE}})
+      set(${MM_POOL_VARIABLE} $ENV{${MM_POOL_VARIABLE}})
+    else()
+      set(${MM_POOL_VARIABLE} ${${MM_POOL_VARIABLE}_DEFAULT})
+    endif()
+  endif()
+  if(NOT ${MM_POOL_VARIABLE} MATCHES "^[0-9]+$" OR ${MM_POOL_VARIABLE} LESS 1 OR
+     ${MM_POOL_VARIABLE} GREATER ${MM_POOL_MOST})
+    message(FATAL_ERROR "${MM_POOL_VARIABLE} must be a whole number from 1 to "
+      "${MM_POOL_MOST}, not '${${MM_POOL_VARIABLE}}'")
+  endif()
+endforeach()
+
 # A PIO USB host port, two GPIOs Pico-PIO-USB drives as a second USB port, D+
 # on MM_BOARD_USB_HOST_DP_PIN and D- on the next; the native port stays the
 # USB console. Only a board that says so has one: the pico_usb_host and

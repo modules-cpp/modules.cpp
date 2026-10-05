@@ -136,6 +136,14 @@ All notable changes to modules.cpp. Versions follow [semantic versioning](https:
   socket's FAT card at `/sd`. With littlefs, the RP2040 shell exceeds the
   shell specification's size ceilings; `docs/modules-shell.mdy` records the
   measurements and leaves the ceilings as a decision.
+- **littlefs's pools are sized per board.** Three board-table columns,
+  `MM_BOARD_LFS_VOLUMES`, `MM_BOARD_LFS_FILES`, and
+  `MM_BOARD_LFS_DIRECTORIES`, size the Pico littlefs adapter's static pools,
+  overridable from CMake or the environment and range-checked. The default
+  is one volume, four files, and two directories, about 4.5 KB instead of
+  9 KB; the PiZero boards keep the old 2, 8, and 4. `mm_pico_lfs_limits`
+  reports them, and `scripts/test-littlefs.sh` runs the harness at both the
+  default and the PiZero's sizes.
 - **The SDIO facility no longer costs every Pico image 6.7 KB of RAM.** Reads
   go by DMA straight into the caller's buffer, byte-swapped by the DMA engine,
   with a chained channel collecting CRC words; the CRC table is sixteen

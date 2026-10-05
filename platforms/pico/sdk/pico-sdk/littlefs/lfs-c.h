@@ -61,6 +61,10 @@ typedef struct {
     int read_only;
 } mm_pico_lfs_entry;
 
+// The pool sizes this build has: volumes attached at once, files and
+// directories open at once. Any pointer may be NULL.
+void mm_pico_lfs_limits(unsigned int* volumes, unsigned int* files, unsigned int* directories);
+
 // Volumes. device must stay valid until detach. With format_if_blank, a
 // device whose first two erase blocks are all 0xFF is formatted and mounted;
 // any other device that does not mount is CORRUPT, never erased.

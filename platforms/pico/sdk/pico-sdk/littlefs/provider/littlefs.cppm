@@ -92,7 +92,9 @@ private:
     mm::fs::McuFlash region;
 };
 
-std::array<LittlefsVolume, 2> volumes;
+// One per volume the adapter can attach: the board table caps
+// MM_BOARD_LFS_VOLUMES at four, and the adapter answers TooMany past its own.
+std::array<LittlefsVolume, 4> volumes;
 LittlefsProvider littlefs;
 LocalProvider local;
 

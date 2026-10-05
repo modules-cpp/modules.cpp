@@ -148,10 +148,13 @@ int main(void) {
     uint64_t total, free_bytes;
     CHECK(mm_pico_lfs_space(vol, &total, &free_bytes) == 0 && total == ERASE * BLOCKS && free_bytes < total, "space");
 
-    unsigned pool[9]; int opened = 0;
-    for (int i = 0; i < 9; ++i) { char name[8]; snprintf(name, sizeof name, "f%d", i); if (mm_pico_lfs_open(vol, P(name), MM_PICO_LFS_WRITE, MM_PICO_LFS_OPEN_OR_CREATE, &pool[i]) == 0) ++opened; else CHECK(i == 8, "only the ninth fails"); }
-    CHECK(opened == 8, "eight files open, the ninth is TooMany");
-    for (int i = 0; i < 8; ++i) mm_pico_lfs_close(pool[i]);
+    // As many files as the pool holds open; one more is TooMany.
+    unsigned int pool_files = 0;
+    mm_pico_lfs_limits(NULL, &pool_files, NULL);
+    unsigned pool[33]; int opened = 0; int over = 0;
+    for (unsigned int i = 0; i <= pool_files && i < 33; ++i) { char name[8]; snprintf(name, sizeof name, "f%u", i); unsigned int got = 0; const int status = mm_pico_lfs_open(vol, P(name), MM_PICO_LFS_WRITE, MM_PICO_LFS_OPEN_OR_CREATE, &got); if (status == 0) pool[opened++] = got; else if (status == MM_PICO_LFS_TOO_MANY && i == pool_files) over = 1; }
+    CHECK(opened == (int)pool_files && over, "the pool's files open, one more is TooMany");
+    for (int i = 0; i < opened; ++i) mm_pico_lfs_close(pool[i]);
 
     // Fill the volume.
     CHECK(mm_pico_lfs_open(vol, P("big"), MM_PICO_LFS_WRITE, MM_PICO_LFS_CREATE_NEW, &h) == 0, "big open");

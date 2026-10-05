@@ -227,6 +227,27 @@ rp2350_pizero_usb_host, whose own header assumes 16 MB. It must be a whole
 number of 4 KiB sectors; zero gives a board no region. A value given to CMake
 or in the environment as MM_BOARD_FLASH_REGION_BYTES takes precedence.
 
+Three littlefs columns size the littlefs adapter's static pools, which every
+program linking littlefs carries in RAM:
+
+Opening fence
+column                     default  most  bytes each   PiZero boards
+MM_BOARD_LFS_VOLUMES       1        4     about 770    2
+MM_BOARD_LFS_FILES         4        32    about 650    8
+MM_BOARD_LFS_DIRECTORIES   2        16    about 590    4
+Closing fence
+
+The default, sized for an RP2040, is one volume -- the board's own storage --
+four files open at once, and two directories, about 4.5 KB in all. A board
+with RAM to spare, or more littlefs volumes to mount at once, gives its own
+row; rp2350_pizero and rp2350_pizero_usb_host, RP2350B boards with a 4 MiB
+region, keep the pools littlefs had before the columns existed, about 9 KB.
+Each column given to CMake or in the environment takes precedence over the
+table, and a value that is not a whole number from 1 to its most stops the
+build naming the column. The bridge passes them to littlefs/adapter.c as
+MM_PICO_LFS_VOLUMES, MM_PICO_LFS_FILES, and MM_PICO_LFS_DIRECTORIES; a build
+that passes none, such as the native harness's, gets the defaults.
+
 After every link the bridge's UF2 validation also reads each block's target
 address and size and refuses an image that reaches the region's start,
 naming both addresses, and deletes the UF2. Blocks flagged not-main-flash,

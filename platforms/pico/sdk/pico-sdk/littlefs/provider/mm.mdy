@@ -24,5 +24,7 @@ project-owned ABI header, lfs-c.h, through its C++ shim, and the C adapter
 beside it, adapter.c, includes littlefs. The adapter keeps mm.fs's Volume
 rules in C, where a native harness can exercise them; this module maps
 statuses and paths across the ABI and adapts mm.fs's FlashDevice to the
-adapter's device record. Two volumes may be attached at once, with eight
-open files and four open directories between them.
+adapter's device record. How many volumes may be attached at once, and how
+many files and directories open between them, is the board table's: one,
+four, and two by default, up to four volumes, as the MM_BOARD_LFS_* columns
+in resolve-board.cmake set them.
