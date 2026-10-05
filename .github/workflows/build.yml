@@ -47,6 +47,16 @@ jobs:
           g++ --version | head -1
           test "$(c++ -dumpversion)" = "$(g++ -dumpversion)"
 
+      # littlefs and FatFs for Linux are not in the repository: each
+      # vendor.sh provisions its pinned upstream/ (a commit, an archive's
+      # SHA-256), which tests/mm/linux links. No tool fetches them, so a
+      # fresh checkout without this step fails the Test step with
+      # "checkout is absent".
+      - name: Vendor Linux littlefs and FatFs
+        run: |
+          sh platforms/linux/littlefs/vendor.sh
+          sh platforms/linux/fatfs/vendor.sh
+
       - name: Bootstrap from source
         run: ./bootstrap.sh
 
