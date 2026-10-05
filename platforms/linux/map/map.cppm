@@ -2,6 +2,7 @@
 // 32bitmicro LLC (C) 2026
 module;
 
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -108,6 +109,40 @@ struct StorageEntry {
     bool writable = false;
 };
 
+// A directory of the host's file system that mm.fs.local mounts as the
+// board's own storage; entry 0 is the one it uses.
+struct DirectoryEntry {
+    std::string path;
+    bool writable = false;
+};
+
+// An image file standing in for raw flash: mm.mcu's flash region. A file that
+// exists keeps its contents and its size; one that does not is made at size
+// bytes, erased. size, erase_size, and program_size are in bytes.
+struct FlashEntry {
+    std::string path;
+    std::uint64_t size = 1u << 20;
+    unsigned int erase_size = 4096;
+    unsigned int program_size = 256;
+};
+
+// The storage-linux boards' emulated chips: an SD card image and a SPI NOR
+// flash image. An empty path is the default name in the working directory. A
+// file that exists keeps its contents and its size; one that does not is made
+// at size bytes, zeros for the card and 0xFF for the flash.
+enum class SdCardKind { Sdhc, Sdsc };
+
+struct SdCardEntry {
+    std::string path;
+    std::uint64_t size = 64u << 20;
+    SdCardKind kind = SdCardKind::Sdhc;
+};
+
+struct SpiFlashEntry {
+    std::string path;
+    std::uint64_t size = 16u << 20;
+};
+
 struct UsbHostEntry {
     bool detach_kernel_drivers = false;
 };
@@ -135,6 +170,10 @@ struct Map {
     std::vector<AdcEntry> adcs;
     std::vector<PwmEntry> pwms;
     std::vector<StorageEntry> storages;
+    std::vector<DirectoryEntry> directories;
+    FlashEntry flash;
+    SdCardEntry sdcard;
+    SpiFlashEntry spiflash;
     UsbHostEntry usb_host;
     UsbDeviceEntry usb_device;
 };

@@ -1,0 +1,246 @@
+---
+mm: 1.0
+kind: doc
+name: modules.cpp SD cards
+status: official
+release: v1.3.1
+---
+
+# modules.cpp SD cards
+
+# Status and authority
+
+status: official gives the implemented portions of this document the same
+authority as the other specifications. This document specifies mm.sdcard, an
+SD card as an mm.fs BlockDevice in SPI mode (SpiCard) and in its native 4-bit
+SD mode (SdioCard), and mm.sdcard.socket, the board-bound interface through
+which a board publishes its TF socket. All exist; both card classes are
+tested on the host against model cards, and the socket boards build
+sd-smoke. Behaviour on hardware -- a card read and written on a board, and
+for SdioCard the Pico's PIO timing at 25 MHz -- remains a
+hardware-qualification requirement.
+
+docs/modules-fs.mdy owns the BlockDevice seam and mm.fs.fat, which mounts
+what this module presents. docs/modules-platform-mcu.mdy owns the SPI, GPIO,
+and sdio facilities it drives.
+
+# Separation of responsibilities
+
+- mm.mcu owns SPI transfers and the chip-select GPIO.
+- mm.sdcard owns the SD protocol: identification, the CSD, addressing,
+  commands, data tokens, and CRCs.
+- A socket provider owns the pins.
+- A board profile states that the socket is there.
+
+# mm.sdcard
+
+Opening fence
+struct SpiWiring {
+    mm::mcu::SpiConfiguration spi;    // clock, MOSI (CMD), MISO (DAT0); baud ignored
+    unsigned int chip_select_gpio;    // DAT3
+    unsigned long data_baud = 25'000'000;
+};
+
+class SpiCard final : public mm::fs::BlockDevice {
+public:
+    explicit SpiCard(SpiWiring wiring);
+    Status geometry(BlockGeometry&);
+    Status read(std::uint64_t block, std::span<std::byte>);
+    Status write(std::uint64_t block, std::span<const std::byte>);
+    Status sync();
+};
+
+std::uint8_t crc7(std::span<const std::byte>);
+std::uint16_t crc16(std::span<const std::byte>);
+Closing fence
+
+The card initialises on first use. Identification follows the SD
+Association's Physical Layer Simplified Specification for SPI mode:
+
+1. SPI at 400 kHz, mode 0, most significant bit first; chip select an output,
+   high; 80 clocks of 0xFF with it high.
+2. CMD0 with its CRC, up to ten times, until R1 is idle (0x01). No answer is
+   TransportError: there is no card.
+3. CMD8 with argument 0x1AA. A card answering it illegal is version 1 and
+   standard capacity; one answering it must echo the voltage and the check
+   pattern, or the card is Unsupported.
+4. CMD55 and ACMD41 -- with HCS for a version 2 card -- every millisecond
+   until R1 is 0, for at most a second (Timeout). Any other R1 means the card
+   is not an SD card: Unsupported.
+5. For a version 2 card, CMD58; the OCR's CCS bit says the card is block
+   addressed (SDHC, SDXC) rather than byte addressed (SDSC).
+6. CMD59 with argument 1, turning the card's CRC checking on.
+7. For a byte-addressed card, CMD16 for 512-byte blocks.
+8. CMD9 and its 16-byte CSD: structure 1 gives (C_SIZE + 1) x 1024 blocks;
+   structure 0 gives (C_SIZE + 1) x 2^(C_SIZE_MULT + 2) x 2^READ_BL_LEN / 512.
+   Any other structure is Unsupported.
+9. SPI at data_baud.
+
+Every command frame carries its CRC7, and R1 is accepted within ten bytes.
+Before every command but CMD0 the driver waits up to 500 ms for the card to
+release its data line. A read is CMD17, or CMD18 then CMD12 and a busy wait,
+each block taken after its 0xFE start token (within 200 ms; an error token is
+TransportError) and checked against its CRC16. A write is CMD24 with token
+0xFE, or CMD25 with token 0xFC per block and the 0xFD stop token, each block
+followed by its CRC16 and a data response that must be accepted (0bxxx00101),
+then a busy wait, and the write is confirmed with CMD13, whose two status
+bytes must be zero.
+
+Reads and writes take whole 512-byte blocks inside the card; a partial,
+empty, or out-of-range transfer is BadArgument before the bus is touched.
+Chip select is low only inside a transaction, followed by one byte of clocks
+when it rises so the card releases MISO, so the bus can be shared. Any
+failure inside a transaction forgets the card, and the next call starts again
+at step 1: a card pulled and put back, or swapped, is found again.
+
+# SdioCard: SD mode
+
+Opening fence
+struct SdioWiring {
+    unsigned int instance = 0;
+    unsigned int clock_gpio = 0;
+    unsigned int command_gpio = 0;
+    unsigned int data0_gpio = 0;          // D0; D1 to D3 are the next three GPIOs
+    unsigned long data_clock_hz = 25'000'000;
+};
+
+class SdioCard final : public mm::fs::BlockDevice {
+public:
+    explicit SdioCard(SdioWiring wiring);
+    Status geometry(BlockGeometry&);
+    Status read(std::uint64_t block, std::span<std::byte>);
+    Status write(std::uint64_t block, std::span<const std::byte>);
+    Status sync();
+    unsigned long data_clock_hz() const;  // what the platform gave; 0 until identified
+};
+
+bool csd_block_count(std::span<const std::byte> csd, std::uint64_t& blocks);
+Closing fence
+
+SdioCard speaks the card's native protocol over mm.mcu's sdio facility,
+which frames commands, checks response and data CRCs, and waits out busy, so
+this class holds only the card protocol. It initialises on first use:
+
+1. sdio_configure on the wiring, four data lines; sdio_clock at 400 kHz; 80
+   idle clocks.
+2. CMD0, which takes no response.
+3. CMD8 with 0x1AA. Silence is a version 1, standard-capacity card; an answer
+   must echo the check pattern, or the card is Unsupported.
+4. CMD55 and ACMD41 with the 2.7 V to 3.6 V window -- and HCS for a version 2
+   card -- every millisecond until the OCR's busy bit says ready, for at most
+   a second (Timeout). Silence to the first CMD55 is an empty socket,
+   TransportError. The OCR's CCS bit says the card is block addressed.
+5. CMD2 for the CID, CMD3 for the card's RCA, CMD9 addressed by it for the
+   CSD, whose capacity csd_block_count decodes as SpiCard does.
+6. CMD7 to select the card, ACMD6 with 2 for the 4-bit bus, and for a
+   byte-addressed card CMD16 for 512-byte blocks.
+7. sdio_clock at data_clock_hz.
+
+A read is CMD17, or CMD18 for at most the facility's guaranteed eight blocks
+followed by CMD12; a longer read is several. The facility takes a read buffer
+on a four-byte boundary only, so a read into any other goes a block at a time,
+CMD17 each, through a 512-byte buffer the SdioCard holds. A write is CMD24, or CMD25 for
+any number of blocks followed by CMD12, then CMD13, whose status must show
+no error. Every R1 is checked for the card status error bits. Any failure
+forgets the card, and the next call identifies it again from CMD0.
+
+SdioCard and SpiCard present the same BlockDevice, so a socket provider
+chooses the transport and nothing above it changes: FAT mounts either.
+
+# mm.sdcard.socket
+
+Opening fence
+namespace mm::sdcard::socket {
+class Provider { virtual mm::fs::BlockDevice& card(); };
+void set_provider(Provider&);
+Provider& selected_provider();
+mm::fs::BlockDevice& card();
+}
+Closing fence
+
+A platform-interface: a board binds a provider that owns an SpiCard on its
+socket's pins and answers it from card(), so a portable program writes
+mm::fs::fat::mount("/sd", mm::sdcard::socket::card()) and names no pin. With
+no provider bound, card() answers a device that is Unsupported throughout,
+and a program reaching the interface is unavailable on that board.
+
+Opening fence
+provider                               socket wiring                      boards
+platform.geek.sdcard                   SPI0 GP18/19/20, CS GP23           rp2040_geek, rp2350_geek
+platform.rp2350_touch_lcd_154.sdcard   SPI0 GP18/19/20, CS GP23           rp2350_lcd_154, rp2350_touch_lcd_154
+platform.pizero.sdcard                 SDIO CLK GP30, CMD GP31, D GP40-43 rp2350_pizero, rp2350_pizero_usb_host
+platform.rp2350_touch_lcd_28.sdcard    SDIO CLK GP19, CMD GP20, D GP21-24 rp2350_touch_lcd_28
+platform.linux.storage.socket          SPI0 GPIO 18/19/20, CS GPIO 23     storage-linux-x86_64, storage-linux-aarch64
+Closing fence
+
+The PiZero's and the RP2350-Touch-LCD-2.8's sockets are SdioCards, in 4-bit SD
+mode at 25 MHz; the GEEK and LCD 1.54 sockets stay SpiCards, whose wiring
+hardware SPI reaches.
+
+The storage-linux boards' socket holds the emulated card of
+docs/modules-linux-storage.mdy, on the GEEK's wiring.
+
+The RP2350-Touch-LCD-2.8's socket is on GP19 to GP24, where GP19 is an SPI TX
+position and GP20 an RX one, so hardware SPI cannot drive it; SD mode over PIO
+is its only transport.
+
+# apps/sd-smoke
+
+sd-smoke mounts the socket's card at "/sd" with mm.fs.fat, runs the
+mm.fs.conformance checks in a scratch directory, prints the counts and the
+first failure, and unmounts. It never formats: a card holding no FAT volume
+exits 2 and is left alone. An empty socket skips. scripts/build-sd.sh builds
+it, by default for rp2040_geek.
+
+# Tests
+
+tests/mm/sdcard drives SpiCard against a byte-level model of an SD card in
+SPI mode behind a fake mm.mcu platform. The model parses command frames,
+checks CRC7 on CMD0 and CMD8 and on everything once CMD59 enables it, answers
+CMD0, CMD8, CMD55 and ACMD41, CMD58, CMD59, CMD16, CMD9, CMD17, CMD18 with
+CMD12, CMD24, CMD25 with its tokens, and CMD13, checks write CRC16s, and can
+be an SDHC card, a version 2 SDSC card, or a version 1 one. The tests cover
+the CRCs against the specification's values, SDHC identification and its
+transcript, the 400 kHz and data clocks, block round trips single and
+multiple, byte addressing on SDSC, arguments refused before the bus, a
+missing card, one that never leaves idle, a corrupt read and recovery, a card
+pulled mid-read and put back, chip select between transactions, and the
+socket fallback. Dropping the CRC16 check, or always block addressing, makes
+them fail.
+
+tests/mm/sdcard also drives SdioCard against a command-level model of a card
+in SD mode behind a fake platform implementing the sdio facility: SDHC
+identification and its transcript, RCA addressing, the 4-bit switch and the
+two clocks, single and multiple block round trips with reads split at eight
+blocks and stopped by CMD12, byte addressing and CMD16 on both SDSC
+versions, arguments refused before the bus, an empty socket, a card that
+never leaves busy, a data CRC failure and a rejected write each forgetting
+the card, a platform without the facility, and the CSD decode. The Pico
+facility itself -- its PIO programs and DMA -- is exercised only on
+hardware.
+
+tests/mm/linux also drives SpiCard, unmodified, against the storage-linux
+emulator's card through its mm.mcu bus: SDHC and both SDSC kinds, single and
+multiple blocks landing at the right bytes of the store, and the emulator's
+faults -- removal and reinsertion, write protection, a corrupt read, and a
+write failing partway -- each reaching the driver as TransportError and
+recovered from.
+
+# apps/socket-smoke
+
+socket-smoke works on mm.sdcard.socket's card below any file system: it
+prints the geometry, then saves the last block, writes a pattern over it,
+reads it back, and restores it. scripts/build-socket.sh builds it, by default
+for storage, the emulated card, where --run runs it.
+
+# Acknowledgements
+
+The Pico implementation of the sdio facility learned its design from carlk3's
+no-OS-FatFS-SD-SDIO-SPI-RPi-Pico (https://github.com/carlk3/no-OS-FatFS-SD-SDIO-SPI-RPi-Pico),
+licensed under the Apache License 2.0, whose SDIO part in turn derives from
+ZuluSCSI's firmware: a PIO state machine that drives the clock as side-set
+while it shifts commands and responses, others that move the four data lines,
+DMA to keep up with them, and CRC16 checked on every line. The programs,
+framing, and code in platforms/pico/sdk/pico-sdk/ext/adapter.c are this
+project's own; nothing is copied from either project, and the acknowledgement
+is recorded there as well.

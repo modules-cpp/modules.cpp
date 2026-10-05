@@ -86,11 +86,36 @@ continues through Pico's aggregate stdio path; mm.stdio addresses USB directly,
 so its connected and byte-count answers are about CDC rather than an ambiguous
 union of enabled outputs.
 
-The bridge defines PICO_STDIO_USB_CONNECTION_WITHOUT_DTR=1. connected therefore
-reports USB enumeration through tud_ready(), not the host's DTR line. A terminal
-that does not assert DTR cannot leave a bounded caller waiting forever for a
-signal unrelated to enumeration. Enumeration does not prove that the host is
-draining output.
+The bridge defines PICO_STDIO_USB_CONNECTION_WITHOUT_DTR=1, so the Pico SDK's
+own stdio_usb_connected() reports enumeration through tud_ready() and ignores
+DTR. The provider's connected is stricter: it is true as soon as the host
+asserts DTR (Data Terminal Ready, tud_cdc_connected()), and otherwise once
+MM_PICO_STDIO_USB_CONNECT_DELAY_MS (default 500 ms) has passed since the device
+was configured or last resumed. A terminal that never asserts DTR therefore
+cannot leave a bounded caller waiting forever. Until connected, write accepts
+no bytes and read returns none; output written before a terminal opens the
+port is not delivered to it, so a caller that wants to be heard waits for
+connected first. Neither DTR nor the delay proves that the host is draining
+output. The delay is measured with the system timer, which stops while a
+debugger halts either core; when the host asserts DTR it does not matter.
+
+flush first calls the SDK's flush to start pending transfers. If the FIFO is
+empty and no IN transfer is in flight, it returns Ok even without a USB host.
+Otherwise it waits for the FIFO and endpoint to drain only while USB is ready
+and DTR is asserted. That wait returns Timeout after 500 ms, or after an
+iteration limit if a debugger stops the timer.
+
+Without DTR, or if USB becomes unavailable, flush returns Ok without an added
+drain wait. This preserves best-effort output when powered from a battery or
+charger, or plugged into a host with no terminal open: repeated flush calls do
+not add half a second per message. A terminal that reads without asserting DTR
+also receives best-effort flushing. Ok on these paths does not mean delivery;
+a terminal that opens after the connection fallback deadline, or never raises
+DTR, may miss the final bytes if the application exits immediately.
+
+Even a completed drain only confirms acknowledgement by the USB host. It
+cannot prove that a terminal process consumed the data or recover bytes dropped
+during an earlier write.
 
 Pico SDK performs USB work from its default timer and low-priority IRQ. A caller
 does not call tud_task and mm.stdio exposes no pump operation.

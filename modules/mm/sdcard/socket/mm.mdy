@@ -1,0 +1,23 @@
+---
+mm: 1.2
+kind: module
+name: sdcard-socket
+module: mm.sdcard.socket
+platform-interface:
+use: mm.fs
+file: socket.cppm
+file: src/socket.cpp
+---
+
+# mm.sdcard.socket
+
+The board's TF socket, as a block device a portable program mounts without
+naming a pin: mm::fs::fat::mount("/sd", mm::sdcard::socket::card()). A board
+whose socket is wired to an SPI bus binds a provider that owns an
+mm.sdcard SpiCard on the socket's pins, as a display board binds its panel;
+the card initialises on first use, so an empty socket costs nothing until it
+is read.
+
+A program reaching mm.sdcard.socket is unavailable on a board that binds no
+provider. With none bound, the fallback's card answers Unsupported to
+everything.

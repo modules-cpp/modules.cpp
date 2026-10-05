@@ -1,0 +1,23 @@
+---
+mm: 1.0
+kind: test
+name: sdcard
+use: mm.test
+use: mm.mcu
+use: mm.fs
+use: mm.sdcard
+use: mm.sdcard.socket
+unit: tests/mm/sdcard/card.cpp
+unit: tests/mm/sdcard/sdcard.cpp
+unit: tests/mm/sdcard/sdio.cpp
+unit: tests/main.cpp
+---
+
+# mm.sdcard tests
+
+Drives SpiCard against a byte-level model of an SD card in SPI mode behind a
+fake mm.mcu platform: SDHC, version 2 SDSC, and version 1 SDSC
+initialisation and addressing, the CRCs, single and multiple block reads and
+writes, argument checks, the identification and data clocks, chip select
+between operations, and a missing card, one that never leaves idle, a
+corrupt read, and a card pulled mid-transfer and put back.

@@ -1,0 +1,17 @@
+---
+mm: 1.2
+kind: module
+name: linux-storage-store
+module: platform.linux.storage.store
+file: store.cppm
+---
+
+# platform.linux.storage.store
+
+What the virtual chips keep their bytes in: a BlockStore interface, a
+MemoryStore for tests, and a FileStore over std::filebuf. A FileStore opens an
+existing file at its own size, or makes a missing one at the requested size
+filled with a byte -- zeros for a new SD card, 0xFF for an erased flash chip
+-- and flushes every write, so a program that is killed leaves the image as
+consistent as the file system on it made it. Standard library only, so it
+builds on the host lane.

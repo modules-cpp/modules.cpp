@@ -118,6 +118,45 @@ bool apply(Map& map, std::string_view key, std::string_view text) {
     if (key == "imu.trigger") return selector(text, map.imu.trigger);
     if (key == "imu.timeout-ms") return number(text, map.imu.timeout_ms) && map.imu.timeout_ms > 0;
     if (key == "adc.device") return selector(text, map.adc_device);
+    if (key == "flash.path") return quoted(text, map.flash.path);
+    if (key == "flash.size") {
+        unsigned long value = 0;
+        if (!number(text, value) || value == 0) return false;
+        map.flash.size = value;
+        return true;
+    }
+    if (key == "flash.erase-size") {
+        unsigned long value = 0;
+        if (!number(text, value) || value == 0 || value > 0xffffffffUL) return false;
+        map.flash.erase_size = static_cast<unsigned int>(value);
+        return true;
+    }
+    if (key == "flash.program-size") {
+        unsigned long value = 0;
+        if (!number(text, value) || value == 0 || value > 0xffffffffUL) return false;
+        map.flash.program_size = static_cast<unsigned int>(value);
+        return true;
+    }
+    if (key == "sdcard.path") return quoted(text, map.sdcard.path);
+    if (key == "sdcard.size") {
+        unsigned long value = 0;
+        if (!number(text, value) || value == 0) return false;
+        map.sdcard.size = value;
+        return true;
+    }
+    if (key == "sdcard.kind") {
+        text = trim(text);
+        if (text == "sdhc") { map.sdcard.kind = SdCardKind::Sdhc; return true; }
+        if (text == "sdsc") { map.sdcard.kind = SdCardKind::Sdsc; return true; }
+        return false;
+    }
+    if (key == "spiflash.path") return quoted(text, map.spiflash.path);
+    if (key == "spiflash.size") {
+        unsigned long value = 0;
+        if (!number(text, value) || value == 0) return false;
+        map.spiflash.size = value;
+        return true;
+    }
     if (key == "usb.host.detach-kernel-drivers") return boolean(text, map.usb_host.detach_kernel_drivers);
     if (key == "usb.device.functionfs") return quoted(text, map.usb_device.functionfs);
     if (key == "usb.device.gadget") return quoted(text, map.usb_device.gadget);
@@ -184,6 +223,13 @@ bool apply(Map& map, std::string_view key, std::string_view text) {
         if(field=="stop-bits"){if(!number(text,v)||(v!=1&&v!=2))return false;e.stop_bits=v;return true;}
         if(field=="write-deadline-ms"){if(!number(text,v)||v==0)return false;e.write_deadline_ms=v;return true;}
         if(field=="parity"){text=trim(text);if(text=="none")e.parity=0;else if(text=="even")e.parity=1;else if(text=="odd")e.parity=2;else return false;return true;}
+        return false;
+    }
+    if (indexed_key(key, "directory", index, field)) {
+        if (map.directories.size() <= index) map.directories.resize(index + 1);
+        auto& e = map.directories[index];
+        if (field == "path") return quoted(text, e.path);
+        if (field == "writable") return boolean(text, e.writable);
         return false;
     }
     if (indexed_key(key, "storage", index, field)) {
@@ -255,6 +301,46 @@ MapStatus validate(Map& map, const std::string& path, ParseError& error) {
             error = {path, 0, 0, "storage." + std::to_string(i) + ".path", "relative path"};
             return MapStatus::SyntaxError;
         }
+    }
+    for (std::size_t i = 0; i < map.directories.size(); ++i) {
+        const auto& d = map.directories[i];
+        if (d.path.empty()) {
+            error = {path, 0, 0, "directory." + std::to_string(i) + ".path", "missing path"};
+            return MapStatus::SyntaxError;
+        }
+        if (!d.path.starts_with('/')) {
+            error = {path, 0, 0, "directory." + std::to_string(i) + ".path", "relative path"};
+            return MapStatus::SyntaxError;
+        }
+    }
+    if (!map.flash.path.empty() && !map.flash.path.starts_with('/')) {
+        error = {path, 0, 0, "flash.path", "relative path"};
+        return MapStatus::SyntaxError;
+    }
+    if (map.flash.erase_size % map.flash.program_size != 0) {
+        error = {path, 0, 0, "flash.erase-size", "not a whole number of program units"};
+        return MapStatus::SyntaxError;
+    }
+    if (map.flash.size % map.flash.erase_size != 0) {
+        error = {path, 0, 0, "flash.size", "not a whole number of erase blocks"};
+        return MapStatus::SyntaxError;
+    }
+    if (!map.sdcard.path.empty() && !map.sdcard.path.starts_with('/')) {
+        error = {path, 0, 0, "sdcard.path", "relative path"};
+        return MapStatus::SyntaxError;
+    }
+    if (map.sdcard.size % 512 != 0) {
+        error = {path, 0, 0, "sdcard.size", "not a whole number of 512-byte blocks"};
+        return MapStatus::SyntaxError;
+    }
+    if (!map.spiflash.path.empty() && !map.spiflash.path.starts_with('/')) {
+        error = {path, 0, 0, "spiflash.path", "relative path"};
+        return MapStatus::SyntaxError;
+    }
+    if ((map.spiflash.size & (map.spiflash.size - 1)) != 0 || map.spiflash.size < (1u << 16) ||
+        map.spiflash.size > (1u << 24)) {
+        error = {path, 0, 0, "spiflash.size", "not a power of two from 64 KiB to 16 MiB"};
+        return MapStatus::SyntaxError;
     }
     if (!map.usb_device.functionfs.empty() && !map.usb_device.functionfs.starts_with('/')) {
         error = {path, 0, 0, "usb.device.functionfs", "relative path"};

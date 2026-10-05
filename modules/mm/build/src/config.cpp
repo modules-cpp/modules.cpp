@@ -85,6 +85,10 @@ const std::vector<ManifestKeyRule> manifest_key_rules = {
     {"sketch-profile", 13, "app"},
     {"sketch-define", 13, "app"},
     {"project", 13, "app dir"},
+    {"c-source", 14, "library"},
+    {"c-strict", 14, "library"},
+    {"c-include", 14, "library"},
+    {"c-option", 14, "library"},
 };
 
 const ManifestKeyRule* manifest_key_rule(std::string_view key) {

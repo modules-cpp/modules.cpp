@@ -12,6 +12,10 @@ platform-provider: mm.rtc platform.linux.rtc
 platform-provider: mm.display platform.linux.display
 platform-provider: mm.touch platform.linux.touch
 platform-provider: mm.imu platform.linux.imu
+platform-provider: mm.fs.local platform.linux.fs
+platform-provider: mm.fs.native platform.linux.fs
+platform-provider: mm.fs.littlefs platform.linux.fs.littlefs
+platform-provider: mm.fs.fat platform.linux.fs.fat
 ---
 
 # Native AArch64 Linux SDK

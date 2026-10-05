@@ -1,0 +1,43 @@
+---
+mm: 1.2
+kind: board
+name: rp2350_zero
+derives-from: pico2-arm
+platform-provider: mm.led platform.zero.led
+---
+
+# rp2350_zero
+
+A Waveshare RP2350-Zero, the mini board: an RP2350A with 4MB of flash by
+Waveshare's description and the SDK's header, on the RP2040-Zero's 23.5 by
+18 mm board with a USB-C socket on the native port and a WS2812B RGB LED on
+GP16.
+
+It derives from pico2-arm because that is what it is: the same RP2350A the
+Pico SDK configures as pico2. As with rp2040_zero, the SDK's
+waveshare_rp2350_zero header is outside the bridge's vendor vocabulary, so the
+board derives and the board table corrects. The chip, the SDK, and the ABI
+come from pico2-arm.
+
+It binds platform.zero.led, which drives the WS2812B on GP16 as mm.led
+through mm.led.ws2812b and mm.mcu pulse instance zero.
+
+The 23-pin header carries GP0 to GP15 and GP26 to GP29, with 3V3, GND, and
+VBUS; ten castellated pads carry GP17 to GP25. GP16 drives the WS2812B and is
+not brought out. Unlike the RP2040-Zero, it has a three-pin SWD footprint, J2,
+on the chip's own SWDIO and SWCLK. Its 3V3 comes from an ME6217 linear
+regulator rather than a Pico 2's switcher, so pico2's PICO_SMPS_MODE_PIN,
+GP23, is a free pad here; nothing in the bridge drives it.
+
+The board table replaces the same pico2 default it replaces for rp2040_zero:
+GP25 is a free pad and the WS2812B is the only LED, so the board reports no
+LED. UART0 on GP0 and GP1 stands, and GP26 and GP27 and GP8 and GP9 being free
+header pins, the board has the second I2C and second UART wirings. ADC_AVDD is
+the 3V3 rail, so the ADC reference is 3300 mV.
+
+Every pin above was read from Waveshare's schematic, RP2350_Zero.pdf. Its
+flash symbol is labelled W25Q16, a 2MB part, against the 4MB the product page
+and the SDK state; pico2-arm assumes 4MB, so an image past 2MB is the one that
+would find out. None of it is qualified on hardware.
+
+https://www.waveshare.com/wiki/RP2350-Zero

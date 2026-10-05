@@ -1,0 +1,30 @@
+---
+mm: 1.0
+kind: dir
+name: storage
+folder: store
+folder: sdcard
+folder: spiflash
+folder: bus
+folder: device
+folder: socket
+folder: board
+folder: board-aarch64
+---
+
+# Linux storage emulation
+
+A virtual SD card in SPI mode and a virtual W25Q-family NOR flash on one SPI
+bus, each keeping its contents in a file, behind the mm.mcu seam on the
+storage-linux board -- storage-linux-x86_64 and storage-linux-aarch64, one
+manifest per architecture -- as platforms/linux/epaper and platforms/linux/lcd
+put virtual panels there. mm.sdcard and mm.spiflash
+drive them exactly as they drive real chips, and the files are the bytes a
+real card and chip would hold: an image made with mkfs.fat or littlefs-python
+mounts here, and an image written here can be copied to a card with dd.
+
+store holds the storage the chips sit on, in memory or in a file; sdcard and
+spiflash are the chips, which know nothing of mm.mcu; bus is the mm.mcu
+platform over both, registering nothing, so tests can use it; device is that
+platform over files named by the device map, registered as mm.mcu; socket
+publishes the card as mm.sdcard.socket.

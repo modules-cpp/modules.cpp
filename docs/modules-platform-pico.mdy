@@ -183,6 +183,110 @@ The RP2350-Touch-LCD-2.8 has a row of its own on the same grounds: a 3,300
 millivolt reference, and no LED, its GP25 being the battery key; its GP0 and
 GP1 are its exposed UART, so pico2's default UART stands.
 
+boards/geek holds the Waveshare RP2040-GEEK and RP2350-GEEK, two USB-stick
+boards with one wiring. rp2040_geek derives from pico and rp2350_geek from
+pico2-arm, and both bind platform.geek.display, the 1.14 inch 240 by 135
+ST7789 panel on SPI1. The SDK ships waveshare_rp2040_geek and
+waveshare_rp2350_geek headers, but the bridge selects PICO_BOARD from its six
+vendor names, so the GEEK boards derive and the board table corrects, as every
+other composite board does. Their row gives both a 3,300 millivolt reference,
+ADC_AVDD being the 3V3 rail; no LED, GP25 being the panel backlight; and
+PICO_DEFAULT_UART as UART1 on GP4 and GP5, the header labelled UART, the same
+default the SDK's GEEK headers name.
+
+boards/zero holds the Waveshare RP2040-Zero and RP2350-Zero mini boards.
+rp2040_zero derives from pico and rp2350_zero from pico2-arm, and both bind
+platform.zero.led, which drives the WS2812B on GP16 as mm.led through
+mm.led.ws2812b and the pulse facility, a PIO program in the adapter. Their row in the board table gives
+both a 3,300 millivolt reference; no LED, GP25 being a free pad and the WS2812B
+not a GPIO-driven LED; and the second I2C and UART wirings, whose GP8, GP9,
+GP26, and GP27 are free header pins. GP0 and GP1 are on the header, so the
+vendor board's default UART stands.
+
+boards/pizero holds the Waveshare RP2350-PiZero, rp2350_pizero, which derives
+from pico2-arm but is an RP2350B. pico2.h defines PICO_RP2350A as one without a
+guard, so no definition the board table passes can make a pico2 build see the
+B package. The table therefore carries one more column, MM_PICO_BOARD_HEADER:
+an SDK board header the bridge selects as PICO_BOARD in place of the vendor
+board's, for a board whose chip differs in what only a header can say.
+rp2350_pizero names waveshare_rp2350_pizero, which sets the B package's
+forty-eight GPIOs, 16MB of flash, UART1 on GP4 and GP5, and no LED;
+PICO_PLATFORM stays pico2-arm's, because the cores are the same, and the board
+chain the model sees is unchanged. Its row adds a 3,300 millivolt reference and
+claims no second I2C or UART, the header's defaults already being instance one.
+rp2350_pizero_usb_host derives from it, shares its row, and adds the PIO-USB
+host port on GP28 and GP29 with the platform.pico.usb.host binding.
+
+The board table's flash-region column, MM_BOARD_FLASH_REGION_BYTES, sizes
+mm.mcu's flash region: data storage at the top of the flash the build
+assumes, PICO_FLASH_SIZE_BYTES, ending there. It is keyed on the vendor
+board, because the build's flash size is the vendor header's whatever a
+board's chip holds: 256 KiB for pico and pico-w builds (2 MB), 512 KiB for
+the pico2 family (4 MB), and 4 MiB for rp2350_pizero and
+rp2350_pizero_usb_host, whose own header assumes 16 MB. It must be a whole
+number of 4 KiB sectors; zero gives a board no region. A value given to CMake
+or in the environment as MM_BOARD_FLASH_REGION_BYTES takes precedence.
+
+Three littlefs columns size the littlefs adapter's static pools, which every
+program linking littlefs carries in RAM:
+
+Opening fence
+column                     default  most  bytes each   PiZero boards
+MM_BOARD_LFS_VOLUMES       1        4     about 770    2
+MM_BOARD_LFS_FILES         4        32    about 650    8
+MM_BOARD_LFS_DIRECTORIES   2        16    about 590    4
+Closing fence
+
+The default, sized for an RP2040, is one volume -- the board's own storage --
+four files open at once, and two directories, about 4.5 KB in all. A board
+with RAM to spare, or more littlefs volumes to mount at once, gives its own
+row; rp2350_pizero and rp2350_pizero_usb_host, RP2350B boards with a 4 MiB
+region, keep the pools littlefs had before the columns existed, about 9 KB.
+Each column given to CMake or in the environment takes precedence over the
+table, and a value that is not a whole number from 1 to its most stops the
+build naming the column. The bridge passes them to littlefs/adapter.c as
+MM_PICO_LFS_VOLUMES, MM_PICO_LFS_FILES, and MM_PICO_LFS_DIRECTORIES; a build
+that passes none, such as the native harness's, gets the defaults.
+
+After every link the bridge's UF2 validation also reads each block's target
+address and size and refuses an image that reaches the region's start,
+naming both addresses, and deletes the UF2. Blocks flagged not-main-flash,
+and blocks of the absolute family, are skipped: picotool adds an
+absolute-family block at 0x10ffff00 to RP2350 images, its RP2350-E10
+workaround, whatever the image's size. adapter.c checks the same at run time
+against __flash_binary_end and answers Unsupported when the image reaches the
+region, for an image linked some other way.
+
+adapter.c implements the region: reads copy from the execute-in-place
+window; programs, a page at a time through a RAM bounce buffer because the
+data must not live in the flash being programmed, and erases, a 4 KiB sector
+at a time, each run through pico_flash's flash_safe_execute with a one-second
+enter and exit timeout, which keeps the other core and the calling core's
+interrupts off the flash. PICO_ERROR_TIMEOUT is Timeout and any other failure
+Busy. A program onto bytes that are not erased is not checked here; NOR flash
+ANDs it, which is the caller's to avoid. The bridge links hardware_flash and
+pico_flash into every image.
+
+pico-arm and pico-riscv also bind mm.fs.littlefs and mm.fs.local to
+platform.pico.fs.littlefs, littlefs on the flash region; docs/modules-fs.mdy
+specifies it. littlefs is vendored like Pico-PIO-USB: littlefs/vendor.sh
+provisions commit 6cb4e86540eca0d9ba62500a298385c9d863c8be, v2.11.3, into
+littlefs/upstream, ignored like the SDK's checkout, cloning from GitHub or
+from MM_LITTLEFS_SOURCE, and no tool runs it. The bridge recognises a program
+that linked the provider by the provider's object among MM_OBJECTS, whose
+paths mirror source paths, and only then requires the checkout -- failing the
+configure with the vendor.sh command when it is absent -- and builds lfs.c,
+lfs_util.c, and littlefs/adapter.c into a static library with LFS_NO_MALLOC,
+LFS_NO_DEBUG, LFS_NO_WARN, and LFS_NO_ERROR, adapter.c with -Wall -Wextra
+-Werror. The adapter includes no Pico SDK header.
+
+They bind mm.fs.fat to platform.pico.fs.fat too, FAT over FatFs R0.16, which
+fatfs/vendor.sh provisions from ChaN's pinned, checksummed archive. The
+bridge recognises a program that linked that provider the same way and
+builds ff.c, ffunicode.c, and fatfs/adapter.c into a static library, every
+FatFs translation unit compiled with -include naming the project's
+fatfs/ffconf.h, adapter.c with -Wall -Wextra -Werror.
+
 pico2-arm and pico2-w-arm declare security-domain: secure and select the Arm
 Secure processor row. rp2350-ram omits the key, keeps the non-secure default,
 and therefore keeps its three-argument commands unchanged.
@@ -200,6 +304,26 @@ family:
 
 - GPIO configure, read, and write use Pico SDK's GPIO API and validate against
   the selected chip's Bank 0 GPIO count.
+- The sdio facility, instance zero, runs an SD card's 4-bit bus over PIO and
+  DMA in ext/adapter.c. One PIO block holds two state machines that share the
+  clock as side-set -- one shifts commands out and responses in, one shifts a
+  written block out and reads the card's CRC status and busy -- in exactly its
+  32 instructions; a third state machine in another block follows the clock,
+  waits for a read block's start bit, and feeds its nibbles to DMA, which
+  byte-swaps the data words straight into the caller's buffer while a second
+  channel, chained to and from the first, collects each block's CRC words.
+  The adapter is in every Pico program, so the facility holds almost no
+  static RAM: no staging buffer, a sixteen-entry CRC table, and write words
+  computed as they are fed. Lines
+  change on a falling edge and are sampled most of a period later, which the
+  RP2350's 150 MHz clock makes 25 MHz and the RP2040's 125 MHz 20.8 MHz.
+  The four CRC16s of a block are computed as one 64-bit CRC under G(x^4).
+  The six pins may lie anywhere in one 32-GPIO window: the PIO blocks are
+  chosen and their GPIO base set for the range, so the RP2350B's GP30 to GP43
+  work, and the read program reaches the clock relative to D0, whatever the
+  base. The design learned from carlk3's Apache-2.0
+  no-OS-FatFS-SD-SDIO-SPI-RPi-Pico, credited in docs/modules-sdcard.mdy; no
+  code is copied.
 - SPI instances zero and one use Pico SDK hardware_spi with caller-selected
   clock, transmit, and optional receive GPIOs. Configuration validates the
   board inventory, distinct signals, and each RP chip's SPI signal-to-GPIO mux;
@@ -228,6 +352,12 @@ family:
 - interrupts_disable and interrupts_enable are the SDK's
   save_and_disable_interrupts and restore_interrupts on the calling core,
   crossing the private ABI as the core's mask word.
+- I2S is in the image only on boards whose board-table row sets
+  MM_BOARD_HAS_I2S -- rp2350_lcd_154, rp2350_touch_lcd_154, and
+  rp2350_touch_lcd_28, the boards with an audio codec; on every other board
+  each I2S call answers Unsupported and its buffers cost no RAM. Set
+  MM_BOARD_HAS_I2S=1 in CMake or the environment for an I2S device on a
+  board's header.
 - I2S instance zero is the adapter's PIO link, the Pico being its master. A
   clock state machine drives the bit clock and the word clock by side-set --
   so the word clock must be the GPIO after the bit clock, and pins stop at
@@ -283,7 +413,8 @@ Wi-Fi, and Bluetooth are not enabled merely by recognizing the W board.
 ## USB CDC console
 
 On the pico_usb_host and pico2_usb_host boards the native port stays this
-console while a second USB port, D+ on GP2 and D- on GP3, is a USB host
+console while a second USB port, D+ on GP2 and D- on GP3 -- on
+rp2350_pizero_usb_host GP28 and GP29, its PIO-USB socket -- is a USB host
 driven by Pico-PIO-USB through the chip's PIO, for one USB mass-storage
 device, which mm.mcu's block storage reads and writes. A board opts in with
 MM_BOARD_HAS_USB_HOST and MM_BOARD_USB_HOST_DP_PIN in resolve-board.cmake.
@@ -319,8 +450,12 @@ The bridge enables pico_stdio_usb and keeps semihosting enabled. The provider
 initializes the Pico stdio subsystem once, then addresses the USB driver directly
 for reads, writes, flushing, and connection state; it does not redirect mm.stdio
 through the aggregate stdio multiplexer. The compile definition
-PICO_STDIO_USB_CONNECTION_WITHOUT_DTR=1 makes connected mean that USB CDC is
-enumerated and ready, rather than requiring a terminal to assert DTR. Pico SDK's
+PICO_STDIO_USB_CONNECTION_WITHOUT_DTR=1 makes the SDK's own connection test
+mean enumeration; the adapter reports connected when the host asserts DTR, or,
+for a terminal that never does, once MM_PICO_STDIO_USB_CONNECT_DELAY_MS
+(default 500 ms; scripts/build-pico.sh --connect-delay) has passed since the
+device was configured or resumed, and reads and writes follow the same answer.
+docs/modules-stdio.mdy records what this does and does not promise. Pico SDK's
 default background IRQ task services TinyUSB, so applications do not call
 tud_task or another transport pump.
 
@@ -329,6 +464,16 @@ the provider reports zero bytes while disconnected and the complete size after a
 connected callback returns, but cannot observe a timeout partway through that
 callback. docs/modules-stdio.mdy owns the portable console contract and records
 this provider-specific limitation.
+
+TinyUSB 0.18.0, in the pinned Pico SDK 2.3.1, panics with "Can't continue xfer
+on inactive ep" when the controller reports a finished buffer for an endpoint
+whose transfer has already ended. A host that abandons a double-buffered
+control IN transfer while it re-enumerates the board leaves exactly that
+notification behind; it was observed on endpoint 0x80 with a terminal holding
+the port across a reset. Upstream TinyUSB now ignores such a notification. The
+bridge links every image with --wrap=hw_endpoint_xfer_continue, and the
+adapter's wrapper returns false for an inactive endpoint the same way, leaving
+the SDK checkout untouched. It is removed once the pinned SDK carries the fix.
 
 ## Native USB port ownership: application vs console
 
@@ -340,12 +485,13 @@ By default every Pico board keeps the native USB port as the CDC console (`MM_BO
 On application-port boards:
 - The bridge does not link `pico_stdio_usb`, linking `tinyusb_device` and `pico_stdio_uart` instead.
 - `platform.pico.usb.device` provides device initialization, connection events, control endpoint callbacks, and custom class endpoint transfers through TinyUSB's `usbd_app_driver_get_cb` hook.
+- Deconfiguration with `SET_CONFIGURATION(0)` reports `State::Address`; a TinyUSB unplug event reports `State::Detached`. A bus reset reports `State::Default`.
 - `mm.usb.cdc` can be bound as the `mm.stdio` console provider (`platform-provider: mm.stdio mm.usb.cdc`) on boards where the application controls the native USB port, replacing UART console with CDC ACM over `platform.pico.usb.device`.
 - `mm.usb.msc` provides USB Mass Storage Class (BOT / BBB) device functionality, exposing `mm.mcu` block storage to a USB host over Bulk endpoints.
 
 ## USB host: storage and non-storage peripherals
 
-On boards with a second USB host port driven by Pico-PIO-USB (`pico_usb_host` and `pico2_usb_host`):
+On boards with a second USB host port driven by Pico-PIO-USB (`pico_usb_host`, `pico2_usb_host`, and `rp2350_pizero_usb_host`, whose port is the RP2350-PiZero's PIO-USB socket on GP28 and GP29):
 - `mm.mcu`'s block storage calls continue to address USB mass-storage devices through TinyUSB's host MSC class.
 - `platform.pico.usb.host` binds `mm.usb.host` to serve non-storage USB peripherals attached to the port via TinyUSB's host API (`tuh_*`).
 - When a mass-storage device is claimed by `mm.mcu`, `platform.pico.usb.host::claim` refuses to claim the interface and answers `Busy`, preventing conflicts with the storage stack.

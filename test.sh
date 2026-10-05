@@ -239,6 +239,9 @@ run_test_target tests/mm/ino/ || exit $?
 run_test_target tests/mm/sketch/ || exit $?
 run_test_target tests/mm/json/ || exit $?
 run_test_target tests/mm/lcd/ || exit $?
+run_test_target tests/mm/led/ || exit $?
+run_test_target tests/mm/fs/ || exit $?
+run_test_target tests/mm/sdcard/ || exit $?
 run_test_target tests/mm/rtc/ || exit $?
 run_test_target tests/mm/usb/ || exit $?
 case "$(uname -s)" in
@@ -253,6 +256,7 @@ case "$(uname -s)" in
         ;;
 esac
 run_test_target libraries/demo/test/ || exit $?
+run_test_target libraries/c-demo/test/ || exit $?
 run_test_target tests/target/board/ || exit $?
 run_test_target tests/target/mcu-provider/ || exit $?
 run_test_target tests/target/rp2040/ || exit $?

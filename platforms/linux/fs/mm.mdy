@@ -1,0 +1,29 @@
+---
+mm: 1.2
+kind: module
+name: linux-fs
+module: platform.linux.fs
+use: mm.fs
+use: mm.fs.local
+use: mm.fs.native
+use: platform.linux.map
+file: fs.cppm
+file: src/fs.cpp
+---
+
+# platform.linux.fs
+
+mm.fs.native and mm.fs.local on Linux: a directory of the host's file system
+as an mm.fs volume, through the C++ standard library alone --
+std::filesystem, with its std::error_code overloads, for the tree, and
+std::filebuf for the bytes. mm.fs.local mounts the device map's directory.0,
+or the working directory, writable, when the map names none.
+
+The volume keeps mm.fs's Volume rules that Linux itself would not: a file
+open for writing cannot be opened again, removed, or renamed, and rename
+never replaces a target. contain_symlinks treats a link whose target lies
+outside the root as absent. sync hands the bytes to the kernel; the standard
+library has no fsync, so it does not promise they survive a power cut.
+
+Four volumes may be attached at once, each with 32 open files and 8 open
+directories.

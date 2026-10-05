@@ -1,7 +1,10 @@
 #!/bin/sh
 # apps/gfx-demo on any board with a display: a dithered glow, nested frames,
 # a ringed porthole, and an off-centre tick, in four orientations. The image
-# must carry no font tables: gfx draws without them.
+# must carry no font tables: gfx draws without them. On the Waveshare GEEK
+# boards, rp2040_geek and rp2350_geek, the panel is 240 by 135 in landscape,
+# so the quarter turns lay the scene out 135 pixels wide, the narrowest of any
+# panel under boards/.
 
 # Sort, compare, and match bytes, and keep tool messages untranslated,
 # whatever the caller's locale.
@@ -19,7 +22,8 @@ wrapper_board=rp2350_touch_lcd_28
 wrapper_both="--no-symbol mm::fonts"
 wrapper_pico=""
 wrapper_linux=""
-wrapper_usage="apps/gfx-demo: packed-surface drawing on the board's display"
+wrapper_usage="apps/gfx-demo: packed-surface drawing on the board's display
+GEEK boards: --board rp2040_geek or --board rp2350_geek"
 
 wrapper_after() {
     echo "A dithered glow, nested frames, a ringed porthole, and an off-centre"

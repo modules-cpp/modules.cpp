@@ -24,7 +24,11 @@ Legacy POSIX shell services reside in mm.shell.posix and are consumed by
 tools/shell. There is no dependency path from mm.shell to mm.shell.posix.
 
 mm.shell.mcu adds only mm.mcu and mm.stdio to the embedded closure. Its
-commands allocate nothing and do not import POSIX services.
+commands allocate nothing and do not import POSIX services. mm.shell.fs adds
+mm.fs for its file commands, under the same rules. mm.shell.board is the
+board shell's runtime, the buffers and event loop apps/mcu-shell runs, with a
+hook for an application's packs and mounts. mm.fs.shell, on the full-profile
+side, fills mm.shell.full's IoService and FileService from mm.fs.
 
 # Storage ownership rules
 
@@ -114,9 +118,11 @@ disconnected. With no attached driver, console dispatch returns status 125.
 McuConsole keeps a caller-owned pending-byte span. Its ByteSink accepts a
 complete write or returns WouldBlock, never a partial logical write. The
 application pumps the queue through mm.stdio and retains a short physical
-write for the next iteration. apps/mcu-shell owns 512 pending bytes, 64 input
-bytes, 512 ordinary-output bytes, 256 diagnostic-output bytes, and 512
-transaction-scratch bytes.
+write for the next iteration. mm.shell.board, which apps/mcu-shell runs, owns
+512 pending bytes, 64 input bytes, 512 ordinary-output bytes, 256
+diagnostic-output bytes, 512 transaction-scratch bytes, and 48 command
+descriptors: the level-2 pack's 28, the two scripts, and room for an
+application's packs.
 It feeds Session and steps the evaluator once per event-loop iteration.
 The larger scratch span fits the 48 named GPIO/PWM entries on RP2350B; a
 256-byte span cannot hold that inventory as one atomic output line set.
@@ -152,6 +158,54 @@ is 125. Transaction scratch overflow records Status::Overflow and the exact
 required byte count, before any provider call. Diagnostics use the error sink
 and do not contaminate captured stdout.
 
+## Files: mm.shell.fs
+
+mm.shell.fs installs ten file commands beside the level-2 pack as one
+transaction, each needing the Files capability, which mm::shell::fs::enable
+adds. They work on any mm.fs path, and a relative path is a usage error:
+
+Opening fence
+ls PATH [SKIP]          names a line, a directory's with a trailing slash
+cat PATH [OFFSET]       the file's bytes from OFFSET
+stat PATH               file SIZE MODIFIED, or directory 0 MODIFIED; then ro if read-only
+write PATH TEXT...      replace the file with the words and a newline
+append PATH TEXT...     add the words and a newline at its end
+rm PATH                 a file, or an empty directory
+mkdir PATH              the parent must exist
+mv FROM TO              within one volume; never replaces a target
+df [PREFIX]             PREFIX TOTAL FREE in bytes, for one or every mounted declared prefix
+mounts                  the declared prefixes that are mounted
+Closing fence
+
+Output is bounded by the transaction scratch and the staged output, so cat
+and ls page: each prints what fits, and when more remains says on the error
+stream how to go on -- cat: more; cat PATH OFFSET, ls: more; ls PATH SKIP. A
+file system's refusal is status 1 with its reason -- cat: no such file or
+directory -- a malformed path or a missing operand status 2, and the device
+beneath answers as the mcu pack's providers do: 74 for a transport error or
+a corrupt volume, 75 busy, 124 timeout, 70 unsupported. mm.fs keeps no list
+of its mounts, so FsBinding names the prefixes the application mounted, for
+df and mounts.
+
+apps/mcu-shell mounts the board's own storage at /data through mm.fs.local
+-- littlefs on the flash region on a Pico, formatted the first time; the
+device map's directory on Linux -- and installs the pack. apps/mcu-shell-sd
+also mounts the FAT volume on the card in the board's socket at /sd through
+mm.sdcard.socket and mm.fs.fat, and adds sd, which mounts a card inserted
+after the shell started. Manifest options do not reach the compiler, so the
+build option that brings FatFs and the card driver in is choosing that
+application: scripts/build-shell.sh builds mcu-shell, and with --sd
+mcu-shell-sd, by default for rp2040_geek. Storage that does not mount still
+gets the shell, with a line saying so; the card is never formatted.
+
+tests/mm/fs dispatches every command against the in-memory reference volume:
+the pack's atomic install and the Files gate, writes, appends, reads from an
+offset, listings, stat, rename, refusals with their reasons, usage errors,
+cat and ls paging until every entry has been seen once, and df and mounts
+over two volumes. On storage-linux, mcu-shell-sd with commands piped to its
+console writes and reads /sd on a mkfs.fat image, which fsck.fat then finds
+clean, and /data in the working directory.
+
 ### Pico SDK release-size qualification
 
 The shell-free apps/mcu-shell-size-control links the same platform and stdio
@@ -170,13 +224,48 @@ RP2350 RISC-V      206680          42688       163992      73780
 Closing fence
 
 The normative RP2040 ceilings are 256 KiB total flash, 160 KiB incremental
-flash, and 64 KiB static RAM. Its measured values meet all three. Each lane
+flash, and 64 KiB static RAM. The measured values above, from v1.3.1, met all
+three. Each lane
 linked both ELFs and produced the Pico SDK UF2 flashable artifact. These are
 compile/link qualifications, not hardware execution results. The interactive
 Pico console script was not run, at the user's request. The M68k QEMU
 and MPS2 Arm QEMU shell-smoke regressions both passed. The MPS2 board
 explicitly reports entropy unavailable through its newlib syscall boundary;
 it never invents random bytes for the sake of linking.
+
+Measured again with the file commands, release builds, the same method:
+
+Opening fence
+lane          build                     shell flash  control flash  delta flash  shell RAM
+RP2040        mcu-shell, no files            205452          77664       127788      65844
+RP2040        mcu-shell, littlefs /data      272616          77664       194952      74072
+RP2350 Arm    mcu-shell, no files            197172          73664       123508      66340
+RP2350 Arm    mcu-shell, littlefs /data      259080          73664       185416      74616
+Closing fence
+
+The control itself has grown since v1.3.1, with the I2S, PWM, pulse, and
+SDIO facilities in the adapter. The shell without files meets the flash
+ceilings and is 308 bytes over the RAM one; with littlefs at /data, as
+mcu-shell now always mounts it, the RP2040 build exceeds all three: 10,472
+bytes over the total flash ceiling, 31,112 over the incremental one, and
+8,536 over the RAM one. littlefs's code is about 49 KB of that. Its
+adapter's pools, sized per board by the board table's MM_BOARD_LFS_*
+columns, are about 4.5 KB of the RAM at the default of one volume, four
+files, and two directories; they were about 9 KB before the columns
+existed.
+
+Since then the shell's storage moved out of the flash image, firmware lanes
+dropped exception and RTTI support, and I2S is compiled only for boards with
+audio, and the shell with littlefs at /data meets all three RP2040 ceilings
+again:
+
+Opening fence
+lane          build                     shell flash  control flash  delta flash  shell RAM
+RP2040        mcu-shell, littlefs /data      193996          60204       133792      64616
+RP2350 Arm    mcu-shell, littlefs /data      184500          56756       127744      65088
+Closing fence
+
+drafts/mcu-shell-size-fixes.mdy records the analysis and each change.
 
 # Foundation API
 

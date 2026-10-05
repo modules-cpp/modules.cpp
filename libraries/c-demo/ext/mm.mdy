@@ -1,0 +1,8 @@
+---
+mm: 1.2
+kind: module
+name: c-demo
+module: lib.cdemo
+file: cdemo.cppm
+library: c-demo
+---

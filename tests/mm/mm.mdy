@@ -16,6 +16,7 @@ folder: epaper
 folder: fonts
 folder: gfx
 folder: flash
+folder: fs
 folder: shell
 folder: shell/mcu
 folder: shell/full
@@ -29,7 +30,9 @@ folder: imu
 folder: ino
 folder: json
 folder: lcd
+folder: led
 folder: rtc
+folder: sdcard
 folder: sketch
 folder: linux
 folder: usb

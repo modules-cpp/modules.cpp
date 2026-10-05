@@ -1,0 +1,19 @@
+---
+mm: 1.0
+kind: test
+name: led
+use: mm.test
+use: mm.mcu
+use: mm.led
+use: mm.led.ws2812b
+unit: tests/mm/led/platform.cpp
+unit: tests/mm/led/ws2812b.cpp
+unit: tests/main.cpp
+---
+
+# WS2812B controller tests
+
+Exercises the pulse configuration the controller asks for, the dark frame at
+initialize, GRB and RGB byte order, writes at an offset, range validation,
+frame-length validation, clear, the sleep and re-initialize lifecycle, and
+transport failure, against a recording MCU platform without physical hardware.

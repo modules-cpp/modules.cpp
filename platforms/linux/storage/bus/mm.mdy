@@ -1,0 +1,34 @@
+---
+mm: 1.2
+kind: module
+name: linux-storage-bus
+module: platform.linux.storage.bus
+use: mm.mcu
+use: platform.linux.storage.sdcard
+use: platform.linux.storage.spiflash
+file: bus.cppm
+---
+
+# platform.linux.storage.bus
+
+The emulated board's mm.mcu platform over the virtual SD card and the virtual
+SPI flash, which share SPI 0 as rp2040_geek's TF socket and a flash chip
+beside it would:
+
+Opening fence
+SPI 0         clock GPIO 18, transmit GPIO 19, receive GPIO 20
+SD card       chip select GPIO 23
+SPI flash     chip select GPIO 17
+Closing fence
+
+Every GPIO write latches, and both chip selects start high, as their pull-ups
+hold them. A chip whose select is high ignores the bus and leaves the receive
+line high, so the two share it as real devices do; a byte clocked with both
+selected is answered 0xFF and counted as a wiring error. A configuration
+naming other pins or another instance is BadArgument. Time is the host's
+steady clock, and a delay sleeps. Every other facility answers Unsupported.
+
+It registers nothing: platform.linux.storage.device registers one over image
+files as mm.mcu, and tests make their own over in-memory stores and select
+them with mm::mcu::set_platform. A chip given as null is absent, and its
+select line goes nowhere.

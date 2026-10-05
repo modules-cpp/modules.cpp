@@ -4,6 +4,7 @@
 #
 #   scripts/build-pico.sh --board BOARD --app APP [--symbol PATTERN]...
 #                         [--no-symbol PATTERN]... [--abi SYMBOL]...
+#                         [--connect-delay MS]
 #                         [--control APP] [--flash] [--keep] [--dry-run]
 #
 # BOARD is any Pico board: one of the six the Pico SDK recognises, or a
@@ -24,6 +25,10 @@
 # contain, --abi raw symbols it must define, and --control a second
 # application checked against its own closure, which for a portable
 # application that reaches no interface is every provider absent.
+#
+# --connect-delay MS sets the post-enumeration USB CDC connect delay in
+# milliseconds (default 500 ms), giving slow hosts time to bind cdc_acm and
+# open the serial port before reporting connected.
 #
 # --dry-run prints the lane, the commands, and every check, and touches
 # nothing; it needs no Pico tools. --keep leaves the board's lane configured
@@ -84,6 +89,18 @@ while [ "$#" -gt 0 ]; do
             abi="$abi $2"
             shift 2
             ;;
+        --connect-delay)
+            mm_option_value "$#" "$1" "a delay in milliseconds"
+            case "$2" in
+                ''|*[!0-9]*)
+                    echo "$test_name: --connect-delay requires a non-negative integer: $2" >&2
+                    exit 64
+                    ;;
+            esac
+            MM_PICO_STDIO_USB_CONNECT_DELAY_MS=$2
+            export MM_PICO_STDIO_USB_CONNECT_DELAY_MS
+            shift 2
+            ;;
         --control)
             mm_option_value "$#" "$1" "an application"
             control_argument=$2
@@ -102,7 +119,7 @@ while [ "$#" -gt 0 ]; do
             shift
             ;;
         -h|--help)
-            sed -n '2,34p' "$0" | sed 's/^# \{0,1\}//'
+            sed -n '2,40p' "$0" | sed 's/^# \{0,1\}//'
             exit 0
             ;;
         *)
@@ -155,6 +172,8 @@ if [ "$dry_run" = yes ]; then
     for pattern in $symbols; do echo "  symbol $pattern"; done
     for pattern in $no_symbols; do echo "  no-symbol $pattern"; done
     for symbol in $abi; do echo "  abi $symbol"; done
+    delay=${MM_PICO_STDIO_USB_CONNECT_DELAY_MS:-500}
+    echo "  delay     ${delay} ms"
     echo "  uf2 $family"
     if [ -n "$control_path" ]; then
         echo "  control   ./build --target $control_path/"

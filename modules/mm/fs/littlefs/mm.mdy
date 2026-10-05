@@ -1,0 +1,23 @@
+---
+mm: 1.2
+kind: module
+name: fs-littlefs
+module: mm.fs.littlefs
+platform-interface:
+use: mm.fs
+file: littlefs.cppm
+file: src/littlefs.cpp
+---
+
+# mm.fs.littlefs
+
+littlefs on a FlashDevice: a power-loss resilient, wear-levelled file system
+for raw flash, mounted at a prefix. mount answers Corrupt for a device that
+holds no littlefs volume and never erases it; format writes an empty volume
+over the whole device. mm.fs.local on a Pico is this, on the flash region,
+formatting a region that was never written.
+
+The Pico SDKs bind platform.pico.fs.littlefs, which runs littlefs compiled by
+the Pico bridge. A program reaching mm.fs.littlefs is unavailable on a lane
+that binds no provider; with none bound the fallback answers Unsupported.
+unmount detaches only volumes this module attached.

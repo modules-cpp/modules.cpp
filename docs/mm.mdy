@@ -16,12 +16,15 @@ file: modules-epaper.mdy
 file: modules-execution.mdy
 file: modules-flash.mdy
 file: modules-fonts.mdy
+file: modules-fs.mdy
 file: modules-gfx.mdy
 file: modules-imu.mdy
 file: modules-ino.mdy
 file: modules-json.mdy
 file: modules-lcd.mdy
+file: modules-led.mdy
 file: modules-libraries.mdy
+file: modules-linux-storage.mdy
 file: modules-mm.mdy
 file: modules-model.mdy
 file: modules-parse.mdy
@@ -30,8 +33,10 @@ file: modules-platform-linux.mdy
 file: modules-platform-pico.mdy
 file: modules-platforms.mdy
 file: modules-rtc.mdy
+file: modules-sdcard.mdy
 file: modules-run.mdy
 file: modules-sketch.mdy
+file: modules-spiflash.mdy
 file: modules-stdio.mdy
 file: modules-touch.mdy
 file: modules-test.mdy

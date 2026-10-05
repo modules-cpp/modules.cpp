@@ -113,6 +113,17 @@ int compile(const Toolchain& toolchain, BuildableNode& target,
             const std::filesystem::path& build_dir,
             const std::vector<std::filesystem::path>& include_directories = {});
 
+// Compiles a library's C sources with the lane's C compiler, appending their
+// objects. The flags are the C++ compile flags without their -std=, then
+// -std=gnu11, -Wall -Wextra -Werror for strict sources, the library's
+// c-include directories, and its c-options; each compile runs from the
+// library manifest's directory, so a relative path in a c-option resolves
+// there. Objects go under the output root's libraries/<name>/.
+int compile_library(const Toolchain& toolchain, const LibraryDefinition& library,
+                    const ArtifactContext& context,
+                    const std::filesystem::path& project_root,
+                    std::vector<std::filesystem::path>& objects);
+
 // Links objects directly and in order: self registering test suites live in
 // static initialisers and an archive would discard them.
 int link(const Toolchain& toolchain,

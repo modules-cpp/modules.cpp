@@ -95,10 +95,15 @@ mm_leave_host() {
 }
 
 # How many "initializer for module <provider>" lines the image carries: one per
-# linked provider object.
+# linked provider object. The name must end the line, so platform.linux.fs is
+# not counted for platform.linux.fs.fat.
 mm_provider_count() {
     "$nm_command" -C "$1" | awk -v provider="$2" '
-        index($0, "initializer for module " provider) { ++count }
+        {
+            wanted = "initializer for module " provider
+            at = index($0, wanted)
+            if (at != 0 && at + length(wanted) - 1 == length($0)) ++count
+        }
         END { print count + 0 }
     '
 }

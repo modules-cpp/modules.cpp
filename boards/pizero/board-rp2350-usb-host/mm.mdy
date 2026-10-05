@@ -1,0 +1,27 @@
+---
+mm: 1.2
+kind: board
+name: rp2350_pizero_usb_host
+derives-from: rp2350_pizero
+platform-provider: mm.usb.host platform.pico.usb.host
+---
+
+# rp2350_pizero_usb_host
+
+An rp2350_pizero whose USB-C socket marked PIO-USB is a USB host: Pico-PIO-USB
+drives it through the RP2350's PIO, for a USB flash drive that mm.mcu's
+storage calls read and write, and for other peripherals through mm.usb.host.
+The native USB-C socket stays the USB console. The system clock is 120 MHz, a
+multiple of 12 MHz as Pico-PIO-USB needs.
+
+It is pico2_usb_host on this board's own wiring, which needs no jumpers: the
+socket's D+ is GP28 and D- GP29, each through 22 ohms on the board, D- on the
+GPIO after D+ as Pico-PIO-USB requires. It derives from rp2350_pizero, so
+everything that board says holds -- the RP2350B, the SDK's
+waveshare_rp2350_pizero header the board table selects for it, the TF card,
+the DVI pins -- and adds only the host binding and the port.
+
+The socket's VBUS is the board's 5V rail, so a device plugged into it is
+powered while the board is. None of it is qualified on hardware.
+
+https://www.waveshare.com/wiki/RP2350-PiZero

@@ -319,6 +319,58 @@ void external_build_validation() {
            "valid external-build library loads with external_build == cmake");
 }
 
+void library_c_source_validation() {
+    const mm::test::scoped_tree tree{"library_c_source_val"};
+    tree.manifest("", "kind: project\nname: p\nfolder: library\n");
+    std::filesystem::create_directories(tree.root() / "library/third_party");
+    std::ofstream(tree.root() / "library/LICENSE") << "licence\n";
+    std::ofstream(tree.root() / "library/glue.c") << "int glue(void) { return 1; }\n";
+    const auto loads = [&](const std::string& keys) {
+        tree.manifest_raw("library",
+                          "mm: 1.4\nkind: library\nname: clib\nsource: third_party\n"
+                          "licence: LICENSE\n" + keys);
+        return mm::build::load_project(tree.root(),
+                                       {.tool = "configure", .strict_tree = true});
+    };
+
+    tree.manifest_raw("library",
+                      "mm: 1.3\nkind: library\nname: clib\nsource: third_party\n"
+                      "licence: LICENSE\nc-source: glue.c\n");
+    expect(!mm::build::load_project(
+                tree.root(), {.tool = "configure", .strict_tree = true}).ok,
+           "c-source requires manifest version 1.4");
+
+    auto project = loads("c-source: third_party/foreign.c\nc-source: glue.c\n"
+                         "c-strict: glue.c\nc-include: third_party\n"
+                         "c-option: -DX=1\nc-option: -include config.h\n");
+    expect(project.ok && project.libraries.front().c_sources.size() == 2 &&
+               !project.libraries.front().c_sources[0].strict &&
+               project.libraries.front().c_sources[1].strict &&
+               project.libraries.front().c_sources[1].path ==
+                   std::filesystem::path("library/glue.c") &&
+               project.libraries.front().c_includes.front() ==
+                   std::filesystem::path("library/third_party") &&
+               project.libraries.front().c_options.size() == 2,
+           "a foreign source may be absent with its checkout; glue is strict");
+
+    expect(!loads("c-source: ../outside.c\n").ok, "c-source may not leave the manifest's directory");
+    expect(!loads("c-source: /abs/glue.c\n").ok, "c-source may not be absolute");
+    expect(!loads("c-source: missing.c\n").ok, "project-owned glue must exist");
+    expect(!loads("c-source: glue.cpp\n").ok, "c-source names a .c file");
+    expect(!loads("c-source: glue.c\nc-source: ./glue.c\n").ok, "c-source may not repeat");
+    expect(!loads("c-source: glue.c\nc-strict: other.c\n").ok,
+           "c-strict names one of the c-sources");
+    expect(!loads("c-source: third_party/foreign.c\nc-strict: third_party/foreign.c\n").ok,
+           "c-strict may not name foreign code");
+    expect(!loads("c-option: -DX=1\n").ok, "c-option requires c-source");
+    expect(!loads("c-source: glue.c\nc-include: ../up\n").ok,
+           "c-include may not leave the manifest's directory");
+    std::filesystem::create_directories(tree.root() / "library/cmake");
+    std::ofstream(tree.root() / "library/cmake/CMakeLists.txt") << "# bridge\n";
+    expect(!loads("c-source: glue.c\nexternal-build: cmake\n").ok,
+           "c-source is not valid with external-build");
+}
+
 void external_build_sdk_and_board_rules() {
     const mm::test::scoped_tree tree{"external_sdk_board"};
     tree.manifest("", "kind: project\nname: p\nfolder: library\nfolder: sdk\nfolder: board\n");
@@ -917,6 +969,7 @@ const mm::test::case_ cases[] = {
     {"module library reference", &module_reference_validation},
     {"SDK library reference", &sdk_reference_and_validation},
     {"external-build validation", &external_build_validation},
+    {"library C source validation", &library_c_source_validation},
     {"external-build SDK and board rules", &external_build_sdk_and_board_rules},
     {"external-wrapper availability", &external_wrapper_availability},
 

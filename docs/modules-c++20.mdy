@@ -86,6 +86,7 @@ non-conformance section below records an explicit, bounded exception.
 - throw, try, and catch MUST NOT appear in project code outside the Known non-conformance section below.
 - Functions MUST report failure through their return type: a status enum following the existing Enter::ok / Enter::skip / Enter::error pattern, a bool, or a std::error_code out-parameter for functions wrapping operating system or filesystem calls that themselves report errors that way.
 - Standard library operations that can throw on their own terms, such as a container allocation failure, are unaffected by this rule; it governs throw and catch sites this project authors, not the exception specifications of the standard library itself.
+- On firmware (bare-metal) lanes the compiler enforces this: configure compiles them with -fno-exceptions and -fno-rtti, so throw, try, catch, dynamic_cast, and typeid do not compile there, and a standard library error that would have thrown -- an out-of-range at() or substr -- ends the program with a "C++ library error" panic on Pico. Test builds keep exceptions and RTTI for mm.test.
 
 # Disallowed: templates and metaprogramming
 - Project code MUST NOT declare new template functions, template classes, or template aliases.

@@ -1,0 +1,39 @@
+---
+mm: 1.2
+kind: module
+name: spiflash
+module: mm.spiflash
+use: mm.mcu
+use: mm.fs
+file: spiflash.cppm
+file: src/spiflash.cpp
+---
+
+# mm.spiflash
+
+An SPI NOR flash chip of the Winbond W25Q family, or one of its many second
+sources, over portable mm.mcu SPI and one chip-select GPIO, presented as an
+mm.fs FlashDevice: what mm.fs.littlefs mounts on an external flash chip. It
+contains no vendor header and no board pin number; a board's provider or a
+program supplies the wiring.
+
+It speaks the command set the family shares: release power-down 0xAB, JEDEC
+ID 0x9F, read status 0x05, write enable 0x06, read 0x03, page program 0x02,
+the 4 KiB sector erase 0x20, and the 64 KiB block erase 0xD8, used where an
+erase covers whole aligned blocks. The geometry is read 1 byte, program 256
+bytes, a page, and erase 4096 bytes, a sector, with the chip's size from the
+JEDEC capacity byte, 2^n bytes. Addresses are 24 bits, so 64 KiB to 16 MiB;
+a larger chip, or one whose capacity byte is outside that range, is
+Unsupported.
+
+Every program and erase is write enable, a status read that checks WEL took,
+the command, and status reads until BUSY clears, within a timeout well past
+the datasheet's maximum: 10 ms for a page, 1 s for a sector, 4 s for a block.
+A chip that never clears BUSY is Timeout. A status of 0xFF, or a JEDEC
+manufacturer byte of 0x00 or 0xFF, is no chip at all, TransportError.
+
+The chip is identified on first use, not at construction, so a static chip
+object costs nothing on a board without one. Any failure forgets the chip,
+so the next call identifies it again. The SPI bus may be shared; the chip
+select is the only line this module owns, and it is high between
+operations.

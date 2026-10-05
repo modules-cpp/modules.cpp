@@ -626,12 +626,22 @@ int main(int argc, char** argv) {
         settings.cross_platform = selected_platform;
         settings.target_compiler = mm::configure::CompilerSelection::Cross;
         settings.target_has_host_capability = options.seen("--target-host");
+        std::string cross_flags =
+            compile_flags(*build, compiler->family, target, compiler->invocation);
+        if (selected_platform) {
+            if (const auto firmware =
+                    mm::configure::firmware_compile_flags(selected_platform->system);
+                !firmware.empty()) {
+                cross_flags += ' ';
+                cross_flags += firmware;
+            }
+        }
         settings.cross = mm::configure::CompilerSettings{
             compiler->family,
             compiler->invocation,
             target,
             "POSIX",
-            compile_flags(*build, compiler->family, target, compiler->invocation),
+            cross_flags,
             link_flags(*build, compiler->family, target),
             c_driver,
         };

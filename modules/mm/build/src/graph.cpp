@@ -6,6 +6,7 @@ module;
 #include <cstddef>
 #include <filesystem>
 #include <iostream>
+#include <map>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -16,6 +17,7 @@ import mm.configure;
 import mm.json;
 import mm.mdy;
 import :detail;
+import :config;
 import :manifest;
 import :platform;
 import :compile;
@@ -169,6 +171,59 @@ bool library_link_inputs(const std::filesystem::path& project_root,
                 inputs.push_back(value);
     }
     return true;
+}
+
+int library_c_objects(const std::filesystem::path& project_root,
+                      const std::vector<LibraryDefinition>& libraries,
+                      const Tree& tree,
+                      const std::vector<std::size_t>& reached,
+                      const Toolchain& toolchain,
+                      const ArtifactContext& context,
+                      bool external_link,
+                      std::map<std::string, std::vector<std::filesystem::path>>& compiled,
+                      std::vector<std::filesystem::path>& objects,
+                      std::string_view tool) {
+    std::error_code ec;
+    const auto root = std::filesystem::absolute(project_root, ec).lexically_normal();
+    if (ec) {
+        std::cerr << tool << ": cannot resolve project root " << project_root.string()
+                  << ": " << ec.message() << "\n";
+        return exit_manifest;
+    }
+    std::vector<std::string> added;
+    for (auto position = reached.rbegin(); position != reached.rend(); ++position) {
+        const auto& target = tree.targets[*position];
+        if (target.library.empty()) continue;
+        const LibraryDefinition* definition = nullptr;
+        for (const auto& library : libraries)
+            if (library.name == target.library) definition = &library;
+        if (definition == nullptr || definition->c_sources.empty()) continue;
+        if (std::find(added.begin(), added.end(), definition->name) != added.end()) continue;
+        if (external_link) {
+            std::cerr << tool << ": " << (target.dir / "mm.mdy").string() << ": module "
+                      << target.name << " reaches library " << definition->name
+                      << ", whose C sources only a lane mm.build links can compile\n";
+            return exit_manifest;
+        }
+        if (!validate_library_checkout(root, *definition, tool)) {
+            std::cerr << tool << ": " << (target.dir / "mm.mdy").string() << ": module "
+                      << target.name << " cannot use library " << definition->name << "\n";
+            return exit_manifest;
+        }
+        auto found = compiled.find(definition->name);
+        if (found == compiled.end()) {
+            std::cout << "  library " << definition->name << "\n";
+            std::vector<std::filesystem::path> built;
+            if (const int status =
+                    compile_library(toolchain, *definition, context, project_root, built);
+                status != exit_ok)
+                return status;
+            found = compiled.emplace(definition->name, std::move(built)).first;
+        }
+        objects.insert(objects.end(), found->second.begin(), found->second.end());
+        added.push_back(definition->name);
+    }
+    return exit_ok;
 }
 
 std::vector<std::filesystem::path> augmented_closure(

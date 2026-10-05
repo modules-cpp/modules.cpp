@@ -150,6 +150,17 @@ also accepted by `build`, `configure`, `test`, `run`, `check`, `model`, `json`, 
   own shell tool instead of the system shell directly; see
   docs/modules.mdy's "Shell tool wrapper scripts".
 
+## Acknowledgements
+
+The Pico SD card driver's 4-bit SDIO transport learned its design from
+carlk3's [no-OS-FatFS-SD-SDIO-SPI-RPi-Pico](https://github.com/carlk3/no-OS-FatFS-SD-SDIO-SPI-RPi-Pico),
+licensed under the Apache License 2.0, whose SDIO part derives from ZuluSCSI's
+firmware. No code is copied; [docs/modules-sdcard.mdy](docs/modules-sdcard.mdy)
+records what was learned.
+
+The vendored third-party sources -- the Pico SDK, Pico-PIO-USB, littlefs, and
+FatFs -- carry their own licences beside their checkouts.
+
 ## Learn more
 
 [docs/modules.mdy](docs/modules.mdy) covers the architecture, the MDY

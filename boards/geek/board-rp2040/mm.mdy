@@ -1,0 +1,55 @@
+---
+mm: 1.2
+kind: board
+name: rp2040_geek
+derives-from: pico
+platform-provider: mm.display platform.geek.display
+platform-provider: mm.sdcard.socket platform.geek.sdcard
+---
+
+# rp2040_geek
+
+A Waveshare RP2040-GEEK: an RP2040 with 4MB of flash in a USB-stick case,
+carrying a 1.14 inch 240 by 135 IPS panel on an ST7789 over four-wire SPI and a
+TF card socket, with its native USB port on a USB-A plug.
+
+It derives from pico because that is what it is: the RP2040 the Pico SDK
+configures as pico. The SDK does publish a waveshare_rp2040_geek header, but
+the bridge's vendor vocabulary is the six Raspberry Pi boards, and deriving
+from pico and correcting its defaults in the board table is what every other
+composite board here does. The flash beyond pico's 2MB goes unused.
+
+The panel is on SPI1: DC GP8, CS GP9, clock GP10, data GP11, reset GP12, and
+the backlight on GP25 through an NPN switch, so high is on. The TF socket is
+wired for four-bit SDIO on GP18 to GP23 -- clock GP18, command GP19, data GP20
+to GP23 -- which in SPI mode is SPI0 with clock GP18, MOSI GP19, MISO GP20,
+and CS GP23. The four-pin I2C header is GP28 and GP29, I2C0's SDA and SCL;
+the three-pin header labelled UART is GP4 and GP5, UART1's TX and RX; and the
+three-pin header labelled SWD is plain GPIO, GP2 and GP3, which debug-probe
+firmware drives as SWCLK and SWDIO and the SDK's header names I2C1.
+
+Both three-pin headers follow the Raspberry Pi Debug Probe's ports: the same
+three-pin JST-SH connector in the same order, TX, GND, RX on the UART header
+and SWCLK, GND, SWDIO on the SWD header, so the probe's cables fit them
+directly. A Debug Probe's UART port on the UART header is this board's
+console, because the board table makes UART1 on GP4 and GP5 the default UART.
+The SWD header is the probe's side of that link, not the target's: the
+schematic wires it to GP2 and GP3, not to the RP2040's SWCLK and SWDIO, which
+reach no header or test point. It is what the board drives when it runs
+debug-probe firmware itself. The openocd runner and debugger accept this
+board, since it inherits pico's rp2040 machine, but they need a probe on the
+chip's own debug port, which this schematic does not bring out.
+
+Two of pico's defaults are wrong here, and the Pico bridge's board table
+replaces them: GP25 is the backlight, not an LED, so the board reports no LED,
+and the default UART's GP0 and GP1 go nowhere, so the default UART is UART1 on
+the exposed GP4 and GP5, as the SDK's own header has it. ADC_AVDD is the 3V3
+rail, so the ADC reference is 3300 mV; of the four ADC inputs only GP28 and
+GP29, the I2C header's pins, reach the outside.
+
+Every pin above was read from Waveshare's schematic,
+RP2040-GEEK-Schematic.pdf. The SDK's header names GP17 as the SD card's chip
+select, which the schematic does not support: GP17 is unconnected and the card's
+CD/D3 is GP23. None of it is qualified on hardware.
+
+https://www.waveshare.com/wiki/RP2040-GEEK

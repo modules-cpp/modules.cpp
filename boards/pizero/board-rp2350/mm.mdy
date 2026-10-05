@@ -1,0 +1,55 @@
+---
+mm: 1.2
+kind: board
+name: rp2350_pizero
+derives-from: pico2-arm
+platform-provider: mm.sdcard.socket platform.pizero.sdcard
+---
+
+# rp2350_pizero
+
+A Waveshare RP2350-PiZero: an RP2350B, the 48-GPIO package, with 16MB of flash
+and an unpopulated PSRAM footprint, on a Raspberry Pi Zero-sized board with a
+40-pin header, a DVI connector, a TF card socket, a native USB-C port, a
+PIO-USB USB-C port, a lithium battery charger, and BOOT and RUN keys.
+
+It derives from pico2-arm for what pico2-arm says: the RP2350's Arm Secure
+cores, the Pico SDK, the ABI, and the rp2350 machine. What pico2-arm cannot
+say is the package. pico2.h defines PICO_RP2350A as one, unconditionally, so a
+build under it has thirty GPIOs, and the TF card, the DVI pins, and the PSRAM
+select on GP30 to GP47 would not exist. The Pico bridge's board table
+therefore selects the SDK's own waveshare_rp2350_pizero header for this board
+in place of pico2's: PICO_RP2350A zero, 16MB of flash, the default UART as
+UART1 on GP4 and GP5, and no LED. The chain, and everything the model derives
+from it, is unchanged.
+
+From Waveshare's schematic, RP2350-PiZero.pdf:
+
+- The 40-pin header carries all of GP0 to GP27 in the Raspberry Pi's
+  functional places, not its BCM numbers: SDA and SCL, pins 3 and 5, are GP2
+  and GP3; TX and RX, pins 8 and 10, are GP4 and GP5 where a Pi has BCM14 and
+  15; the SPI's MOSI, MISO, and SCLK, pins 19, 21, and 23, are GP11, GP12, and
+  GP10, SPI1, with CE0 and CE1 on GP8 and GP7; ID_SDA and ID_SCL, pins 27 and
+  28, are GP0 and GP1. The rest fall where they fall -- GP14 on pin 7, GP15
+  on pin 29, GP26 on pin 37, GP27 on pin 13 -- so a Pi HAT's signals reach
+  the RP2350 under other numbers than its BCM ones.
+- The TF socket is wired for four-bit SDIO -- clock GP30, command GP31, data
+  GP40 to GP43 -- which in SPI mode is clock GP30, MOSI GP31, MISO GP40, and
+  CS GP43.
+- The DVI connector's three data pairs and clock pair are GP32 to GP39, its
+  CEC, SCL, and SDA GP46, GP45, and GP44. They are not the HSTX pins, GP12 to
+  GP19, so DVI here is PIO's.
+- The PIO-USB port's D+ is GP28 and D- GP29, through 22 ohms each.
+- GP47 is the PSRAM footprint's chip select.
+- The only LED is a red power indicator on 3V3, which no GPIO drives, so the
+  board reports no LED. SWD is a three-pin header on the chip's own SWCLK and
+  SWDIO.
+- ADC_AVDD is the 3V3 rail, so the ADC reference is 3300 mV. The RP2350B's
+  ADC inputs are GP40 to GP47, and the TF card and DVI hold every one of them.
+
+The board table claims neither a second I2C nor a second UART: the default
+UART is already UART1, and the SDK header's default I2C is I2C1 on the
+header's GP2 and GP3, so the instance-one wirings the six vendor boards carry
+would collide with both. None of it is qualified on hardware.
+
+https://www.waveshare.com/wiki/RP2350-PiZero

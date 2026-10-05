@@ -1,0 +1,49 @@
+---
+mm: 1.2
+kind: board
+name: rp2350_geek
+derives-from: pico2-arm
+platform-provider: mm.display platform.geek.display
+platform-provider: mm.sdcard.socket platform.geek.sdcard
+---
+
+# rp2350_geek
+
+A Waveshare RP2350-GEEK: an RP2350A in the RP2040-GEEK's USB-stick case, with
+16MB of flash by Waveshare's description and the SDK's header, carrying the
+same 1.14 inch 240 by 135 IPS panel on an ST7789 and TF card socket, with its
+native USB port on a USB-A plug.
+
+It derives from pico2-arm because that is what it is: the same RP2350A the
+Pico SDK configures as pico2. As with rp2040_geek, the SDK's
+waveshare_rp2350_geek header is outside the bridge's vendor vocabulary, so the
+board derives and the board table corrects. The chip, the SDK, and the ABI
+come from pico2-arm; the flash beyond pico2's 4MB goes unused.
+
+Its wiring is the RP2040-GEEK's, pin for pin: the panel on SPI1 with DC GP8,
+CS GP9, clock GP10, data GP11, reset GP12, and the backlight on GP25 through
+an NPN switch; the TF socket on GP18 to GP23, CS GP23 in SPI mode; the I2C
+header on GP28 and GP29; the UART header on GP4 and GP5; and the header
+labelled SWD on GP2 and GP3.
+
+Its three-pin headers follow the Raspberry Pi Debug Probe's ports as the
+RP2040-GEEK's do: the same JST-SH connector and order, TX, GND, RX and
+SWCLK, GND, SWDIO, so a Debug Probe's UART port on the UART header is the
+console. The SWD header is GP2 and GP3 here too, not the RP2350's SWCLK and
+SWDIO, which reach no header or test point on the schematic; it drives SWD
+when the board runs debug-probe firmware, and a probe plugged into it does
+not reach this chip. The openocd runner and debugger accept the board, since
+it inherits pico2-arm's rp2350 machine, but need the chip's own debug port.
+
+The board table replaces the same two pico2 defaults it replaces for
+rp2040_geek: no LED, GP25 being the backlight, and the default UART as UART1
+on GP4 and GP5. ADC_AVDD is the 3V3 rail, so the ADC reference is 3300 mV.
+
+Every pin above was read from Waveshare's schematic, RP2350-GEEK.pdf. Its
+flash symbol is labelled W25Q32, a 4MB part, against the 16MB the product page
+and the SDK state; deriving from pico2-arm uses 4MB and is right either way.
+Waveshare's own LCD demo for this board names GP13 as the backlight, carried
+over from the Pico-LCD-1.14 it was written for; the schematic's GP25 is what
+is used here. None of it is qualified on hardware.
+
+https://www.waveshare.com/wiki/RP2350-GEEK

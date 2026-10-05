@@ -1,0 +1,26 @@
+---
+mm: 1.2
+kind: module
+name: pico-fs-fat
+module: platform.pico.fs.fat
+use: mm.fs
+use: mm.fs.fat
+file: fat.cppm
+file: src/fat.cpp
+option: buildable-host no
+---
+
+# platform.pico.fs.fat
+
+mm.fs.fat on every Pico board, over FatFs R0.16 compiled by the Pico SDK
+bridge: FAT on any 512-byte BlockDevice, a USB drive on a host-port board
+through mm.fs's McuStorage, or an SD card.
+
+It is platform.pico.fs.littlefs's pattern: this module includes only the
+project-owned ABI header, fat-c.h, through its C++ shim, and the C adapter
+beside it, adapter.c, includes FatFs and supplies its disk I/O layer. The
+adapter keeps mm.fs's Volume rules in C, where a native harness exercises
+them; this module maps statuses, paths, and formats across the ABI and
+adapts a BlockDevice to the adapter's device record. Two volumes may be
+attached at once, with eight open files and four open directories between
+them.

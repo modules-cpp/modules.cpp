@@ -103,6 +103,8 @@ struct StorageTestHooks {
     unsigned int forced_sector_size = 0;
     std::optional<std::string> storage_path;
     std::optional<bool> storage_writable;
+    // Stands in for the map's flash entry, since the map resolves once.
+    std::optional<platform::linux::FlashEntry> flash;
 };
 void set_storage_test_hooks(const StorageTestHooks* hooks);
 std::string read_file_text(const std::string& path);
@@ -881,6 +883,153 @@ public:
         return Status::Ok;
     }
 
+    struct FlashRegionGeometryOut {
+        std::uint64_t size = 0;
+        unsigned int erase_size = 0;
+        unsigned int program_size = 0;
+    };
+    struct FlashState {
+        Descriptor fd;
+        std::string path;
+        std::uint64_t size = 0;
+    };
+    FlashState flash_state_;
+
+    // mm.mcu's flash region over an image file, behaving as NOR flash does
+    // where it matters to a file system: an erase sets 0xFF, and a program
+    // onto a byte that is not 0xFF is refused, so a driver that programs
+    // without erasing is caught rather than silently ANDing.
+    [[nodiscard]] const platform::linux::FlashEntry* flash_entry(Status& status) const {
+        if (storage_test_hooks_ && storage_test_hooks_->flash) {
+            status = storage_test_hooks_->flash->path.empty() ? Status::Unsupported : Status::Ok;
+            return status == Status::Ok ? &*storage_test_hooks_->flash : nullptr;
+        }
+        const auto* configured = map(status);
+        if (configured == nullptr) return nullptr;
+        if (configured->flash.path.empty()) {
+            status = Status::Unsupported;
+            return nullptr;
+        }
+        return &configured->flash;
+    }
+
+    [[nodiscard]] Status flash_open(FlashRegionGeometryOut& geometry) {
+        Status status;
+        const auto* entry = flash_entry(status);
+        if (entry == nullptr) return status;
+        if (flash_state_.fd.get() >= 0 && flash_state_.path == entry->path) {
+            geometry = {flash_state_.size, entry->erase_size, entry->program_size};
+            return Status::Ok;
+        }
+        flash_state_ = FlashState{};
+        const int fd = ::open(entry->path.c_str(), O_RDWR | O_CREAT | O_CLOEXEC, 0644);
+        if (fd < 0) return error_status(errno);
+        Descriptor descriptor{fd};
+        struct stat st{};
+        if (::fstat(fd, &st) < 0) return error_status(errno);
+        if (!S_ISREG(st.st_mode)) return Status::BadArgument;
+        std::uint64_t size = static_cast<std::uint64_t>(st.st_size);
+        if (size == 0) {
+            // A new image is made erased, as a new chip arrives.
+            const std::vector<std::byte> erased(entry->erase_size, std::byte{0xff});
+            for (std::uint64_t at = 0; at < entry->size; at += entry->erase_size) {
+                const auto status_written = write_all(fd, erased, static_cast<off_t>(at));
+                if (status_written != Status::Ok) return status_written;
+            }
+            size = entry->size;
+        }
+        if (size % entry->erase_size != 0) return Status::BadArgument;
+        flash_state_.fd = std::move(descriptor);
+        flash_state_.path = entry->path;
+        flash_state_.size = size;
+        geometry = {size, entry->erase_size, entry->program_size};
+        return Status::Ok;
+    }
+
+    [[nodiscard]] static Status write_all(int fd, std::span<const std::byte> data, off_t offset) {
+        std::size_t done = 0;
+        while (done < data.size()) {
+            const ssize_t count = ::pwrite(fd, data.data() + done, data.size() - done,
+                                           offset + static_cast<off_t>(done));
+            if (count > 0) {
+                done += static_cast<std::size_t>(count);
+                continue;
+            }
+            if (count < 0 && errno == EINTR) continue;
+            return error_status(errno);
+        }
+        return Status::Ok;
+    }
+
+    [[nodiscard]] static Status read_all(int fd, std::span<std::byte> data, off_t offset) {
+        std::size_t done = 0;
+        while (done < data.size()) {
+            const ssize_t count = ::pread(fd, data.data() + done, data.size() - done,
+                                          offset + static_cast<off_t>(done));
+            if (count > 0) {
+                done += static_cast<std::size_t>(count);
+                continue;
+            }
+            if (count < 0 && errno == EINTR) continue;
+            return count == 0 ? Status::TransportError : error_status(errno);
+        }
+        return Status::Ok;
+    }
+
+    [[nodiscard]] static bool flash_in_range(std::uint64_t offset, std::uint64_t size,
+                                             std::uint64_t total) {
+        return size <= total && offset <= total - size;
+    }
+
+    [[nodiscard]] Status flash_region_geometry(mm::mcu::FlashRegionGeometry& geometry) override {
+        FlashRegionGeometryOut opened;
+        const auto status = flash_open(opened);
+        if (status == Status::Ok)
+            geometry = {opened.size, 1, opened.program_size, opened.erase_size};
+        return status;
+    }
+
+    [[nodiscard]] Status flash_region_read(std::uint64_t offset,
+                                           std::span<std::byte> data) override {
+        FlashRegionGeometryOut opened;
+        const auto status = flash_open(opened);
+        if (status != Status::Ok) return status;
+        if (!flash_in_range(offset, data.size(), opened.size)) return Status::BadArgument;
+        return read_all(flash_state_.fd.get(), data, static_cast<off_t>(offset));
+    }
+
+    [[nodiscard]] Status flash_region_program(std::uint64_t offset,
+                                              std::span<const std::byte> data) override {
+        FlashRegionGeometryOut opened;
+        auto status = flash_open(opened);
+        if (status != Status::Ok) return status;
+        if (offset % opened.program_size != 0 || data.size() % opened.program_size != 0 ||
+            !flash_in_range(offset, data.size(), opened.size))
+            return Status::BadArgument;
+        std::vector<std::byte> current(data.size());
+        status = read_all(flash_state_.fd.get(), current, static_cast<off_t>(offset));
+        if (status != Status::Ok) return status;
+        for (const auto byte : current)
+            if (byte != std::byte{0xff}) return Status::BadArgument;
+        return write_all(flash_state_.fd.get(), data, static_cast<off_t>(offset));
+    }
+
+    [[nodiscard]] Status flash_region_erase(std::uint64_t offset, std::uint64_t size) override {
+        FlashRegionGeometryOut opened;
+        const auto status = flash_open(opened);
+        if (status != Status::Ok) return status;
+        if (offset % opened.erase_size != 0 || size % opened.erase_size != 0 ||
+            !flash_in_range(offset, size, opened.size))
+            return Status::BadArgument;
+        const std::vector<std::byte> erased(opened.erase_size, std::byte{0xff});
+        for (std::uint64_t at = 0; at < size; at += opened.erase_size) {
+            const auto written =
+                write_all(flash_state_.fd.get(), erased, static_cast<off_t>(offset + at));
+            if (written != Status::Ok) return written;
+        }
+        return Status::Ok;
+    }
+
     [[nodiscard]] Status delay_ms(unsigned long milliseconds) override {
         if (milliseconds == 0) return Status::Ok;
         const auto seconds = milliseconds / 1000;
@@ -1443,6 +1592,7 @@ private:
         }
     };
     StorageState storage_state_;
+
 
     [[nodiscard]] Status check_storage_write_safety(const std::string& path,
                                                     int fd,

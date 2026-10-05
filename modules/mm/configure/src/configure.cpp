@@ -659,6 +659,11 @@ std::string_view compiler_workaround_flags(CompilerFamily family, std::string_vi
     return "-flarge-source-files -fno-ipa-sra";
 }
 
+std::string_view firmware_compile_flags(PlatformSystem system) {
+    if (system != PlatformSystem::BareMetal) return {};
+    return "-fno-exceptions -fno-rtti -fno-unwind-tables -fno-asynchronous-unwind-tables";
+}
+
 std::string_view host_feature_flags(std::string_view target_triple) {
     if (target_triple.ends_with("-cygwin") || target_triple.ends_with("-msys"))
         return "-D_GNU_SOURCE";

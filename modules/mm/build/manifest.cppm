@@ -101,6 +101,13 @@ struct LibraryPath {
     std::filesystem::path path;
 };
 
+// A C file a library compiles, project-relative. strict marks project-owned
+// glue, compiled with warnings as errors; foreign files are not.
+struct LibraryCSource {
+    std::filesystem::path path;
+    bool strict = false;
+};
+
 // A library manifest describes a vendored tree and its public interface. It is
 // structural: it never becomes a BuildableNode and none of its foreign sources
 // enter the project's source collection.
@@ -114,6 +121,13 @@ struct LibraryDefinition {
     std::vector<LibraryPath> library_directories;
     std::vector<LibraryPath> link_archives;
     std::vector<std::string> link_inputs;
+    // C sources, introduced at mm: 1.4: compiled on a lane mm.build links
+    // itself and linked into every executable that reaches a module naming
+    // the library. c_includes are project-relative; c_options are passed as
+    // written, from the manifest's directory.
+    std::vector<LibraryCSource> c_sources;
+    std::vector<std::filesystem::path> c_includes;
+    std::vector<std::string> c_options;
     std::string external_build;
     bool checkout_present = false;
 };
@@ -246,6 +260,7 @@ constexpr ManifestVersionRule manifest_versions[] = {
     {"1.1", 11, true},
     {"1.2", 12, true},
     {"1.3", 13, true},
+    {"1.4", 14, true},
 };
 
 const ManifestVersionRule* manifest_version(std::string_view version) {

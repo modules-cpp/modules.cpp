@@ -1,0 +1,28 @@
+---
+mm: 1.2
+kind: module
+name: fs-local
+module: mm.fs.local
+platform-interface:
+use: mm.fs
+file: local.cppm
+file: src/local.cpp
+---
+
+# mm.fs.local
+
+The board's own storage, mounted where the program says: mount("/data")
+gives a program files with no further setup, and what the files live on is
+the platform's choice. On Linux it is a directory -- the device map's
+directory.0, or the working directory when the map names none. On Pico it
+will be littlefs on a region of program flash, once that provider exists; a
+program reaching mm.fs.local is unavailable on a lane that binds no provider.
+
+The program still decides where and when anything is mounted; only what is
+mounted belongs to the platform. unmount detaches only volumes this module
+attached, so a volume mounted at the same prefix by other means is never
+handed to the provider.
+
+The platform-interface marker makes the selected provider part of an
+executable only when its closure reaches mm.fs.local; with none bound the
+linkable fallback answers Unsupported.

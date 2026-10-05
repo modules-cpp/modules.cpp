@@ -737,6 +737,124 @@ nor RP2350 has an I2S peripheral. docs/modules-platform-pico.mdy says how.
 The Linux provider answers Unsupported: on Linux, I2S is behind the sound
 card.
 
+## Pulse output
+
+Opening fence
+struct PulseConfiguration {
+    unsigned int instance = 0;
+    unsigned int gpio = 0;
+    std::uint32_t bit_period_ns = 0;
+    std::uint32_t zero_high_ns = 0;
+    std::uint32_t one_high_ns = 0;
+    std::uint32_t reset_ns = 0;
+};
+
+[[nodiscard]] Status pulse_configure(const PulseConfiguration&);
+[[nodiscard]] Status pulse_write(unsigned int instance, std::span<const std::byte>);
+[[nodiscard]] Status pulse_release(unsigned int instance);
+Closing fence
+
+A one-wire pulse-width-coded output, the transport of WS2812-style LEDs: each
+bit one period, high for the zero or the one time and low for the rest, most
+significant bit first, and the line low for at least the reset time after
+the last bit. Times must satisfy 0 < zero < one < period, or the
+configuration is BadArgument, as is one the platform's clock cannot get near.
+The same configuration again is idempotent, and another of a configured
+instance is Busy until release. pulse_write sends one whole frame and returns
+once the reset time has passed; an unconfigured instance is BadArgument.
+pulse_release is idempotent.
+
+The Pico provider implements instances zero and one over PIO, planning the
+program's ticks and divider from the requested times; docs/modules-led.mdy
+says how. Every other provider answers Unsupported.
+
+## SD bus
+
+Opening fence
+struct SdioConfiguration {
+    unsigned int instance = 0;
+    unsigned int clock_gpio = 0;
+    unsigned int command_gpio = 0;
+    unsigned int data0_gpio = 0;    // D0; D1 to D3 are the next three GPIOs
+    unsigned int width = 4;
+};
+
+enum class SdioResponse { None, Short, ShortNoCrc, ShortBusy, Long };   // -, R1/R6/R7, R3, R1b, R2
+inline constexpr unsigned int sdio_read_blocks_at_least = 8;
+
+[[nodiscard]] Status sdio_configure(const SdioConfiguration&);
+[[nodiscard]] Status sdio_clock(unsigned int instance, unsigned long hz, unsigned long& actual_hz);
+[[nodiscard]] Status sdio_idle_clocks(unsigned int instance, unsigned int count);
+[[nodiscard]] Status sdio_command(unsigned int instance, unsigned int index, std::uint32_t argument,
+                                  SdioResponse response, std::span<std::uint32_t> words);
+[[nodiscard]] Status sdio_read(unsigned int instance, unsigned int index, std::uint32_t argument,
+                               std::uint32_t& response, std::span<std::byte> data,
+                               unsigned int block_size);
+[[nodiscard]] Status sdio_write(unsigned int instance, unsigned int index, std::uint32_t argument,
+                                std::uint32_t& response, std::span<const std::byte> data,
+                                unsigned int block_size);
+[[nodiscard]] Status sdio_release(unsigned int instance);
+Closing fence
+
+An SD card's native bus: a clock, a bidirectional command line, and four data
+lines on consecutive GPIOs. The platform owns the timing and the CRCs;
+mm.sdcard's SdioCard owns the card protocol. sdio_configure claims the six
+pads at 400 kHz with the lines released; the same configuration again is
+idempotent, another Busy until release, and a width or arrangement the
+platform cannot drive BadArgument. sdio_clock sets the clock at or under hz
+and reports it; sdio_idle_clocks clocks with the command line high.
+
+sdio_command frames a command with its CRC7 and takes its response: a Short
+or ShortBusy response's index and CRC7 are checked, a Long response's CRC7,
+and ShortBusy's busy on D0 is waited out. words receive a short response's
+bits 39 to 8 or a long one's bits 127 to 0, most significant word first.
+Timeout is no response or busy that did not end; TransportError a bad CRC,
+index, or frame. sdio_read readies the data lines before sending its command,
+because a card may start a block before its response has ended, and returns
+whole blocks each checked against its CRC16 on every line, into a buffer that
+starts on a four-byte boundary, so a platform can move it by DMA in words; a response whose
+card status reports an error ends the wait with TransportError. sdio_write
+sends its command, then each block with its CRC16s, takes the card's CRC
+status token, and waits out busy; a rejected block is TransportError. A
+multiple read or write is the caller's to stop with CMD12. A platform must
+accept reads of at least sdio_read_blocks_at_least blocks.
+
+The Pico provider implements instance zero over PIO and DMA, width 4 and
+512-byte blocks, in at most eight blocks a read; docs/modules-platform-pico.mdy
+describes it. Every other provider answers Unsupported. Six pads held by an
+sdio instance are held as an analog claim is.
+
+## Flash region
+
+Opening fence
+struct FlashRegionGeometry {
+    std::uint64_t size = 0;
+    std::uint32_t read_size = 1;
+    std::uint32_t program_size = 0;
+    std::uint32_t erase_size = 0;
+};
+
+[[nodiscard]] Status flash_region_geometry(FlashRegionGeometry&);
+[[nodiscard]] Status flash_region_read(std::uint64_t offset, std::span<std::byte>);
+[[nodiscard]] Status flash_region_program(std::uint64_t offset, std::span<const std::byte>);
+[[nodiscard]] Status flash_region_erase(std::uint64_t offset, std::uint64_t size);
+Closing fence
+
+Raw flash set aside for data, the way littlefs wants it. Offsets are bytes
+from the region's start; size is a whole number of erase blocks. A read may
+start and end anywhere inside the region. A program must start and end on
+program_size and lands only on erased bytes; an erase must start and end on
+erase_size. An empty transfer, a misaligned one, or one past the end is
+BadArgument; mm.mcu refuses the empty ones before asking the platform. Each
+call waits until the flash is done. geometry is Unsupported where there is
+no region, and the others are then Unsupported too.
+
+The Pico provider's region is the top of the program flash;
+docs/modules-platform-pico.mdy says how it is sized and kept clear of the
+image. The Linux provider's is an image file the device map names, which
+docs/modules-platform-linux.mdy describes. Every other provider answers
+Unsupported.
+
 ## Block storage
 
 Opening fence
@@ -808,12 +926,12 @@ nothing that waits, and it ends on the core that began it.
 
 ## Pad ownership
 
-The selected platform owns GPIO, ADC, DAC, PWM, and I2S state together, and a
-pad is one thing at a time. A plain GPIO configuration is a replaceable claim:
+The selected platform owns GPIO, ADC, DAC, PWM, I2S, pulse, and sdio state together,
+and a pad is one thing at a time. A plain GPIO configuration is a replaceable claim:
 adc_configure or pwm_configure may take it over, and on success the digital
-mode -- and, for an output, its level -- is gone; so may dac_configure and
-i2s_configure. A watched GPIO answers Busy, and its latch is untouched. An ADC,
-DAC, PWM, or I2S claim blocks gpio_configure,
+mode -- and, for an output, its level -- is gone; so may dac_configure,
+i2s_configure, and pulse_configure. A watched GPIO answers Busy, and its latch
+is untouched. An ADC, DAC, PWM, I2S, or pulse claim blocks gpio_configure,
 gpio_watch, gpio_write, gpio_read, and a competing analog claim with Busy;
 a refused gpio_read leaves its output unchanged. Release returns the pad to
 an unconfigured state.

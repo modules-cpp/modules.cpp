@@ -1,0 +1,40 @@
+---
+mm: 1.2
+kind: board
+name: rp2040_zero
+derives-from: pico
+platform-provider: mm.led platform.zero.led
+---
+
+# rp2040_zero
+
+A Waveshare RP2040-Zero, the mini board: an RP2040 with 2MB of flash, a W25Q16
+as on the Pico, on a 23.5 by 18 mm board with a USB-C socket on the native
+port and a WS2812B RGB LED on GP16.
+
+It derives from pico because that is what it is: the RP2040 with the flash the
+Pico SDK configures as pico. The SDK publishes a waveshare_rp2040_zero header,
+but the bridge selects PICO_BOARD from its six vendor names, so the board
+derives and the board table corrects, as every other composite board here
+does.
+
+It binds platform.zero.led, which drives the WS2812B on GP16 as mm.led
+through mm.led.ws2812b and mm.mcu pulse instance zero.
+
+The 23-pin header carries GP0 to GP15 and GP26 to GP29, with 3V3, GND, and
+VSYS; ten castellated pads carry GP17 to GP25. GP16 drives the WS2812B's data
+input and is not brought out. The keys are BOOT, on the flash's chip select,
+and RESET, on RUN.
+
+One of pico's defaults is wrong here, and the Pico bridge's board table
+replaces it: GP25 is a free pad, not an LED, and the only LED is the WS2812B,
+which a plain GPIO write cannot light, so the board reports no LED. pico's
+default UART, UART0 on GP0 and GP1, is on the header and stands. GP26 and GP27
+and GP8 and GP9 are free header pins, so the board has the second I2C and
+second UART wirings the six vendor boards have. ADC_VREF is the 3V3 rail
+through 200 ohms, as on the Pico, so the ADC reference is 3300 mV.
+
+Every pin above was read from Waveshare's schematic, RP2040_Zero.pdf. None of
+it is qualified on hardware.
+
+https://www.waveshare.com/wiki/RP2040-Zero

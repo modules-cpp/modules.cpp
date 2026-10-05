@@ -7,6 +7,7 @@
 #include "hardware/adc.h"
 #include "hardware/clocks.h"
 #include "hardware/dma.h"
+#include "hardware/flash.h"
 #include "hardware/pio.h"
 #include "hardware/pio_instructions.h"
 #include "hardware/pwm.h"
@@ -14,7 +15,9 @@
 #include "hardware/i2c.h"
 #include "hardware/irq.h"
 #include "hardware/sync.h"
+#include "hardware/timer.h"
 #include "hardware/uart.h"
+#include "pico/flash.h"
 #include "pico/stdio/driver.h"
 #include "pico/stdlib.h"
 #include "pico/stdio_semihosting.h"
@@ -27,15 +30,175 @@
 #include <stdio.h>
 #include <string.h>
 
-#if MM_BOARD_HAS_USB_HOST
+#if !MM_BOARD_USB_PORT_APPLICATION || MM_BOARD_HAS_USB_HOST
 #include "tusb.h"
+#endif
+#if !MM_BOARD_USB_PORT_APPLICATION
+#include "device/usbd_pvt.h"
+#endif
+#if MM_BOARD_HAS_USB_HOST
 #include "pio_usb.h"
 #endif
+
+// C++ without exceptions. Firmware lanes compile project C++ with
+// -fno-exceptions, but libstdc++'s headers still call its std::__throw_*
+// helpers -- std::string_view::substr past the end calls
+// __throw_out_of_range_fmt -- and the library's own versions of them throw,
+// which links the exception runtime and libgcc's unwinder, the unwinder into
+// RAM. These definitions stand in for every helper libstdc++'s functexcept.o
+// provides, so that member is never linked: each ends the program with the
+// message it would have thrown, which is what libstdc++ itself does when it
+// is built without exceptions. They are C, under the helpers' mangled names,
+// because the bridge compiles this file into every program and the module
+// build gives no other place outside a named module.
+__attribute__((noreturn)) void _ZSt16__throw_bad_castv(void);
+__attribute__((noreturn)) void _ZSt17__throw_bad_allocv(void);
+__attribute__((noreturn)) void _ZSt18__throw_bad_typeidv(void);
+__attribute__((noreturn)) void _ZSt21__throw_bad_exceptionv(void);
+__attribute__((noreturn)) void _ZSt28__throw_bad_array_new_lengthv(void);
+__attribute__((noreturn)) void _ZSt19__throw_logic_errorPKc(const char* what);
+__attribute__((noreturn)) void _ZSt19__throw_range_errorPKc(const char* what);
+__attribute__((noreturn)) void _ZSt20__throw_domain_errorPKc(const char* what);
+__attribute__((noreturn)) void _ZSt20__throw_length_errorPKc(const char* what);
+__attribute__((noreturn)) void _ZSt20__throw_out_of_rangePKc(const char* what);
+__attribute__((noreturn)) void _ZSt21__throw_runtime_errorPKc(const char* what);
+__attribute__((noreturn)) void _ZSt22__throw_overflow_errorPKc(const char* what);
+__attribute__((noreturn)) void _ZSt23__throw_underflow_errorPKc(const char* what);
+__attribute__((noreturn)) void _ZSt24__throw_invalid_argumentPKc(const char* what);
+__attribute__((noreturn)) void _ZSt24__throw_out_of_range_fmtPKcz(const char* what, ...);
+
+static void __attribute__((noreturn)) mm_pico_cxx_abort(const char* what) {
+    panic("C++ library error: %s", what != NULL ? what : "");
+}
+
+void _ZSt16__throw_bad_castv(void) { mm_pico_cxx_abort("std::bad_cast"); }
+void _ZSt17__throw_bad_allocv(void) { mm_pico_cxx_abort("std::bad_alloc"); }
+void _ZSt18__throw_bad_typeidv(void) { mm_pico_cxx_abort("std::bad_typeid"); }
+void _ZSt21__throw_bad_exceptionv(void) { mm_pico_cxx_abort("std::bad_exception"); }
+void _ZSt28__throw_bad_array_new_lengthv(void) { mm_pico_cxx_abort("std::bad_array_new_length"); }
+void _ZSt19__throw_logic_errorPKc(const char* what) { mm_pico_cxx_abort(what); }
+void _ZSt19__throw_range_errorPKc(const char* what) { mm_pico_cxx_abort(what); }
+void _ZSt20__throw_domain_errorPKc(const char* what) { mm_pico_cxx_abort(what); }
+void _ZSt20__throw_length_errorPKc(const char* what) { mm_pico_cxx_abort(what); }
+void _ZSt20__throw_out_of_rangePKc(const char* what) { mm_pico_cxx_abort(what); }
+void _ZSt21__throw_runtime_errorPKc(const char* what) { mm_pico_cxx_abort(what); }
+void _ZSt22__throw_overflow_errorPKc(const char* what) { mm_pico_cxx_abort(what); }
+void _ZSt23__throw_underflow_errorPKc(const char* what) { mm_pico_cxx_abort(what); }
+void _ZSt24__throw_invalid_argumentPKc(const char* what) { mm_pico_cxx_abort(what); }
+void _ZSt24__throw_out_of_range_fmtPKcz(const char* what, ...) { mm_pico_cxx_abort(what); }
 
 // The vendor surface: ext.pico, for code that wants Pico SDK specifically.
 
 static int mm_pico_stdio_attempted;
 static int mm_pico_stdio_ready;
+
+#ifndef MM_PICO_STDIO_USB_CONNECT_DELAY_MS
+#define MM_PICO_STDIO_USB_CONNECT_DELAY_MS 500
+#endif
+
+#if !MM_BOARD_USB_PORT_APPLICATION
+// When the device was last configured or resumed. Only TinyUSB's device
+// callbacks write these, from the SDK's USB worker interrupt; the connection
+// query only reads them. The stamp is 32-bit milliseconds so that every read
+// and write is a single access the interrupt cannot split, and it is written
+// before the flag, so a reader that sees the flag sees its stamp.
+static volatile uint32_t mm_pico_usb_mounted_ms;
+static volatile int mm_pico_usb_mounted;
+
+static uint32_t mm_pico_usb_now_ms(void) {
+    return to_ms_since_boot(get_absolute_time());
+}
+
+void tud_mount_cb(void) {
+    mm_pico_usb_mounted_ms = mm_pico_usb_now_ms();
+    mm_pico_usb_mounted = 1;
+}
+
+void tud_umount_cb(void) {
+    mm_pico_usb_mounted = 0;
+}
+
+void tud_suspend_cb(bool remote_wakeup_en) {
+    (void)remote_wakeup_en;
+    mm_pico_usb_mounted = 0;
+}
+
+void tud_resume_cb(void) {
+    mm_pico_usb_mounted_ms = mm_pico_usb_now_ms();
+    mm_pico_usb_mounted = 1;
+}
+
+// Connected once the host asserts DTR, or, for a terminal that never does,
+// once the delay has passed since the device was configured or resumed. The
+// delay is measured with the system timer, which stops while a debugger
+// halts either core; DTR does not depend on it.
+static int mm_pico_usb_is_connected(void) {
+    if (!stdio_usb_connected() || !mm_pico_usb_mounted) return 0;
+    if (tud_cdc_connected()) return 1;
+#if MM_PICO_STDIO_USB_CONNECT_DELAY_MS > 0
+    return (uint32_t)(mm_pico_usb_now_ms() - mm_pico_usb_mounted_ms) >=
+           (uint32_t)MM_PICO_STDIO_USB_CONNECT_DELAY_MS;
+#else
+    return 1;
+#endif
+}
+
+// The CDC data interface's bulk IN endpoint, read once from the configuration
+// descriptor pico_stdio_usb supplies; 0 if there is none.
+static uint8_t mm_pico_usb_cdc_in_ep(void) {
+    static int searched;
+    static uint8_t found;
+    if (searched) return found;
+    searched = 1;
+    uint8_t const* p = tud_descriptor_configuration_cb(0);
+    if (p == NULL) return found;
+    uint8_t const* const end = p + tu_u16(p[3], p[2]);
+    int data = 0;
+    for (; p + 2 <= end && p[0] >= 2; p += p[0]) {
+        if (p[1] == TUSB_DESC_INTERFACE) {
+            data = p[5] == TUSB_CLASS_CDC_DATA;
+        } else if (data && p[1] == TUSB_DESC_ENDPOINT &&
+                   (p[2] & TUSB_DIR_IN_MASK) &&
+                   (p[3] & 3) == TUSB_XFER_BULK) {
+            found = p[2];
+            break;
+        }
+    }
+    return found;
+}
+
+// pico_stdio_usb's flush only starts a transfer. While DTR is asserted, wait
+// for the FIFO and IN endpoint to drain so an immediate _exit does not leave
+// the last bytes on the board. With no terminal open, pending output may
+// never drain: without DTR this remains a best-effort flush with no added
+// wait. DTR is a policy gate, not proof that the host is reading. The wait is
+// bounded by time and, because a debugger can stop the timer, by a count.
+#define MM_PICO_STDIO_DRAIN_MS 500
+#define MM_PICO_STDIO_DRAIN_SPINS 200000u
+
+static int mm_pico_usb_drain(void) {
+    const uint8_t ep = mm_pico_usb_cdc_in_ep();
+    if (ep == 0) return MM_PICO_STDIO_OK;
+    const absolute_time_t deadline =
+        make_timeout_time_ms(MM_PICO_STDIO_DRAIN_MS);
+    for (uint32_t spin = 0; spin < MM_PICO_STDIO_DRAIN_SPINS; ++spin) {
+        // Take one snapshot without the local USB worker changing the FIFO or
+        // completing/resetting the endpoint between these observations.
+        const uint32_t saved = save_and_disable_interrupts();
+        const bool connected = stdio_usb_connected();
+        const bool dtr = tud_cdc_connected();
+        const bool drained =
+            tud_cdc_write_available() == CFG_TUD_CDC_TX_BUFSIZE &&
+            !usbd_edpt_busy(0, ep);
+        restore_interrupts(saved);
+        if (drained) return MM_PICO_STDIO_OK;
+        if (!connected || !dtr) return MM_PICO_STDIO_OK;
+        if (time_reached(deadline)) break;
+        stdio_usb.out_flush();
+    }
+    return MM_PICO_STDIO_TIMEOUT;
+}
+#endif
 
 #if MM_BOARD_HAS_USB_HOST
 // A board with a PIO USB host port. Pico-PIO-USB bit-bangs full-speed USB and
@@ -138,7 +301,7 @@ int mm_pico_stdio_write(const unsigned char* data, size_t size, size_t* written)
     return MM_PICO_STDIO_UNSUPPORTED;
 #endif
 #else
-    if (size == 0 || !stdio_usb_connected()) return MM_PICO_STDIO_OK;
+    if (size == 0 || !mm_pico_usb_is_connected()) return MM_PICO_STDIO_OK;
     if (stdio_usb.out_chars == NULL) return MM_PICO_STDIO_UNSUPPORTED;
 
     stdio_usb.out_chars((const char*)data, (int)size);
@@ -168,7 +331,7 @@ int mm_pico_stdio_read(unsigned char* data, size_t size, size_t* count) {
     return MM_PICO_STDIO_UNSUPPORTED;
 #endif
 #else
-    if (size == 0 || !stdio_usb_connected()) return MM_PICO_STDIO_OK;
+    if (size == 0 || !mm_pico_usb_is_connected()) return MM_PICO_STDIO_OK;
     if (stdio_usb.in_chars == NULL) return MM_PICO_STDIO_UNSUPPORTED;
 
     const int result = stdio_usb.in_chars((char*)data, (int)size);
@@ -194,7 +357,7 @@ int mm_pico_stdio_flush(void) {
 #else
     if (stdio_usb.out_flush == NULL) return MM_PICO_STDIO_UNSUPPORTED;
     stdio_usb.out_flush();
-    return MM_PICO_STDIO_OK;
+    return mm_pico_usb_drain();
 #endif
 }
 
@@ -205,7 +368,7 @@ int mm_pico_stdio_connected(int* connected) {
     *connected = 1;
     return MM_PICO_STDIO_OK;
 #else
-    *connected = stdio_usb_connected() ? 1 : 0;
+    *connected = mm_pico_usb_is_connected();
     return MM_PICO_STDIO_OK;
 #endif
 }
@@ -235,15 +398,20 @@ enum {
     MM_PICO_OWNER_WATCHED = 2,
     MM_PICO_OWNER_ADC = 3,
     MM_PICO_OWNER_PWM = 4,
-    MM_PICO_OWNER_I2S = 5
+    MM_PICO_OWNER_I2S = 5,
+    MM_PICO_OWNER_PULSE = 6,
+    MM_PICO_OWNER_SDIO = 7
 };
 static unsigned char mm_pico_pin_owner[NUM_BANK0_GPIOS];
 
-// A pad a peripheral holds: an analog claim, or an I2S link's.
+// A pad a peripheral holds: an analog claim, an I2S link's, a pulse
+// output's, or an SD bus's.
 static int mm_pico_analog_holds(unsigned int pin) {
     return mm_pico_pin_owner[pin] == MM_PICO_OWNER_ADC ||
            mm_pico_pin_owner[pin] == MM_PICO_OWNER_PWM ||
-           mm_pico_pin_owner[pin] == MM_PICO_OWNER_I2S;
+           mm_pico_pin_owner[pin] == MM_PICO_OWNER_I2S ||
+           mm_pico_pin_owner[pin] == MM_PICO_OWNER_PULSE ||
+           mm_pico_pin_owner[pin] == MM_PICO_OWNER_SDIO;
 }
 
 static void mm_pico_gpio_callback(unsigned int pin, uint32_t events) {
@@ -695,7 +863,8 @@ int mm_pico_mcu_adc_configure(unsigned int channel) {
         if (!mm_pico_pin_valid(pin)) return MM_PICO_MCU_UNSUPPORTED;
         if (mm_pico_pin_owner[pin] == MM_PICO_OWNER_WATCHED ||
             mm_pico_pin_owner[pin] == MM_PICO_OWNER_PWM ||
-            mm_pico_pin_owner[pin] == MM_PICO_OWNER_I2S)
+            mm_pico_pin_owner[pin] == MM_PICO_OWNER_I2S ||
+            mm_pico_pin_owner[pin] == MM_PICO_OWNER_PULSE)
             return MM_PICO_MCU_BUSY;
         if (!mm_pico_adc_ready) {
             adc_init();
@@ -826,6 +995,7 @@ int mm_pico_mcu_ticks_us(unsigned long* ticks) {
     return MM_PICO_MCU_OK;
 }
 
+#if MM_BOARD_HAS_I2S
 // I2S over PIO and DMA. One link, instance zero, the RP2350's and RP2040's
 // only form of I2S, since neither has the peripheral.
 //
@@ -1340,6 +1510,1057 @@ int mm_pico_mcu_i2s_release(unsigned int instance) {
     return MM_PICO_MCU_OK;
 }
 
+#else
+// This board's table row leaves I2S out (MM_BOARD_HAS_I2S is 0): no PIO
+// programs and none of the link's DMA blocks and rings, about 5 KB of static
+// RAM, in the image. Every call answers Unsupported; releasing is Ok.
+int mm_pico_mcu_i2s_configure(unsigned int instance, unsigned int bit_clock,
+                              unsigned int word_clock, int has_transmit, unsigned int transmit,
+                              int has_receive, unsigned int receive, unsigned long rate_hz,
+                              unsigned int slot_bits) {
+    (void)instance; (void)bit_clock; (void)word_clock; (void)has_transmit; (void)transmit;
+    (void)has_receive; (void)receive; (void)rate_hz; (void)slot_bits;
+    return MM_PICO_MCU_UNSUPPORTED;
+}
+int mm_pico_mcu_i2s_rate(unsigned int instance, unsigned long long* numerator,
+                         unsigned long long* denominator) {
+    (void)instance; (void)numerator; (void)denominator;
+    return MM_PICO_MCU_UNSUPPORTED;
+}
+int mm_pico_mcu_i2s_start(unsigned int instance, int receive) {
+    (void)instance; (void)receive;
+    return MM_PICO_MCU_UNSUPPORTED;
+}
+int mm_pico_mcu_i2s_write(unsigned int instance, const uint32_t* words, size_t frames,
+                          size_t* accepted) {
+    (void)instance; (void)words; (void)frames; (void)accepted;
+    return MM_PICO_MCU_UNSUPPORTED;
+}
+int mm_pico_mcu_i2s_read(unsigned int instance, uint32_t* words, size_t frames,
+                         size_t* count) {
+    (void)instance; (void)words; (void)frames; (void)count;
+    return MM_PICO_MCU_UNSUPPORTED;
+}
+int mm_pico_mcu_i2s_progress(unsigned int instance, int receive,
+                             unsigned long long* completed, size_t* queued,
+                             unsigned long* missed) {
+    (void)instance; (void)receive; (void)completed; (void)queued; (void)missed;
+    return MM_PICO_MCU_UNSUPPORTED;
+}
+int mm_pico_mcu_i2s_stop(unsigned int instance, int receive) {
+    (void)instance; (void)receive;
+    return MM_PICO_MCU_UNSUPPORTED;
+}
+int mm_pico_mcu_i2s_release(unsigned int instance) {
+    return instance == 0 ? MM_PICO_MCU_OK : MM_PICO_MCU_UNSUPPORTED;
+}
+#endif  // MM_BOARD_HAS_I2S
+
+// A one-wire pulse-width-coded output over PIO, the WS2812's transport. One
+// state machine an instance runs four instructions, each bit taking t3 ticks
+// low, t1 high, and then t2 more high for a one or low for a zero:
+//
+//   0: out x, 1     side 0 [t3 - 1]
+//   1: jmp !x 3     side 1 [t1 - 1]
+//   2: jmp 0        side 1 [t2 - 1]
+//   3: nop          side 0 [t2 - 1]
+//
+// With the transmit FIFO empty the state machine stalls on the out, and the
+// side-set has already taken the line low, so idle is low. Autopull takes a
+// byte a word, most significant bit first. One side-set bit leaves four delay
+// bits, so each of t1, t2, and t3 is one to sixteen ticks.
+
+#define MM_PICO_PULSE_INSTANCES 2u
+#define MM_PICO_PULSE_MOST_TICKS 16u
+#define MM_PICO_PULSE_MOST_PERIOD_NS 10000000ul
+
+typedef struct {
+    int configured;
+    unsigned int pin;
+    unsigned long bit_period_ns;
+    unsigned long zero_high_ns;
+    unsigned long one_high_ns;
+    unsigned long reset_ns;
+    PIO pio;
+    unsigned int sm;
+    unsigned int offset;
+    uint16_t instructions[4];
+    pio_program_t program;
+} mm_pico_pulse_t;
+
+static mm_pico_pulse_t mm_pico_pulse[MM_PICO_PULSE_INSTANCES];
+
+static uint64_t mm_pico_pulse_distance(uint64_t a, uint64_t b) {
+    return a > b ? a - b : b - a;
+}
+
+// Ticks per bit, n, and its split into t1, t2, and t3, choosing the n whose
+// worse high time is nearest what was asked, ties to the fewer ticks; and
+// the divider, in 256ths, that makes n ticks one period. Zero when no n fits
+// the instruction delays and the divider's range.
+static int mm_pico_pulse_plan(unsigned long period, unsigned long zero, unsigned long one,
+                              unsigned int* t1, unsigned int* t2, unsigned int* t3,
+                              uint32_t* divider_x256) {
+    const uint64_t clock = (uint64_t)clock_get_hz(clk_sys);
+    int found = 0;
+    uint64_t best_error = 0;
+    unsigned int best_n = 0;
+    for (unsigned int n = 3; n <= 3u * MM_PICO_PULSE_MOST_TICKS; ++n) {
+        const uint64_t a = ((uint64_t)zero * n + period / 2u) / period;
+        const uint64_t b = ((uint64_t)one * n + period / 2u) / period;
+        if (a < 1u || b <= a || b >= n) continue;
+        if (a > MM_PICO_PULSE_MOST_TICKS || b - a > MM_PICO_PULSE_MOST_TICKS ||
+            n - b > MM_PICO_PULSE_MOST_TICKS)
+            continue;
+        const uint64_t ns_per_tick_scale = (uint64_t)n * 1000000000ull;
+        const uint64_t divider =
+            (clock * period * 256ull + ns_per_tick_scale / 2u) / ns_per_tick_scale;
+        if (divider < 256ull || divider > 65535ull * 256ull + 255ull) continue;
+        // Errors in nanoseconds times n, compared across n by cross-multiplying.
+        const uint64_t e0 = mm_pico_pulse_distance(a * period, (uint64_t)zero * n);
+        const uint64_t e1 = mm_pico_pulse_distance(b * period, (uint64_t)one * n);
+        const uint64_t error = e0 > e1 ? e0 : e1;
+        if (!found || error * best_n < best_error * n) {
+            found = 1;
+            best_error = error;
+            best_n = n;
+            *t1 = (unsigned int)a;
+            *t2 = (unsigned int)(b - a);
+            *t3 = (unsigned int)(n - b);
+            *divider_x256 = (uint32_t)divider;
+        }
+    }
+    return found;
+}
+
+static void mm_pico_pulse_build_program(mm_pico_pulse_t* p, unsigned int t1, unsigned int t2,
+                                        unsigned int t3) {
+    uint16_t* i = p->instructions;
+    i[0] = (uint16_t)(pio_encode_out(pio_x, 1) | pio_encode_sideset(1, 0u) |
+                      pio_encode_delay(t3 - 1u));
+    i[1] = (uint16_t)(pio_encode_jmp_not_x(3) | pio_encode_sideset(1, 1u) |
+                      pio_encode_delay(t1 - 1u));
+    i[2] = (uint16_t)(pio_encode_jmp(0) | pio_encode_sideset(1, 1u) |
+                      pio_encode_delay(t2 - 1u));
+    i[3] = (uint16_t)(pio_encode_nop() | pio_encode_sideset(1, 0u) |
+                      pio_encode_delay(t2 - 1u));
+    p->program.instructions = p->instructions;
+    p->program.length = 4;
+    p->program.origin = -1;
+}
+
+int mm_pico_mcu_pulse_configure(unsigned int instance, unsigned int pin,
+                                unsigned long bit_period_ns, unsigned long zero_high_ns,
+                                unsigned long one_high_ns, unsigned long reset_ns) {
+    if (instance >= MM_PICO_PULSE_INSTANCES) return MM_PICO_MCU_UNSUPPORTED;
+    if (!mm_pico_pin_valid(pin) || pin > 31u) return MM_PICO_MCU_BAD_ARGUMENT;
+    if (zero_high_ns == 0 || zero_high_ns >= one_high_ns || one_high_ns >= bit_period_ns ||
+        bit_period_ns > MM_PICO_PULSE_MOST_PERIOD_NS)
+        return MM_PICO_MCU_BAD_ARGUMENT;
+    mm_pico_pulse_t* p = &mm_pico_pulse[instance];
+    if (p->configured)
+        return p->pin == pin && p->bit_period_ns == bit_period_ns &&
+                       p->zero_high_ns == zero_high_ns && p->one_high_ns == one_high_ns &&
+                       p->reset_ns == reset_ns
+                   ? MM_PICO_MCU_OK
+                   : MM_PICO_MCU_BUSY;
+    if (mm_pico_gpio_watched[pin] || mm_pico_analog_holds(pin)) return MM_PICO_MCU_BUSY;
+
+    unsigned int t1 = 0, t2 = 0, t3 = 0;
+    uint32_t divider_x256 = 0;
+    if (!mm_pico_pulse_plan(bit_period_ns, zero_high_ns, one_high_ns, &t1, &t2, &t3,
+                            &divider_x256))
+        return MM_PICO_MCU_BAD_ARGUMENT;
+
+    mm_pico_pulse_build_program(p, t1, t2, t3);
+    PIO pio;
+    uint sm;
+    uint offset;
+    if (!pio_claim_free_sm_and_add_program(&p->program, &pio, &sm, &offset))
+        return MM_PICO_MCU_BUSY;
+
+    pio_sm_config c = pio_get_default_sm_config();
+    sm_config_set_wrap(&c, offset, offset + 3u);
+    sm_config_set_sideset(&c, 1, false, false);
+    sm_config_set_sideset_pins(&c, pin);
+    sm_config_set_out_shift(&c, false, true, 8);
+    sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_TX);
+    sm_config_set_clkdiv_int_frac8(&c, divider_x256 >> 8, (uint8_t)(divider_x256 & 255u));
+    pio_sm_set_pins_with_mask(pio, sm, 0u, 1u << pin);
+    pio_sm_set_consecutive_pindirs(pio, sm, pin, 1, true);
+    pio_gpio_init(pio, pin);
+    pio_sm_init(pio, sm, offset, &c);
+    pio_sm_set_enabled(pio, sm, true);
+
+    p->pin = pin;
+    p->bit_period_ns = bit_period_ns;
+    p->zero_high_ns = zero_high_ns;
+    p->one_high_ns = one_high_ns;
+    p->reset_ns = reset_ns;
+    p->pio = pio;
+    p->sm = sm;
+    p->offset = offset;
+    p->configured = 1;
+    mm_pico_pin_owner[pin] = MM_PICO_OWNER_PULSE;
+    return MM_PICO_MCU_OK;
+}
+
+// A byte a FIFO word. Once the FIFO is empty the state machine holds the last
+// byte, at most eight bits from done, so the wait covers those and the reset
+// time after them.
+int mm_pico_mcu_pulse_write(unsigned int instance, const unsigned char* data, size_t size) {
+    if (instance >= MM_PICO_PULSE_INSTANCES) return MM_PICO_MCU_UNSUPPORTED;
+    mm_pico_pulse_t* p = &mm_pico_pulse[instance];
+    if (!p->configured || (data == NULL && size != 0)) return MM_PICO_MCU_BAD_ARGUMENT;
+    for (size_t i = 0; i < size; ++i)
+        pio_sm_put_blocking(p->pio, p->sm, (uint32_t)data[i] << 24);
+    while (!pio_sm_is_tx_fifo_empty(p->pio, p->sm)) tight_loop_contents();
+    const uint64_t tail_ns = 8ull * p->bit_period_ns + p->reset_ns;
+    busy_wait_us((tail_ns + 999ull) / 1000ull + 1ull);
+    return MM_PICO_MCU_OK;
+}
+
+int mm_pico_mcu_pulse_release(unsigned int instance) {
+    if (instance >= MM_PICO_PULSE_INSTANCES) return MM_PICO_MCU_UNSUPPORTED;
+    mm_pico_pulse_t* p = &mm_pico_pulse[instance];
+    if (!p->configured) return MM_PICO_MCU_OK;
+    pio_sm_set_enabled(p->pio, p->sm, false);
+    pio_remove_program_and_unclaim_sm(&p->program, p->pio, p->sm, p->offset);
+    gpio_deinit(p->pin);
+    mm_pico_pin_owner[p->pin] = MM_PICO_OWNER_NONE;
+    p->configured = 0;
+    p->pio = NULL;
+    return MM_PICO_MCU_OK;
+}
+
+// An SD card's native bus over PIO and DMA: mm.mcu's sdio facility.
+//
+// The design -- a state machine that clocks commands out and responses in
+// with the clock as side-set, a second that clocks a written block out and
+// reads the card's CRC status and busy, a third in another PIO block that
+// follows the clock and captures read blocks for DMA, and CRC16 checked on
+// every data line in software -- learned from carlk3's
+// no-OS-FatFS-SD-SDIO-SPI-RPi-Pico (https://github.com/carlk3/
+// no-OS-FatFS-SD-SDIO-SPI-RPi-Pico, Apache License 2.0), whose SDIO part
+// derives from ZuluSCSI's firmware. No code is copied from either; the
+// programs, framing, and CRC method below are this project's own, and
+// docs/modules-sdcard.mdy records the acknowledgement.
+//
+// The clock is driven by whichever of the command and write state machines
+// is running; the other is stalled on a PULL, and a stalled state machine
+// writes nothing, so they share the pin. Every half period is DELAY + 1
+// instruction cycles, so the bus clock is clk_sys / (2 * (DELAY + 1)) at a
+// divider of one: 25 MHz at the RP2350's 150 MHz. Lines change on a falling
+// edge, and a line is sampled by the instruction that makes the next falling
+// edge, which, after the input synchroniser's two cycles, sees it most of a
+// period after the card changed it.
+//
+// Command state machine, instructions 0 to 17, fed four words a command --
+// bits to send less one, the 48-bit frame in two words, and a control word of
+// response bits after the start bit less one (0: no response) and post clocks
+// less one -- and three for a run of idle clocks:
+//
+//   0: pull block          side 0        11: in null, 1       side 1 [D]
+//   1: out x, 32           side 0        12: in pins, 1       side 0 [D]
+//   2: set pindirs, 1      side 0        13: jmp y-- 12       side 1 [D]
+//   3: out pins, 1         side 0 [D]    14: push block       side 0 [D]
+//   4: jmp x-- 3           side 1 [D]    15: out x, 16        side 0
+//   5: set pindirs, 0      side 0 [D]    16: nop              side 1 [D]
+//   6: pull block          side 1 [D]    17: jmp x-- 16       side 0 [D]
+//   7: out y, 16           side 0 [D]
+//   8: jmp !y 15           side 1 [D]
+//   9: nop                 side 1 [D]
+//  10: jmp pin 9           side 0 [D]
+//
+// Write state machine, instructions 18 to 31, fed a nibble count less one and
+// the block's nibbles -- start, data, the CRC16s, end -- and pushing the CRC
+// status token, start bit excluded, once the card has sent it:
+//
+//  18: pull block          side 0        25: jmp pin 24       side 0 [D]
+//  19: out x, 32           side 0        26: set y, 3         side 1 [D]
+//  20: set pindirs, 15     side 0        27: in pins, 1       side 0 [D]
+//  21: out pins, 4         side 0 [D]    28: jmp y-- 27       side 1 [D]
+//  22: jmp x-- 21          side 1 [D]    29: push block       side 0 [D]
+//  23: set pindirs, 0      side 0 [D]    30: jmp pin 18       side 1 [D]
+//  24: nop                 side 1 [D]    31: jmp 30           side 0 [D]
+//
+// Read state machine, in another PIO block, fed a nibble count less one; it
+// waits for a block's start bit on D0 and pushes its nibbles, the CRC16s
+// included, sampling two cycles after each rising edge it sees:
+//
+//   0: pull block                         6: wait 0 pin CLK
+//   1: mov y, osr                         7: wait 1 pin CLK [1]
+//   2: mov x, y                           8: in pins, 4
+//   3: wait 0 pin CLK                     9: jmp x-- 6
+//   4: wait 1 pin CLK [1]                10: jmp 2
+//   5: jmp pin 3
+//
+// CLK is reached by WAIT PIN as an offset from the IN base, D0, modulo 32,
+// which names the same pad whatever the PIO block's GPIO base.
+//
+// The four CRC16s of a 4-bit block are one CRC: interleaving four streams is
+// substituting x^4 for x, so the CRC of the data bytes, most significant bit
+// first, under G(x^4) = x^64 + x^48 + x^20 + 1 is the four lines' CRC16s
+// interleaved a nibble a bit, which is exactly how they are sent. It is
+// computed a nibble at a time from a sixteen-entry table.
+//
+// The adapter is linked into every Pico program, so nothing here holds more
+// static RAM than it must: a read's blocks go by DMA straight into the
+// caller's buffer, byte-swapped by the DMA engine, while a second channel,
+// chained to and from the first, collects each block's two CRC words; and a
+// written block's nibble stream is computed a word at a time as it is fed.
+
+#define MM_PICO_SDIO_DELAY 2u
+#define MM_PICO_SDIO_BLOCK 512u
+#define MM_PICO_SDIO_MOST_READ_BLOCKS 8u
+#define MM_PICO_SDIO_READ_WORDS 130u    // 1040 nibbles: 1024 data, 16 CRC
+#define MM_PICO_SDIO_DATA_WORDS 128u
+#define MM_PICO_SDIO_WRITE_NIBBLES 1042u
+#define MM_PICO_SDIO_IDENTIFY_HZ 400000ul
+#define MM_PICO_SDIO_RESPONSE_US 20000u
+#define MM_PICO_SDIO_DATA_US 1000000u
+#define MM_PICO_SDIO_BUSY_US 1000000u
+#define MM_PICO_SDIO_WRITE_BASE 18u
+
+typedef struct {
+    int configured;
+    unsigned int clock_pin;
+    unsigned int command_pin;
+    unsigned int data0_pin;
+    PIO pio;
+    unsigned int command_sm;
+    unsigned int write_sm;
+    unsigned int offset;
+    PIO read_pio;
+    unsigned int read_sm;
+    unsigned int read_offset;
+    int dma;
+    int crc_dma;
+    uint16_t instructions[32];
+    uint16_t read_instructions[11];
+    pio_program_t program;
+    pio_program_t read_program;
+} mm_pico_sdio_t;
+
+static mm_pico_sdio_t mm_pico_sdio;
+static uint32_t mm_pico_sdio_read_crcs[MM_PICO_SDIO_MOST_READ_BLOCKS * 2u];
+
+static uint8_t mm_pico_sdio_crc7(const uint8_t* data, size_t size) {
+    uint8_t crc = 0;
+    for (size_t i = 0; i < size; ++i) {
+        uint8_t d = data[i];
+        for (int bit = 0; bit < 8; ++bit) {
+            crc = (uint8_t)(crc << 1);
+            if (((d ^ crc) & 0x80u) != 0) crc ^= 0x09u;
+            d = (uint8_t)(d << 1);
+        }
+    }
+    return (uint8_t)(crc & 0x7fu);
+}
+
+static uint64_t mm_pico_sdio_crc(const uint8_t* data, size_t size) {
+    static const uint64_t table[16] = {
+        0x0000000000000000ull, 0x0001000000100001ull, 0x0002000000200002ull,
+        0x0003000000300003ull, 0x0004000000400004ull, 0x0005000000500005ull,
+        0x0006000000600006ull, 0x0007000000700007ull, 0x0008000000800008ull,
+        0x0009000000900009ull, 0x000a000000a0000aull, 0x000b000000b0000bull,
+        0x000c000000c0000cull, 0x000d000000d0000dull, 0x000e000000e0000eull,
+        0x000f000000f0000full};
+    uint64_t crc = 0;
+    for (size_t i = 0; i < size; ++i) {
+        crc = (crc << 4) ^ table[(unsigned int)(crc >> 60) ^ (data[i] >> 4)];
+        crc = (crc << 4) ^ table[(unsigned int)(crc >> 60) ^ (data[i] & 0xfu)];
+    }
+    return crc;
+}
+
+static void mm_pico_sdio_build(mm_pico_sdio_t* s) {
+    const unsigned int d = MM_PICO_SDIO_DELAY;
+    uint16_t* i = s->instructions;
+#define MM_SS(v) pio_encode_sideset(1, (v))
+    i[0] = (uint16_t)(pio_encode_pull(false, true) | MM_SS(0));
+    i[1] = (uint16_t)(pio_encode_out(pio_x, 32) | MM_SS(0));
+    i[2] = (uint16_t)(pio_encode_set(pio_pindirs, 1) | MM_SS(0));
+    i[3] = (uint16_t)(pio_encode_out(pio_pins, 1) | MM_SS(0) | pio_encode_delay(d));
+    i[4] = (uint16_t)(pio_encode_jmp_x_dec(3) | MM_SS(1) | pio_encode_delay(d));
+    i[5] = (uint16_t)(pio_encode_set(pio_pindirs, 0) | MM_SS(0) | pio_encode_delay(d));
+    i[6] = (uint16_t)(pio_encode_pull(false, true) | MM_SS(1) | pio_encode_delay(d));
+    i[7] = (uint16_t)(pio_encode_out(pio_y, 16) | MM_SS(0) | pio_encode_delay(d));
+    i[8] = (uint16_t)(pio_encode_jmp_not_y(15) | MM_SS(1) | pio_encode_delay(d));
+    i[9] = (uint16_t)(pio_encode_nop() | MM_SS(1) | pio_encode_delay(d));
+    i[10] = (uint16_t)(pio_encode_jmp_pin(9) | MM_SS(0) | pio_encode_delay(d));
+    i[11] = (uint16_t)(pio_encode_in(pio_null, 1) | MM_SS(1) | pio_encode_delay(d));
+    i[12] = (uint16_t)(pio_encode_in(pio_pins, 1) | MM_SS(0) | pio_encode_delay(d));
+    i[13] = (uint16_t)(pio_encode_jmp_y_dec(12) | MM_SS(1) | pio_encode_delay(d));
+    i[14] = (uint16_t)(pio_encode_push(false, true) | MM_SS(0) | pio_encode_delay(d));
+    i[15] = (uint16_t)(pio_encode_out(pio_x, 16) | MM_SS(0));
+    i[16] = (uint16_t)(pio_encode_nop() | MM_SS(1) | pio_encode_delay(d));
+    i[17] = (uint16_t)(pio_encode_jmp_x_dec(16) | MM_SS(0) | pio_encode_delay(d));
+
+    i[18] = (uint16_t)(pio_encode_pull(false, true) | MM_SS(0));
+    i[19] = (uint16_t)(pio_encode_out(pio_x, 32) | MM_SS(0));
+    i[20] = (uint16_t)(pio_encode_set(pio_pindirs, 15) | MM_SS(0));
+    i[21] = (uint16_t)(pio_encode_out(pio_pins, 4) | MM_SS(0) | pio_encode_delay(d));
+    i[22] = (uint16_t)(pio_encode_jmp_x_dec(21) | MM_SS(1) | pio_encode_delay(d));
+    i[23] = (uint16_t)(pio_encode_set(pio_pindirs, 0) | MM_SS(0) | pio_encode_delay(d));
+    i[24] = (uint16_t)(pio_encode_nop() | MM_SS(1) | pio_encode_delay(d));
+    i[25] = (uint16_t)(pio_encode_jmp_pin(24) | MM_SS(0) | pio_encode_delay(d));
+    i[26] = (uint16_t)(pio_encode_set(pio_y, 3) | MM_SS(1) | pio_encode_delay(d));
+    i[27] = (uint16_t)(pio_encode_in(pio_pins, 1) | MM_SS(0) | pio_encode_delay(d));
+    i[28] = (uint16_t)(pio_encode_jmp_y_dec(27) | MM_SS(1) | pio_encode_delay(d));
+    i[29] = (uint16_t)(pio_encode_push(false, true) | MM_SS(0) | pio_encode_delay(d));
+    i[30] = (uint16_t)(pio_encode_jmp_pin(MM_PICO_SDIO_WRITE_BASE) | MM_SS(1) | pio_encode_delay(d));
+    i[31] = (uint16_t)(pio_encode_jmp(30) | MM_SS(0) | pio_encode_delay(d));
+#undef MM_SS
+    s->program.instructions = s->instructions;
+    s->program.length = 32;
+    s->program.origin = -1;
+
+    const unsigned int clock = (s->clock_pin - s->data0_pin) & 31u;
+    uint16_t* r = s->read_instructions;
+    r[0] = (uint16_t)pio_encode_pull(false, true);
+    r[1] = (uint16_t)pio_encode_mov(pio_y, pio_osr);
+    r[2] = (uint16_t)pio_encode_mov(pio_x, pio_y);
+    r[3] = (uint16_t)pio_encode_wait_pin(false, clock);
+    r[4] = (uint16_t)(pio_encode_wait_pin(true, clock) | pio_encode_delay(1));
+    r[5] = (uint16_t)pio_encode_jmp_pin(3);
+    r[6] = (uint16_t)pio_encode_wait_pin(false, clock);
+    r[7] = (uint16_t)(pio_encode_wait_pin(true, clock) | pio_encode_delay(1));
+    r[8] = (uint16_t)pio_encode_in(pio_pins, 4);
+    r[9] = (uint16_t)pio_encode_jmp_x_dec(6);
+    r[10] = (uint16_t)pio_encode_jmp(2);
+    s->read_program.instructions = s->read_instructions;
+    s->read_program.length = 11;
+    s->read_program.origin = -1;
+}
+
+// The bus clock's divider in 256ths, the smallest that keeps the clock at or
+// under hz.
+static uint32_t mm_pico_sdio_divider(unsigned long hz, unsigned long* actual) {
+    const uint64_t cycles = 2ull * (MM_PICO_SDIO_DELAY + 1u);
+    const uint64_t clock = (uint64_t)clock_get_hz(clk_sys);
+    uint64_t divider = (clock * 256ull + cycles * hz - 1u) / (cycles * hz);
+    if (divider < 256u) divider = 256u;
+    if (divider > 65535ull * 256ull + 255ull) divider = 65535ull * 256ull + 255ull;
+    *actual = (unsigned long)(clock * 256ull / (cycles * divider));
+    return (uint32_t)divider;
+}
+
+static void mm_pico_sdio_set_divider(mm_pico_sdio_t* s, uint32_t divider) {
+    pio_sm_set_clkdiv_int_frac8(s->pio, s->command_sm, divider >> 8, (uint8_t)(divider & 255u));
+    pio_sm_set_clkdiv_int_frac8(s->pio, s->write_sm, divider >> 8, (uint8_t)(divider & 255u));
+}
+
+// Stops a state machine wherever it is and puts it back at its start with
+// the clock low and its lines released.
+static void mm_pico_sdio_reset(mm_pico_sdio_t* s, unsigned int sm, unsigned int start) {
+    pio_sm_set_enabled(s->pio, sm, false);
+    pio_sm_clear_fifos(s->pio, sm);
+    pio_sm_restart(s->pio, sm);
+    pio_sm_clkdiv_restart(s->pio, sm);
+    pio_sm_exec(s->pio, sm, (uint)(pio_encode_set(pio_pindirs, 0) | pio_encode_sideset(1, 0)));
+    pio_sm_exec(s->pio, sm, (uint)(pio_encode_jmp(s->offset + start) | pio_encode_sideset(1, 0)));
+    pio_sm_set_enabled(s->pio, sm, true);
+}
+
+static void mm_pico_sdio_stop_read(mm_pico_sdio_t* s) {
+    // Unchain before aborting, or the aborted channel's chain restarts the
+    // other.
+    hw_clear_bits(&dma_channel_hw_addr((uint)s->dma)->al1_ctrl, DMA_CH0_CTRL_TRIG_CHAIN_TO_BITS);
+    hw_clear_bits(&dma_channel_hw_addr((uint)s->crc_dma)->al1_ctrl,
+                  DMA_CH0_CTRL_TRIG_CHAIN_TO_BITS);
+    dma_channel_abort((uint)s->dma);
+    dma_channel_abort((uint)s->crc_dma);
+    pio_sm_set_enabled(s->read_pio, s->read_sm, false);
+    pio_sm_clear_fifos(s->read_pio, s->read_sm);
+    pio_sm_restart(s->read_pio, s->read_sm);
+    pio_sm_exec(s->read_pio, s->read_sm, (uint)pio_encode_jmp(s->read_offset));
+}
+
+static int mm_pico_sdio_expired(uint64_t start, uint32_t limit_us) {
+    return time_us_64() - start > limit_us;
+}
+
+// Waits until the command state machine has run everything queued and is
+// stalled on its PULL again.
+static int mm_pico_sdio_command_idle(mm_pico_sdio_t* s, uint32_t limit_us) {
+    const uint32_t stall = 1u << (PIO_FDEBUG_TXSTALL_LSB + s->command_sm);
+    const uint64_t start = time_us_64();
+    while (!pio_sm_is_tx_fifo_empty(s->pio, s->command_sm)) {
+        if (mm_pico_sdio_expired(start, limit_us)) return 0;
+    }
+    s->pio->fdebug = stall;
+    while ((s->pio->fdebug & stall) == 0) {
+        if (mm_pico_sdio_expired(start, limit_us)) return 0;
+    }
+    return 1;
+}
+
+// count clocks, the command line driven high for the first.
+static void mm_pico_sdio_queue_clocks(mm_pico_sdio_t* s, unsigned int count) {
+    pio_sm_put_blocking(s->pio, s->command_sm, 0u);
+    pio_sm_put_blocking(s->pio, s->command_sm, 0xffffffffu);
+    pio_sm_put_blocking(s->pio, s->command_sm, (uint32_t)(count - 1u) & 0xffffu);
+}
+
+static void mm_pico_sdio_queue_command(mm_pico_sdio_t* s, unsigned int index, uint32_t argument,
+                                       unsigned int response_bits, unsigned int post_clocks) {
+    uint8_t frame[6] = {(uint8_t)(0x40u | (index & 0x3fu)), (uint8_t)(argument >> 24),
+                        (uint8_t)(argument >> 16), (uint8_t)(argument >> 8),
+                        (uint8_t)argument, 0};
+    frame[5] = (uint8_t)((mm_pico_sdio_crc7(frame, 5) << 1) | 1u);
+    pio_sm_put_blocking(s->pio, s->command_sm, 47u);
+    pio_sm_put_blocking(s->pio, s->command_sm,
+                        ((uint32_t)frame[0] << 24) | ((uint32_t)frame[1] << 16) |
+                            ((uint32_t)frame[2] << 8) | frame[3]);
+    pio_sm_put_blocking(s->pio, s->command_sm, ((uint32_t)frame[4] << 24) | ((uint32_t)frame[5] << 16));
+    const uint32_t after_start = response_bits == 0 ? 0u : response_bits - 2u;
+    pio_sm_put_blocking(s->pio, s->command_sm,
+                        (after_start << 16) | ((uint32_t)(post_clocks - 1u) & 0xffffu));
+}
+
+// The response's words as pushed: 48 bits in two, 136 in five, the last
+// holding the remainder in its low bits.
+static int mm_pico_sdio_take(mm_pico_sdio_t* s, uint32_t* words, unsigned int count,
+                             unsigned int* taken) {
+    while (*taken < count && !pio_sm_is_rx_fifo_empty(s->pio, s->command_sm))
+        words[(*taken)++] = pio_sm_get(s->pio, s->command_sm);
+    return *taken == count;
+}
+
+// Checks a short response's frame and answers its content, bits 39 to 8.
+static int mm_pico_sdio_short(const uint32_t* raw, unsigned int index, int checked,
+                              uint32_t* content) {
+    const uint8_t bytes[5] = {(uint8_t)(raw[0] >> 24), (uint8_t)(raw[0] >> 16),
+                              (uint8_t)(raw[0] >> 8), (uint8_t)raw[0], (uint8_t)(raw[1] >> 8)};
+    if ((bytes[0] & 0xc0u) != 0) return MM_PICO_MCU_TRANSPORT_ERROR;    // start, transmission
+    if ((raw[1] & 1u) == 0) return MM_PICO_MCU_TRANSPORT_ERROR;         // end bit
+    if (checked) {
+        if ((bytes[0] & 0x3fu) != (index & 0x3fu)) return MM_PICO_MCU_TRANSPORT_ERROR;
+        if (mm_pico_sdio_crc7(bytes, 5) != ((raw[1] >> 1) & 0x7fu))
+            return MM_PICO_MCU_TRANSPORT_ERROR;
+    }
+    *content = ((raw[0] & 0x00ffffffu) << 8) | ((raw[1] >> 8) & 0xffu);
+    return MM_PICO_MCU_OK;
+}
+
+static int mm_pico_sdio_long(const uint32_t* raw, uint32_t* content) {
+    if ((raw[0] >> 30) != 0 || (raw[4] & 1u) == 0) return MM_PICO_MCU_TRANSPORT_ERROR;
+    for (int i = 0; i < 3; ++i) content[i] = (raw[i] << 8) | (raw[i + 1] >> 24);
+    content[3] = (raw[3] << 8) | (raw[4] & 0xffu);
+    uint8_t bytes[15];
+    for (int i = 0; i < 15; ++i) bytes[i] = (uint8_t)(content[i / 4] >> (24 - 8 * (i % 4)));
+    if (mm_pico_sdio_crc7(bytes, 15) != ((content[3] >> 1) & 0x7fu))
+        return MM_PICO_MCU_TRANSPORT_ERROR;
+    return MM_PICO_MCU_OK;
+}
+
+static int mm_pico_sdio_ready(unsigned int instance) {
+    if (instance != 0) return MM_PICO_MCU_UNSUPPORTED;
+    return mm_pico_sdio.configured ? MM_PICO_MCU_OK : MM_PICO_MCU_BAD_ARGUMENT;
+}
+
+// D0 low is busy; it ends on its own, with clocks to help a card that wants
+// them.
+static int mm_pico_sdio_wait_busy(mm_pico_sdio_t* s) {
+    const uint64_t start = time_us_64();
+    while (!gpio_get(s->data0_pin)) {
+        if (mm_pico_sdio_expired(start, MM_PICO_SDIO_BUSY_US)) return MM_PICO_MCU_TIMEOUT;
+        mm_pico_sdio_queue_clocks(s, 8);
+        if (!mm_pico_sdio_command_idle(s, MM_PICO_SDIO_RESPONSE_US)) {
+            mm_pico_sdio_reset(s, s->command_sm, 0);
+            return MM_PICO_MCU_TIMEOUT;
+        }
+    }
+    return MM_PICO_MCU_OK;
+}
+
+static void mm_pico_sdio_claim_pins(const mm_pico_sdio_t* s, unsigned char owner) {
+    mm_pico_pin_owner[s->clock_pin] = owner;
+    mm_pico_pin_owner[s->command_pin] = owner;
+    for (unsigned int i = 0; i < 4u; ++i) mm_pico_pin_owner[s->data0_pin + i] = owner;
+}
+
+int mm_pico_mcu_sdio_configure(unsigned int instance, unsigned int clock_pin,
+                               unsigned int command_pin, unsigned int data0_pin,
+                               unsigned int width) {
+    if (instance != 0) return MM_PICO_MCU_UNSUPPORTED;
+    if (width != 4u) return MM_PICO_MCU_BAD_ARGUMENT;
+    mm_pico_sdio_t* s = &mm_pico_sdio;
+    if (s->configured)
+        return s->clock_pin == clock_pin && s->command_pin == command_pin &&
+                       s->data0_pin == data0_pin
+                   ? MM_PICO_MCU_OK
+                   : MM_PICO_MCU_BUSY;
+    const unsigned int pins[6] = {clock_pin, command_pin, data0_pin, data0_pin + 1u,
+                                  data0_pin + 2u, data0_pin + 3u};
+    unsigned int lowest = pins[0], highest = pins[0];
+    for (unsigned int i = 0; i < 6u; ++i) {
+        if (!mm_pico_pin_valid(pins[i])) return MM_PICO_MCU_BAD_ARGUMENT;
+        for (unsigned int j = 0; j < i; ++j)
+            if (pins[i] == pins[j]) return MM_PICO_MCU_BAD_ARGUMENT;
+        if (pins[i] < lowest) lowest = pins[i];
+        if (pins[i] > highest) highest = pins[i];
+    }
+    if (highest - lowest > 31u) return MM_PICO_MCU_BAD_ARGUMENT;    // one PIO block's window
+    for (unsigned int i = 0; i < 6u; ++i)
+        if (mm_pico_gpio_watched[pins[i]] || mm_pico_analog_holds(pins[i]))
+            return MM_PICO_MCU_BUSY;
+
+    s->clock_pin = clock_pin;
+    s->command_pin = command_pin;
+    s->data0_pin = data0_pin;
+    mm_pico_sdio_build(s);
+
+    PIO pio;
+    uint sm, offset;
+    if (!pio_claim_free_sm_and_add_program_for_gpio_range(&s->program, &pio, &sm, &offset, lowest,
+                                                          highest - lowest + 1u, true))
+        return MM_PICO_MCU_BUSY;
+    const int write_sm = pio_claim_unused_sm(pio, false);
+    if (write_sm < 0) {
+        pio_remove_program_and_unclaim_sm(&s->program, pio, sm, offset);
+        return MM_PICO_MCU_BUSY;
+    }
+    PIO read_pio;
+    uint read_sm, read_offset;
+    if (!pio_claim_free_sm_and_add_program_for_gpio_range(&s->read_program, &read_pio, &read_sm,
+                                                          &read_offset, lowest,
+                                                          highest - lowest + 1u, true)) {
+        pio_sm_unclaim(pio, (uint)write_sm);
+        pio_remove_program_and_unclaim_sm(&s->program, pio, sm, offset);
+        return MM_PICO_MCU_BUSY;
+    }
+    const int dma = dma_claim_unused_channel(false);
+    const int crc_dma = dma < 0 ? -1 : dma_claim_unused_channel(false);
+    if (crc_dma < 0) {
+        if (dma >= 0) dma_channel_unclaim((uint)dma);
+        pio_remove_program_and_unclaim_sm(&s->read_program, read_pio, read_sm, read_offset);
+        pio_sm_unclaim(pio, (uint)write_sm);
+        pio_remove_program_and_unclaim_sm(&s->program, pio, sm, offset);
+        return MM_PICO_MCU_BUSY;
+    }
+    s->pio = pio;
+    s->command_sm = sm;
+    s->write_sm = (unsigned int)write_sm;
+    s->offset = offset;
+    s->read_pio = read_pio;
+    s->read_sm = read_sm;
+    s->read_offset = read_offset;
+    s->dma = dma;
+    s->crc_dma = crc_dma;
+
+    for (unsigned int i = 0; i < 6u; ++i) {
+        pio_gpio_init(pio, pins[i]);
+        gpio_set_slew_rate(pins[i], GPIO_SLEW_RATE_FAST);
+        if (pins[i] != clock_pin) gpio_pull_up(pins[i]);
+    }
+    gpio_set_drive_strength(clock_pin, GPIO_DRIVE_STRENGTH_8MA);
+
+    pio_sm_config c = pio_get_default_sm_config();
+    sm_config_set_wrap(&c, offset, offset + 17u);
+    sm_config_set_sideset(&c, 1, false, false);
+    sm_config_set_sideset_pins(&c, clock_pin);
+    sm_config_set_out_pins(&c, command_pin, 1);
+    sm_config_set_set_pins(&c, command_pin, 1);
+    sm_config_set_in_pins(&c, command_pin);
+    sm_config_set_jmp_pin(&c, command_pin);
+    sm_config_set_out_shift(&c, false, true, 32);
+    sm_config_set_in_shift(&c, false, true, 32);
+    pio_sm_init(pio, sm, offset, &c);
+
+    pio_sm_config w = pio_get_default_sm_config();
+    sm_config_set_wrap(&w, offset + MM_PICO_SDIO_WRITE_BASE, offset + 31u);
+    sm_config_set_sideset(&w, 1, false, false);
+    sm_config_set_sideset_pins(&w, clock_pin);
+    sm_config_set_out_pins(&w, data0_pin, 4);
+    sm_config_set_set_pins(&w, data0_pin, 4);
+    sm_config_set_in_pins(&w, data0_pin);
+    sm_config_set_jmp_pin(&w, data0_pin);
+    sm_config_set_out_shift(&w, false, true, 32);
+    sm_config_set_in_shift(&w, false, false, 32);
+    pio_sm_init(pio, (uint)write_sm, offset + MM_PICO_SDIO_WRITE_BASE, &w);
+
+    pio_sm_config r = pio_get_default_sm_config();
+    sm_config_set_wrap(&r, read_offset, read_offset + 10u);
+    sm_config_set_in_pins(&r, data0_pin);
+    sm_config_set_jmp_pin(&r, data0_pin);
+    sm_config_set_in_shift(&r, false, true, 32);
+    sm_config_set_out_shift(&r, false, false, 32);
+    pio_sm_init(read_pio, read_sm, read_offset, &r);
+
+    pio_sm_set_pins_with_mask64(pio, sm, 0ull, 1ull << clock_pin);
+    pio_sm_set_pindirs_with_mask64(pio, sm, 1ull << clock_pin,
+                                   (1ull << clock_pin) | (1ull << command_pin) |
+                                       (0xfull << data0_pin));
+    unsigned long actual = 0;
+    mm_pico_sdio_set_divider(s, mm_pico_sdio_divider(MM_PICO_SDIO_IDENTIFY_HZ, &actual));
+    pio_sm_set_enabled(pio, sm, true);
+    pio_sm_set_enabled(pio, (uint)write_sm, true);
+
+    s->configured = 1;
+    mm_pico_sdio_claim_pins(s, MM_PICO_OWNER_SDIO);
+    return MM_PICO_MCU_OK;
+}
+
+int mm_pico_mcu_sdio_clock(unsigned int instance, unsigned long hz, unsigned long* actual_hz) {
+    const int ready = mm_pico_sdio_ready(instance);
+    if (ready != MM_PICO_MCU_OK) return ready;
+    if (hz == 0 || actual_hz == NULL) return MM_PICO_MCU_BAD_ARGUMENT;
+    mm_pico_sdio_t* s = &mm_pico_sdio;
+    if (!mm_pico_sdio_command_idle(s, MM_PICO_SDIO_RESPONSE_US)) return MM_PICO_MCU_TIMEOUT;
+    mm_pico_sdio_set_divider(s, mm_pico_sdio_divider(hz, actual_hz));
+    return MM_PICO_MCU_OK;
+}
+
+int mm_pico_mcu_sdio_idle_clocks(unsigned int instance, unsigned int count) {
+    const int ready = mm_pico_sdio_ready(instance);
+    if (ready != MM_PICO_MCU_OK) return ready;
+    mm_pico_sdio_t* s = &mm_pico_sdio;
+    while (count != 0) {
+        const unsigned int run = count > 65536u ? 65536u : count;
+        mm_pico_sdio_queue_clocks(s, run);
+        count -= run;
+    }
+    if (!mm_pico_sdio_command_idle(s, MM_PICO_SDIO_DATA_US)) {
+        mm_pico_sdio_reset(s, s->command_sm, 0);
+        return MM_PICO_MCU_TIMEOUT;
+    }
+    return MM_PICO_MCU_OK;
+}
+
+int mm_pico_mcu_sdio_command(unsigned int instance, unsigned int index, uint32_t argument,
+                             int response, uint32_t* words, size_t count) {
+    const int ready = mm_pico_sdio_ready(instance);
+    if (ready != MM_PICO_MCU_OK) return ready;
+    const int is_long = response == MM_PICO_MCU_SDIO_LONG;
+    const size_t needed = response == MM_PICO_MCU_SDIO_NONE ? 0u : is_long ? 4u : 1u;
+    if (index > 63u || count < needed || (needed != 0 && words == NULL))
+        return MM_PICO_MCU_BAD_ARGUMENT;
+    mm_pico_sdio_t* s = &mm_pico_sdio;
+    const unsigned int bits = needed == 0 ? 0u : is_long ? 136u : 48u;
+    mm_pico_sdio_queue_command(s, index, argument, bits, 8u);
+    if (bits == 0) {
+        if (!mm_pico_sdio_command_idle(s, MM_PICO_SDIO_RESPONSE_US)) {
+            mm_pico_sdio_reset(s, s->command_sm, 0);
+            return MM_PICO_MCU_TIMEOUT;
+        }
+        return MM_PICO_MCU_OK;
+    }
+    uint32_t raw[5];
+    unsigned int taken = 0;
+    const unsigned int expected = is_long ? 5u : 2u;
+    const uint64_t start = time_us_64();
+    while (!mm_pico_sdio_take(s, raw, expected, &taken)) {
+        if (mm_pico_sdio_expired(start, MM_PICO_SDIO_RESPONSE_US)) {
+            mm_pico_sdio_reset(s, s->command_sm, 0);
+            return MM_PICO_MCU_TIMEOUT;
+        }
+    }
+    if (!mm_pico_sdio_command_idle(s, MM_PICO_SDIO_RESPONSE_US)) {
+        mm_pico_sdio_reset(s, s->command_sm, 0);
+        return MM_PICO_MCU_TIMEOUT;
+    }
+    int status;
+    if (is_long) {
+        status = mm_pico_sdio_long(raw, words);
+    } else {
+        status = mm_pico_sdio_short(raw, index, response != MM_PICO_MCU_SDIO_SHORT_NO_CRC, words);
+    }
+    if (status != MM_PICO_MCU_OK) return status;
+    if (response == MM_PICO_MCU_SDIO_SHORT_BUSY) return mm_pico_sdio_wait_busy(s);
+    return MM_PICO_MCU_OK;
+}
+
+// The card status bits that say a command failed: OUT_OF_RANGE through
+// ERROR, CARD_IS_LOCKED excepted, and AKE_SEQ_ERROR.
+#define MM_PICO_SDIO_STATUS_ERRORS 0xfdf80008u
+
+int mm_pico_mcu_sdio_read(unsigned int instance, unsigned int index, uint32_t argument,
+                          uint32_t* response, void* data, size_t size, unsigned int block_size) {
+    const int ready = mm_pico_sdio_ready(instance);
+    if (ready != MM_PICO_MCU_OK) return ready;
+    if (block_size != MM_PICO_SDIO_BLOCK || size == 0 || size % MM_PICO_SDIO_BLOCK != 0 ||
+        size / MM_PICO_SDIO_BLOCK > MM_PICO_SDIO_MOST_READ_BLOCKS || data == NULL ||
+        ((uintptr_t)data & 3u) != 0 || response == NULL || index > 63u)
+        return MM_PICO_MCU_BAD_ARGUMENT;
+    mm_pico_sdio_t* s = &mm_pico_sdio;
+    const unsigned int blocks = (unsigned int)(size / MM_PICO_SDIO_BLOCK);
+    if (!mm_pico_sdio_command_idle(s, MM_PICO_SDIO_RESPONSE_US)) {
+        mm_pico_sdio_reset(s, s->command_sm, 0);
+        return MM_PICO_MCU_TIMEOUT;
+    }
+
+    // Ready for data before the command: a card may start a block while its
+    // response is still on the command line.
+    mm_pico_sdio_stop_read(s);
+    // Each block: 128 data words into the caller's buffer, byte-swapped so
+    // the first nibble's byte lands first, then 2 CRC words into the table;
+    // each channel triggers the other when it finishes, and the data
+    // channel's write address carries on from where the last block ended.
+    const volatile void* fifo = &s->read_pio->rxf[s->read_sm];
+    const uint dreq = pio_get_dreq(s->read_pio, s->read_sm, false);
+    dma_channel_config d = dma_channel_get_default_config((uint)s->dma);
+    channel_config_set_transfer_data_size(&d, DMA_SIZE_32);
+    channel_config_set_read_increment(&d, false);
+    channel_config_set_write_increment(&d, true);
+    channel_config_set_bswap(&d, true);
+    channel_config_set_dreq(&d, dreq);
+    channel_config_set_chain_to(&d, (uint)s->crc_dma);
+    dma_channel_config c = dma_channel_get_default_config((uint)s->crc_dma);
+    channel_config_set_transfer_data_size(&c, DMA_SIZE_32);
+    channel_config_set_read_increment(&c, false);
+    channel_config_set_write_increment(&c, true);
+    channel_config_set_dreq(&c, dreq);
+    channel_config_set_chain_to(&c, (uint)s->dma);
+    dma_channel_configure((uint)s->crc_dma, &c, mm_pico_sdio_read_crcs, fifo, 2u, false);
+    dma_channel_configure((uint)s->dma, &d, data, fifo, MM_PICO_SDIO_DATA_WORDS, true);
+    volatile uint32_t* const crc_written = &dma_channel_hw_addr((uint)s->crc_dma)->write_addr;
+    const uint32_t crc_end = (uint32_t)(uintptr_t)&mm_pico_sdio_read_crcs[blocks * 2u];
+    pio_sm_put_blocking(s->read_pio, s->read_sm, MM_PICO_SDIO_READ_WORDS * 8u - 1u);
+    pio_sm_set_enabled(s->read_pio, s->read_sm, true);
+
+    // The command, then clocks in runs until the data is in.
+    mm_pico_sdio_queue_command(s, index, argument, 48u, 65536u);
+    uint32_t raw[2];
+    unsigned int taken = 0;
+    int answered = 0;
+    const uint64_t start = time_us_64();
+    int status = MM_PICO_MCU_OK;
+    while (*crc_written != crc_end) {
+        if (!answered && mm_pico_sdio_take(s, raw, 2u, &taken)) {
+            answered = 1;
+            status = mm_pico_sdio_short(raw, index, 1, response);
+            if (status == MM_PICO_MCU_OK && (*response & MM_PICO_SDIO_STATUS_ERRORS) != 0)
+                status = MM_PICO_MCU_TRANSPORT_ERROR;
+            if (status != MM_PICO_MCU_OK) break;
+        }
+        if (!answered && mm_pico_sdio_expired(start, MM_PICO_SDIO_RESPONSE_US)) {
+            status = MM_PICO_MCU_TIMEOUT;
+            break;
+        }
+        if (mm_pico_sdio_expired(start, MM_PICO_SDIO_DATA_US)) {
+            status = MM_PICO_MCU_TIMEOUT;
+            break;
+        }
+        if (pio_sm_get_tx_fifo_level(s->pio, s->command_sm) <= 1u)
+            mm_pico_sdio_queue_clocks(s, 65536u);
+    }
+    if (status == MM_PICO_MCU_OK && !answered) {
+        // The data outran the response's words in the FIFO; they are there.
+        while (!mm_pico_sdio_take(s, raw, 2u, &taken)) {
+            if (mm_pico_sdio_expired(start, MM_PICO_SDIO_RESPONSE_US)) break;
+        }
+        status = taken == 2u ? mm_pico_sdio_short(raw, index, 1, response) : MM_PICO_MCU_TIMEOUT;
+    }
+    mm_pico_sdio_reset(s, s->command_sm, 0);
+    mm_pico_sdio_stop_read(s);
+    if (status != MM_PICO_MCU_OK) return status;
+
+    const unsigned char* bytes = (const unsigned char*)data;
+    for (unsigned int b = 0; b < blocks; ++b) {
+        const uint64_t sent = ((uint64_t)mm_pico_sdio_read_crcs[2u * b] << 32) |
+                              mm_pico_sdio_read_crcs[2u * b + 1u];
+        if (mm_pico_sdio_crc(bytes + (size_t)b * MM_PICO_SDIO_BLOCK, MM_PICO_SDIO_BLOCK) != sent)
+            return MM_PICO_MCU_TRANSPORT_ERROR;
+    }
+    return MM_PICO_MCU_OK;
+}
+
+int mm_pico_mcu_sdio_write(unsigned int instance, unsigned int index, uint32_t argument,
+                           uint32_t* response, const void* data, size_t size,
+                           unsigned int block_size) {
+    const int ready = mm_pico_sdio_ready(instance);
+    if (ready != MM_PICO_MCU_OK) return ready;
+    if (block_size != MM_PICO_SDIO_BLOCK || size == 0 || size % MM_PICO_SDIO_BLOCK != 0 ||
+        data == NULL || response == NULL || index > 63u)
+        return MM_PICO_MCU_BAD_ARGUMENT;
+    mm_pico_sdio_t* s = &mm_pico_sdio;
+    uint32_t words[1];
+    int status = mm_pico_mcu_sdio_command(instance, index, argument, MM_PICO_MCU_SDIO_SHORT,
+                                          words, 1);
+    if (status != MM_PICO_MCU_OK) return status;
+    *response = words[0];
+    if ((*response & MM_PICO_SDIO_STATUS_ERRORS) != 0) return MM_PICO_MCU_TRANSPORT_ERROR;
+
+    const uint32_t stall = 1u << (PIO_FDEBUG_TXSTALL_LSB + s->write_sm);
+    const unsigned char* in = (const unsigned char*)data;
+    for (size_t at = 0; at < size; at += MM_PICO_SDIO_BLOCK) {
+        const unsigned char* bytes = in + at;
+        const uint64_t crc = mm_pico_sdio_crc(bytes, MM_PICO_SDIO_BLOCK);
+        // A start nibble, the data a nibble late, the CRC nibbles, an end
+        // nibble: 1042 nibbles, most significant first in each word, each
+        // word made as it is fed.
+        s->pio->fdebug = stall;
+        pio_sm_put_blocking(s->pio, s->write_sm, MM_PICO_SDIO_WRITE_NIBBLES - 1u);
+        uint32_t previous = 0;
+        for (unsigned int w = 0; w < MM_PICO_SDIO_DATA_WORDS; ++w) {
+            const uint32_t word = ((uint32_t)bytes[4u * w] << 24) |
+                                  ((uint32_t)bytes[4u * w + 1u] << 16) |
+                                  ((uint32_t)bytes[4u * w + 2u] << 8) | bytes[4u * w + 3u];
+            pio_sm_put_blocking(s->pio, s->write_sm, (previous << 28) | (word >> 4));
+            previous = word;
+        }
+        pio_sm_put_blocking(s->pio, s->write_sm, (previous << 28) | (uint32_t)(crc >> 36));
+        pio_sm_put_blocking(s->pio, s->write_sm, (uint32_t)(crc >> 4));
+        pio_sm_put_blocking(s->pio, s->write_sm, ((uint32_t)(crc & 0xfu) << 28) | 0x0f000000u);
+
+        const uint64_t start = time_us_64();
+        while (pio_sm_is_rx_fifo_empty(s->pio, s->write_sm)) {
+            if (mm_pico_sdio_expired(start, MM_PICO_SDIO_RESPONSE_US)) {
+                mm_pico_sdio_reset(s, s->write_sm, MM_PICO_SDIO_WRITE_BASE);
+                return MM_PICO_MCU_TIMEOUT;
+            }
+        }
+        const uint32_t token = pio_sm_get(s->pio, s->write_sm) & 0xfu;
+        s->pio->fdebug = stall;
+        while ((s->pio->fdebug & stall) == 0) {    // busy, then back at its PULL
+            if (mm_pico_sdio_expired(start, MM_PICO_SDIO_BUSY_US)) {
+                mm_pico_sdio_reset(s, s->write_sm, MM_PICO_SDIO_WRITE_BASE);
+                return MM_PICO_MCU_TIMEOUT;
+            }
+        }
+        if (token != 0x5u) return MM_PICO_MCU_TRANSPORT_ERROR;    // 010: accepted
+        // The state machine looks at D0 one clock after the token's end bit,
+        // which can be before the card asserts busy; eight more clocks and a
+        // look from here make sure it is over before the next block.
+        mm_pico_sdio_queue_clocks(s, 8);
+        if (!mm_pico_sdio_command_idle(s, MM_PICO_SDIO_RESPONSE_US)) {
+            mm_pico_sdio_reset(s, s->command_sm, 0);
+            return MM_PICO_MCU_TIMEOUT;
+        }
+        status = mm_pico_sdio_wait_busy(s);
+        if (status != MM_PICO_MCU_OK) return status;
+    }
+    return MM_PICO_MCU_OK;
+}
+
+int mm_pico_mcu_sdio_release(unsigned int instance) {
+    if (instance != 0) return MM_PICO_MCU_UNSUPPORTED;
+    mm_pico_sdio_t* s = &mm_pico_sdio;
+    if (!s->configured) return MM_PICO_MCU_OK;
+    mm_pico_sdio_stop_read(s);
+    pio_sm_set_enabled(s->pio, s->command_sm, false);
+    pio_sm_set_enabled(s->pio, s->write_sm, false);
+    dma_channel_unclaim((uint)s->dma);
+    dma_channel_unclaim((uint)s->crc_dma);
+    pio_remove_program_and_unclaim_sm(&s->read_program, s->read_pio, s->read_sm, s->read_offset);
+    pio_sm_unclaim(s->pio, s->write_sm);
+    pio_remove_program_and_unclaim_sm(&s->program, s->pio, s->command_sm, s->offset);
+    gpio_deinit(s->clock_pin);
+    gpio_deinit(s->command_pin);
+    for (unsigned int i = 0; i < 4u; ++i) gpio_deinit(s->data0_pin + i);
+    mm_pico_sdio_claim_pins(s, MM_PICO_OWNER_NONE);
+    s->configured = 0;
+    return MM_PICO_MCU_OK;
+}
+
+// The flash region: the top MM_BOARD_FLASH_REGION_BYTES of the flash the
+// build assumes, PICO_FLASH_SIZE_BYTES. Reads come straight from the
+// execute-in-place window; programs and erases go through flash_safe_execute,
+// which keeps the other core and this core's interrupts off the flash while
+// it cannot be read. Programs are bounced through a page in RAM, because the
+// data being programmed must not itself live in the flash being programmed.
+
+#define MM_PICO_FLASH_REGION_START \
+    ((unsigned long long)PICO_FLASH_SIZE_BYTES - (unsigned long long)MM_BOARD_FLASH_REGION_BYTES)
+#define MM_PICO_FLASH_SAFE_TIMEOUT_MS 1000u
+
+extern char __flash_binary_end;
+
+static uint8_t mm_pico_flash_page[FLASH_PAGE_SIZE];
+
+typedef struct {
+    uint32_t flash_offset;
+    size_t size;
+} mm_pico_flash_operation_t;
+
+// Usable only when the board gives it bytes and the image ends below it. The
+// bridge refuses an overlapping image at build time; this is the same check
+// at run time, for an image linked some other way.
+static int mm_pico_flash_region_usable(void) {
+    if (MM_BOARD_FLASH_REGION_BYTES == 0) return 0;
+    if ((unsigned long long)MM_BOARD_FLASH_REGION_BYTES >= (unsigned long long)PICO_FLASH_SIZE_BYTES)
+        return 0;
+    return (uintptr_t)&__flash_binary_end <= (uintptr_t)XIP_BASE + MM_PICO_FLASH_REGION_START;
+}
+
+static int mm_pico_flash_in_region(unsigned long long offset, unsigned long long size) {
+    return size <= (unsigned long long)MM_BOARD_FLASH_REGION_BYTES &&
+           offset <= (unsigned long long)MM_BOARD_FLASH_REGION_BYTES - size;
+}
+
+static int mm_pico_flash_from_safe(int result) {
+    if (result == PICO_OK) return MM_PICO_MCU_OK;
+    if (result == PICO_ERROR_TIMEOUT) return MM_PICO_MCU_TIMEOUT;
+    return MM_PICO_MCU_BUSY;
+}
+
+static void mm_pico_flash_program_page(void* parameter) {
+    const mm_pico_flash_operation_t* operation = (const mm_pico_flash_operation_t*)parameter;
+    flash_range_program(operation->flash_offset, mm_pico_flash_page, operation->size);
+}
+
+static void mm_pico_flash_erase_sector(void* parameter) {
+    const mm_pico_flash_operation_t* operation = (const mm_pico_flash_operation_t*)parameter;
+    flash_range_erase(operation->flash_offset, operation->size);
+}
+
+int mm_pico_mcu_flash_region_geometry(unsigned long long* size, unsigned int* read_size,
+                                      unsigned int* program_size, unsigned int* erase_size) {
+    if (size == NULL || read_size == NULL || program_size == NULL || erase_size == NULL)
+        return MM_PICO_MCU_BAD_ARGUMENT;
+    if (!mm_pico_flash_region_usable()) return MM_PICO_MCU_UNSUPPORTED;
+    *size = (unsigned long long)MM_BOARD_FLASH_REGION_BYTES;
+    *read_size = 1u;
+    *program_size = FLASH_PAGE_SIZE;
+    *erase_size = FLASH_SECTOR_SIZE;
+    return MM_PICO_MCU_OK;
+}
+
+int mm_pico_mcu_flash_region_read(unsigned long long offset, void* data, size_t size) {
+    if (!mm_pico_flash_region_usable()) return MM_PICO_MCU_UNSUPPORTED;
+    if (data == NULL || size == 0 || !mm_pico_flash_in_region(offset, size))
+        return MM_PICO_MCU_BAD_ARGUMENT;
+    memcpy(data, (const void*)(XIP_BASE + (uintptr_t)(MM_PICO_FLASH_REGION_START + offset)),
+           size);
+    return MM_PICO_MCU_OK;
+}
+
+// One page per safe section, so interrupts are held off for one page's
+// program time at a time rather than for the whole transfer.
+int mm_pico_mcu_flash_region_program(unsigned long long offset, const void* data, size_t size) {
+    if (!mm_pico_flash_region_usable()) return MM_PICO_MCU_UNSUPPORTED;
+    if (data == NULL || size == 0 || offset % FLASH_PAGE_SIZE != 0 ||
+        size % FLASH_PAGE_SIZE != 0 || !mm_pico_flash_in_region(offset, size))
+        return MM_PICO_MCU_BAD_ARGUMENT;
+    const uint8_t* bytes = (const uint8_t*)data;
+    for (size_t done = 0; done < size; done += FLASH_PAGE_SIZE) {
+        memcpy(mm_pico_flash_page, bytes + done, FLASH_PAGE_SIZE);
+        mm_pico_flash_operation_t operation = {
+            (uint32_t)(MM_PICO_FLASH_REGION_START + offset + done), FLASH_PAGE_SIZE};
+        const int status = mm_pico_flash_from_safe(flash_safe_execute(
+            mm_pico_flash_program_page, &operation, MM_PICO_FLASH_SAFE_TIMEOUT_MS));
+        if (status != MM_PICO_MCU_OK) return status;
+    }
+    return MM_PICO_MCU_OK;
+}
+
+int mm_pico_mcu_flash_region_erase(unsigned long long offset, unsigned long long size) {
+    if (!mm_pico_flash_region_usable()) return MM_PICO_MCU_UNSUPPORTED;
+    if (size == 0 || offset % FLASH_SECTOR_SIZE != 0 || size % FLASH_SECTOR_SIZE != 0 ||
+        !mm_pico_flash_in_region(offset, size))
+        return MM_PICO_MCU_BAD_ARGUMENT;
+    for (unsigned long long done = 0; done < size; done += FLASH_SECTOR_SIZE) {
+        mm_pico_flash_operation_t operation = {
+            (uint32_t)(MM_PICO_FLASH_REGION_START + offset + done), FLASH_SECTOR_SIZE};
+        const int status = mm_pico_flash_from_safe(flash_safe_execute(
+            mm_pico_flash_erase_sector, &operation, MM_PICO_FLASH_SAFE_TIMEOUT_MS));
+        if (status != MM_PICO_MCU_OK) return status;
+    }
+    return MM_PICO_MCU_OK;
+}
+
 int mm_pico_mcu_interrupts_disable(unsigned int* saved) {
     if (saved == NULL) return MM_PICO_MCU_BAD_ARGUMENT;
     *saved = (unsigned int)save_and_disable_interrupts();
@@ -1553,3 +2774,24 @@ int mm_pico_mcu_storage_write(unsigned long long block, const void* data, unsign
 
 #include "adapter_usb_device.c"
 #include "adapter_usb_host.c"
+
+// TinyUSB 0.18.0, in the pinned Pico SDK 2.3.1, panics with "Can't continue
+// xfer on inactive ep" when the controller reports a finished buffer for an
+// endpoint whose transfer has already ended. A host that abandons a
+// double-buffered control IN transfer (a configuration descriptor) while it
+// re-enumerates the board leaves exactly that notification behind; it was
+// caught on endpoint 0x80. Upstream TinyUSB now ignores such a notification,
+// returning false for an idle endpoint. The bridge links with
+// --wrap=hw_endpoint_xfer_continue so that this wrapper does the same until
+// the pinned SDK carries that fix; the SDK checkout itself stays untouched.
+#include "tusb.h"
+#include "portable/raspberrypi/rp2040/rp2040_usb.h"
+
+bool __real_hw_endpoint_xfer_continue(struct hw_endpoint* ep);
+bool __wrap_hw_endpoint_xfer_continue(struct hw_endpoint* ep);
+
+bool __not_in_flash_func(__wrap_hw_endpoint_xfer_continue)(
+    struct hw_endpoint* ep) {
+    if (!ep->active) return false;
+    return __real_hw_endpoint_xfer_continue(ep);
+}

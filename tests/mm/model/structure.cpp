@@ -62,8 +62,8 @@ void repository_exposes_platform_definitions() {
     const auto boards = loaded.repository().boards();
     mm::test::expect(ok && sdks.size() == 9,
                      "expected all nine SDK definitions from the manifest walk");
-    mm::test::expect(boards.size() == 29,
-                     "expected all twenty-nine board definitions from the manifest walk");
+    mm::test::expect(boards.size() == 37,
+                     "expected all thirty-seven board definitions from the manifest walk");
 
     // An SDL board binds one provider module to two interfaces. Two bindings
     // naming one module is the shape a board takes when a single provider
@@ -205,12 +205,18 @@ void repository_exposes_provider_declarations() {
     mm::test::expect(pico_arm != nullptr, "expected the Pico ARM SDK definition");
     if (pico_arm != nullptr) {
         const auto bindings = pico_arm->platform_providers();
-        mm::test::expect(bindings.size() == 2 &&
+        mm::test::expect(bindings.size() == 5 &&
                              bindings[0].interface_module == "mm.mcu" &&
                              bindings[0].provider_module == "platform.pico.mcu" &&
                              bindings[1].interface_module == "mm.stdio" &&
-                             bindings[1].provider_module == "platform.pico.stdio",
-                         "expected the SDK's authored MCU and console bindings");
+                             bindings[1].provider_module == "platform.pico.stdio" &&
+                             bindings[2].interface_module == "mm.fs.littlefs" &&
+                             bindings[2].provider_module == "platform.pico.fs.littlefs" &&
+                             bindings[3].interface_module == "mm.fs.local" &&
+                             bindings[3].provider_module == "platform.pico.fs.littlefs" &&
+                             bindings[4].interface_module == "mm.fs.fat" &&
+                             bindings[4].provider_module == "platform.pico.fs.fat",
+                         "expected the SDK's authored MCU, console, and file bindings");
     }
 
     const models::BoardNode* rp2040 = nullptr;
@@ -262,21 +268,23 @@ void repository_exposes_provider_declarations() {
     mm::test::expect(touch_lcd != nullptr, "expected the RP2350 touch LCD board");
     if (touch_lcd != nullptr) {
         const auto bindings = touch_lcd->platform_providers();
-        mm::test::expect(bindings.size() == 5,
-                         "expected a board to bind five interfaces at once");
+        mm::test::expect(bindings.size() == 6,
+                         "expected a board to bind six interfaces at once");
         bool display = false;
         bool touch = false;
         bool imu = false;
         bool rtc = false;
         bool audio = false;
+        bool socket = false;
         for (const auto& binding : bindings) {
             if (binding.interface_module == "mm.display") display = true;
             if (binding.interface_module == "mm.touch") touch = true;
             if (binding.interface_module == "mm.imu") imu = true;
             if (binding.interface_module == "mm.rtc") rtc = true;
             if (binding.interface_module == "mm.audio") audio = true;
+            if (binding.interface_module == "mm.sdcard.socket") socket = true;
         }
-        mm::test::expect(display && touch && imu && rtc && audio,
+        mm::test::expect(display && touch && imu && rtc && audio && socket,
                          "expected each interface bound exactly once");
     }
 

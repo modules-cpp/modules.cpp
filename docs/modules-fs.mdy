@@ -1,0 +1,439 @@
+---
+mm: 1.0
+kind: doc
+name: modules.cpp file system interface
+status: official
+release: v1.3.1
+---
+
+# modules.cpp file system interface
+
+# Status and authority
+
+status: official gives the implemented portions of this document the same
+authority as the other specifications. This document specifies mm.fs, the
+portable file interface; mm.fs.conformance, the checks every volume is held
+to; the mount interfaces mm.fs.local and mm.fs.native; and platform.linux.fs,
+their Linux provider; mm.fs.littlefs and platform.pico.fs.littlefs, littlefs
+on Pico; mm.fs.fat and platform.pico.fs.fat, FAT on Pico; and
+platform.linux.fs.littlefs and platform.linux.fs.fat, littlefs and FAT on
+Linux, an independent second path. All exist and are tested; mm.fs and
+mm.fs.conformance build for every target. What remains is planned in
+drafts/plan-mm-fs-7.mdy, which this document does not make official.
+
+# What mm.fs is
+
+One API for every volume. A program opens, reads, writes, and lists files
+through mm.fs; a driver implements Volume; a device implements BlockDevice
+or FlashDevice. mm.fs holds no driver, is not a platform-interface, and needs
+no provider. It allocates nothing and serves one caller at a time: its path
+buffers and mount table are static.
+
+# Paths
+
+A path is absolute, '/'-separated UTF-8. normalize makes it canonical before
+any driver sees it: repeated '/' collapse, "." drops, ".." removes the
+previous component and never climbs above "/", a trailing '/' is ignored.
+The result is "/" or "/" followed by components joined by single '/'.
+
+- An empty path, one not starting with '/', or one holding a NUL is
+  BadArgument.
+- A component over max_name (255) bytes, or a result over max_path (255)
+  bytes or the caller's buffer, is NameTooLong. The path is resolved left to
+  right, so it must fit at every step.
+- out and length change only on Ok.
+
+A driver therefore receives a volume-relative path with no leading '/', no
+"." or "..", and "" for its root, and cannot be handed a way out of its
+volume.
+
+Names are case-preserving; whether two spellings name one file is the
+volume's, and mm.fs does not hide the difference.
+
+# The mount table
+
+mount(prefix, volume) attaches a volume the caller owns at "/" or "/"
+followed by one component. Another shape is BadArgument; a mounted prefix is
+Exists; a volume already mounted elsewhere is Busy; more than max_mounts (8)
+is TooMany. unmount(prefix) asks the volume to flush, returns a failed flush
+and keeps the volume mounted, is Busy while any File or Directory on it is
+open, and is NotFound for a prefix not mounted.
+
+Every path call resolves its normalised path to the longest mounted prefix.
+Prefixes are one component deep, so at most one non-root mount matches, and
+it beats "/". "/usbstick" is not under "/usb". A path under no mount is
+NotFound.
+
+mm.fs keeps three rules itself, the same on every volume: rename between
+mounts is CrossVolume; a mount point exists (make_directory is Exists) and
+cannot be removed or renamed (BadArgument); a File's access is checked
+before the driver is asked.
+
+# Files and directories
+
+File and Directory are move-only values holding a mount slot, the driver's
+handle, and for a File its access. Their destructors close, ignoring the
+result; a program that cares about a failed flush calls close. close leaves
+the value closed whatever it returns, because the driver frees its handle
+either way.
+
+- open and open_directory into a value that is already open are
+  BadArgument: mm.fs does not close it silently.
+- Every call on a closed value is BadArgument.
+- read on a file opened Write or Append, and write or truncate on one opened
+  Read, are BadArgument. seek past the end of a file opened Read is
+  BadArgument; on a writable file it is allowed, and the next write extends
+  the file with zeros.
+- read's count short of the request, including zero, is end of file.
+  write's count short of the request comes with NoSpace, and the count is
+  set then too; otherwise counts and offsets change only on Ok.
+- A write is durable after sync or close; what durable means is the
+  volume's.
+- Directory::next returns entries without "." or "..", in the volume's
+  order, with done set once they are exhausted. A name buffer too small is
+  NameTooLong and the entry is not consumed; max_name bytes always suffice.
+
+stat, make_directory (the parent must exist), remove (a file, or an empty
+directory), rename (never replacing a target: Exists), and space take paths.
+mounted(prefix, volume) answers the volume mounted at a prefix, which is how
+a mount interface finds what it attached.
+
+# The clock
+
+set_clock installs a function pointer answering seconds since 1970-01-01,
+and now() is what a driver stamps: the clock's answer, or 0. mm.fs names no
+clock module, so a program without a clock pulls in none.
+
+# The driver seams
+
+Volume has one virtual per operation, keyed by the driver's handles, every
+one answering Unsupported by default except flush, which answers Ok. The
+rules a driver keeps beyond what mm.fs enforces are written on Volume:
+
+- a file open for writing cannot be opened again, removed, or renamed: Busy;
+- a file open for reading can be opened again for reading;
+- rename never replaces an existing target: Exists;
+- close frees the handle even when it fails.
+
+BlockDevice is fixed-size blocks rewritten in place, which FAT wants;
+FlashDevice is raw flash -- read anywhere, program only erased bytes, erase
+whole blocks -- which littlefs wants. They are different promises and mm.fs
+keeps both. McuStorage is mm.mcu's block storage as a BlockDevice, polling
+the device on every call and answering TransportError while none is ready;
+McuFlash is mm.mcu's flash region as a FlashDevice: its geometry in erase
+blocks, and reads, programs, and erases passed through. These two are the
+devices mm.fs supplies, and the reason it uses mm.mcu.
+
+# Mount interfaces
+
+A driver's volume reaches a program through a mount interface, a
+platform-interface module whose provider the selected SDK or board binds:
+a portable surface, a Provider seam, and an Unsupported fallback. A program
+that reaches an interface its lane binds no provider for is unavailable on
+that lane, as with every platform-interface. Each interface's mount asks the
+provider to attach a volume and publishes it with mm::fs::mount, detaching it
+again if publishing fails; its unmount refuses with BadArgument a volume it
+did not attach, so a volume mounted at the same prefix by other means is
+never handed to its provider.
+
+- mm.fs.local, mount(prefix, options): the board's own storage, whatever the
+  platform calls that. Options carry read_only and format_if_blank, the
+  latter for platforms whose storage can be blank.
+- mm.fs.littlefs, mount(prefix, device, options), unmount(prefix), and
+  format(device): littlefs on a FlashDevice. mount is Corrupt for a device
+  holding no littlefs volume and erases nothing; format writes an empty
+  volume over the whole device. Options carry read_only and block_cycles.
+- mm.fs.fat, mount(prefix, device, options), unmount(prefix), and
+  format(device, format): FAT12, FAT16, and FAT32 on a BlockDevice of
+  512-byte blocks. mount is Corrupt for a device holding no FAT volume and
+  writes nothing to it. format writes an empty volume over the whole device
+  in an MBR partition, as a PC expects; Format::Fat is FAT12 or FAT16 as
+  FAT's rules choose for the size, Format::Fat32 FAT32, Format::Automatic
+  either. Options carry read_only.
+- mm.fs.native, mount(prefix, root, options): an absolute directory of the
+  platform's own file system. A relative root is BadArgument, a missing one
+  NotFound, a file NotDirectory. With contain_symlinks, on by default, a
+  symbolic link whose target lies outside the root is treated as absent.
+
+Opening fence
+SDK            mm.fs.local                mm.fs.native       mm.fs.littlefs             mm.fs.fat
+linux-x86_64   platform.linux.fs          platform.linux.fs  platform.linux.fs.littlefs platform.linux.fs.fat
+linux-aarch64  platform.linux.fs          platform.linux.fs  platform.linux.fs.littlefs platform.linux.fs.fat
+pico-arm       platform.pico.fs.littlefs  (none)             platform.pico.fs.littlefs  platform.pico.fs.fat
+pico-riscv     platform.pico.fs.littlefs  (none)             platform.pico.fs.littlefs  platform.pico.fs.fat
+Closing fence
+
+# The Linux provider
+
+platform.linux.fs serves both interfaces through the C++ standard library
+alone: std::filesystem, with its std::error_code overloads, for the tree,
+and std::filebuf for the bytes. Four volumes may be attached at once, each
+with 32 open files and 8 open directories.
+
+- mm.fs.local mounts the device map's directory.0, read-only unless
+  directory.0.writable is yes, or, when the map names no directory, the
+  working directory, writable. A map that failed to resolve is BadArgument,
+  as for every Linux provider.
+- Opening decides from status() first, because std::filebuf before C++23
+  has no no-replace mode: CreateNew checks for the file, and a file that
+  must be made or emptied is made by a separate truncating open. Another
+  process could create the file between the two; mm.fs's one-caller promise
+  covers this program, not the host.
+- A file open for both reading and writing is repositioned between a write
+  and a read, as a C stream must be.
+- rename checks the target first, because std::filesystem::rename replaces
+  it; remove and rename of anything open beneath the path is Busy; a file
+  open for writing cannot be opened again.
+- Offsets are std::streamoff, sixty-four bits in libstdc++ on every Linux
+  lane, the 32-bit Arm one included.
+- modified is last_write_time converted with std::chrono::clock_cast; the
+  mm.fs clock is not used, because the kernel stamps files itself.
+  read_only is the volume's flag or a missing owner write permission.
+- sync is std::filebuf::pubsync: the bytes reach the kernel. The standard
+  library has no fsync, so this provider does not promise they survive a
+  power cut.
+- Errors map from std::errc in one table: no_such_file_or_directory
+  NotFound, file_exists Exists, not_a_directory NotDirectory, is_a_directory
+  IsDirectory, directory_not_empty NotEmpty, no_space_on_device NoSpace,
+  read_only_file_system, permission_denied, and operation_not_permitted
+  ReadOnly, filename_too_long NameTooLong, too_many_files_open and
+  too_many_files_open_in_system TooMany, device_or_resource_busy Busy,
+  cross_device_link CrossVolume, anything else TransportError. A failed
+  stream call reports through errno, as the other Linux providers read it.
+- Names are case-sensitive bytes, and other processes may change the
+  directory under the volume.
+
+# littlefs on Pico
+
+platform.pico.fs.littlefs serves mm.fs.littlefs and mm.fs.local on every Pico
+board. mm.fs.local mounts littlefs on McuFlash, mm.mcu's flash region at the
+top of program flash, which a program flashed over UF2 leaves intact; with
+format_if_blank, the default, a region whose first two erase blocks are all
+0xFF -- littlefs's superblock pair never written -- is formatted, and any
+other region that does not mount is Corrupt and left as it is.
+
+littlefs v2.11.3 is vendored by platforms/pico/sdk/pico-sdk/littlefs/vendor.sh
+at commit 6cb4e86540eca0d9ba62500a298385c9d863c8be into a git-ignored
+upstream/, with its BSD-3-Clause licence committed beside it, and compiled by
+the Pico bridge only for a program that links the provider;
+docs/modules-platform-pico.mdy says how.
+
+The provider follows platform.pico.mcu's pattern. littlefs/adapter.c, C,
+includes littlefs and owns its state in static pools -- by default one
+volume, four open files each with its own 256-byte cache, and two open
+directories, sized per board by the board table's MM_BOARD_LFS_* columns
+(docs/modules-platform-pico.mdy) -- behind a private ABI, littlefs/lfs-c.h,
+whose mm_pico_lfs_limits reports them; the C++ module includes only that header,
+through littlefs/lfs-cxx.h, maps results and paths, and adapts a FlashDevice
+to the adapter's device record through C-linkage callbacks.
+
+The adapter keeps the Volume rules in C:
+
+- Each disposition is decided from lfs_stat first. littlefs cannot create or
+  truncate through a read-only open, so a Read open that must do either
+  makes the file with a writable open and close first.
+- A file open for writing cannot be opened again, removed, or renamed; an
+  open directory cannot be removed or renamed; lfs_rename's replacing of a
+  target is refused as Exists; a directory cannot be moved into itself.
+- Directory listings leave out the "." and ".." littlefs returns, and an
+  entry whose name does not fit stays pending for the next call.
+- littlefs records no times. The adapter keeps each file's modification time
+  in custom attribute 0x74, eight bytes of seconds from the mm.fs clock,
+  which littlefs writes atomically with the file's data on sync and close.
+  littlefs reads attributes on open only with read access, so the adapter
+  loads the stored time before every open: a file opened for writing and
+  closed unchanged keeps its time.
+- littlefs's configuration: one erase block is a littlefs block, the caches
+  are one program unit (256 bytes on Pico, at most 256), the lookahead is 32
+  bytes, block_cycles comes from the options (500 for mm.fs.local), and
+  littlefs is built with LFS_NO_MALLOC, LFS_NO_DEBUG, LFS_NO_WARN, and
+  LFS_NO_ERROR.
+- Errors map from littlefs's: NOENT NotFound, EXIST Exists, NOTDIR
+  NotDirectory, ISDIR IsDirectory, NOTEMPTY NotEmpty, NOSPC and FBIG NoSpace,
+  NAMETOOLONG NameTooLong, NOMEM TooMany, CORRUPT Corrupt, BADF and INVAL
+  BadArgument. An I/O error the device explained is the device's own answer,
+  so a flash timeout is Timeout.
+
+scripts/test-littlefs.sh compiles adapter.c and the pinned littlefs for the
+build machine with its C compiler, against a RAM NOR flash that refuses to
+program a byte that is not erased, and runs littlefs/test/harness.c's 76
+checks through the ABI, twice -- at the default pools and at the largest row
+of the board table, the PiZero's -- under valgrind when it is installed: the
+dispositions, append, extension, truncate, timestamps kept and updated,
+listing and its retry, the Busy rules, rename, the file pool -- as many
+files as mm_pico_lfs_limits reports, and one more refused -- NoSpace,
+remounting, read-only mounts, a device timeout, and a damaged volume left
+unerased. The module build compiles no C, so test.sh does not run it.
+
+# FAT on Pico
+
+platform.pico.fs.fat serves mm.fs.fat on every Pico board, over FatFs R0.16:
+on a host-port board, FAT on the USB drive through McuStorage. It follows
+platform.pico.fs.littlefs's shape: fatfs/adapter.c, C, includes FatFs,
+supplies its disk I/O layer and get_fattime, and owns its state in static
+pools -- two FATFS work areas, eight open files, four open directories --
+behind a private ABI, fatfs/fat-c.h, which the C++ module reaches through
+fatfs/fat-cxx.h.
+
+FatFs is vendored by platforms/pico/sdk/pico-sdk/fatfs/vendor.sh: ChaN's
+ff16.zip, refused unless its SHA-256 is
+99f7dc1f7e095356e4a9e3dbe29959090d8b948afe2bbc5441e52fdf4b85449e, unpacked
+into a git-ignored upstream/, or taken from MM_FATFS_ARCHIVE; its licence is
+committed beside it. The configuration is fatfs/ffconf.h, upstream's with
+these values changed and passed to every FatFs translation unit with
+-include, so upstream's copy is never read: FF_USE_MKFS 1, FF_CODE_PAGE 437
+(upstream's 932 carries far larger tables), FF_USE_LFN 1 with UTF-8 names
+(FF_LFN_UNICODE 2), FF_VOLUMES 2, FF_FS_TINY 1, FF_FS_LOCK 12, and
+FF_NORTC_YEAR 2026. exFAT stays off: a commercial product needs a licence
+from Microsoft for it.
+
+The adapter keeps the Volume rules FatFs does not keep by itself:
+
+- Each disposition is decided from f_stat first; a Read open that must make
+  or empty its file does so with a writable open first.
+- A file open for writing cannot be opened again, removed, or renamed, and an
+  open directory cannot be removed or renamed. FatFs's lock table,
+  FF_FS_LOCK, refuses the same under another spelling of the name, since FAT
+  matches names without regard to case.
+- rename refuses an existing target and a directory moving into itself.
+- Every Append write seeks to the end first; FatFs's FA_OPEN_APPEND moves to
+  the end only at open.
+- A seek past the end is remembered rather than applied, because f_lseek
+  would extend the file with whatever the clusters held; the next write fills
+  the gap with zeros, reads in between return nothing, and tell reports the
+  remembered offset.
+- The root has a stat, which f_stat refuses to give, and directory listings
+  leave out "." and ".." should FatFs ever return them.
+- Timestamps are FAT's local date and time read as UTC, two-second
+  resolution, from the mm.fs clock through get_fattime, or 1 January 2026
+  with no clock.
+- A device must have 512-byte blocks, FF_MAX_SS; formatting borrows a free
+  FatFs drive for the length of f_mkfs.
+- FR_DENIED is read by what was being done: NoSpace when making something,
+  NotEmpty when removing a directory, ReadOnly otherwise. FR_DISK_ERR is the
+  device's own answer when it gave one. The rest map one for one: FR_NO_FILE
+  and FR_NO_PATH NotFound, FR_EXIST Exists, FR_NO_FILESYSTEM and FR_INT_ERR
+  Corrupt, FR_LOCKED Busy, FR_TOO_MANY_OPEN_FILES TooMany, FR_TIMEOUT
+  Timeout, the invalid-argument results BadArgument.
+
+scripts/test-fatfs.sh compiles adapter.c and the pinned FatFs, with
+ffconf.h, for the build machine against a RAM block device filled with 0xA5,
+so a byte nothing wrote cannot pass for zero, and runs fatfs/test/harness.c's
+84 checks under valgrind when it is installed: the dispositions, appends after
+seeks, a zero-filled gap, truncate, timestamps, long names, listing and its
+retry, the Busy rules including a name under another case, rename, the file
+pool, NoSpace with a short count, remounting, read-only mounts, a device
+timeout, an unformatted device left unwritten, and FAT and FAT32 formats.
+Dropping the gap fill, or FatFs's lock table, makes it fail.
+
+apps/fat-smoke waits up to ten seconds for the board's block storage, mounts
+its FAT volume at "/usb", runs the conformance checks, and unmounts; it never
+formats, and skips without storage or a drive. scripts/build-fat.sh builds
+it, by default for pico2_usb_host.
+
+# littlefs and FAT on Linux
+
+The Linux SDKs bind mm.fs.littlefs to platform.linux.fs.littlefs and
+mm.fs.fat to platform.linux.fs.fat, Linux's own littlefs and FatFs. They are
+a second path beside Pico's, independent of it: their own checkouts,
+adapters, configuration, and providers, under platforms/linux/littlefs and
+platforms/linux/fatfs, and nothing shared with platforms/pico but the mount
+interfaces above them and the conformance checks below. Each tree is a
+library with C sources (docs/modules-libraries.mdy) that mm.build compiles
+for a program reaching its provider; on Pico the SDK bridge compiles Pico's
+trees, and neither path reads the other's files.
+
+Opening fence
+                Pico                                     Linux
+littlefs        platforms/pico/sdk/pico-sdk/littlefs     platforms/linux/littlefs
+  pin           v2.11.3, commit 6cb4e865...                v2.11.3, commit 6cb4e865...
+  provider      platform.pico.fs.littlefs                platform.linux.fs.littlefs
+  ABI prefix    mm_pico_lfs_                             mm_linux_lfs_
+FatFs           platforms/pico/sdk/pico-sdk/fatfs        platforms/linux/fatfs
+  pin           R0.16, ff16.zip SHA-256 99f7dc1f...449e  R0.16, ff16.zip SHA-256 99f7dc1f...449e
+  provider      platform.pico.fs.fat                     platform.linux.fs.fat
+  ABI prefix    mm_pico_fat_                             mm_linux_fat_
+compiled by     the Pico SDK bridge                      mm.build, from library C sources
+Closing fence
+
+The pins start equal and each vendor.sh moves its own; this table records
+both, and the CHANGELOG says when they part. The Linux adapters, ffconf.h,
+and providers began as copies of Pico's with the ABI prefix renamed and are
+Linux's to change. The Linux providers mount on any device: on the
+storage-linux board, FAT on the emulated SD card through mm.sdcard.socket,
+which apps/sd-smoke does unchanged, and littlefs on the emulated flash
+through mm.spiflash; the flash-region image through McuFlash; the map's
+storage entries through McuStorage. mm.fs.local on Linux stays the
+directory. scripts/test-littlefs.sh and scripts/test-fatfs.sh run each
+tree's native harness, --tree pico, linux, or both. The Linux littlefs pools
+are their own, two volumes, eight files, and four directories, and are not
+in a board table: the Pico columns are for RAM a host has plenty of.
+
+# The full shell: mm.fs.shell
+
+mm::fs::shell::FileServices fills mm.shell.full's IoService and FileService
+from mm.fs, so the full-profile interpreter's redirections (>, >>, <),
+pathname expansion, and file tests ([ -e ], -f, -d, -s, -w) reach any mounted
+volume. It owns eight files at a time and hands out handles carrying the bit
+FileServices::own; every other handle -- the standard streams -- and pipes go
+to a base IoService passed at construction, and without one are Invalid.
+mm.fs has no working directory, so a relative path resolves against
+set_directory's, "/" by default. canonical answers the normalised path of an
+existing entry; a missing name is an answer to status and test, not a
+failure; mm.fs has no execute bit, so -x is true for a directory. ProcessService
+and SignalService are the caller's. tests/mm/fs runs the interpreter over the
+in-memory volume: > and >> write files there and < reads one back, a glob
+lists the volume, the file tests answer from stat, a relative path resolves
+in the directory set, and every file a redirection opened is closed.
+
+The embedded board shell's file commands are mm.shell.fs, which
+docs/modules-shell.mdy specifies.
+
+# Conformance
+
+mm.fs.conformance::run(prefix, report) runs the contract as 25 checks inside
+a scratch directory, mm-fs-conformance, beneath the prefix, removing it
+before and after. It covers the four dispositions, append after a seek, short
+reads, extension past the end, truncate, sync, stat, access refusals, seek
+past the end of a read-only file, the IsDirectory and NotDirectory
+refusals, directory listing and its NameTooLong retry, make_directory,
+remove, rename, the Busy rules, sharing between readers, paths through "."
+and "..", space, and calls on a closed File. It leaves to the volume what the
+contract does: case sensitivity, timestamps, entry order. run answers Ok when
+the checks could run and reports passes, failures, and the first failure's
+description; when the scratch directory cannot be made it returns that
+status and leaves the report untouched.
+
+Every driver is meant to pass it, on the host or in a target smoke
+application, which is what the same API everywhere means in practice.
+
+apps/fs-smoke mounts mm.fs.local at "/data", runs the checks there, prints
+the counts and the first failure, and unmounts; scripts/build-fs.sh builds it,
+and on Linux runs it with --run. It skips, exiting 0, where mm.fs.local
+answers Unsupported or NotFound.
+
+# Tests
+
+tests/mm/fs exercises normalize and its limits, mount shapes and slots,
+resolution, mm.fs's own rules, a failed flush, moves and destructors, the
+clock, NoSpace, and McuStorage on an unserved platform, and runs the
+conformance checks over an in-memory reference volume at "/" and under a
+prefix, and the mount interfaces against their fallbacks and recording
+providers. Breaking one rule of the reference volume -- letting rename
+replace its target -- makes the conformance test fail.
+
+tests/mm/linux runs the same checks over platform.linux.fs on a temporary
+directory, and checks that files are the host's files both ways, that
+symlinks stay inside the root, that a read-only volume refuses every write,
+that roots are checked, that mm.fs.local mounts the working directory, the
+directory.N map keys, and the errc table. Dropping the provider's rename
+target check makes the Linux conformance run fail on exactly that check.
+
+tests/mm/linux also runs the conformance checks over Linux's littlefs on a
+RAM flash device and on the emulated W25Q through mm.spiflash -- requiring
+the chip's counts of unerased programs, programs without write enable, and
+commands while busy to stay zero -- and over Linux's FAT on a RAM disk and
+on the emulated SD card through mm.sdcard; checks that a blank or
+unformatted device is Corrupt and left alone, that a volume outlives its
+image file, and, where dosfstools is installed, that the emulated card mounts
+an image mkfs.fat made and leaves it clean for fsck.fat.

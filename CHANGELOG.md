@@ -2,6 +2,162 @@
 
 All notable changes to modules.cpp. Versions follow [semantic versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **`rp2040_geek` and `rp2350_geek` boards.** The Waveshare RP2040-GEEK and
+  RP2350-GEEK, under `boards/geek`, deriving from `pico` and `pico2-arm` and
+  sharing `platform.geek.display`, the 1.14 inch 240×135 ST7789 panel on SPI1.
+  The Pico bridge's board table reports no LED (GP25 is the backlight), a
+  3300 mV ADC reference, and UART1 on GP4/GP5 as the default UART. Wiring is
+  from Waveshare's schematics; not yet qualified on hardware.
+- **`rp2040_zero` and `rp2350_zero` boards.** The Waveshare RP2040-Zero and
+  RP2350-Zero mini boards, under `boards/zero`, deriving from `pico` and
+  `pico2-arm` and binding `platform.zero.led` as `mm.led`. The board table
+  reports no LED (the only LED is a WS2812B on GP16, which a GPIO write cannot
+  light), a 3300 mV ADC reference, and the second I2C and UART wirings on free
+  header pins. Wiring is from Waveshare's
+  schematics; not yet qualified on hardware.
+- **`rp2350_pizero` board.** The Waveshare RP2350-PiZero, under
+  `boards/pizero`, deriving from `pico2-arm`. It is an RP2350B, so the Pico
+  bridge's board table gains `MM_PICO_BOARD_HEADER`, which selects the SDK's
+  `waveshare_rp2350_pizero` header in place of `pico2` for it: 48 GPIOs, 16MB
+  of flash, UART1 on GP4/GP5, no LED. 3300 mV ADC reference. Wiring is from
+  Waveshare's schematic; not yet qualified on hardware.
+- **`rp2350_pizero_usb_host` board.** `rp2350_pizero` with its PIO-USB socket
+  as a USB host on GP28/GP29, binding `platform.pico.usb.host`, as
+  `pico2_usb_host` does on GP2/GP3.
+- **`mm.led` and `mm.led.ws2812b`.** A platform interface for chains of
+  addressable RGB LEDs, with mm.display's lifecycle (`initialize`, `write`,
+  `refresh`, `clear`, `sleep`), and a portable WS2812B controller that owns the
+  protocol's timing and GRB byte order.
+- **`mm.mcu` pulse facility.** `pulse_configure`, `pulse_write`, and
+  `pulse_release`: a one-wire pulse-width-coded output, the WS2812's
+  transport. The Pico bridge implements it with a four-instruction PIO program
+  whose ticks per bit and divider it plans from the requested timing;
+  every other platform answers Unsupported.
+- **`mm.fs` and `mm.fs.conformance`.** A portable file interface: path
+  normalisation, a mount table of up to eight volumes resolved by longest
+  prefix, move-only `File` and `Directory` values, operations by path, a
+  clock hook, and the `Volume`, `BlockDevice`, and `FlashDevice` seams drivers
+  implement, with `McuStorage` over `mm.mcu` block storage. No allocation.
+  `mm.fs.conformance` runs the contract as 25 checks against any mounted
+  volume. See `drafts/plan-mm-fs-5.mdy` for the drivers still to come.
+- **`mm.fs.local`, `mm.fs.native`, and `platform.linux.fs`.** Mount
+  interfaces for the board's own storage and for a directory of the
+  platform's file system, bound on the Linux SDKs to a provider over
+  `std::filesystem` and `std::filebuf`. The device map gains
+  `directory.N.path` and `directory.N.writable`; with none, `mm.fs.local`
+  mounts the working directory. `apps/fs-smoke` and `scripts/build-fs.sh`
+  run the conformance checks on the board's storage: 25 of 25 pass on Linux.
+- **`mm.mcu` flash region and `mm.fs::McuFlash`.** Raw flash for data: the top
+  of a Pico's program flash, sized by a new board-table column
+  (`MM_BOARD_FLASH_REGION_BYTES`: 256 KiB on pico builds, 512 KiB on pico2,
+  4 MiB on the PiZero), programmed and erased through `flash_safe_execute`;
+  and on Linux an image file named by `flash.*` device-map keys, which refuses
+  to program unerased bytes. The Pico bridge's UF2 validation now refuses an
+  image that reaches the region, skipping picotool's RP2350-E10 block.
+- **`mm.fs.littlefs` and littlefs on every Pico board.** littlefs v2.11.3,
+  vendored by `platforms/pico/sdk/pico-sdk/littlefs/vendor.sh` and compiled by
+  the Pico bridge for programs that use it, behind
+  `platform.pico.fs.littlefs`, which the Pico SDKs bind for `mm.fs.littlefs`
+  and `mm.fs.local`: `mm.fs.local` mounts littlefs on the flash region,
+  formatting a region never written and leaving a damaged one alone.
+  Timestamps live in a littlefs attribute. `scripts/test-littlefs.sh` runs the
+  adapter's 77-check native harness; `scripts/build-fs.sh` now defaults to
+  `pico`.
+- **`mm.fs.fat` and FAT on every Pico board.** FatFs R0.16, vendored by
+  `platforms/pico/sdk/pico-sdk/fatfs/vendor.sh` from ChaN's checksummed
+  archive and configured by a project `ffconf.h` passed with `-include`,
+  behind `platform.pico.fs.fat`, which the Pico SDKs bind for `mm.fs.fat`:
+  FAT12/16/32 with long names on 512-byte block devices, never written when it
+  holds no FAT volume, with zero-filled extension and true appends.
+  `scripts/test-fatfs.sh` runs the adapter's 84-check native harness;
+  `apps/fat-smoke` and `scripts/build-fat.sh` check FAT on a host-port board's
+  USB drive.
+- **`mm.sdcard` and `mm.sdcard.socket`: FAT on TF sockets.** An SD card in SPI
+  mode over `mm.mcu` SPI as an `mm.fs` block device -- SDSC, SDHC, and SDXC,
+  CRC7 and CRC16 throughout, re-identified after any failure -- and a
+  board-bound socket interface, provided by `platform.geek.sdcard`,
+  `platform.rp2350_touch_lcd_154.sdcard`, and `platform.pizero.sdcard` for the
+  GEEK, LCD 1.54, and PiZero boards. `apps/sd-smoke` and `scripts/build-sd.sh`
+  check FAT on the socket's card.
+- **`storage-linux`: SD card and SPI flash emulation.** A virtual SD card in SPI mode and a virtual W25Q-family NOR
+  flash on one emulated SPI bus, each kept in an image file -- `sdcard.img`
+  and `spiflash.img` in the working directory, or wherever the new
+  `sdcard.*` and `spiflash.*` device-map keys say -- behind `mm.mcu` on a
+  board that also publishes the card as `mm.sdcard.socket`. The card follows
+  the SD specification's SPI mode, SDHC or SDSC, with CRC checking and
+  injectable faults; the flash ANDs on program, wraps pages, needs write
+  enable, reports BUSY, and counts a driver's mistakes. Images are ordinary
+  files that `mkfs.fat`, `fsck.fat`, `mtools`, and `littlefs-python` make and
+  read. `apps/socket-smoke` and `scripts/build-socket.sh` round-trip the
+  socket's last block; `--board storage-linux` selects it on any Linux machine. See
+  `docs/modules-linux-storage.mdy`.
+- **Library C sources, manifest version 1.4.** A library may declare
+  `c-source`, `c-strict`, `c-include`, and `c-option`: C files `mm.build`
+  compiles with the lane's C compiler and links into every executable that
+  reaches a module naming the library, once per library, project-owned glue
+  with warnings as errors. A lane an external bridge links refuses them.
+  `libraries/c-demo` is the fixture and a new suite. See
+  `docs/modules-libraries.mdy`.
+- **littlefs and FAT on Linux, independent of Pico.** Linux's own littlefs
+  v2.11.3 and FatFs R0.16 under `platforms/linux/littlefs` and
+  `platforms/linux/fatfs` -- their own `vendor.sh`, adapters, `ffconf.h`,
+  and providers, `platform.linux.fs.littlefs` and `platform.linux.fs.fat`,
+  which the Linux SDKs bind for `mm.fs.littlefs` and `mm.fs.fat`. Pico's
+  trees, providers, and bridge blocks are unchanged. Both pass the 25
+  conformance checks on Linux, littlefs through `mm.spiflash` on the emulated
+  flash and FAT through `mm.sdcard` on the emulated card, and `apps/sd-smoke`
+  runs unchanged on `storage-linux` against a `mkfs.fat` image.
+  `scripts/test-littlefs.sh` and `scripts/test-fatfs.sh` take
+  `--tree pico|linux|both`.
+- **SD cards in 4-bit SD mode: the `mm.mcu` sdio facility and
+  `mm.sdcard::SdioCard`.** A portable SD bus facility -- configure, clock,
+  idle clocks, command, read, write, release, with the platform framing
+  commands, checking response and per-line data CRCs, and waiting out busy --
+  implemented on Pico over PIO and DMA at 25 MHz, and a second card class
+  speaking the SD-mode protocol over it. The RP2350-Touch-LCD-2.8's socket,
+  which hardware SPI cannot reach, gets `platform.rp2350_touch_lcd_28.sdcard`,
+  and both PiZero boards switch from SPI mode to SDIO. The GEEK and LCD 1.54
+  sockets stay in SPI mode. The Pico transport's design learned from carlk3's
+  Apache-2.0 no-OS-FatFS-SD-SDIO-SPI-RPi-Pico, acknowledged in the README and
+  `docs/modules-sdcard.mdy`; no code is copied. Not yet qualified on
+  hardware.
+- **Files in the shells: `mm.shell.fs`, `mm.fs.shell`, and `mm.shell.board`.**
+  The embedded shell gains ten file commands over `mm.fs` -- `ls`, `cat`,
+  `stat`, `write`, `append`, `rm`, `mkdir`, `mv`, `df`, `mounts` -- bounded
+  and allocation-free, with `cat` and `ls` paging long output. The full
+  shell's redirections, globbing, and file tests reach `mm.fs` volumes
+  through `mm.fs.shell`. `apps/mcu-shell` now runs on `mm.shell.board` and
+  always mounts the board's own storage at `/data` (littlefs on a Pico);
+  `apps/mcu-shell-sd`, selected by `scripts/build-shell.sh --sd`, adds the
+  socket's FAT card at `/sd`. With littlefs, the RP2040 shell exceeds the
+  shell specification's size ceilings; `docs/modules-shell.mdy` records the
+  measurements and leaves the ceilings as a decision.
+- **littlefs's pools are sized per board.** Three board-table columns,
+  `MM_BOARD_LFS_VOLUMES`, `MM_BOARD_LFS_FILES`, and
+  `MM_BOARD_LFS_DIRECTORIES`, size the Pico littlefs adapter's static pools,
+  overridable from CMake or the environment and range-checked. The default
+  is one volume, four files, and two directories, about 4.5 KB instead of
+  9 KB; the PiZero boards keep the old 2, 8, and 4. `mm_pico_lfs_limits`
+  reports them, and `scripts/test-littlefs.sh` runs the harness at both the
+  default and the PiZero's sizes.
+- **The SDIO facility no longer costs every Pico image 6.7 KB of RAM.** Reads
+  go by DMA straight into the caller's buffer, byte-swapped by the DMA engine,
+  with a chained channel collecting CRC words; the CRC table is sixteen
+  entries; write words are computed as they are fed. A read buffer must now
+  start on a four-byte boundary, and `SdioCard` bounces any other.
+- **`mm.spiflash`.** A W25Q-family SPI NOR flash chip over `mm.mcu` SPI as an
+  `mm.fs` flash device: identified by JEDEC ID, 64 KiB to 16 MiB, page
+  programs and 4 KiB or 64 KiB erases behind write enable and BUSY polling,
+  re-identified after any failure. Tested against the emulated chip; see
+  `docs/modules-spiflash.mdy`.
+- **`apps/rgb-led-smoke` and `scripts/build-rgb-led.sh`.** Red, green, blue,
+  white, and a colour wheel on any board that binds `mm.led`; the default board
+  is `rp2040_zero`.
+
 ## [v1.3.1] — 2026-10-02
 
 Something to connect and store with. v1.3.0 gave the project a language of its

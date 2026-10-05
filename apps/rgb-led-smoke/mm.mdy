@@ -1,0 +1,36 @@
+---
+mm: 1.2
+kind: app
+name: rgb-led-smoke
+option: buildable-host no
+use: mm.led
+use: mm.mcu
+file: main.cpp
+---
+
+# rgb-led-smoke
+
+A portable application whose output is light. It shows red, green, blue, and
+white on every LED of the chain, holding each long enough to be named, then
+turns a colour wheel through the chain for a few seconds and goes dark.
+
+It names mm.led for the LEDs and mm.mcu for the delay, and no board, SDK, or
+vendor: whichever provider the selected board binds is the one it drives. On
+the Zero boards that is one WS2812B.
+
+The four solid colours are the check worth making by eye. A controller that
+sends the bytes in the wrong order shows green where red belongs and red where
+green does, while blue and white stay right. Colours are a quarter of full
+scale, which is plainly visible and not uncomfortable at a desk.
+
+Exit codes:
+
+| Code | Meaning |
+| --- | --- |
+| 0 | Every step passed, and the chain is dark. |
+| 1 | initialize failed. |
+| 2 | The chain reports no LEDs. |
+| 3 | A solid colour could not be written or refreshed. |
+| 4 | The colour wheel could not be written or refreshed. |
+| 5 | A delay failed. |
+| 6 | sleep failed. |

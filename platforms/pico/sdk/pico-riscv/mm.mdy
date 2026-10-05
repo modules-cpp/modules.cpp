@@ -13,6 +13,9 @@ provides: runtime-init
 provides: syscalls
 platform-provider: mm.mcu platform.pico.mcu
 platform-provider: mm.stdio platform.pico.stdio
+platform-provider: mm.fs.littlefs platform.pico.fs.littlefs
+platform-provider: mm.fs.local platform.pico.fs.littlefs
+platform-provider: mm.fs.fat platform.pico.fs.fat
 ---
 
 # Pico SDK, RP2350 RISC-V

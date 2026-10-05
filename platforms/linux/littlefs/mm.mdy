@@ -1,0 +1,34 @@
+---
+mm: 1.4
+kind: library
+name: linux-littlefs
+source: upstream
+licence: LICENSE.md
+c-source: upstream/lfs.c
+c-source: upstream/lfs_util.c
+c-source: adapter.c
+c-strict: adapter.c
+c-include: .
+c-include: upstream
+c-option: -DLFS_NO_MALLOC
+c-option: -DLFS_NO_DEBUG
+c-option: -DLFS_NO_WARN
+c-option: -DLFS_NO_ERROR
+folder: provider
+---
+
+# littlefs on Linux
+
+Linux's own littlefs: the pinned checkout vendor.sh provisions in upstream/,
+the project-owned adapter.c over it, and platform.linux.fs.littlefs, the
+provider the Linux SDKs bind for mm.fs.littlefs. mm.build compiles lfs.c,
+lfs_util.c, and the adapter -- the adapter with warnings as errors -- for a
+program that reaches the provider, and links them into it.
+
+It is independent of the Pico path, platforms/pico/sdk/pico-sdk/littlefs,
+which the Pico SDK bridge compiles: its own pin, its own adapter, its own
+provider, so either can change without the other. Both start at littlefs
+v2.11.3, commit 6cb4e86540eca0d9ba62500a298385c9d863c8be, BSD-3-Clause;
+mm.fs.conformance checks both against one contract. The adapter's ABI is
+prefixed mm_linux_lfs_ where the Pico one's is mm_pico_lfs_, so a symbol
+never names the wrong platform.

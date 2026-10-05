@@ -76,6 +76,34 @@ Closing fence
 - external-build names the external build system used to build the foreign tree, introduced at mm: 1.2. The one supported value is cmake. A library declaring external-build carries its CMake project in a cmake directory beside its own manifest. The directory is validated when the library manifest is: it exists, it contains CMakeLists.txt, it is inside the project, and it resolves outside library source.
 - folder entries are walked in declaration order, as on a project or dir manifest.
 
+## C sources
+
+From mm: 1.4 a library may declare C files the build compiles itself:
+
+Opening fence
+mm: 1.4
+kind: library
+name: linux-fatfs
+source: upstream
+licence: LICENSE.txt
+c-source: upstream/source/ff.c
+c-source: upstream/source/ffunicode.c
+c-source: adapter.c
+c-strict: adapter.c
+c-include: .
+c-include: upstream/source
+c-option: -include ffconf.h
+folder: provider
+Closing fence
+
+- c-source is repeated and ordered: a .c file relative to the manifest, which may not leave the manifest's directory, be absolute, or repeat. One inside source is foreign code and may be absent with its checkout; one outside source is project-owned glue and must exist when the manifest loads.
+- c-strict names c-sources that are project-owned glue -- never one inside source -- and compiles them with -Wall -Wextra -Werror. Foreign files get the lane's ordinary flags and no warnings as errors.
+- c-include is repeated and ordered: a directory relative to the manifest, inside its directory, passed with -I to the library's C files only.
+- c-option is repeated and ordered: compiler arguments passed as written, word by word, to the library's C files only. Each C file is compiled from the manifest's directory, so a relative path in a c-option, such as -include ffconf.h, resolves there.
+- c-include and c-option require c-source, and c-source is not valid with external-build.
+
+On a lane the build links itself -- the host lane and the Linux lanes -- reaching a module that names the library compiles its C files with the lane's configured C compiler (the -c-compiler entry configure records), using the lane's C++ compile flags without their -std=, then -std=gnu11, the strict flags, the c-include directories, and the c-options. Objects land under the output tree's libraries/<name>/ and join the link after the project and board objects and before the link inputs, once per library however many modules reach it, and once per build however many applications do. A lane without a C compiler fails there, naming the library and --c-compiler. On a lane an external bridge links, reaching such a library is a manifest error naming the module and the library: the bridge owns third-party C there, as the Pico bridge owns littlefs and FatFs. The foreign files are compiled but never checked; tools/check's rules are about project C++. libraries/c-demo is the fixture: one foreign file, one strict glue file, a definition and a forced include.
+
 Neither link-archive nor link-input requires a library-directory. An archive is a path and locates itself; a name may deliberately rely on the toolchain's own search paths, which is what link-input: m does.
 
 Two rules together keep foreign code out of the build and out of check's collection. file is not valid on a library manifest, so a library cannot itself declare foreign source. And a folder entry may not name a path inside source: the walk rejects one that lands there lexically, and one that resolves there through a symlink, so the only way into the vendored tree remains the interface a wrapper consumes. A folder symlink that resolves outside source is followed normally; it is where the entry lands that matters, not how it is spelled. option, reset, and read-only are not valid on a library manifest either: a library declares no code, so a local option value would have nothing to describe. Option inheritance passes through a library node to its children unchanged.
@@ -219,9 +247,9 @@ checkout_present() is the one working-tree observation in the manifest interface
 
 The library kind, its source, licence, include-directory, library-directory,
 link-archive, link-input, and external-build keys, and library on an SDK or a
-module, all require mm: 1.2. The rules are enforced once in the shared loader
-and never separately in a front end. Release v1.2.0 defines this complete key
-set and does not accept source-manifest versions 1.3 or 1.4. Unknown keys in a
+module, all require mm: 1.2; c-source, c-strict, c-include, and c-option
+require mm: 1.4. The rules are enforced once in the shared loader and never
+separately in a front end. Unknown keys in a
 1.2 manifest are rejected as in a 1.1 one, and no tool reports library or
 external-build as an ignored unknown key in any strictness mode.
 
@@ -284,7 +312,8 @@ Not implemented, by design, in this release:
 - Link inputs in an external build. The project link appends them; external_link does not, because it hands objects to a bridge and CMake performs the link. Reaching it means mm-inputs.cmake gaining library directories, archives, and names with a defined ordering, every bridge consuming them, and the change accounted for in the external cache identity, which fingerprints that file.
 - Additional external build systems. external-build: cmake, its generated inputs and toolchain files, isolated cache, ABI projection check, external link, and artifact publication are implemented. No second external build system or manifest-selected recipe exists.
 - Build-prefix interface paths. The base exists in the definition and nothing constructs one, so an include directory that is not rooted at source is rejected as having no producer.
-- Compiling a vendored tree. There is no librarian, no manifest-declared source language for foreign code, and no rule for where a produced archive lands.
+- Compiling a vendored tree into an archive. C sources compile to objects that join the link directly; there is no librarian, and no language but C for foreign code.
+- C sources on an external-link lane. Such a lane refuses them; its bridge compiles third-party C itself.
 - Machine-checked header ownership. Associating an include directive with a manifest-declared interface needs include analysis the check addon does not do, so the wrapper and linkage-shim rules stay normative and unenforced.
 - Declared ordering between libraries whose wrappers have no dependency. If the order matters, the dependency exists.
 - Contribution accounting for archives. Two wrappers over one library each receive its include interface, which is correct because an include directory contributes the same thing however many times it appears, and its link inputs once, because a repeated name is not that harmless. An archive is a path and needs the same reduction when the archive stage arrives.

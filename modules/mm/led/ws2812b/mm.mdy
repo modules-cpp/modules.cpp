@@ -1,0 +1,35 @@
+---
+mm: 1.2
+kind: module
+name: ws2812b
+module: mm.led.ws2812b
+use: mm.mcu
+use: mm.led
+file: ws2812b.cppm
+file: src/ws2812b.cpp
+---
+
+# mm.led.ws2812b
+
+The Worldsemi WS2812B addressable RGB LED, over portable mm.mcu pulse. It
+contains no vendor header and no board pin number: a board's provider supplies
+the wiring, the length of the chain, and the storage for its frame, and this
+module drives the protocol.
+
+The protocol is the timing, so the timing lives here. Every bit is 1.25 us,
+high for 0.4 us when it is a zero and 0.8 us when it is a one, which are the
+datasheet's T0H, T1H, and their sum with either low time. Each LED takes 24
+bits, green then red then blue, most significant first, and passes the rest
+down the chain; the line held low ends the frame. The original WS2812B wants
+50 us of low for that, the current parts 280 us, and 280 us serves both.
+
+write keeps colours in the frame, already in wire order, and sends nothing;
+refresh sends the whole chain as one frame. The provider owns the frame because
+its length is a fact about the board, and owning it here would mean a
+templated controller or an allocation. A frame shorter than three bytes per LED
+is BadArgument at initialize. Order names the byte order for the clones that
+take RGB rather than GRB; Grb is the WS2812B's.
+
+clear and sleep send the chain dark. sleep then returns the transport, because
+a pad held by a pulse output is not a GPIO any other facility may use, and a
+board that wants the pad back gets it.

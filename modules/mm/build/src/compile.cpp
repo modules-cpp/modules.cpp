@@ -420,6 +420,90 @@ int compile(const Toolchain& toolchain, BuildableNode& target,
     return compile(toolchain, target, context, include_directories);
 }
 
+int compile_library(const Toolchain& toolchain, const LibraryDefinition& library,
+                    const ArtifactContext& context,
+                    const std::filesystem::path& project_root,
+                    std::vector<std::filesystem::path>& objects) {
+    if (toolchain.c_compiler.invocation.empty()) {
+        std::cerr << "build: library " << library.name
+                  << " has C sources and this lane has no C compiler; configure with "
+                     "--c-compiler\n";
+        return exit_manifest;
+    }
+    std::error_code ec;
+    const auto root = std::filesystem::absolute(project_root, ec).lexically_normal();
+    if (ec) {
+        std::cerr << "build: cannot resolve project root " << project_root.string() << ": "
+                  << ec.message() << "\n";
+        return exit_manifest;
+    }
+
+    // The C++ flags carry the build's optimisation, debugging, and processor
+    // arguments, which C needs too; only the language standard is C++'s own.
+    std::string flags;
+    std::size_t at = 0;
+    const auto& arguments = toolchain.compiler.arguments;
+    while (at < arguments.size()) {
+        const auto begin = arguments.find_first_not_of(' ', at);
+        if (begin == std::string::npos) break;
+        auto end = arguments.find(' ', begin);
+        if (end == std::string::npos) end = arguments.size();
+        const auto word = arguments.substr(begin, end - begin);
+        if (!word.starts_with("-std=")) flags += " " + word;
+        at = end;
+    }
+
+    const auto manifest_dir = root / library.manifest.parent_path();
+    for (const auto& source : library.c_sources) {
+        const auto path = root / source.path;
+        if (!safe_exists(path)) {
+            std::cerr << "build: library " << library.name
+                      << " c-source does not exist: " << source.path.generic_string() << "\n";
+            return exit_manifest;
+        }
+        auto object = context.output_root() / "libraries" / library.name /
+                      source.path.lexically_relative(library.manifest.parent_path());
+        object += ".o";
+        if (!context.check_artifact_path(object)) {
+            std::cerr << "build: refusing to write outside the project: " << object.string()
+                      << "\n";
+            return exit_manifest;
+        }
+        std::filesystem::create_directories(object.parent_path(), ec);
+        if (ec) {
+            std::cerr << "build: cannot create " << object.parent_path().string() << ": "
+                      << ec.message() << "\n";
+            return exit_compile;
+        }
+        std::cout << "    " << source.path.generic_string() << "\n";
+
+        std::string command = "cd " + shell_quote(manifest_dir) + " && " +
+                              toolchain.c_compiler.invocation + flags + " -std=gnu11";
+        if (source.strict) command += " -Wall -Wextra -Werror";
+        for (const auto& include : library.c_includes)
+            command += " -I " + shell_quote(root / include);
+        for (const auto& option : library.c_options) {
+            std::size_t from = 0;
+            while (from < option.size()) {
+                const auto begin = option.find_first_not_of(' ', from);
+                if (begin == std::string::npos) break;
+                auto end = option.find(' ', begin);
+                if (end == std::string::npos) end = option.size();
+                command += " " + shell_quote(option.substr(begin, end - begin));
+                from = end;
+            }
+        }
+        command += " -c " + shell_quote(path) + " -o " +
+                   shell_quote(std::filesystem::absolute(object, ec));
+        if (run(toolchain, command) != 0) {
+            std::cerr << "build: failed to compile " << source.path.generic_string() << "\n";
+            return exit_compile;
+        }
+        objects.push_back(object);
+    }
+    return exit_ok;
+}
+
 int link(const Toolchain& toolchain,
          const std::vector<std::filesystem::path>& objects,
          const std::filesystem::path& output,

@@ -1,0 +1,36 @@
+---
+mm: 1.2
+kind: module
+name: led
+module: mm.led
+platform-interface:
+file: status.cppm mm.led:status
+file: types.cppm mm.led:types
+file: platform.cppm mm.led:platform
+file: led.cppm mm.led
+file: src/led.cpp
+---
+
+# mm.led
+
+A portable interface to a chain of addressable RGB LEDs: one LED is a chain of
+one. Colour policy, animation, and brightness live above this module, and the
+wire protocol below it, in a controller such as mm.led.ws2812b.
+
+Its lifecycle is mm.display's. count says how many LEDs the chain has.
+initialize claims the transport and leaves every LED off. write changes the
+colours the controller holds for a run of LEDs, starting at first; refresh
+sends them, which is when the LEDs change. clear turns every LED off and
+refreshes, and sleep turns them off and returns the transport, after which
+initialize may claim it again. A write before initialize, or after sleep, is
+NotInitialized.
+
+A Color is eight bits each of red, green, and blue, in that order whatever
+order the LEDs take them on the wire: that is the controller's to know. The
+values are what is sent, not what the eye sees -- the scale is not
+perceptually even, and full white on a WS2812B is bright enough to be
+uncomfortable at a desk -- so brightness is the caller's to apply.
+
+The platform-interface marker makes a selected board LED provider part of an
+executable only when its ordinary closure reaches mm.led. Host tests may
+replace the linkable Unsupported fallback directly.

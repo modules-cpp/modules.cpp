@@ -1,0 +1,22 @@
+---
+mm: 1.2
+kind: module
+name: shell-board
+module: mm.shell.board
+use: mm.shell
+use: mm.shell.mcu
+use: mm.mcu
+use: mm.stdio
+file: board.cppm
+file: src/board.cpp
+---
+
+# mm.shell.board
+
+The interactive board shell apps/mcu-shell runs: the console attached to the
+selected mm.stdio driver, the level-2 command pack and the blink and sample
+scripts installed, every buffer owned as one static block, and the event loop
+that feeds console bytes to a Session and steps it. An application passes
+Extras to add command packs, capabilities, and mounts before the session
+begins, which is how apps/mcu-shell adds the file commands and its storage,
+and apps/mcu-shell-sd its SD card too.

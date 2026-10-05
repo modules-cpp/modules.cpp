@@ -7,6 +7,9 @@ build-target: dry run
   elf       AArch64 hosted
   provider platform.linux.defaults 0
   provider platform.linux.display 0
+  provider platform.linux.fs 0
+  provider platform.linux.fs.fat 0
+  provider platform.linux.fs.littlefs 0
   provider platform.linux.imu 0
   provider platform.linux.mcu 0
   provider platform.linux.rtc 0

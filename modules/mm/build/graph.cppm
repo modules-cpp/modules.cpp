@@ -4,6 +4,7 @@ module;
 
 #include <cstddef>
 #include <filesystem>
+#include <map>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -11,6 +12,7 @@ module;
 export module mm.build:graph;
 
 import :compile;
+import :config;
 import :manifest;
 import :platform;
 
@@ -51,6 +53,24 @@ std::vector<std::filesystem::path> augmented_closure(
 // reached wrapper declares, once each, a dependency's library after the module
 // that needed it. A library whose checkout is absent is reported here rather
 // than discovered as an undefined symbol.
+// The C objects for a closure: every library a reached module names that
+// declares c-source, compiled once per library per run -- compiled keeps
+// what was built -- and appended to objects, a dependency's after the module
+// that needed it. On a lane an external bridge links, reaching such a library
+// is refused naming the module: the bridge owns third-party C there. Answers
+// an exit status.
+[[nodiscard]] int library_c_objects(
+    const std::filesystem::path& project_root,
+    const std::vector<LibraryDefinition>& libraries,
+    const Tree& tree,
+    const std::vector<std::size_t>& reached,
+    const Toolchain& toolchain,
+    const ArtifactContext& context,
+    bool external_link,
+    std::map<std::string, std::vector<std::filesystem::path>>& compiled,
+    std::vector<std::filesystem::path>& objects,
+    std::string_view tool = "build");
+
 [[nodiscard]] bool library_link_inputs(
     const std::filesystem::path& project_root,
     const std::vector<LibraryDefinition>& libraries,

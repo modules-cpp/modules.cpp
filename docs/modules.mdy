@@ -200,12 +200,15 @@ The source tree is organized by responsibility.
 |   +-- modules-execution.mdy execution model: blocking calls and the interrupt latch
 |   +-- modules-flash.mdy     Pico firmware flashing specification
 |   +-- modules-fonts.mdy     bitmap font module and IBM Plex Mono tables
+|   +-- modules-fs.mdy        portable file interface, mount table, and conformance
 |   +-- modules-gfx.mdy       packed graphics surfaces and drawing
 |   +-- modules-imu.mdy       portable inertial interface and QMI8658 driver
 |   +-- modules-ino.mdy       the .ino sketch preprocessor and sketch tool
 |   +-- modules-json.mdy      RFC 8259 JSON: scanner, value model, json tool
 |   +-- modules-lcd.mdy       portable colour LCD controllers and ST7789
+|   +-- modules-led.mdy       addressable RGB LEDs, WS2812B, and mm.mcu pulse
 |   +-- modules-libraries.mdy vendored library and wrapper specification
+|   +-- modules-linux-storage.mdy  emulated SD card and SPI flash on Linux
 |   +-- modules-mm.mdy        manifest schema specification, every mm: version
 |   +-- modules-model.mdy     the abstract data model
 |   +-- modules-parse.mdy     shared shell scanner, number and time readers
@@ -214,9 +217,11 @@ The source tree is organized by responsibility.
 |   +-- modules-platform-pico.mdy  the Pico platform family
 |   +-- modules-platforms.mdy SDK, board, and platform specification
 |   +-- modules-rtc.mdy       portable real-time clock and PCF85063 driver
+|   +-- modules-sdcard.mdy    SD cards in SPI mode and board TF sockets
 |   +-- modules-run.mdy       run tool and runner specification
 |   +-- modules-shell.mdy     the project shell, embedded to full profile
 |   +-- modules-sketch.mdy    mm.sketch, the Arduino-compatible vocabulary
+|   +-- modules-spiflash.mdy  SPI NOR flash chips as an mm.fs flash device
 |   +-- modules-stdio.mdy     portable console and Pico USB CDC provider
 |   +-- modules-test.mdy      test tool and target execution specification
 |   +-- modules-touch.mdy     portable touch interface and CST328 driver

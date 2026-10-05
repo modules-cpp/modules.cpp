@@ -1,0 +1,30 @@
+---
+mm: 1.2
+kind: module
+name: pico-fs-littlefs
+module: platform.pico.fs.littlefs
+use: mm.fs
+use: mm.fs.littlefs
+use: mm.fs.local
+file: littlefs.cppm
+file: src/littlefs.cpp
+option: buildable-host no
+---
+
+# platform.pico.fs.littlefs
+
+mm.fs.littlefs and mm.fs.local on every Pico board, over littlefs compiled by
+the Pico SDK bridge. mm.fs.local mounts littlefs on mm.mcu's flash region --
+the top of program flash, which a new program flashed over UF2 leaves intact
+-- formatting a region that was never written and refusing, as Corrupt, one
+that holds something else.
+
+It is the platform.pico.mcu pattern: this module includes only the
+project-owned ABI header, lfs-c.h, through its C++ shim, and the C adapter
+beside it, adapter.c, includes littlefs. The adapter keeps mm.fs's Volume
+rules in C, where a native harness can exercise them; this module maps
+statuses and paths across the ABI and adapts mm.fs's FlashDevice to the
+adapter's device record. How many volumes may be attached at once, and how
+many files and directories open between them, is the board table's: one,
+four, and two by default, up to four volumes, as the MM_BOARD_LFS_* columns
+in resolve-board.cmake set them.

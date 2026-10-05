@@ -96,6 +96,54 @@ int mm_pico_mcu_i2s_progress(unsigned int instance, int receive,
 int mm_pico_mcu_i2s_stop(unsigned int instance, int receive);
 int mm_pico_mcu_i2s_release(unsigned int instance);
 
+// A one-wire pulse-width-coded output over PIO, instances zero and one: each
+// bit is bit_period_ns, high for zero_high_ns or one_high_ns, most significant
+// bit first. write blocks until the frame is out and reset_ns has passed.
+int mm_pico_mcu_pulse_configure(unsigned int instance, unsigned int pin,
+                                unsigned long bit_period_ns, unsigned long zero_high_ns,
+                                unsigned long one_high_ns, unsigned long reset_ns);
+int mm_pico_mcu_pulse_write(unsigned int instance, const unsigned char* data, size_t size);
+int mm_pico_mcu_pulse_release(unsigned int instance);
+
+// An SD card's native bus over PIO and DMA, instance zero: a clock, a command
+// line, and four data lines from data0_pin, within one 32-GPIO window. width
+// must be 4. Commands are framed and their responses checked here; words
+// receive a short response's bits 39 to 8 or a long one's 127 to 0. Blocks
+// are 512 bytes, a read at most eight of them into a four-byte-aligned
+// buffer, each checked against its
+// CRC16 on every line; a write's blocks are each answered by the card's CRC
+// status and busy is waited out.
+enum {
+    MM_PICO_MCU_SDIO_NONE = 0,
+    MM_PICO_MCU_SDIO_SHORT = 1,
+    MM_PICO_MCU_SDIO_SHORT_NO_CRC = 2,
+    MM_PICO_MCU_SDIO_SHORT_BUSY = 3,
+    MM_PICO_MCU_SDIO_LONG = 4
+};
+int mm_pico_mcu_sdio_configure(unsigned int instance, unsigned int clock_pin,
+                               unsigned int command_pin, unsigned int data0_pin,
+                               unsigned int width);
+int mm_pico_mcu_sdio_clock(unsigned int instance, unsigned long hz, unsigned long* actual_hz);
+int mm_pico_mcu_sdio_idle_clocks(unsigned int instance, unsigned int count);
+int mm_pico_mcu_sdio_command(unsigned int instance, unsigned int index, uint32_t argument,
+                             int response, uint32_t* words, size_t count);
+int mm_pico_mcu_sdio_read(unsigned int instance, unsigned int index, uint32_t argument,
+                          uint32_t* response, void* data, size_t size, unsigned int block_size);
+int mm_pico_mcu_sdio_write(unsigned int instance, unsigned int index, uint32_t argument,
+                           uint32_t* response, const void* data, size_t size,
+                           unsigned int block_size);
+int mm_pico_mcu_sdio_release(unsigned int instance);
+
+// The data region at the top of program flash, MM_BOARD_FLASH_REGION_BYTES
+// long and ending at PICO_FLASH_SIZE_BYTES. Offsets are bytes from its start.
+// UNSUPPORTED on a board whose region is zero bytes, or whose image reaches
+// into it, which the bridge's UF2 check refuses at build time already.
+int mm_pico_mcu_flash_region_geometry(unsigned long long* size, unsigned int* read_size,
+                                      unsigned int* program_size, unsigned int* erase_size);
+int mm_pico_mcu_flash_region_read(unsigned long long offset, void* data, size_t size);
+int mm_pico_mcu_flash_region_program(unsigned long long offset, const void* data, size_t size);
+int mm_pico_mcu_flash_region_erase(unsigned long long offset, unsigned long long size);
+
 // A critical section on the calling core: the SDK's save_and_disable_interrupts
 // and restore_interrupts. saved is the core's mask word, PRIMASK on Arm and
 // mstatus.MIE on RISC-V, handed back unchanged.

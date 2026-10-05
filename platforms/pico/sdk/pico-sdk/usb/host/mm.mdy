@@ -12,5 +12,6 @@ option: buildable-host no
 # platform.pico.usb.host
 
 The Pico SDK platform's USB host implementation of mm.usb.host over TinyUSB.
-Active on boards that provide a PIO USB host port (pico_usb_host, pico2_usb_host)
+Active on boards that provide a PIO USB host port (pico_usb_host, pico2_usb_host,
+rp2350_pizero_usb_host)
 for non-storage peripherals alongside the mm.mcu storage stack.

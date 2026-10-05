@@ -1,0 +1,26 @@
+---
+mm: 1.0
+kind: dir
+name: geek-platform
+folder: board-rp2040
+folder: board-rp2350
+folder: display
+folder: sdcard
+---
+
+# geek-platform
+
+The Waveshare GEEK family: two USB-stick boards, the RP2040-GEEK and the
+RP2350-GEEK, and the panel provider they share. Both carry a 1.14 inch 240 by
+135 IPS panel on an ST7789, a TF card socket, a USB-A plug on the native port,
+and three small headers -- a four-pin I2C port and two three-pin ports, the one
+labelled SWD and the one labelled UART, laid out as the Raspberry Pi Debug
+Probe's ports are -- and both schematics wire them to the same GPIOs, so the
+panel's wiring is written once.
+
+rp2040_geek derives from pico and rp2350_geek from pico2-arm; neither can
+derive from the other, because the chip is what the base supplies. Each binds
+platform.geek.display, the panel, and platform.geek.sdcard, the TF socket on
+SPI0 as mm.sdcard.socket. The device drivers are the portable mm.lcd.st7789
+and mm.sdcard, and the providers are the only place that knows which pin is
+which.

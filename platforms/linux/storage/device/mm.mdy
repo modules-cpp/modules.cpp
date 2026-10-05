@@ -1,0 +1,32 @@
+---
+mm: 1.2
+kind: module
+name: linux-storage-device
+module: platform.linux.storage.device
+use: mm.mcu
+use: platform.linux.map
+use: platform.linux.storage.store
+use: platform.linux.storage.sdcard
+use: platform.linux.storage.spiflash
+use: platform.linux.storage.bus
+file: device.cppm
+---
+
+# platform.linux.storage.device
+
+mm.mcu on the storage-linux boards: platform.linux.storage.bus over a virtual
+SD card and a virtual SPI flash, each kept in an image file the device map
+names -- sdcard.path, sdcard.size, sdcard.kind, spiflash.path, spiflash.size,
+docs/modules-platform-linux.mdy has the keys -- and sdcard.img and
+spiflash.img in the working directory when it names none. The files are
+opened at the first mm.mcu call, not at load, so the map is resolved after
+every provider has registered.
+
+A missing file is made at its size, the card's zero-filled as a new card
+reads and the flash's 0xFF as an erased chip reads; one that exists keeps its
+contents and its own size, so an image made with mkfs.fat or littlefs-python
+is used as it is. A file that cannot be opened, an SD image whose size the
+card kind cannot describe, a flash image whose size is not a power of two
+from 64 KiB to 16 MiB, or a device map that did not resolve leaves the chip
+absent -- it never answers, as an empty socket does not -- with one line on
+standard error saying why.

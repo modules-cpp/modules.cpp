@@ -1,0 +1,19 @@
+---
+mm: 1.2
+kind: module
+name: linux-storage-socket
+module: platform.linux.storage.socket
+use: mm.fs
+use: mm.mcu
+use: mm.sdcard
+use: mm.sdcard.socket
+use: platform.linux.storage.bus
+file: socket.cppm
+---
+
+# platform.linux.storage.socket
+
+The storage-linux boards' SD socket as mm.sdcard.socket: mm.sdcard's SpiCard
+on SPI 0 with chip select GPIO 23, the wiring platform.linux.storage.bus
+gives the virtual card -- and rp2040_geek gives its TF socket, so a program
+that mounts the socket reads the same on either.

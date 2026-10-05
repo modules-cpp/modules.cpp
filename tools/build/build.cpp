@@ -21,6 +21,7 @@
 #include <cstddef>
 #include <filesystem>
 #include <iostream>
+#include <map>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -373,6 +374,10 @@ int main(int argc, char** argv) {
     std::vector<std::string> legacy_apps;
     std::vector<std::string> legacy_libraries;
 
+    // C objects of libraries with c-source, compiled once however many
+    // applications reach them.
+    std::map<std::string, std::vector<std::filesystem::path>> library_objects;
+
     std::cout << "\nLink\n";
     for (const auto index : order) {
         const auto& target = tree.targets[index];
@@ -408,8 +413,15 @@ int main(int argc, char** argv) {
             objects.insert(objects.end(), bo.begin(), bo.end());
         }
 
-        if (platform != nullptr &&
-            platform->link_ownership == mm::configure::LinkOwnership::External) {
+        const bool external_link =
+            platform != nullptr &&
+            platform->link_ownership == mm::configure::LinkOwnership::External;
+        if (const int status = mm::build::library_c_objects(
+                ".", project.libraries, tree, reached, toolchain, context, external_link,
+                library_objects, objects, "build");
+            status != mm::build::exit_ok)
+            return status;
+        if (external_link) {
             if (const int status = mm::build::external_link(
                     project, *platform, toolchain, target.name, objects,
                     context, output, verbose);
