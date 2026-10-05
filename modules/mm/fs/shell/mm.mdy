@@ -1,0 +1,21 @@
+---
+mm: 1.2
+kind: module
+name: fs-shell
+module: mm.fs.shell
+use: mm.fs
+use: mm.shell.full
+file: shell.cppm
+file: src/shell.cpp
+---
+
+# mm.fs.shell
+
+mm.shell.full's IoService and FileService over mm.fs, so the full-profile
+interpreter's redirections, pathname expansion, and file tests reach any
+mounted volume: a directory, littlefs, FAT, or 9P. FileServices owns the files
+it opens, eight at a time, and hands the interpreter handles to them; handles
+it did not open -- the standard streams -- and pipes go to a base IoService
+the caller supplies, and without one are Invalid. Relative paths resolve
+against a directory the caller sets, "/" by default, since mm.fs has no
+working directory.

@@ -1707,14 +1707,21 @@ int mm_pico_mcu_pulse_release(unsigned int instance) {
 // The four CRC16s of a 4-bit block are one CRC: interleaving four streams is
 // substituting x^4 for x, so the CRC of the data bytes, most significant bit
 // first, under G(x^4) = x^64 + x^48 + x^20 + 1 is the four lines' CRC16s
-// interleaved a nibble a bit, which is exactly how they are sent.
+// interleaved a nibble a bit, which is exactly how they are sent. It is
+// computed a nibble at a time from a sixteen-entry table.
+//
+// The adapter is linked into every Pico program, so nothing here holds more
+// static RAM than it must: a read's blocks go by DMA straight into the
+// caller's buffer, byte-swapped by the DMA engine, while a second channel,
+// chained to and from the first, collects each block's two CRC words; and a
+// written block's nibble stream is computed a word at a time as it is fed.
 
 #define MM_PICO_SDIO_DELAY 2u
 #define MM_PICO_SDIO_BLOCK 512u
 #define MM_PICO_SDIO_MOST_READ_BLOCKS 8u
 #define MM_PICO_SDIO_READ_WORDS 130u    // 1040 nibbles: 1024 data, 16 CRC
+#define MM_PICO_SDIO_DATA_WORDS 128u
 #define MM_PICO_SDIO_WRITE_NIBBLES 1042u
-#define MM_PICO_SDIO_WRITE_WORDS 131u
 #define MM_PICO_SDIO_IDENTIFY_HZ 400000ul
 #define MM_PICO_SDIO_RESPONSE_US 20000u
 #define MM_PICO_SDIO_DATA_US 1000000u
@@ -1734,6 +1741,7 @@ typedef struct {
     unsigned int read_sm;
     unsigned int read_offset;
     int dma;
+    int crc_dma;
     uint16_t instructions[32];
     uint16_t read_instructions[11];
     pio_program_t program;
@@ -1741,10 +1749,7 @@ typedef struct {
 } mm_pico_sdio_t;
 
 static mm_pico_sdio_t mm_pico_sdio;
-static uint32_t mm_pico_sdio_read_buffer[MM_PICO_SDIO_MOST_READ_BLOCKS * MM_PICO_SDIO_READ_WORDS];
-static uint32_t mm_pico_sdio_write_buffer[MM_PICO_SDIO_WRITE_WORDS];
-static uint64_t mm_pico_sdio_crc_table[256];
-static int mm_pico_sdio_crc_ready;
+static uint32_t mm_pico_sdio_read_crcs[MM_PICO_SDIO_MOST_READ_BLOCKS * 2u];
 
 static uint8_t mm_pico_sdio_crc7(const uint8_t* data, size_t size) {
     uint8_t crc = 0;
@@ -1760,18 +1765,18 @@ static uint8_t mm_pico_sdio_crc7(const uint8_t* data, size_t size) {
 }
 
 static uint64_t mm_pico_sdio_crc(const uint8_t* data, size_t size) {
-    if (!mm_pico_sdio_crc_ready) {
-        for (unsigned int i = 0; i < 256u; ++i) {
-            uint64_t c = (uint64_t)i << 56;
-            for (int b = 0; b < 8; ++b)
-                c = (c & (1ull << 63)) != 0 ? (c << 1) ^ 0x0001000000100001ull : c << 1;
-            mm_pico_sdio_crc_table[i] = c;
-        }
-        mm_pico_sdio_crc_ready = 1;
-    }
+    static const uint64_t table[16] = {
+        0x0000000000000000ull, 0x0001000000100001ull, 0x0002000000200002ull,
+        0x0003000000300003ull, 0x0004000000400004ull, 0x0005000000500005ull,
+        0x0006000000600006ull, 0x0007000000700007ull, 0x0008000000800008ull,
+        0x0009000000900009ull, 0x000a000000a0000aull, 0x000b000000b0000bull,
+        0x000c000000c0000cull, 0x000d000000d0000dull, 0x000e000000e0000eull,
+        0x000f000000f0000full};
     uint64_t crc = 0;
-    for (size_t i = 0; i < size; ++i)
-        crc = (crc << 8) ^ mm_pico_sdio_crc_table[(unsigned int)(crc >> 56) ^ data[i]];
+    for (size_t i = 0; i < size; ++i) {
+        crc = (crc << 4) ^ table[(unsigned int)(crc >> 60) ^ (data[i] >> 4)];
+        crc = (crc << 4) ^ table[(unsigned int)(crc >> 60) ^ (data[i] & 0xfu)];
+    }
     return crc;
 }
 
@@ -1865,7 +1870,13 @@ static void mm_pico_sdio_reset(mm_pico_sdio_t* s, unsigned int sm, unsigned int 
 }
 
 static void mm_pico_sdio_stop_read(mm_pico_sdio_t* s) {
+    // Unchain before aborting, or the aborted channel's chain restarts the
+    // other.
+    hw_clear_bits(&dma_channel_hw_addr((uint)s->dma)->al1_ctrl, DMA_CH0_CTRL_TRIG_CHAIN_TO_BITS);
+    hw_clear_bits(&dma_channel_hw_addr((uint)s->crc_dma)->al1_ctrl,
+                  DMA_CH0_CTRL_TRIG_CHAIN_TO_BITS);
     dma_channel_abort((uint)s->dma);
+    dma_channel_abort((uint)s->crc_dma);
     pio_sm_set_enabled(s->read_pio, s->read_sm, false);
     pio_sm_clear_fifos(s->read_pio, s->read_sm);
     pio_sm_restart(s->read_pio, s->read_sm);
@@ -2027,7 +2038,9 @@ int mm_pico_mcu_sdio_configure(unsigned int instance, unsigned int clock_pin,
         return MM_PICO_MCU_BUSY;
     }
     const int dma = dma_claim_unused_channel(false);
-    if (dma < 0) {
+    const int crc_dma = dma < 0 ? -1 : dma_claim_unused_channel(false);
+    if (crc_dma < 0) {
+        if (dma >= 0) dma_channel_unclaim((uint)dma);
         pio_remove_program_and_unclaim_sm(&s->read_program, read_pio, read_sm, read_offset);
         pio_sm_unclaim(pio, (uint)write_sm);
         pio_remove_program_and_unclaim_sm(&s->program, pio, sm, offset);
@@ -2041,6 +2054,7 @@ int mm_pico_mcu_sdio_configure(unsigned int instance, unsigned int clock_pin,
     s->read_sm = read_sm;
     s->read_offset = read_offset;
     s->dma = dma;
+    s->crc_dma = crc_dma;
 
     for (unsigned int i = 0; i < 6u; ++i) {
         pio_gpio_init(pio, pins[i]);
@@ -2174,7 +2188,7 @@ int mm_pico_mcu_sdio_read(unsigned int instance, unsigned int index, uint32_t ar
     if (ready != MM_PICO_MCU_OK) return ready;
     if (block_size != MM_PICO_SDIO_BLOCK || size == 0 || size % MM_PICO_SDIO_BLOCK != 0 ||
         size / MM_PICO_SDIO_BLOCK > MM_PICO_SDIO_MOST_READ_BLOCKS || data == NULL ||
-        response == NULL || index > 63u)
+        ((uintptr_t)data & 3u) != 0 || response == NULL || index > 63u)
         return MM_PICO_MCU_BAD_ARGUMENT;
     mm_pico_sdio_t* s = &mm_pico_sdio;
     const unsigned int blocks = (unsigned int)(size / MM_PICO_SDIO_BLOCK);
@@ -2186,13 +2200,29 @@ int mm_pico_mcu_sdio_read(unsigned int instance, unsigned int index, uint32_t ar
     // Ready for data before the command: a card may start a block while its
     // response is still on the command line.
     mm_pico_sdio_stop_read(s);
+    // Each block: 128 data words into the caller's buffer, byte-swapped so
+    // the first nibble's byte lands first, then 2 CRC words into the table;
+    // each channel triggers the other when it finishes, and the data
+    // channel's write address carries on from where the last block ended.
+    const volatile void* fifo = &s->read_pio->rxf[s->read_sm];
+    const uint dreq = pio_get_dreq(s->read_pio, s->read_sm, false);
     dma_channel_config d = dma_channel_get_default_config((uint)s->dma);
     channel_config_set_transfer_data_size(&d, DMA_SIZE_32);
     channel_config_set_read_increment(&d, false);
     channel_config_set_write_increment(&d, true);
-    channel_config_set_dreq(&d, pio_get_dreq(s->read_pio, s->read_sm, false));
-    dma_channel_configure((uint)s->dma, &d, mm_pico_sdio_read_buffer,
-                          &s->read_pio->rxf[s->read_sm], blocks * MM_PICO_SDIO_READ_WORDS, true);
+    channel_config_set_bswap(&d, true);
+    channel_config_set_dreq(&d, dreq);
+    channel_config_set_chain_to(&d, (uint)s->crc_dma);
+    dma_channel_config c = dma_channel_get_default_config((uint)s->crc_dma);
+    channel_config_set_transfer_data_size(&c, DMA_SIZE_32);
+    channel_config_set_read_increment(&c, false);
+    channel_config_set_write_increment(&c, true);
+    channel_config_set_dreq(&c, dreq);
+    channel_config_set_chain_to(&c, (uint)s->dma);
+    dma_channel_configure((uint)s->crc_dma, &c, mm_pico_sdio_read_crcs, fifo, 2u, false);
+    dma_channel_configure((uint)s->dma, &d, data, fifo, MM_PICO_SDIO_DATA_WORDS, true);
+    volatile uint32_t* const crc_written = &dma_channel_hw_addr((uint)s->crc_dma)->write_addr;
+    const uint32_t crc_end = (uint32_t)(uintptr_t)&mm_pico_sdio_read_crcs[blocks * 2u];
     pio_sm_put_blocking(s->read_pio, s->read_sm, MM_PICO_SDIO_READ_WORDS * 8u - 1u);
     pio_sm_set_enabled(s->read_pio, s->read_sm, true);
 
@@ -2203,7 +2233,7 @@ int mm_pico_mcu_sdio_read(unsigned int instance, unsigned int index, uint32_t ar
     int answered = 0;
     const uint64_t start = time_us_64();
     int status = MM_PICO_MCU_OK;
-    while (dma_channel_is_busy((uint)s->dma)) {
+    while (*crc_written != crc_end) {
         if (!answered && mm_pico_sdio_take(s, raw, 2u, &taken)) {
             answered = 1;
             status = mm_pico_sdio_short(raw, index, 1, response);
@@ -2233,18 +2263,12 @@ int mm_pico_mcu_sdio_read(unsigned int instance, unsigned int index, uint32_t ar
     mm_pico_sdio_stop_read(s);
     if (status != MM_PICO_MCU_OK) return status;
 
-    unsigned char* out = (unsigned char*)data;
+    const unsigned char* bytes = (const unsigned char*)data;
     for (unsigned int b = 0; b < blocks; ++b) {
-        const uint32_t* block = &mm_pico_sdio_read_buffer[b * MM_PICO_SDIO_READ_WORDS];
-        unsigned char* bytes = out + (size_t)b * MM_PICO_SDIO_BLOCK;
-        for (unsigned int w = 0; w < 128u; ++w) {
-            bytes[4u * w] = (unsigned char)(block[w] >> 24);
-            bytes[4u * w + 1u] = (unsigned char)(block[w] >> 16);
-            bytes[4u * w + 2u] = (unsigned char)(block[w] >> 8);
-            bytes[4u * w + 3u] = (unsigned char)block[w];
-        }
-        const uint64_t sent = ((uint64_t)block[128] << 32) | block[129];
-        if (mm_pico_sdio_crc(bytes, MM_PICO_SDIO_BLOCK) != sent) return MM_PICO_MCU_TRANSPORT_ERROR;
+        const uint64_t sent = ((uint64_t)mm_pico_sdio_read_crcs[2u * b] << 32) |
+                              mm_pico_sdio_read_crcs[2u * b + 1u];
+        if (mm_pico_sdio_crc(bytes + (size_t)b * MM_PICO_SDIO_BLOCK, MM_PICO_SDIO_BLOCK) != sent)
+            return MM_PICO_MCU_TRANSPORT_ERROR;
     }
     return MM_PICO_MCU_OK;
 }
@@ -2269,24 +2293,23 @@ int mm_pico_mcu_sdio_write(unsigned int instance, unsigned int index, uint32_t a
     const unsigned char* in = (const unsigned char*)data;
     for (size_t at = 0; at < size; at += MM_PICO_SDIO_BLOCK) {
         const unsigned char* bytes = in + at;
-        uint32_t d[128];
-        for (unsigned int w = 0; w < 128u; ++w)
-            d[w] = ((uint32_t)bytes[4u * w] << 24) | ((uint32_t)bytes[4u * w + 1u] << 16) |
-                   ((uint32_t)bytes[4u * w + 2u] << 8) | bytes[4u * w + 3u];
         const uint64_t crc = mm_pico_sdio_crc(bytes, MM_PICO_SDIO_BLOCK);
         // A start nibble, the data a nibble late, the CRC nibbles, an end
-        // nibble: 1042 nibbles, most significant first in each word.
-        uint32_t* out = mm_pico_sdio_write_buffer;
-        out[0] = d[0] >> 4;
-        for (unsigned int w = 1; w < 128u; ++w) out[w] = (d[w - 1u] << 28) | (d[w] >> 4);
-        out[128] = (d[127] << 28) | (uint32_t)(crc >> 36);
-        out[129] = (uint32_t)(crc >> 4);
-        out[130] = ((uint32_t)(crc & 0xfu) << 28) | 0x0f000000u;
-
+        // nibble: 1042 nibbles, most significant first in each word, each
+        // word made as it is fed.
         s->pio->fdebug = stall;
         pio_sm_put_blocking(s->pio, s->write_sm, MM_PICO_SDIO_WRITE_NIBBLES - 1u);
-        for (unsigned int w = 0; w < MM_PICO_SDIO_WRITE_WORDS; ++w)
-            pio_sm_put_blocking(s->pio, s->write_sm, out[w]);
+        uint32_t previous = 0;
+        for (unsigned int w = 0; w < MM_PICO_SDIO_DATA_WORDS; ++w) {
+            const uint32_t word = ((uint32_t)bytes[4u * w] << 24) |
+                                  ((uint32_t)bytes[4u * w + 1u] << 16) |
+                                  ((uint32_t)bytes[4u * w + 2u] << 8) | bytes[4u * w + 3u];
+            pio_sm_put_blocking(s->pio, s->write_sm, (previous << 28) | (word >> 4));
+            previous = word;
+        }
+        pio_sm_put_blocking(s->pio, s->write_sm, (previous << 28) | (uint32_t)(crc >> 36));
+        pio_sm_put_blocking(s->pio, s->write_sm, (uint32_t)(crc >> 4));
+        pio_sm_put_blocking(s->pio, s->write_sm, ((uint32_t)(crc & 0xfu) << 28) | 0x0f000000u);
 
         const uint64_t start = time_us_64();
         while (pio_sm_is_rx_fifo_empty(s->pio, s->write_sm)) {
@@ -2326,6 +2349,7 @@ int mm_pico_mcu_sdio_release(unsigned int instance) {
     pio_sm_set_enabled(s->pio, s->command_sm, false);
     pio_sm_set_enabled(s->pio, s->write_sm, false);
     dma_channel_unclaim((uint)s->dma);
+    dma_channel_unclaim((uint)s->crc_dma);
     pio_remove_program_and_unclaim_sm(&s->read_program, s->read_pio, s->read_sm, s->read_offset);
     pio_sm_unclaim(s->pio, s->write_sm);
     pio_remove_program_and_unclaim_sm(&s->program, s->pio, s->command_sm, s->offset);

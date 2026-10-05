@@ -3,15 +3,23 @@ mm: 1.2
 kind: app
 name: mcu-shell
 option: buildable-host no
-use: mm.shell.mcu
+use: mm.shell.board
+use: mm.shell.fs
 use: mm.shell
-use: mm.mcu
-use: mm.stdio
+use: mm.fs
+use: mm.fs.local
 file: main.cpp
 ---
 
 # mcu-shell
 
-Interactive embedded shell over the selected mm.stdio console. The firmware
-installs blink and ADC scripts and owns every parser, evaluator, capture,
-function, and transport buffer explicitly.
+Interactive embedded shell over the selected mm.stdio console: mm.shell.board
+with the level-2 command pack, the blink and sample scripts, and the file
+commands of mm.shell.fs over the board's own storage, which it mounts at
+/data through mm.fs.local -- littlefs on the flash region on a Pico,
+formatted the first time, and the device map's directory on Linux. A board
+whose storage does not mount still gets the shell, with a line saying so; the
+file commands then answer that nothing is there.
+
+apps/mcu-shell-sd is the same shell with the board's SD card mounted at /sd
+as well, for boards with a socket, at the cost of FatFs in the image.

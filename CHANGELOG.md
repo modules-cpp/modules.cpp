@@ -125,6 +125,22 @@ All notable changes to modules.cpp. Versions follow [semantic versioning](https:
   Apache-2.0 no-OS-FatFS-SD-SDIO-SPI-RPi-Pico, acknowledged in the README and
   `docs/modules-sdcard.mdy`; no code is copied. Not yet qualified on
   hardware.
+- **Files in the shells: `mm.shell.fs`, `mm.fs.shell`, and `mm.shell.board`.**
+  The embedded shell gains ten file commands over `mm.fs` -- `ls`, `cat`,
+  `stat`, `write`, `append`, `rm`, `mkdir`, `mv`, `df`, `mounts` -- bounded
+  and allocation-free, with `cat` and `ls` paging long output. The full
+  shell's redirections, globbing, and file tests reach `mm.fs` volumes
+  through `mm.fs.shell`. `apps/mcu-shell` now runs on `mm.shell.board` and
+  always mounts the board's own storage at `/data` (littlefs on a Pico);
+  `apps/mcu-shell-sd`, selected by `scripts/build-shell.sh --sd`, adds the
+  socket's FAT card at `/sd`. With littlefs, the RP2040 shell exceeds the
+  shell specification's size ceilings; `docs/modules-shell.mdy` records the
+  measurements and leaves the ceilings as a decision.
+- **The SDIO facility no longer costs every Pico image 6.7 KB of RAM.** Reads
+  go by DMA straight into the caller's buffer, byte-swapped by the DMA engine,
+  with a chained channel collecting CRC words; the CRC table is sixteen
+  entries; write words are computed as they are fed. A read buffer must now
+  start on a four-byte boundary, and `SdioCard` bounces any other.
 - **`mm.spiflash`.** A W25Q-family SPI NOR flash chip over `mm.mcu` SPI as an
   `mm.fs` flash device: identified by JEDEC ID, 64 KiB to 16 MiB, page
   programs and 4 KiB or 64 KiB erases behind write enable and BUSY polling,

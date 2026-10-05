@@ -186,6 +186,25 @@ mm::fs::Status SdioCard::read(std::uint64_t block, std::span<std::byte> data) {
     const std::uint64_t count = data.size() / block_size;
     if (block > block_count_ || count > block_count_ - block) return mm::fs::Status::BadArgument;
 
+    // The facility moves words: an unaligned buffer is read a block at a
+    // time through the card's own.
+    if (reinterpret_cast<std::uintptr_t>(data.data()) % 4 != 0) {
+        while (!data.empty()) {
+            const auto address =
+                static_cast<std::uint32_t>(block_addressed_ ? block : block * block_size);
+            std::uint32_t response = 0;
+            status = from(mm::mcu::sdio_read(wiring_.instance, 17, address, response,
+                                             std::span{bounce_}, block_size));
+            if (status == mm::fs::Status::Ok && (response & status_errors) != 0)
+                status = mm::fs::Status::TransportError;
+            if (status != mm::fs::Status::Ok) return forget(status);
+            std::copy_n(bounce_, block_size, data.begin());
+            data = data.subspan(block_size);
+            ++block;
+        }
+        return mm::fs::Status::Ok;
+    }
+
     // At most the platform's guaranteed run a command; CMD12 ends each
     // multiple read.
     while (!data.empty()) {

@@ -19,6 +19,7 @@ folder: fs/local
 folder: fs/native
 folder: fs/littlefs
 folder: fs/fat
+folder: fs/shell
 folder: imu
 folder: ino
 folder: json
@@ -38,6 +39,8 @@ folder: spiflash
 folder: run
 folder: shell
 folder: shell/mcu
+folder: shell/fs
+folder: shell/board
 folder: shell/full
 folder: shell/posix
 folder: sketch

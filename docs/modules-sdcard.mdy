@@ -137,7 +137,9 @@ this class holds only the card protocol. It initialises on first use:
 7. sdio_clock at data_clock_hz.
 
 A read is CMD17, or CMD18 for at most the facility's guaranteed eight blocks
-followed by CMD12; a longer read is several. A write is CMD24, or CMD25 for
+followed by CMD12; a longer read is several. The facility takes a read buffer
+on a four-byte boundary only, so a read into any other goes a block at a time,
+CMD17 each, through a 512-byte buffer the SdioCard holds. A write is CMD24, or CMD25 for
 any number of blocks followed by CMD12, then CMD13, whose status must show
 no error. Every R1 is checked for the card status error bits. Any failure
 forgets the card, and the next call identifies it again from CMD0.

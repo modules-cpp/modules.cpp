@@ -811,7 +811,8 @@ bits 39 to 8 or a long one's bits 127 to 0, most significant word first.
 Timeout is no response or busy that did not end; TransportError a bad CRC,
 index, or frame. sdio_read readies the data lines before sending its command,
 because a card may start a block before its response has ended, and returns
-whole blocks each checked against its CRC16 on every line; a response whose
+whole blocks each checked against its CRC16 on every line, into a buffer that
+starts on a four-byte boundary, so a platform can move it by DMA in words; a response whose
 card status reports an error ends the wait with TransportError. sdio_write
 sends its command, then each block with its CRC16s, takes the card's CRC
 status token, and waits out busy; a rejected block is TransportError. A

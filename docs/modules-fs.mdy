@@ -363,6 +363,26 @@ storage entries through McuStorage. mm.fs.local on Linux stays the
 directory. scripts/test-littlefs.sh and scripts/test-fatfs.sh run each
 tree's native harness, --tree pico, linux, or both.
 
+# The full shell: mm.fs.shell
+
+mm::fs::shell::FileServices fills mm.shell.full's IoService and FileService
+from mm.fs, so the full-profile interpreter's redirections (>, >>, <),
+pathname expansion, and file tests ([ -e ], -f, -d, -s, -w) reach any mounted
+volume. It owns eight files at a time and hands out handles carrying the bit
+FileServices::own; every other handle -- the standard streams -- and pipes go
+to a base IoService passed at construction, and without one are Invalid.
+mm.fs has no working directory, so a relative path resolves against
+set_directory's, "/" by default. canonical answers the normalised path of an
+existing entry; a missing name is an answer to status and test, not a
+failure; mm.fs has no execute bit, so -x is true for a directory. ProcessService
+and SignalService are the caller's. tests/mm/fs runs the interpreter over the
+in-memory volume: > and >> write files there and < reads one back, a glob
+lists the volume, the file tests answer from stat, a relative path resolves
+in the directory set, and every file a redirection opened is closed.
+
+The embedded board shell's file commands are mm.shell.fs, which
+docs/modules-shell.mdy specifies.
+
 # Conformance
 
 mm.fs.conformance::run(prefix, report) runs the contract as 25 checks inside

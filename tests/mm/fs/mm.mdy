@@ -9,8 +9,13 @@ use: mm.fs.fat
 use: mm.fs.littlefs
 use: mm.fs.local
 use: mm.fs.native
+use: mm.fs.shell
+use: mm.shell
+use: mm.shell.fs
+use: mm.shell.full
 unit: tests/mm/fs/memory.cpp
 unit: tests/mm/fs/fs.cpp
+unit: tests/mm/fs/shell.cpp
 unit: tests/main.cpp
 ---
 

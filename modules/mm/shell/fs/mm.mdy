@@ -1,0 +1,25 @@
+---
+mm: 1.2
+kind: module
+name: shell-fs
+module: mm.shell.fs
+use: mm.shell
+use: mm.fs
+file: fs.cppm mm.shell.fs
+file: src/commands.cpp
+---
+
+# mm.shell.fs
+
+The embedded shell's file command pack, over mm.fs: ls, cat, stat, write,
+append, rm, mkdir, mv, df, and mounts, each needing the Files capability. It
+follows mm.shell.mcu's rules: the pack installs atomically into an existing
+registry, handlers keep to the caller's transaction scratch and allocate
+nothing, output is assembled before it is offered, and the status codes are
+the shell's.
+
+A command's output is bounded by the transaction scratch and the shell's
+staged output, so cat and ls page: each prints what fits and, when more
+remains, says on the error stream how to ask for the rest -- cat PATH OFFSET,
+ls PATH SKIP. mm.fs keeps no list of its mounts, so the binding names the
+prefixes the application mounted, which df and mounts report.

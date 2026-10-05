@@ -173,7 +173,8 @@ public:
         arguments.push_back(argument);
         if (!present) return mm::mcu::Status::Timeout;
         if (block_size != 512 || data.size() % 512 != 0 ||
-            data.size() / 512 > mm::mcu::sdio_read_blocks_at_least)
+            data.size() / 512 > mm::mcu::sdio_read_blocks_at_least ||
+            reinterpret_cast<std::uintptr_t>(data.data()) % 4 != 0)
             return mm::mcu::Status::BadArgument;
         if (state_ != State::Transfer || width != 4 || (index != 17 && index != 18) ||
             (index == 17) != (data.size() == 512))
@@ -361,6 +362,22 @@ void blocks_round_trip_in_four_bit_mode() {
            "in reads of at most eight blocks, each a CMD18 stopped by CMD12");
 }
 
+void unaligned_reads_go_through_a_bounce() {
+    SdioPlatform platform{Kind::Sdhc};
+    const Selected selected{platform};
+    mm::sdcard::SdioCard card{wiring()};
+    const auto data = pattern(3 * 512, 9);
+    expect(card.write(40, data) == Status::Ok, "three blocks write");
+    std::vector<std::byte> buffer(3 * 512 + 1);
+    const auto unaligned = std::span{buffer}.subspan(1);
+    platform.read_runs.clear();
+    expect(card.read(40, unaligned) == Status::Ok &&
+               std::equal(data.begin(), data.end(), unaligned.begin()),
+           "a buffer off a four-byte boundary reads correctly");
+    expect(platform.read_runs == std::vector<std::size_t>{1, 1, 1},
+           "a block a command through the card's own buffer");
+}
+
 void standard_capacity_cards_are_byte_addressed() {
     for (const auto kind : {Kind::SdscVersion2, Kind::SdscVersion1}) {
         SdioPlatform platform{kind};
@@ -455,6 +472,7 @@ void the_csd_gives_the_capacity() {
 const mm::test::case_ cases[] = {
     {"an SDHC card is identified in SD mode", &an_sdhc_card_is_identified_in_sd_mode},
     {"blocks round trip in 4-bit mode", &blocks_round_trip_in_four_bit_mode},
+    {"unaligned SDIO reads go through a bounce", &unaligned_reads_go_through_a_bounce},
     {"standard-capacity cards are byte addressed over SDIO",
      &standard_capacity_cards_are_byte_addressed},
     {"SDIO arguments are checked before the bus", &arguments_are_checked_before_the_bus},

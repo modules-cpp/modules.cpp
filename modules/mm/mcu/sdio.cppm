@@ -56,7 +56,8 @@ export namespace mm::mcu {
 // since a card may start sending before its response has ended. A multiple
 // read is the caller's to stop with CMD12. data must be whole blocks of
 // block_size, at most sdio_read_blocks_at_least of them unless the platform
-// says otherwise.
+// says otherwise, and start on a four-byte boundary, so a platform can move
+// it by DMA in words; BadArgument otherwise.
 [[nodiscard]] inline Status sdio_read(unsigned int instance, unsigned int index,
                                       std::uint32_t argument, std::uint32_t& response,
                                       std::span<std::byte> data, unsigned int block_size) {

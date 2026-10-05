@@ -109,7 +109,8 @@ int mm_pico_mcu_pulse_release(unsigned int instance);
 // line, and four data lines from data0_pin, within one 32-GPIO window. width
 // must be 4. Commands are framed and their responses checked here; words
 // receive a short response's bits 39 to 8 or a long one's 127 to 0. Blocks
-// are 512 bytes, a read at most eight of them, each checked against its
+// are 512 bytes, a read at most eight of them into a four-byte-aligned
+// buffer, each checked against its
 // CRC16 on every line; a write's blocks are each answered by the card's CRC
 // status and busy is waited out.
 enum {

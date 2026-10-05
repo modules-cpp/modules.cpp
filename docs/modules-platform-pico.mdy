@@ -288,7 +288,12 @@ family:
   clock as side-set -- one shifts commands out and responses in, one shifts a
   written block out and reads the card's CRC status and busy -- in exactly its
   32 instructions; a third state machine in another block follows the clock,
-  waits for a read block's start bit, and feeds its nibbles to DMA. Lines
+  waits for a read block's start bit, and feeds its nibbles to DMA, which
+  byte-swaps the data words straight into the caller's buffer while a second
+  channel, chained to and from the first, collects each block's CRC words.
+  The adapter is in every Pico program, so the facility holds almost no
+  static RAM: no staging buffer, a sixteen-entry CRC table, and write words
+  computed as they are fed. Lines
   change on a falling edge and are sampled most of a period later, which the
   RP2350's 150 MHz clock makes 25 MHz and the RP2040's 125 MHz 20.8 MHz.
   The four CRC16s of a block are computed as one 64-bit CRC under G(x^4).

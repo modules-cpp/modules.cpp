@@ -112,6 +112,9 @@ private:
     std::uint64_t block_count_ = 0;
     std::uint32_t rca_ = 0;
     unsigned long clock_hz_ = 0;
+    // A block for reads into a buffer the facility cannot take, one not on
+    // a four-byte boundary.
+    alignas(4) std::byte bounce_[512]{};
 };
 
 // A card's capacity in 512-byte blocks from its CSD, sixteen bytes most
