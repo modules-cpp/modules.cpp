@@ -352,6 +352,12 @@ family:
 - interrupts_disable and interrupts_enable are the SDK's
   save_and_disable_interrupts and restore_interrupts on the calling core,
   crossing the private ABI as the core's mask word.
+- I2S is in the image only on boards whose board-table row sets
+  MM_BOARD_HAS_I2S -- rp2350_lcd_154, rp2350_touch_lcd_154, and
+  rp2350_touch_lcd_28, the boards with an audio codec; on every other board
+  each I2S call answers Unsupported and its buffers cost no RAM. Set
+  MM_BOARD_HAS_I2S=1 in CMake or the environment for an I2S device on a
+  board's header.
 - I2S instance zero is the adapter's PIO link, the Pico being its master. A
   clock state machine drives the bit clock and the word clock by side-set --
   so the word clock must be the GPIO after the bit clock, and pins stop at

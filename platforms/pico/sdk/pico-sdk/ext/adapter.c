@@ -40,6 +40,53 @@
 #include "pio_usb.h"
 #endif
 
+// C++ without exceptions. Firmware lanes compile project C++ with
+// -fno-exceptions, but libstdc++'s headers still call its std::__throw_*
+// helpers -- std::string_view::substr past the end calls
+// __throw_out_of_range_fmt -- and the library's own versions of them throw,
+// which links the exception runtime and libgcc's unwinder, the unwinder into
+// RAM. These definitions stand in for every helper libstdc++'s functexcept.o
+// provides, so that member is never linked: each ends the program with the
+// message it would have thrown, which is what libstdc++ itself does when it
+// is built without exceptions. They are C, under the helpers' mangled names,
+// because the bridge compiles this file into every program and the module
+// build gives no other place outside a named module.
+__attribute__((noreturn)) void _ZSt16__throw_bad_castv(void);
+__attribute__((noreturn)) void _ZSt17__throw_bad_allocv(void);
+__attribute__((noreturn)) void _ZSt18__throw_bad_typeidv(void);
+__attribute__((noreturn)) void _ZSt21__throw_bad_exceptionv(void);
+__attribute__((noreturn)) void _ZSt28__throw_bad_array_new_lengthv(void);
+__attribute__((noreturn)) void _ZSt19__throw_logic_errorPKc(const char* what);
+__attribute__((noreturn)) void _ZSt19__throw_range_errorPKc(const char* what);
+__attribute__((noreturn)) void _ZSt20__throw_domain_errorPKc(const char* what);
+__attribute__((noreturn)) void _ZSt20__throw_length_errorPKc(const char* what);
+__attribute__((noreturn)) void _ZSt20__throw_out_of_rangePKc(const char* what);
+__attribute__((noreturn)) void _ZSt21__throw_runtime_errorPKc(const char* what);
+__attribute__((noreturn)) void _ZSt22__throw_overflow_errorPKc(const char* what);
+__attribute__((noreturn)) void _ZSt23__throw_underflow_errorPKc(const char* what);
+__attribute__((noreturn)) void _ZSt24__throw_invalid_argumentPKc(const char* what);
+__attribute__((noreturn)) void _ZSt24__throw_out_of_range_fmtPKcz(const char* what, ...);
+
+static void __attribute__((noreturn)) mm_pico_cxx_abort(const char* what) {
+    panic("C++ library error: %s", what != NULL ? what : "");
+}
+
+void _ZSt16__throw_bad_castv(void) { mm_pico_cxx_abort("std::bad_cast"); }
+void _ZSt17__throw_bad_allocv(void) { mm_pico_cxx_abort("std::bad_alloc"); }
+void _ZSt18__throw_bad_typeidv(void) { mm_pico_cxx_abort("std::bad_typeid"); }
+void _ZSt21__throw_bad_exceptionv(void) { mm_pico_cxx_abort("std::bad_exception"); }
+void _ZSt28__throw_bad_array_new_lengthv(void) { mm_pico_cxx_abort("std::bad_array_new_length"); }
+void _ZSt19__throw_logic_errorPKc(const char* what) { mm_pico_cxx_abort(what); }
+void _ZSt19__throw_range_errorPKc(const char* what) { mm_pico_cxx_abort(what); }
+void _ZSt20__throw_domain_errorPKc(const char* what) { mm_pico_cxx_abort(what); }
+void _ZSt20__throw_length_errorPKc(const char* what) { mm_pico_cxx_abort(what); }
+void _ZSt20__throw_out_of_rangePKc(const char* what) { mm_pico_cxx_abort(what); }
+void _ZSt21__throw_runtime_errorPKc(const char* what) { mm_pico_cxx_abort(what); }
+void _ZSt22__throw_overflow_errorPKc(const char* what) { mm_pico_cxx_abort(what); }
+void _ZSt23__throw_underflow_errorPKc(const char* what) { mm_pico_cxx_abort(what); }
+void _ZSt24__throw_invalid_argumentPKc(const char* what) { mm_pico_cxx_abort(what); }
+void _ZSt24__throw_out_of_range_fmtPKcz(const char* what, ...) { mm_pico_cxx_abort(what); }
+
 // The vendor surface: ext.pico, for code that wants Pico SDK specifically.
 
 static int mm_pico_stdio_attempted;
@@ -948,6 +995,7 @@ int mm_pico_mcu_ticks_us(unsigned long* ticks) {
     return MM_PICO_MCU_OK;
 }
 
+#if MM_BOARD_HAS_I2S
 // I2S over PIO and DMA. One link, instance zero, the RP2350's and RP2040's
 // only form of I2S, since neither has the peripheral.
 //
@@ -1461,6 +1509,52 @@ int mm_pico_mcu_i2s_release(unsigned int instance) {
     mm_pico_i2s_release_all();
     return MM_PICO_MCU_OK;
 }
+
+#else
+// This board's table row leaves I2S out (MM_BOARD_HAS_I2S is 0): no PIO
+// programs and none of the link's DMA blocks and rings, about 5 KB of static
+// RAM, in the image. Every call answers Unsupported; releasing is Ok.
+int mm_pico_mcu_i2s_configure(unsigned int instance, unsigned int bit_clock,
+                              unsigned int word_clock, int has_transmit, unsigned int transmit,
+                              int has_receive, unsigned int receive, unsigned long rate_hz,
+                              unsigned int slot_bits) {
+    (void)instance; (void)bit_clock; (void)word_clock; (void)has_transmit; (void)transmit;
+    (void)has_receive; (void)receive; (void)rate_hz; (void)slot_bits;
+    return MM_PICO_MCU_UNSUPPORTED;
+}
+int mm_pico_mcu_i2s_rate(unsigned int instance, unsigned long long* numerator,
+                         unsigned long long* denominator) {
+    (void)instance; (void)numerator; (void)denominator;
+    return MM_PICO_MCU_UNSUPPORTED;
+}
+int mm_pico_mcu_i2s_start(unsigned int instance, int receive) {
+    (void)instance; (void)receive;
+    return MM_PICO_MCU_UNSUPPORTED;
+}
+int mm_pico_mcu_i2s_write(unsigned int instance, const uint32_t* words, size_t frames,
+                          size_t* accepted) {
+    (void)instance; (void)words; (void)frames; (void)accepted;
+    return MM_PICO_MCU_UNSUPPORTED;
+}
+int mm_pico_mcu_i2s_read(unsigned int instance, uint32_t* words, size_t frames,
+                         size_t* count) {
+    (void)instance; (void)words; (void)frames; (void)count;
+    return MM_PICO_MCU_UNSUPPORTED;
+}
+int mm_pico_mcu_i2s_progress(unsigned int instance, int receive,
+                             unsigned long long* completed, size_t* queued,
+                             unsigned long* missed) {
+    (void)instance; (void)receive; (void)completed; (void)queued; (void)missed;
+    return MM_PICO_MCU_UNSUPPORTED;
+}
+int mm_pico_mcu_i2s_stop(unsigned int instance, int receive) {
+    (void)instance; (void)receive;
+    return MM_PICO_MCU_UNSUPPORTED;
+}
+int mm_pico_mcu_i2s_release(unsigned int instance) {
+    return instance == 0 ? MM_PICO_MCU_OK : MM_PICO_MCU_UNSUPPORTED;
+}
+#endif  // MM_BOARD_HAS_I2S
 
 // A one-wire pulse-width-coded output over PIO, the WS2812's transport. One
 // state machine an instance runs four instructions, each bit taking t3 ticks

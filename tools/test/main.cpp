@@ -113,7 +113,14 @@ int main(int argc, char** argv) {
         std::cerr << "test: target lane is not configured\n";
         return mm::build::exit_manifest;
     }
-    const auto& toolchain = *toolchain_ptr;
+    // A firmware lane compiles without exceptions and RTTI, and mm.test
+    // reports a failed expectation by throwing, so a test build turns both
+    // back on.
+    // Every module of a test is compiled here with these same flags, so the
+    // module interfaces agree.
+    auto toolchain = *toolchain_ptr;
+    if (toolchain.compiler.arguments.find("-fno-exceptions") != std::string::npos)
+        toolchain.compiler.arguments += " -fexceptions -frtti -funwind-tables";
     const auto build_dir = *lane_directory / "tests" / name;
     const auto* platform = target_lane ? configuration.configured_target_platform()
                                        : &configuration.host_platform();

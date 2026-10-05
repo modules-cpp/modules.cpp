@@ -252,8 +252,20 @@ bytes over the total flash ceiling, 31,112 over the incremental one, and
 adapter's pools, sized per board by the board table's MM_BOARD_LFS_*
 columns, are about 4.5 KB of the RAM at the default of one volume, four
 files, and two directories; they were about 9 KB before the columns
-existed. The ceilings are unchanged here; whether to raise them for
-the file-capable shell or to shrink littlefs's pools is an open decision.
+existed.
+
+Since then the shell's storage moved out of the flash image, firmware lanes
+dropped exception and RTTI support, and I2S is compiled only for boards with
+audio, and the shell with littlefs at /data meets all three RP2040 ceilings
+again:
+
+Opening fence
+lane          build                     shell flash  control flash  delta flash  shell RAM
+RP2040        mcu-shell, littlefs /data      193996          60204       133792      64616
+RP2350 Arm    mcu-shell, littlefs /data      184500          56756       127744      65088
+Closing fence
+
+drafts/mcu-shell-size-fixes.mdy records the analysis and each change.
 
 # Foundation API
 

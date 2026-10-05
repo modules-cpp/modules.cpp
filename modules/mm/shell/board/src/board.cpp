@@ -95,7 +95,6 @@ struct Memory {
     mm::shell::SyntaxLink script_links[96]{};
     mm::shell::ParserFrame script_context[16]{};
 
-    mm::shell::CommandDescriptor commands[command_slots]{};
     char staged_out[512]{};
     char staged_err[256]{};
     // RP2350B exposes up to 48 named GPIO/PWM entries: 256 is too small.
@@ -104,7 +103,13 @@ struct Memory {
     std::byte console_input[64]{};
 };
 
+// Every member of Memory starts as zeros, so it is placed in .bss and costs
+// no flash. CommandDescriptor's default command class is not zero, which
+// would give the whole block an initial image in .data -- about 40 KB of
+// flash copied at boot -- so the descriptors live apart, the only part of
+// the shell's storage with one.
 Memory memory;
+mm::shell::CommandDescriptor commands[command_slots]{};
 
 [[nodiscard]] mm::shell::EvaluatorStorage evaluator_storage(
     mm::shell::FunctionLibrary& functions,
@@ -157,7 +162,7 @@ int run(const Extras& extras) {
     mm::shell::IoServices io{console.sink(), console.sink()};
     mm::shell::CommandContext context{
         io, state, active, memory.transaction};
-    mm::shell::Registry registry{memory.commands};
+    mm::shell::Registry registry{commands};
     mm::shell::FunctionLibrary functions{{
         memory.function_slots, memory.function_text,
         memory.function_tokens, memory.function_fragments,

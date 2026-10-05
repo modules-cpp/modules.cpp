@@ -85,6 +85,10 @@ void mm_pico_lfs_set_clock(uint64_t (*now)(void)) { mm_pico_lfs_clock = now; }
 
 // littlefs's errors, except that an I/O error the device itself explained is
 // reported as the device's own answer -- a timeout stays a timeout.
+// Never inlined: at -O3, which the bridge's release build uses, each inlined
+// copy of this switch carried its own 85-entry jump table, and the adapter's
+// thirty-odd callers made that about 11 KB of flash.
+__attribute__((noinline))
 static int mm_pico_lfs_status(const mm_pico_lfs_volume_t* volume, int error) {
     switch (error) {
         case LFS_ERR_OK: return MM_PICO_LFS_OK;

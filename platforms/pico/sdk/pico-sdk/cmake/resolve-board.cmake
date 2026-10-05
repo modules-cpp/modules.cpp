@@ -115,6 +115,28 @@ if(NOT MM_BOARD_FLASH_REGION_REMAINDER EQUAL 0)
     "erase sectors, not ${MM_BOARD_FLASH_REGION_BYTES}")
 endif()
 
+# Whether the adapter carries mm.mcu's I2S link: its PIO programs and the DMA
+# blocks and rings of both directions, about 5 KB of static RAM in every
+# program, so only boards with an audio codec carry it. Elsewhere every I2S
+# call answers Unsupported. MM_BOARD_HAS_I2S given to CMake or in the
+# environment takes precedence, for an I2S device on a board's header.
+set(MM_BOARD_HAS_I2S_DEFAULT 0)
+if(MM_BOARD STREQUAL "rp2350_lcd_154" OR
+   MM_BOARD STREQUAL "rp2350_touch_lcd_154" OR
+   MM_BOARD STREQUAL "rp2350_touch_lcd_28")
+  set(MM_BOARD_HAS_I2S_DEFAULT 1)
+endif()
+if(NOT DEFINED MM_BOARD_HAS_I2S)
+  if(DEFINED ENV{MM_BOARD_HAS_I2S})
+    set(MM_BOARD_HAS_I2S $ENV{MM_BOARD_HAS_I2S})
+  else()
+    set(MM_BOARD_HAS_I2S ${MM_BOARD_HAS_I2S_DEFAULT})
+  endif()
+endif()
+if(NOT MM_BOARD_HAS_I2S MATCHES "^[01]$")
+  message(FATAL_ERROR "MM_BOARD_HAS_I2S must be 0 or 1, not '${MM_BOARD_HAS_I2S}'")
+endif()
+
 # littlefs's pools: volumes attached at once, and files and directories open
 # at once across them. Every pool entry is static RAM in every program that
 # links littlefs -- about 770 bytes a volume, 650 a file, and 590 a directory

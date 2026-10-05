@@ -416,6 +416,15 @@ void compiler_workarounds() {
            "an unknown version adds nothing");
     expect(compiler_workaround_flags(CompilerFamily::Clang, "14.0.0").empty(),
            "the defects are GCC's, not clang's");
+    using mm::configure::firmware_compile_flags;
+    using mm::configure::PlatformSystem;
+    expect(firmware_compile_flags(PlatformSystem::BareMetal) ==
+               "-fno-exceptions -fno-rtti -fno-unwind-tables -fno-asynchronous-unwind-tables",
+           "a bare-metal lane compiles without exceptions, RTTI, or unwind tables");
+    expect(firmware_compile_flags(PlatformSystem::Linux).empty() &&
+               firmware_compile_flags(PlatformSystem::Posix).empty() &&
+               firmware_compile_flags(PlatformSystem::Unknown).empty(),
+           "every other system keeps them");
     using mm::configure::host_feature_flags;
     expect(host_feature_flags("x86_64-pc-cygwin") == "-D_GNU_SOURCE",
            "a Cygwin or MSYS2 host asks newlib for POSIX");

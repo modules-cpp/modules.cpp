@@ -114,6 +114,16 @@ struct CompilerRequest {
 [[nodiscard]] std::string_view compiler_workaround_flags(CompilerFamily family,
                                                          std::string_view version);
 
+// Compile flags a firmware lane adds: on a bare-metal target, where project
+// code throws no exception and asks no type at run time
+// (docs/modules-c++20.mdy), -fno-exceptions, -fno-rtti, and no unwind tables,
+// which otherwise cost every image its .ARM.extab and .ARM.exidx tables and
+// link libgcc's unwinder -- into RAM on Pico -- through libstdc++'s exception
+// and type-info objects; nothing on any other system. The test tool turns
+// exceptions and RTTI back on for its own builds, since mm.test reports a
+// failed expectation by throwing.
+[[nodiscard]] std::string_view firmware_compile_flags(PlatformSystem system);
+
 // Compile flags a host C library needs to expose POSIX under -std=c++20, and
 // nothing otherwise. glibc's g++ predefines _GNU_SOURCE; the Cygwin and MSYS2
 // drivers do not, and their newlib then hides popen, setenv, O_CLOEXEC, and
