@@ -86,6 +86,8 @@ platforms/pico/sdk/pico-sdk/upstream/
 platforms/pico/sdk/pico-sdk/pio-usb/upstream/
 platforms/pico/sdk/pico-sdk/littlefs/upstream/
 platforms/pico/sdk/pico-sdk/fatfs/upstream/
+platforms/linux/littlefs/upstream/
+platforms/linux/fatfs/upstream/
 
 # locally installed Pico SDK tools (compiler, picotool, OpenOCD, and pioasm)
 platforms/pico/pico-sdk/

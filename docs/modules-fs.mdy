@@ -15,10 +15,11 @@ authority as the other specifications. This document specifies mm.fs, the
 portable file interface; mm.fs.conformance, the checks every volume is held
 to; the mount interfaces mm.fs.local and mm.fs.native; and platform.linux.fs,
 their Linux provider; mm.fs.littlefs and platform.pico.fs.littlefs, littlefs
-on Pico; mm.fs.fat and platform.pico.fs.fat, FAT on Pico. All exist and are
-tested; mm.fs and mm.fs.conformance build for every target. What remains is
-planned in drafts/plan-mm-fs-5.mdy, which this document does not make
-official.
+on Pico; mm.fs.fat and platform.pico.fs.fat, FAT on Pico; and
+platform.linux.fs.littlefs and platform.linux.fs.fat, littlefs and FAT on
+Linux, an independent second path. All exist and are tested; mm.fs and
+mm.fs.conformance build for every target. What remains is planned in
+drafts/plan-mm-fs-7.mdy, which this document does not make official.
 
 # What mm.fs is
 
@@ -156,8 +157,8 @@ never handed to its provider.
 
 Opening fence
 SDK            mm.fs.local                mm.fs.native       mm.fs.littlefs             mm.fs.fat
-linux-x86_64   platform.linux.fs          platform.linux.fs  (none)                     (none)
-linux-aarch64  platform.linux.fs          platform.linux.fs  (none)                     (none)
+linux-x86_64   platform.linux.fs          platform.linux.fs  platform.linux.fs.littlefs platform.linux.fs.fat
+linux-aarch64  platform.linux.fs          platform.linux.fs  platform.linux.fs.littlefs platform.linux.fs.fat
 pico-arm       platform.pico.fs.littlefs  (none)             platform.pico.fs.littlefs  platform.pico.fs.fat
 pico-riscv     platform.pico.fs.littlefs  (none)             platform.pico.fs.littlefs  platform.pico.fs.fat
 Closing fence
@@ -326,6 +327,42 @@ its FAT volume at "/usb", runs the conformance checks, and unmounts; it never
 formats, and skips without storage or a drive. scripts/build-fat.sh builds
 it, by default for pico2_usb_host.
 
+# littlefs and FAT on Linux
+
+The Linux SDKs bind mm.fs.littlefs to platform.linux.fs.littlefs and
+mm.fs.fat to platform.linux.fs.fat, Linux's own littlefs and FatFs. They are
+a second path beside Pico's, independent of it: their own checkouts,
+adapters, configuration, and providers, under platforms/linux/littlefs and
+platforms/linux/fatfs, and nothing shared with platforms/pico but the mount
+interfaces above them and the conformance checks below. Each tree is a
+library with C sources (docs/modules-libraries.mdy) that mm.build compiles
+for a program reaching its provider; on Pico the SDK bridge compiles Pico's
+trees, and neither path reads the other's files.
+
+Opening fence
+                Pico                                     Linux
+littlefs        platforms/pico/sdk/pico-sdk/littlefs     platforms/linux/littlefs
+  pin           v2.11.3, commit 6cb4e865...                v2.11.3, commit 6cb4e865...
+  provider      platform.pico.fs.littlefs                platform.linux.fs.littlefs
+  ABI prefix    mm_pico_lfs_                             mm_linux_lfs_
+FatFs           platforms/pico/sdk/pico-sdk/fatfs        platforms/linux/fatfs
+  pin           R0.16, ff16.zip SHA-256 99f7dc1f...449e  R0.16, ff16.zip SHA-256 99f7dc1f...449e
+  provider      platform.pico.fs.fat                     platform.linux.fs.fat
+  ABI prefix    mm_pico_fat_                             mm_linux_fat_
+compiled by     the Pico SDK bridge                      mm.build, from library C sources
+Closing fence
+
+The pins start equal and each vendor.sh moves its own; this table records
+both, and the CHANGELOG says when they part. The Linux adapters, ffconf.h,
+and providers began as copies of Pico's with the ABI prefix renamed and are
+Linux's to change. The Linux providers mount on any device: on the
+storage-linux board, FAT on the emulated SD card through mm.sdcard.socket,
+which apps/sd-smoke does unchanged, and littlefs on the emulated flash
+through mm.spiflash; the flash-region image through McuFlash; the map's
+storage entries through McuStorage. mm.fs.local on Linux stays the
+directory. scripts/test-littlefs.sh and scripts/test-fatfs.sh run each
+tree's native harness, --tree pico, linux, or both.
+
 # Conformance
 
 mm.fs.conformance::run(prefix, report) runs the contract as 25 checks inside
@@ -365,3 +402,12 @@ symlinks stay inside the root, that a read-only volume refuses every write,
 that roots are checked, that mm.fs.local mounts the working directory, the
 directory.N map keys, and the errc table. Dropping the provider's rename
 target check makes the Linux conformance run fail on exactly that check.
+
+tests/mm/linux also runs the conformance checks over Linux's littlefs on a
+RAM flash device and on the emulated W25Q through mm.spiflash -- requiring
+the chip's counts of unerased programs, programs without write enable, and
+commands while busy to stay zero -- and over Linux's FAT on a RAM disk and
+on the emulated SD card through mm.sdcard; checks that a blank or
+unformatted device is Corrupt and left alone, that a volume outlives its
+image file, and, where dosfstools is installed, that the emulated card mounts
+an image mkfs.fat made and leaves it clean for fsck.fat.

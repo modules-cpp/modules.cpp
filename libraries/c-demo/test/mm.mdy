@@ -1,0 +1,9 @@
+---
+mm: 1.2
+kind: test
+name: library-c-demo
+use: mm.test
+use: lib.cdemo
+unit: libraries/c-demo/test/cdemo.cpp
+unit: tests/main.cpp
+---

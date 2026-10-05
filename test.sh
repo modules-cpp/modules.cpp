@@ -256,6 +256,7 @@ case "$(uname -s)" in
         ;;
 esac
 run_test_target libraries/demo/test/ || exit $?
+run_test_target libraries/c-demo/test/ || exit $?
 run_test_target tests/target/board/ || exit $?
 run_test_target tests/target/mcu-provider/ || exit $?
 run_test_target tests/target/rp2040/ || exit $?

@@ -15,6 +15,7 @@
 #include <cstddef>
 #include <filesystem>
 #include <iostream>
+#include <map>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -268,6 +269,7 @@ int main(int argc, char** argv) {
 
     const auto binary = build_dir / name;
 
+    std::map<std::string, std::vector<std::filesystem::path>> library_objects;
     std::cout << "\nLink\n  " << binary.string() << "\n";
 
     if (!mm::build::can_link_executable(platform, "test", name))
@@ -283,8 +285,15 @@ int main(int argc, char** argv) {
         const auto& bo = context.board_objects(board->name);
         objects.insert(objects.end(), bo.begin(), bo.end());
     }
-    if (platform != nullptr &&
-        platform->link_ownership == mm::configure::LinkOwnership::External) {
+    const bool external_link =
+        platform != nullptr &&
+        platform->link_ownership == mm::configure::LinkOwnership::External;
+    if (const int status = mm::build::library_c_objects(
+            ".", project.libraries, tree, reached, toolchain, context, external_link,
+            library_objects, objects, "test");
+        status != mm::build::exit_ok)
+        return status;
+    if (external_link) {
         if (const int status = mm::build::external_link(
                 project, *platform, toolchain, name, objects, context, binary,
                 verbose);

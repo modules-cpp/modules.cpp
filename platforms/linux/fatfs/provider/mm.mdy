@@ -1,0 +1,29 @@
+---
+mm: 1.2
+kind: module
+name: linux-fs-fat
+module: platform.linux.fs.fat
+use: mm.fs
+use: mm.fs.fat
+library: linux-fatfs
+file: fat.cppm
+file: src/fat.cpp
+---
+
+# platform.linux.fs.fat
+
+mm.fs.fat on the Linux SDKs, over Linux's own FatFs R0.16: the linux-fatfs
+library, which mm.build compiles from its C sources for a program that
+reaches this provider. FAT on any 512-byte BlockDevice -- the storage-linux
+board's emulated SD card through mm.sdcard.socket, a disk or image named by
+the device map's storage entries through mm.fs's McuStorage, a device in a
+test.
+
+It is the platform.pico.fs.fat pattern, kept independent of it: this module
+includes only the project-owned ABI header, fat-c.h, through its C++ shim,
+and the C adapter beside it, adapter.c, includes FatFs and supplies its disk
+I/O layer. The adapter keeps mm.fs's Volume rules in C, where the native
+harness exercises them; this module maps statuses, paths, and formats across
+the ABI and adapts a BlockDevice to the adapter's device record. Two volumes
+may be attached at once, with eight open files and four open directories
+between them.

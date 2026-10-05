@@ -24,6 +24,8 @@ folder: sdl-x86_64
 folder: epaper
 folder: lcd
 folder: storage
+folder: littlefs
+folder: fatfs
 folder: libusb
 folder: usb/device
 ---

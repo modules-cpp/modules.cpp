@@ -699,19 +699,20 @@ void parse_unit_splits_path_and_module_name() {
 }
 
 void version_rule_table_drives_the_supported_versions_string() {
-    expect(std::size(mm::build::manifest_versions) == 4, "four versions are supported");
+    expect(std::size(mm::build::manifest_versions) == 5, "five versions are supported");
     expect(!mm::build::manifest_versions[0].rejects_unknown_keys,
            "1.0 predates strict key checking");
     for (std::size_t i = 1; i < std::size(mm::build::manifest_versions); ++i)
         expect(mm::build::manifest_versions[i].rejects_unknown_keys,
                "later versions reject unknown keys");
-    expect(mm::build::supported_manifest_versions() == "1.0, 1.1, 1.2, 1.3",
+    expect(mm::build::supported_manifest_versions() == "1.0, 1.1, 1.2, 1.3, 1.4",
            "the supported string lists every version in order");
     const auto* v12 = mm::build::manifest_version("1.2");
     expect(v12 != nullptr && v12->number == 12, "a version name finds its rule");
     expect(mm::build::manifest_version("9.9") == nullptr,
            "an unknown version finds no rule");
-    expect(std::string(mm::build::manifest_version_name(13)) == "1.3",
+    expect(std::string(mm::build::manifest_version_name(13)) == "1.3" &&
+               std::string(mm::build::manifest_version_name(14)) == "1.4",
            "a version number spells its name");
     expect(std::string(mm::build::manifest_version_name(-1)) == "unknown",
            "a foreign number spells unknown");

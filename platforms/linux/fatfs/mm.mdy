@@ -1,0 +1,32 @@
+---
+mm: 1.4
+kind: library
+name: linux-fatfs
+source: upstream
+licence: LICENSE.txt
+c-source: upstream/source/ff.c
+c-source: upstream/source/ffunicode.c
+c-source: adapter.c
+c-strict: adapter.c
+c-include: .
+c-include: upstream/source
+c-option: -include ffconf.h
+folder: provider
+---
+
+# FatFs on Linux
+
+Linux's own FatFs: ChaN's R0.16 archive, which vendor.sh fetches, checks
+against its pinned SHA-256, and unpacks into upstream/; the project's
+ffconf.h, forced into every file with -include so the checkout is never
+edited; the project-owned adapter.c over it; and platform.linux.fs.fat, the
+provider the Linux SDKs bind for mm.fs.fat. mm.build compiles ff.c,
+ffunicode.c, and the adapter -- the adapter with warnings as errors -- for a
+program that reaches the provider, and links them into it.
+
+It is independent of the Pico path, platforms/pico/sdk/pico-sdk/fatfs, which
+the Pico SDK bridge compiles: its own archive, configuration, adapter, and
+provider, so either can change without the other. Both start at R0.16 with
+the same configuration; mm.fs.conformance checks both against one contract.
+The adapter's ABI is prefixed mm_linux_fat_ where the Pico one's is
+mm_pico_fat_.

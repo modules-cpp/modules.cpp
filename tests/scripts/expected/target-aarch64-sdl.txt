@@ -8,6 +8,8 @@ build-target: dry run
   provider platform.linux.defaults 0
   provider platform.linux.display 0
   provider platform.linux.fs 0
+  provider platform.linux.fs.fat 0
+  provider platform.linux.fs.littlefs 0
   provider platform.linux.generic_aarch64.map 1
   provider platform.linux.imu 0
   provider platform.linux.mcu 1

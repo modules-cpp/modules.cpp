@@ -95,6 +95,24 @@ All notable changes to modules.cpp. Versions follow [semantic versioning](https:
   read. `apps/socket-smoke` and `scripts/build-socket.sh` round-trip the
   socket's last block; `--board storage-linux` selects it on any Linux machine. See
   `docs/modules-linux-storage.mdy`.
+- **Library C sources, manifest version 1.4.** A library may declare
+  `c-source`, `c-strict`, `c-include`, and `c-option`: C files `mm.build`
+  compiles with the lane's C compiler and links into every executable that
+  reaches a module naming the library, once per library, project-owned glue
+  with warnings as errors. A lane an external bridge links refuses them.
+  `libraries/c-demo` is the fixture and a new suite. See
+  `docs/modules-libraries.mdy`.
+- **littlefs and FAT on Linux, independent of Pico.** Linux's own littlefs
+  v2.11.3 and FatFs R0.16 under `platforms/linux/littlefs` and
+  `platforms/linux/fatfs` -- their own `vendor.sh`, adapters, `ffconf.h`,
+  and providers, `platform.linux.fs.littlefs` and `platform.linux.fs.fat`,
+  which the Linux SDKs bind for `mm.fs.littlefs` and `mm.fs.fat`. Pico's
+  trees, providers, and bridge blocks are unchanged. Both pass the 25
+  conformance checks on Linux, littlefs through `mm.spiflash` on the emulated
+  flash and FAT through `mm.sdcard` on the emulated card, and `apps/sd-smoke`
+  runs unchanged on `storage-linux` against a `mkfs.fat` image.
+  `scripts/test-littlefs.sh` and `scripts/test-fatfs.sh` take
+  `--tree pico|linux|both`.
 - **`mm.spiflash`.** A W25Q-family SPI NOR flash chip over `mm.mcu` SPI as an
   `mm.fs` flash device: identified by JEDEC ID, 64 KiB to 16 MiB, page
   programs and 4 KiB or 64 KiB erases behind write enable and BUSY polling,

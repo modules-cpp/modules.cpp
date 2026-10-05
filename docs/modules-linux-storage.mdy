@@ -17,9 +17,9 @@ platforms/linux/storage: a virtual SD card in SPI mode and a virtual
 W25Q-family SPI NOR flash on one SPI bus, each keeping its contents in an
 image file. They exist, mm.sdcard and mm.spiflash are tested against them,
 and apps/socket-smoke runs on them. FAT on the card and littlefs on the flash
-need FatFs and littlefs compiled for Linux, which is stage 8 of
-drafts/plan-mm-fs-5.mdy; until then mm.fs.fat and mm.fs.littlefs are unbound
-on these boards, and a program reaching them is unavailable there.
+run through Linux's own FatFs and littlefs, platform.linux.fs.fat and
+platform.linux.fs.littlefs, which the board inherits from its SDK:
+apps/sd-smoke, unchanged, passes the conformance checks on sdcard.img.
 
 docs/modules-sdcard.mdy and docs/modules-spiflash.mdy own the drivers;
 docs/modules-platform-linux.mdy owns the device map keys.
@@ -154,6 +154,18 @@ release (0xB9, 0xAB), and reset enable then reset (0x66, 0x99).
   one, and any command but a status read meanwhile is ignored and counted
   (busy_violations), so a driver that never polls is caught.
 - In power-down only release power-down is answered.
+
+# apps/sd-smoke
+
+Opening fence
+mkfs.fat -F 32 -C sdcard.img 65536
+sh scripts/build-sd.sh --board storage-linux --run
+Closing fence
+
+mounts the card's FAT volume at /sd through mm.sdcard.socket and Linux's
+FatFs and runs the conformance checks in a scratch directory: sd-smoke: 25
+passed, 0 failed. It never formats, so a zero-filled image exits 2; make one
+with mkfs.fat first.
 
 # apps/socket-smoke
 

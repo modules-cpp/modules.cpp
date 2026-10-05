@@ -6,6 +6,8 @@ build-linux: dry run
   provider platform.linux.defaults 1
   provider platform.linux.display 1
   provider platform.linux.fs 0
+  provider platform.linux.fs.fat 0
+  provider platform.linux.fs.littlefs 0
   provider platform.linux.imu 1
   provider platform.linux.mcu 1
   provider platform.linux.rtc 1
@@ -15,6 +17,8 @@ build-linux: dry run
   control provider platform.linux.defaults 0
   control provider platform.linux.display 0
   control provider platform.linux.fs 0
+  control provider platform.linux.fs.fat 0
+  control provider platform.linux.fs.littlefs 0
   control provider platform.linux.imu 0
   control provider platform.linux.mcu 0
   control provider platform.linux.rtc 0

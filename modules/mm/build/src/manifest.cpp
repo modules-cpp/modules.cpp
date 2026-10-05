@@ -996,6 +996,100 @@ bool library_interface_paths(const std::filesystem::path& root, const ManifestNo
     return true;
 }
 
+// The C sources a library compiles, introduced at mm: 1.4. Every path is
+// relative to the manifest and may not leave its directory. A file outside
+// source is project-owned glue and must exist now; one inside source is
+// foreign and is checked when the library is used, since its checkout may be
+// absent. c-strict marks glue, never foreign code.
+bool library_c_sources(const std::filesystem::path& root, const ManifestNode& node,
+                       const mm::mdy::MDYDocument& doc, LibraryDefinition& library,
+                       std::string_view tool) {
+    const auto local = [&](std::string_view key, const std::string& value,
+                           std::filesystem::path& out) {
+        const std::filesystem::path raw(value);
+        const auto normalized = raw.lexically_normal();
+        if (raw.empty() || raw.is_absolute() || normalized.empty() ||
+            *normalized.begin() == "..") {
+            std::cerr << tool << ": " << node.manifest.string() << ": unsafe " << key << ": "
+                      << value << "\n";
+            return false;
+        }
+        out = relative_to_root(
+            root, absolute_from_root(root, (node.dir / normalized).lexically_normal()));
+        return true;
+    };
+    const auto absolute_source = absolute_from_root(root, library.source);
+
+    for (const auto& value : all(doc, "c-source")) {
+        std::filesystem::path path;
+        if (!local("c-source", value, path)) return false;
+        if (path.extension() != ".c") {
+            std::cerr << tool << ": " << node.manifest.string()
+                      << ": c-source is not a .c file: " << value << "\n";
+            return false;
+        }
+        for (const auto& existing : library.c_sources)
+            if (existing.path == path) {
+                std::cerr << tool << ": " << node.manifest.string()
+                          << ": c-source named twice: " << value << "\n";
+                return false;
+            }
+        const auto absolute = absolute_from_root(root, path);
+        if (!path_within(absolute_source, absolute)) {
+            std::error_code ec;
+            if (!std::filesystem::is_regular_file(absolute, ec) || ec) {
+                std::cerr << tool << ": " << node.manifest.string()
+                          << ": c-source does not exist: " << value << "\n";
+                return false;
+            }
+        }
+        library.c_sources.push_back({path, false});
+    }
+    for (const auto& value : all(doc, "c-strict")) {
+        std::filesystem::path path;
+        if (!local("c-strict", value, path)) return false;
+        LibraryCSource* match = nullptr;
+        for (auto& source : library.c_sources)
+            if (source.path == path) match = &source;
+        if (match == nullptr) {
+            std::cerr << tool << ": " << node.manifest.string()
+                      << ": c-strict names no c-source: " << value << "\n";
+            return false;
+        }
+        if (path_within(absolute_source, absolute_from_root(root, path))) {
+            std::cerr << tool << ": " << node.manifest.string()
+                      << ": c-strict names foreign source: " << value << "\n";
+            return false;
+        }
+        match->strict = true;
+    }
+    for (const auto& value : all(doc, "c-include")) {
+        std::filesystem::path path;
+        if (!local("c-include", value, path)) return false;
+        library.c_includes.push_back(path);
+    }
+    for (const auto& value : all(doc, "c-option")) {
+        if (value.empty()) {
+            std::cerr << tool << ": " << node.manifest.string() << ": empty c-option\n";
+            return false;
+        }
+        library.c_options.push_back(value);
+    }
+
+    const bool settings = !library.c_includes.empty() || !library.c_options.empty();
+    if (library.c_sources.empty() && settings) {
+        std::cerr << tool << ": " << node.manifest.string()
+                  << ": c-include and c-option require c-source\n";
+        return false;
+    }
+    if (!library.c_sources.empty() && !library.external_build.empty()) {
+        std::cerr << tool << ": " << node.manifest.string()
+                  << ": c-source is not valid with external-build\n";
+        return false;
+    }
+    return true;
+}
+
 bool resolve_board_chains(Project& project, const LoadPolicy& policy) {
     std::map<std::string_view, std::size_t> board_indices;
     for (std::size_t i = 0; i < project.boards.size(); ++i) {
@@ -1429,7 +1523,8 @@ bool parse_definitions(Project& project, const std::filesystem::path& root,
 
             if (!observe_checkout(absolute_source, library.checkout_present,
                                   node.manifest, policy.tool) ||
-                !library_interface_paths(root, node, doc, library, policy.tool))
+                !library_interface_paths(root, node, doc, library, policy.tool) ||
+                !library_c_sources(root, node, doc, library, policy.tool))
                 return false;
 
             const auto duplicate = library_names.find(library.name);

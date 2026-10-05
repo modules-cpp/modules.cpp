@@ -14,6 +14,8 @@ platform-provider: mm.touch platform.linux.touch
 platform-provider: mm.imu platform.linux.imu
 platform-provider: mm.fs.local platform.linux.fs
 platform-provider: mm.fs.native platform.linux.fs
+platform-provider: mm.fs.littlefs platform.linux.fs.littlefs
+platform-provider: mm.fs.fat platform.linux.fs.fat
 ---
 
 # Native x86-64 Linux SDK

@@ -96,7 +96,8 @@ For the selected lane build performs these phases:
 - Compile translation units in declared order.
 - Compile the selected board unit once in this build output tree.
 - Compile the providers the retained executables require, each once.
-- Link retained applications from their transitive object closure, the closures of the providers that closure requires, and the board objects (or delegate linking to the external build bridge when link ownership is external).
+- Compile the C sources of every library a retained executable reaches, each library once, with the lane's C compiler (docs/modules-libraries.mdy, C sources); refuse them on an external-link lane.
+- Link retained applications from their transitive object closure, the closures of the providers that closure requires, the board objects, and the reached libraries' C objects (or delegate linking to the external build bridge when link ownership is external).
 - Install eligible host applications.
 
 Unknown modules and dependency cycles are manifest errors. Compile and link failures stop the pipeline immediately.

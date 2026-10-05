@@ -1,0 +1,29 @@
+---
+mm: 1.2
+kind: module
+name: linux-fs-littlefs
+module: platform.linux.fs.littlefs
+use: mm.fs
+use: mm.fs.littlefs
+library: linux-littlefs
+file: littlefs.cppm
+file: src/littlefs.cpp
+---
+
+# platform.linux.fs.littlefs
+
+mm.fs.littlefs on the Linux SDKs, over Linux's own littlefs: the
+linux-littlefs library, which mm.build compiles from its C sources for a
+program that reaches this provider. It mounts littlefs on any mm.fs
+FlashDevice -- the storage-linux board's emulated W25Q through mm.spiflash,
+the flash-region image through mm::fs::McuFlash, a device in a test -- and
+formats one on request. mm.fs.local on Linux stays platform.linux.fs, a
+directory of the host.
+
+It is the platform.pico.fs.littlefs pattern, kept independent of it: this
+module includes only the project-owned ABI header, lfs-c.h, through its C++
+shim, and the C adapter beside it, adapter.c, includes littlefs. The adapter
+keeps mm.fs's Volume rules in C, where the native harness exercises them;
+this module maps statuses and paths across the ABI and adapts mm.fs's
+FlashDevice to the adapter's device record. Two volumes may be attached at
+once, with eight open files and four open directories between them.

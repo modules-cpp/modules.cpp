@@ -37,6 +37,10 @@ use: platform.linux.storage.store
 use: platform.linux.storage.sdcard
 use: platform.linux.storage.spiflash
 use: platform.linux.storage.bus
+use: mm.fs.littlefs
+use: platform.linux.fs.littlefs
+use: mm.fs.fat
+use: platform.linux.fs.fat
 unit: tests/mm/linux/epaper.cpp
 unit: tests/mm/linux/lcd.cpp
 unit: tests/mm/linux/map.cpp
@@ -51,6 +55,8 @@ unit: tests/mm/linux/pwm.cpp
 unit: tests/mm/linux/storage.cpp
 unit: tests/mm/linux/fs.cpp
 unit: tests/mm/linux/emulation.cpp
+unit: tests/mm/linux/littlefs.cpp
+unit: tests/mm/linux/fat.cpp
 unit: tests/mm/linux/usb_host.cpp
 unit: tests/mm/linux/usb_device.cpp
 unit: tests/main.cpp
