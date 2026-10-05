@@ -11,6 +11,7 @@ build-pico: dry run
   provider platform.rp2350_touch_lcd_28.display 1
   provider platform.rp2350_touch_lcd_28.imu 0
   provider platform.rp2350_touch_lcd_28.rtc 0
+  provider platform.rp2350_touch_lcd_28.sdcard 0
   provider platform.rp2350_touch_lcd_28.touch 0
   driver mm::lcd::st7789
   no-symbol mm::fonts

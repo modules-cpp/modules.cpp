@@ -283,6 +283,21 @@ family:
 
 - GPIO configure, read, and write use Pico SDK's GPIO API and validate against
   the selected chip's Bank 0 GPIO count.
+- The sdio facility, instance zero, runs an SD card's 4-bit bus over PIO and
+  DMA in ext/adapter.c. One PIO block holds two state machines that share the
+  clock as side-set -- one shifts commands out and responses in, one shifts a
+  written block out and reads the card's CRC status and busy -- in exactly its
+  32 instructions; a third state machine in another block follows the clock,
+  waits for a read block's start bit, and feeds its nibbles to DMA. Lines
+  change on a falling edge and are sampled most of a period later, which the
+  RP2350's 150 MHz clock makes 25 MHz and the RP2040's 125 MHz 20.8 MHz.
+  The four CRC16s of a block are computed as one 64-bit CRC under G(x^4).
+  The six pins may lie anywhere in one 32-GPIO window: the PIO blocks are
+  chosen and their GPIO base set for the range, so the RP2350B's GP30 to GP43
+  work, and the read program reaches the clock relative to D0, whatever the
+  base. The design learned from carlk3's Apache-2.0
+  no-OS-FatFS-SD-SDIO-SPI-RPi-Pico, credited in docs/modules-sdcard.mdy; no
+  code is copied.
 - SPI instances zero and one use Pico SDK hardware_spi with caller-selected
   clock, transmit, and optional receive GPIOs. Configuration validates the
   board inventory, distinct signals, and each RP chip's SPI signal-to-GPIO mux;

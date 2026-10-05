@@ -113,6 +113,18 @@ All notable changes to modules.cpp. Versions follow [semantic versioning](https:
   runs unchanged on `storage-linux` against a `mkfs.fat` image.
   `scripts/test-littlefs.sh` and `scripts/test-fatfs.sh` take
   `--tree pico|linux|both`.
+- **SD cards in 4-bit SD mode: the `mm.mcu` sdio facility and
+  `mm.sdcard::SdioCard`.** A portable SD bus facility -- configure, clock,
+  idle clocks, command, read, write, release, with the platform framing
+  commands, checking response and per-line data CRCs, and waiting out busy --
+  implemented on Pico over PIO and DMA at 25 MHz, and a second card class
+  speaking the SD-mode protocol over it. The RP2350-Touch-LCD-2.8's socket,
+  which hardware SPI cannot reach, gets `platform.rp2350_touch_lcd_28.sdcard`,
+  and both PiZero boards switch from SPI mode to SDIO. The GEEK and LCD 1.54
+  sockets stay in SPI mode. The Pico transport's design learned from carlk3's
+  Apache-2.0 no-OS-FatFS-SD-SDIO-SPI-RPi-Pico, acknowledged in the README and
+  `docs/modules-sdcard.mdy`; no code is copied. Not yet qualified on
+  hardware.
 - **`mm.spiflash`.** A W25Q-family SPI NOR flash chip over `mm.mcu` SPI as an
   `mm.fs` flash device: identified by JEDEC ID, 64 KiB to 16 MiB, page
   programs and 4 KiB or 64 KiB erases behind write enable and BUSY polling,

@@ -9,6 +9,7 @@ use: mm.sdcard
 use: mm.sdcard.socket
 unit: tests/mm/sdcard/card.cpp
 unit: tests/mm/sdcard/sdcard.cpp
+unit: tests/mm/sdcard/sdio.cpp
 unit: tests/main.cpp
 ---
 

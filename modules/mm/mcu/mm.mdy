@@ -16,6 +16,7 @@ file: adc-types.cppm mm.mcu:adc_types
 file: dac-types.cppm mm.mcu:dac_types
 file: pwm-types.cppm mm.mcu:pwm_types
 file: pulse-types.cppm mm.mcu:pulse_types
+file: sdio-types.cppm mm.mcu:sdio_types
 file: flash-region-types.cppm mm.mcu:flash_region_types
 file: storage-types.cppm mm.mcu:storage_types
 file: platform.cppm mm.mcu:platform
@@ -30,6 +31,7 @@ file: adc.cppm mm.mcu:adc
 file: dac.cppm mm.mcu:dac
 file: pwm.cppm mm.mcu:pwm
 file: pulse.cppm mm.mcu:pulse
+file: sdio.cppm mm.mcu:sdio
 file: flash-region.cppm mm.mcu:flash_region
 file: storage.cppm mm.mcu:storage
 file: mcu.cppm mm.mcu
@@ -102,6 +104,16 @@ returns once the reset time has passed, so a device driver above it composes
 bytes and never sees a bit. The timing is the caller's: the device's protocol
 module knows it, and the platform gets as near as its clock allows or answers
 BadArgument. A pad held by a pulse instance is held as an analog claim is.
+
+Sdio is an SD card's native bus: a clock, a command line, and four data lines
+on consecutive GPIOs. It is configure, clock, idle clocks, command, read,
+write, and release. The platform frames commands, checks responses' indexes
+and CRC7s, moves whole blocks with a CRC16 on every data line, reads the
+card's CRC status after each written block, and waits out busy; the card
+protocol -- identification, addresses, capacity -- is mm.sdcard's. read arms
+the data lines before sending its command, because a card may begin a block
+before its response ends. Six pads held by an sdio instance are held as an
+analog claim is.
 
 The flash region is raw flash set aside for data, the way littlefs wants it:
 read anywhere, program only erased bytes in whole program units, erase whole

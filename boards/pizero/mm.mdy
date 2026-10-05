@@ -15,6 +15,7 @@ USB-C sockets, the native port and a PIO-USB port. rp2350_pizero is the
 RP2350-PiZero, and rp2350_pizero_usb_host the same board with its PIO-USB port
 a USB host.
 
-rp2350_pizero binds platform.pizero.sdcard, its TF socket on SPI1 as
-mm.sdcard.socket; modules/mm has no DVI output yet. rp2350_pizero_usb_host
+rp2350_pizero binds platform.pizero.sdcard, its TF socket in 4-bit SD mode
+through mm.sdcard's SdioCard, as mm.sdcard.socket; modules/mm has no DVI output
+yet. rp2350_pizero_usb_host
 inherits the socket and binds platform.pico.usb.host to the PIO-USB port.

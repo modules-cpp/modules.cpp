@@ -268,21 +268,23 @@ void repository_exposes_provider_declarations() {
     mm::test::expect(touch_lcd != nullptr, "expected the RP2350 touch LCD board");
     if (touch_lcd != nullptr) {
         const auto bindings = touch_lcd->platform_providers();
-        mm::test::expect(bindings.size() == 5,
-                         "expected a board to bind five interfaces at once");
+        mm::test::expect(bindings.size() == 6,
+                         "expected a board to bind six interfaces at once");
         bool display = false;
         bool touch = false;
         bool imu = false;
         bool rtc = false;
         bool audio = false;
+        bool socket = false;
         for (const auto& binding : bindings) {
             if (binding.interface_module == "mm.display") display = true;
             if (binding.interface_module == "mm.touch") touch = true;
             if (binding.interface_module == "mm.imu") imu = true;
             if (binding.interface_module == "mm.rtc") rtc = true;
             if (binding.interface_module == "mm.audio") audio = true;
+            if (binding.interface_module == "mm.sdcard.socket") socket = true;
         }
-        mm::test::expect(display && touch && imu && rtc && audio,
+        mm::test::expect(display && touch && imu && rtc && audio && socket,
                          "expected each interface bound exactly once");
     }
 

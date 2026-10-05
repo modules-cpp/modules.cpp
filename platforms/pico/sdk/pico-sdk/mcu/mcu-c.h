@@ -105,6 +105,34 @@ int mm_pico_mcu_pulse_configure(unsigned int instance, unsigned int pin,
 int mm_pico_mcu_pulse_write(unsigned int instance, const unsigned char* data, size_t size);
 int mm_pico_mcu_pulse_release(unsigned int instance);
 
+// An SD card's native bus over PIO and DMA, instance zero: a clock, a command
+// line, and four data lines from data0_pin, within one 32-GPIO window. width
+// must be 4. Commands are framed and their responses checked here; words
+// receive a short response's bits 39 to 8 or a long one's 127 to 0. Blocks
+// are 512 bytes, a read at most eight of them, each checked against its
+// CRC16 on every line; a write's blocks are each answered by the card's CRC
+// status and busy is waited out.
+enum {
+    MM_PICO_MCU_SDIO_NONE = 0,
+    MM_PICO_MCU_SDIO_SHORT = 1,
+    MM_PICO_MCU_SDIO_SHORT_NO_CRC = 2,
+    MM_PICO_MCU_SDIO_SHORT_BUSY = 3,
+    MM_PICO_MCU_SDIO_LONG = 4
+};
+int mm_pico_mcu_sdio_configure(unsigned int instance, unsigned int clock_pin,
+                               unsigned int command_pin, unsigned int data0_pin,
+                               unsigned int width);
+int mm_pico_mcu_sdio_clock(unsigned int instance, unsigned long hz, unsigned long* actual_hz);
+int mm_pico_mcu_sdio_idle_clocks(unsigned int instance, unsigned int count);
+int mm_pico_mcu_sdio_command(unsigned int instance, unsigned int index, uint32_t argument,
+                             int response, uint32_t* words, size_t count);
+int mm_pico_mcu_sdio_read(unsigned int instance, unsigned int index, uint32_t argument,
+                          uint32_t* response, void* data, size_t size, unsigned int block_size);
+int mm_pico_mcu_sdio_write(unsigned int instance, unsigned int index, uint32_t argument,
+                           uint32_t* response, const void* data, size_t size,
+                           unsigned int block_size);
+int mm_pico_mcu_sdio_release(unsigned int instance);
+
 // The data region at the top of program flash, MM_BOARD_FLASH_REGION_BYTES
 // long and ending at PICO_FLASH_SIZE_BYTES. Offsets are bytes from its start.
 // UNSUPPORTED on a board whose region is zero bytes, or whose image reaches

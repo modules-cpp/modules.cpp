@@ -1,0 +1,21 @@
+---
+mm: 1.2
+kind: module
+name: rp2350-touch-lcd-28-sdcard
+module: platform.rp2350_touch_lcd_28.sdcard
+use: mm.fs
+use: mm.mcu
+use: mm.sdcard
+use: mm.sdcard.socket
+file: sdcard.cppm
+option: buildable-host no
+---
+
+# platform.rp2350_touch_lcd_28.sdcard
+
+The RP2350-Touch-LCD-2.8's TF socket in its native 4-bit SD mode through
+mm.sdcard's SdioCard on mm.mcu's sdio facility: clock GP19, CMD GP20, and
+DAT0 to DAT3 on GP21 to GP24, from Waveshare's schematic. Hardware SPI
+cannot reach this socket -- GP19 is an SPI transmit position, GP20 a
+receive one -- so SD mode over PIO is its only transport. rp2350_touch_lcd_28
+binds it. The card is identified at 400 kHz and runs at 25 MHz.

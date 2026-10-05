@@ -24,7 +24,7 @@ wrapper_both="--control target-smoke-any"
 wrapper_pico="--abi mm_pico_mcu_spi_transfer"
 wrapper_linux=""
 wrapper_usage="apps/socket-smoke: the card in the board's SD socket, below any file system
-Socket boards: storage-linux, rp2040_geek, rp2350_geek, rp2350_lcd_154, rp2350_touch_lcd_154, rp2350_pizero"
+Socket boards: storage-linux, rp2040_geek, rp2350_geek, rp2350_lcd_154, rp2350_touch_lcd_154, rp2350_touch_lcd_28, rp2350_pizero"
 
 wrapper_after() {
     echo "Expected output: socket-smoke: N blocks of 512 bytes, then the last"
