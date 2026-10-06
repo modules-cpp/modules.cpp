@@ -10,17 +10,22 @@ file: preview.cpp
 # mm.camera.preview
 
 Portable processing and button debounce for the PICO-Cam-A preview. The fixed
-324x244 grayscale input maps to a 240x135 image using nearest sampling,
-fractional area averaging, or area averaging with temporal history. Button
-state accepts one falling edge or low level after 30 ms of observed release,
-including taps latched while capture blocks and unsigned timer wraparound.
+324x324 grayscale input maps to a 240x135 image using the reference's unscaled
+crop (x=0..239, y=134..0), nearest sampling, fractional area averaging, or
+area averaging with temporal history. Resizing modes reverse output rows
+consistently with the crop. encode produces a complete big-endian RGB565 image
+for a single LCD transfer. Button state accepts one falling edge or low level
+after 30 ms of observed release, including taps latched while capture blocks
+and unsigned timer wraparound.
 
 The caller owns frame, image and button state. It resets temporal history on
 restart or a mode change. The module does not access hardware or configure
 sensor exposure. Output coordinates passed to sample must be in range.
 
-Written for modules.cpp, not copied from ArduCAM or Waveshare. Host regression
-coverage lives in tests/mm/camera/preview/ and uses the normal mm.test runner:
+Processing, encoding and debounce are project implementations. The default
+crop coordinates and orientation follow Waveshare PICO-Cam-A/C/main.c. Host
+regression coverage lives in tests/mm/camera/preview/ and uses the normal
+mm.test runner:
 
 ```sh
 sh test.sh --host tests/mm/camera/preview/

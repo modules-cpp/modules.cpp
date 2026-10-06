@@ -7,10 +7,10 @@ module;
 export module platform.pico_cam_a.camera;
 import mm.camera;
 import mm.mcu;
-namespace {
+namespace platform::pico_cam_a::camera_provider {
 class Camera final : public mm::camera::Camera {
 public:
-    mm::camera::Geometry geometry() const override { return {324, 244}; }
+    mm::camera::Geometry geometry() const override { return {324, 324}; }
     mm::camera::Status initialize() override {
         return static_cast<mm::camera::Status>(mm_pico_cam_initialize());
     }

@@ -10,7 +10,7 @@
 #include "camera-c.h"
 #include "hm01b0_init.h"
 
-#define MM_CAM_PIXELS (324u * 244u)
+#define MM_CAM_PIXELS (324u * 324u)
 static const unsigned int mm_cam_pins[] = {4, 5, 6, 14, 15, 16};
 static PIO mm_cam_pio;
 static int mm_cam_sm = -1;
@@ -24,11 +24,12 @@ static const struct pio_program mm_cam_program = {
 
 // Run before C++ providers or application peripherals are initialized. Changing
 // clk_sys later could invalidate an already configured SPI/UART baud rate.
-// RP2040 datasheet 2.15.3 specifies 200 MHz with VREG set to 1.15 V.
+// Match the working Waveshare demo's 250 MHz capture clock, retaining
+// 1.15 V rather than its 1.10 V. 250 MHz exceeds the rated 200 MHz point.
 __attribute__((constructor(101))) static void mm_cam_clock_setup(void) {
     vreg_set_voltage(VREG_VOLTAGE_1_15);
     sleep_ms(10); // Allow the regulator to settle before increasing frequency.
-    (void)set_sys_clock_khz(200000, false); // Failure is checked by initialize.
+    (void)set_sys_clock_khz(250000, false); // Failure is checked by initialize.
 }
 
 static int mm_cam_write(uint16_t address, uint8_t value) {
@@ -71,8 +72,8 @@ int mm_pico_cam_initialize(void) {
     }
     // The fixed 36 MHz serial clock needs more than throughput alone:
     // WAIT-high recognition and IN must both fit inside the valid bit window.
-    // At 200 MHz there are 5.56 PIO cycles/bit; at 125 MHz only 3.47.
-    if (clock_get_hz(clk_sys) < 200000000u) return MM_CAM_UNSUPPORTED;
+    // At 250 MHz there are 6.94 PIO cycles/bit, matching Waveshare.
+    if (clock_get_hz(clk_sys) < 250000000u) return MM_CAM_UNSUPPORTED;
     mm_cam_instructions[0] = pio_encode_wait_pin(false, 10); // Fresh FVLD edge.
     mm_cam_instructions[1] = pio_encode_wait_pin(true, 10);
     // Match ArduCAM's image.pio loop: LVLD, rising PCLK, sample, low PCLK.
@@ -122,6 +123,9 @@ int mm_pico_cam_initialize(void) {
     for (size_t i = 0; status == MM_CAM_OK &&
          i < sizeof(mm_cam_registers) / sizeof(mm_cam_registers[0]); ++i) {
         status = mm_cam_write(mm_cam_registers[i].address, mm_cam_registers[i].value);
+        // Waveshare cam_regs_write waits after every write, including reset
+        // and stream-on. Preserve that sensor-settling sequence.
+        if (status == MM_CAM_OK) sleep_ms(10);
     }
     if (status != MM_CAM_OK) { mm_cam_release(); return status; }
     pio_sm_config config = pio_get_default_sm_config();
@@ -145,7 +149,7 @@ int mm_pico_cam_capture(unsigned char* data, size_t size, unsigned long timeout_
     if (timeout_ms > UINT32_MAX) return MM_CAM_BAD_ARGUMENT;
 #endif
     if (!mm_cam_ready) return MM_CAM_NOT_INITIALIZED;
-    if (clock_get_hz(clk_sys) < 200000000u) return MM_CAM_UNSUPPORTED;
+    if (clock_get_hz(clk_sys) < 250000000u) return MM_CAM_UNSUPPORTED;
     const absolute_time_t deadline = make_timeout_time_ms((uint32_t)timeout_ms);
     const uint sm = (uint)mm_cam_sm;
     const uint channel = (uint)mm_cam_dma;

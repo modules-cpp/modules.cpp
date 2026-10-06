@@ -7,10 +7,10 @@ name: pico-cam-a
 # Waveshare PICO-Cam-A
 
 Select board `pico_cam_a` on the `pico-arm` SDK lane. The board derives from
-`pico`, but the SDK bridge selects `waveshare_pico_cam_a` for the correct
-16 MB flash capacity. The board binds mm.display to its ST7789 LCD and
-mm.camera to its HM01B0 camera; neither provider links into an application
-unless it reaches that interface.
+`pico`, but the SDK bridge selects `waveshare_pico_cam_a` for the correct 16
+MB flash capacity. The board binds mm.display to its ST7789 LCD and mm.camera
+to its HM01B0 camera; neither provider links into an application unless it
+reaches that interface.
 
 Build and verify a camera-to-LCD image:
 
@@ -24,64 +24,63 @@ The scripts require the usual Pico tools and picotool package. `--dry-run`
 checks lane selection and provider closure without those tools or hardware.
 Put the board in BOOTSEL before using `--flash`.
 
-`camera-demo` starts paused. Press K3 (GP18) to start a live 324 by 244
-grayscale preview scaled to the 240 by 135 LCD; press K3 again to stop,
-put the sensor in standby, and keep the last image on screen. K4 (GP19)
-cycles NEAREST sampling, AREA averaging (the default), and AREA+TIME
-averaging. K4 also works while paused, reprocessing the retained frame.
+`camera-demo` automatically starts live 324 by 324 grayscale capture in
+CROP after reset (WAIT during exposure settling, then LIVE). Press K3
+(GP18) to stop or restart capture on the 240 by 135 LCD. Stopping puts
+the sensor in standby and keeps the last image on screen. K4 (GP19) cycles
+CROP (the default), NEAREST, AREA, and AREA+TIME. CROP matches Waveshare's
+unscaled x=0..239 and reversed y=134..0 display window. K4 also works while
+paused, reprocessing the retained frame.
 
-AREA averages fractional source-pixel coverage when resizing. AREA+TIME
-also blends each new frame equally with the previous output, reducing
-random noise at the cost of trails on moving objects. History resets on
-restart and mode changes. The first eight frames after each start are
+NEAREST and AREA resize the full square frame with the same vertical
+orientation. AREA averages fractional source-pixel coverage when resizing.
+AREA+TIME also blends each new frame equally with the previous output,
+reducing random noise at the cost of trails on moving objects. History resets
+on restart and mode changes. The first eight frames after each start are
 discarded to allow automatic exposure to settle. These are application
 processing modes; sensor gain and exposure settings remain automatic.
 
 The top 17 rows display STOP, WAIT (startup), LIVE, or ERR3/ERR4/ERR8
-(initialization/capture/standby failure), plus the mode and button actions.
-K3 retries a stopped camera after an error. Buttons have release debouncing
-and falling-edge latches to retain taps during capture. Actions take effect
+(initialization/capture/standby failure), plus the mode and button actions. K3
+retries a stopped camera after an error. Buttons have release debouncing and
+falling-edge latches to retain taps during capture. Actions take effect
 between frames; a capture timeout is bounded to 500 ms.
 
 The camera uses I2C0 GP4/GP5 (address 0x24), data GP6, PCLK GP14, LVLD GP15,
-and FVLD GP16. MCLK comes from the board's 36 MHz oscillator. The adapter
-uses the gated pixel clock and MSB-first serial output, claims one PIO state
+and FVLD GP16. MCLK comes from the board's 36 MHz oscillator. The adapter uses
+the gated pixel clock and MSB-first serial output, claims one PIO state
 machine plus six instructions and one DMA channel, and bounds I2C transfers
-and frame capture. Frame synchronization and transfer share a capture deadline.
-A timeout stops DMA; the next call starts from a fresh FVLD edge. `sleep()`
-releases resources even if the sensor cannot acknowledge standby. Call this
-API from one core. Camera-linked applications set the core regulator to
-1.15 V and clk_sys to 200 MHz at startup, before peripheral configuration,
-as specified in Raspberry Pi's RP2040 datasheet. The clock stays at 200 MHz
-when capture stops. This gives the ArduCAM-style four-instruction sampling
-loop 5.56 PIO cycles per 36 MHz serial bit. The previous 125 MHz sequence
-could sample late and its 0x3060=0x20 setting had incorrect serial bit order;
-the original 0x30 setting is restored. See boards/pico_cam_a/mm.mdy for the
-timing comparison and waveform test. Hardware validation is still required;
-no frame-rate or image-quality claim is made.
+and frame capture. Frame synchronization and transfer share a capture
+deadline. A timeout stops DMA; the next call starts from a fresh FVLD edge.
+`sleep()` releases resources even if the sensor cannot acknowledge standby.
+Call this API from one core. Camera-linked applications set the core regulator
+to 1.15 V and clk_sys to 250 MHz at startup, before peripheral configuration,
+matching the working Waveshare demo's clock. This exceeds the datasheet 200
+MHz operating point. The clock stays at 250 MHz when capture stops. This gives
+the ArduCAM-style four-instruction sampling loop 6.94 PIO cycles per 36 MHz
+serial bit. Every sensor initialization write gets the reference 10 ms
+settling delay. LCD pixels and status are sent in one full-frame write. The
+previous 125 MHz sequence could sample late and its 0x3060=0x20 setting had
+incorrect serial bit order; the original 0x30 setting is restored. See
+boards/pico_cam_a/mm.mdy for the timing comparison. Hardware
+validation is still required; no frame-rate or image-quality claim is made.
 
 The LCD is SPI1 on GP10/GP11, CS GP13, DC GP9, reset GP7, with a permanently
 powered backlight. Do not use the vendor demo's LCD_BL=14, reset=2 or XCLK=3:
-the schematic connects GP14 to camera PCLK and exposes GP2/GP3 as I2C1.
-UART0 is GP0/GP1. K3 and K4 are active-low buttons on GP18 and GP19; the
-board has no user LED.
+the schematic connects GP14 to camera PCLK and exposes GP2/GP3 as I2C1. UART0
+is GP0/GP1. K3 and K4 are active-low buttons on GP18 and GP19; the board has
+no user LED.
 
-Original camera support: [ArduCAM/RPI-Pico-Cam](https://github.com/ArduCAM/RPI-Pico-Cam),
-with provenance and local adaptations recorded in boards/pico_cam_a/mm.mdy.
+Original camera support: [ArduCAM/RPI-Pico-Cam](https://github.com/ArduCAM/RPI-Pico-Cam), with provenance and local
+adaptations recorded in boards/pico_cam_a/mm.mdy.
 
-Board sources: [Waveshare documentation](https://www.waveshare.com/wiki/PICO-Cam-A),
-[schematic](https://files.waveshare.com/wiki/PICO-Cam-A/PICO-Cam-A.pdf),
-[reference code](https://files.waveshare.com/wiki/PICO-Cam-A/PICO-Cam-A.zip).
+Board sources: [Waveshare documentation](https://www.waveshare.com/wiki/PICO-Cam-A), [schematic](https://files.waveshare.com/wiki/PICO-Cam-A/PICO-Cam-A.pdf), [reference code](https://files.waveshare.com/wiki/PICO-Cam-A/PICO-Cam-A.zip).
 
 Host regression checks:
 
 ```sh
-sh boards/pico_cam_a/camera/test/run.sh
 sh test.sh --host tests/mm/camera/preview/
 sh tests/scripts/run.sh
 ```
 
-The camera test uses a recording SDK double to check resource exhaustion,
-initialization failure, timeout recovery, FIFO stalls, and resource release
-when standby fails. Firmware builds and UF2 checks do not replace a test on
-an actual board.
+Firmware builds and UF2 checks do not replace a test on an actual board.

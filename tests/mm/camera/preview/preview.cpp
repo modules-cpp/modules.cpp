@@ -17,6 +17,7 @@ preview::Image image;
 // Independent floating-point rectangle intersection reference. Test rounding
 // on a nonuniform image at all destination coordinates, including the edges.
 unsigned reference(unsigned x, unsigned y) {
+    y = preview::height - 1 - y;
     const double left = double(x) * preview::sensor_width / preview::width;
     const double right = double(x + 1) * preview::sensor_width / preview::width;
     const double top = double(y) * preview::sensor_height / preview::height;
@@ -40,22 +41,25 @@ void sampling() {
             frame[y * preview::sensor_width + x] = std::byte((x * 53 + y * 97) % 256);
     for (unsigned y = 0; y < preview::height; ++y)
         for (unsigned x = 0; x < preview::width; ++x) {
+            expect(preview::sample(frame, x, y, preview::Mode::Crop) ==
+                std::to_integer<unsigned>(frame[(134 - y) * 324 + x]),
+                "crop follows Waveshare's reversed rows, including row zero");
             expect(preview::sample(frame, x, y, preview::Mode::Nearest) ==
-                std::to_integer<unsigned>(frame[(y * preview::sensor_height / preview::height) *
+                std::to_integer<unsigned>(frame[((preview::height - 1 - y) * preview::sensor_height / preview::height) *
                                                 preview::sensor_width +
-                                                x * preview::sensor_width / preview::width]), "preview::sample(frame, x, y, preview::Mode::Nearest) == std::to_integer<unsigned>(frame[(y * preview::sensor_height / preview::height) * preview::sensor_width + x * preview::sensor_width / preview::width])");
+                                                x * preview::sensor_width / preview::width]), "preview::sample(frame, x, y, preview::Mode::Nearest) == std::to_integer<unsigned>(frame[((preview::height - 1 - y) * preview::sensor_height / preview::height) * preview::sensor_width + x * preview::sensor_width / preview::width])");
             expect(preview::sample(frame, x, y, preview::Mode::Area) == reference(x, y), "preview::sample(frame, x, y, preview::Mode::Area) == reference(x, y)");
         }
     // Black/white DC levels must survive every resizing mode unchanged.
     for (const unsigned level : {0u, 255u}) {
         frame.fill(std::byte(level));
-        for (auto mode : {preview::Mode::Nearest, preview::Mode::Area, preview::Mode::Temporal}) {
+        for (auto mode : {preview::Mode::Crop, preview::Mode::Nearest, preview::Mode::Area, preview::Mode::Temporal}) {
             preview::process(frame, image, mode, false);
             for (auto pixel : image) expect(pixel == level, "pixel == level");
         }
     }
-    expect(preview::next(preview::next(preview::next(preview::Mode::Nearest))) ==
-           preview::Mode::Nearest, "preview::next(preview::next(preview::next(preview::Mode::Nearest))) == preview::Mode::Nearest");
+    expect(preview::next(preview::next(preview::next(preview::next(preview::Mode::Crop)))) ==
+           preview::Mode::Crop, "four mode changes return to the default crop");
 }
 void temporal() {
     frame.fill(std::byte{0});
@@ -72,6 +76,20 @@ void temporal() {
     frame.fill(std::byte{80});
     preview::process(frame, image, preview::Mode::Area, true);
     for (auto pixel : image) expect(pixel == 80, "pixel == 80");
+}
+void encoding() {
+    preview::RgbImage pixels{};
+    for (std::size_t i = 0; i < image.size(); ++i)
+        image[i] = static_cast<std::uint8_t>(i % 256);
+    preview::encode(image, pixels);
+    for (std::size_t i = 0; i < image.size(); ++i) {
+        const unsigned value = std::to_integer<unsigned>(pixels[i * 2]) * 256 +
+                               std::to_integer<unsigned>(pixels[i * 2 + 1]);
+        expect((value >> 11) == (image[i] >> 3) &&
+               ((value >> 5) & 63) == (image[i] >> 2) &&
+               (value & 31) == (image[i] >> 3),
+               "each complete-frame RGB565 pixel has the expected channel values");
+    }
 }
 void buttons() {
     preview::Button button;
@@ -117,6 +135,7 @@ void buttons() {
 const mm::test::case_ cases[] = {
     {"sampling", &sampling},
     {"temporal history", &temporal},
+    {"complete-frame RGB565 encoding", &encoding},
     {"button debounce and edge retention", &buttons},
 };
 const mm::test::registrar reg{"mm.camera.preview", cases};

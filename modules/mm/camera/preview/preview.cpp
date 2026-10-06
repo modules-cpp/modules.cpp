@@ -1,6 +1,6 @@
 // Pawel Wodnicki (C) 2026
 // 32bitmicro LLC (C) 2026
-// Preview processing and controls written for modules.cpp; not vendor code.
+// Project preview processing and controls; crop follows Waveshare main.c.
 module;
 #include <array>
 #include <cstddef>
@@ -29,7 +29,7 @@ bool Button::update(bool high, bool falling, std::uint32_t now) {
 namespace {
 struct Coverage {
     unsigned first = 0, count = 0;
-    std::array<unsigned, 3> weight{};
+    std::array<unsigned, 4> weight{};
 };
 // Coordinates use destination-pixel units. Precompute fractional source-pixel
 // overlaps so area sampling does no coordinate division in the pixel loop.
@@ -63,8 +63,10 @@ constexpr auto rows = row_coverage();
 } // namespace
 
 unsigned sample(const Frame& frame, unsigned x, unsigned y, Mode mode) {
+    if (mode == Mode::Crop)
+        return std::to_integer<unsigned>(frame[(height - 1 - y) * sensor_width + x]);
     const auto& column = columns[x];
-    const auto& row = rows[y];
+    const auto& row = rows[height - 1 - y];
     if (mode == Mode::Nearest)
         return std::to_integer<unsigned>(frame[row.first * sensor_width + column.first]);
     unsigned sum = 0;
@@ -86,4 +88,14 @@ void process(const Frame& frame, Image& image, Mode mode, bool history) {
                 ? (current + pixel + 1) / 2 : current);
         }
 }
+
+void encode(const Image& image, RgbImage& pixels) {
+    for (std::size_t i = 0; i < image.size(); ++i) {
+        const unsigned grey = image[i];
+        const unsigned color = ((grey & 0xf8) << 8) | ((grey & 0xfc) << 3) | (grey >> 3);
+        pixels[i * 2] = static_cast<std::byte>(color >> 8);
+        pixels[i * 2 + 1] = static_cast<std::byte>(color & 0xff);
+    }
+}
+
 }

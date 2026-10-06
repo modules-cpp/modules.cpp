@@ -9,6 +9,6 @@ unit: tests/main.cpp
 ---
 
 Host checks of every resized pixel against an independent area-intersection
-reference, nearest sampling, constant input levels, temporal history reset,
-and button debounce, edge retention, held-at-boot behavior and tick wrap.
+reference, reference crop and vertical orientation, nearest sampling, constant input levels, temporal history reset,
+complete RGB565 encoding, and button debounce, edge retention, held-at-boot behavior and tick wrap.
 Written for modules.cpp; no vendor code or camera hardware required.

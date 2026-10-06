@@ -23,8 +23,9 @@ The ADC reference is the filtered 3V3 rail. GP24 reads the USB VBUS divider.
 
 The schematic is authoritative where the demo differs: its LCD_BL=14,
 camera reset=2 and XCLK=3 must not be driven. The vendor demo also allocates
-324 by 324 bytes despite naming its initialization table 324x244. This
-provider explicitly enables the 324 by 244 QVGA window (register 0x3010=1).
+324 by 324 bytes despite naming its initialization table 324x244. The
+provider matches that square output (register 0x3010=0), captures the full
+frame, and leaves cropping or resizing to the preview module.
 
 Capture owns I2C0 and GP4/5/6/14/15/16 until sleep. Use from one core;
 initialization and capture are synchronous. PIO and DMA resources are claimed

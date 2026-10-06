@@ -32,8 +32,8 @@
  * https://files.waveshare.com/wiki/PICO-Cam-A/PICO-Cam-A.zip
  * The Waveshare notice above is retained from that distribution.
  * Local changes: static table with address/value fields; reset performed by
- * the adapter; sentinel omitted in favor of the array length; QVGA enabled
- * (0x3010=1). The original gated/MSB-first setting (0x3060=0x30) is retained.
+ * the adapter; sentinel omitted in favor of the array length. Square
+ * output (0x3010=0) matches the working Waveshare demo. The original gated/MSB-first setting (0x3060=0x30) is retained.
  */
 static const struct { uint16_t address; uint8_t value; } mm_cam_registers[] = {
     {0x0100,0x00},  
@@ -103,7 +103,7 @@ static const struct { uint16_t address; uint8_t value; } mm_cam_registers[] = {
     {0x0341,0x7A},
     {0x0342,0x01},
     {0x0343,0x77},
-    {0x3010,0x01},  
+    {0x3010,0x00},
     {0x0383,0x01},
     {0x0387,0x01},
     {0x0390,0x00},

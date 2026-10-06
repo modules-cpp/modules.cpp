@@ -6,19 +6,24 @@ All notable changes to modules.cpp. Versions follow [semantic versioning](https:
 
 ### Fixed
 
+- **Camera demo startup.** Automatically start capture in CROP after reset,
+  showing LIVE after exposure settling. K3 stops or restarts capture.
+
 - **Camera preview module structure.** Replace `apps/camera-demo/preview.h`
   with the C++20 module `mm.camera.preview`. Move preview regression tests
   to `tests/mm/camera/preview/` and register them with the normal test runner.
   Remove the custom template and assertion macros to follow project rules.
 
-- **PICO-Cam-A camera timing and bit order.** Restore ArduCAM's LVLD/high
-  PCLK/sample/low PCLK loop and gated MSB-first setting `0x3060=0x30`.
-  Camera-linked firmware sets the RP2040 to the documented 200 MHz/1.15 V
-  configuration before application initialization, providing sampling margin
-  for the fixed 36 MHz camera clock. The previous 125 MHz sequence could
-  sample late, and `0x20` cleared `msb_en`. Host tests interpret the actual
-  PIO instruction array across 250 waveform phases and line blanking;
-  physical signal timing still needs board verification.
+- **PICO-Cam-A preview parity with Waveshare's working C demo.** Capture
+  square 324x324 frames (`0x3010=0`) and restore the 10 ms delay after each
+  sensor initialization write. All 77 non-reset register writes now match
+  the reference. Run the original LVLD/PCLK sampling loop at its 250 MHz
+  clock, retaining 1.15 V; this exceeds the documented 200 MHz operating
+  point. Default to the reference's unscaled, vertically reversed crop;
+  K4 also offers full-frame nearest, area and temporal sampling. Compose
+  pixels and status into one RGB565 LCD transfer. Regression checks cover
+  crop orientation, resizing and RGB565 bytes;
+  hardware image quality and frame rate still require board verification.
 
 ### Added
 
@@ -36,7 +41,7 @@ All notable changes to modules.cpp. Versions follow [semantic versioning](https:
   the backlight is permanently powered and GP14 is camera PCLK. Firmware
   builds and UF2 checks pass; not yet qualified on hardware.
 - **`mm.camera` and `platform.pico_cam_a.camera`.** A portable synchronous
-  grayscale camera interface and an HM01B0 provider capturing 324×244 frames
+  grayscale camera interface and an HM01B0 provider capturing 324×324 frames
   through PIO and DMA, with bounded transfers, sensor identity checks,
   frame synchronization in PIO, FIFO stall reporting, and resource cleanup.
   The camera support adapts
@@ -46,8 +51,8 @@ All notable changes to modules.cpp. Versions follow [semantic versioning](https:
   PIO/DMA capture are adapted from `arducam.c` and `image.pio`.
   Source provenance and local modifications are documented in
   `boards/pico_cam_a/mm.mdy`.
-- **`apps/camera-demo`.** Live 324×244 grayscale capture scaled to the
-  240×135 ST7789V LCD. K3 starts/stops capture; K4 cycles nearest-neighbor,
+- **`apps/camera-demo`.** Live 324×324 grayscale capture with a default
+  240×135 crop on the ST7789V LCD. K3 starts/stops capture; K4 cycles crop, nearest-neighbor,
   weighted area, and area plus temporal averaging. Debounced edge latches
   retain taps during capture; an LCD status line shows state and mode.
   Eight startup frames are discarded for automatic exposure settling;
@@ -57,12 +62,7 @@ All notable changes to modules.cpp. Versions follow [semantic versioning](https:
   targets Pico4MLcbot's ST7735 display and credits Hermann-SW; PICO-Cam-A
   instead requires ST7789V support and Waveshare's panel settings.
 - **PICO-Cam-A regression checks.** Board selection and camera/display
-  provider closure checks, plus `boards/pico_cam_a/camera/test/capture.c`,
-  a host C11 test written by Codex for this integration. Its recording Pico
-  SDK double exercises the production C adapter's initialization failures,
-  resource allocation, capture timeouts, FIFO stalls, and cleanup. Run with
-  `sh boards/pico_cam_a/camera/test/run.sh`; it does not validate hardware
-  timing or image quality.
+  provider closure checks, plus C++20 preview sampling and button tests.
 - **`rp2040_geek` and `rp2350_geek` boards.** The Waveshare RP2040-GEEK and
   RP2350-GEEK, under `boards/geek`, deriving from `pico` and `pico2-arm` and
   sharing `platform.geek.display`, the 1.14 inch 240×135 ST7789 panel on SPI1.

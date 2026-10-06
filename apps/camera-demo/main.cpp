@@ -15,7 +15,7 @@ namespace {
 namespace preview = mm::camera::preview;
 preview::Frame frame;
 preview::Image image;
-std::array<std::byte, preview::width * 2> row;
+preview::RgbImage pixels;
 std::array<std::byte, (preview::width / 8) * 17> banner;
 constexpr unsigned capture_pin = 18, mode_pin = 19;
 constexpr unsigned warmup_frames = 8;
@@ -49,7 +49,8 @@ int status(mm::display::Display& display, const char8_t* state, preview::Mode mo
     // One text line overlays the top 17 image rows; keep the full frame scale.
     banner.fill(std::byte{0xff});
     mm::gfx::Surface surface{preview::width, 17, 1, banner};
-    const char8_t* name = mode == preview::Mode::Nearest ? u8"NEAREST" :
+    const char8_t* name = mode == preview::Mode::Crop ? u8"CROP" :
+                         mode == preview::Mode::Nearest ? u8"NEAREST" :
                          mode == preview::Mode::Area ? u8"AREA" : u8"AREA+TIME";
     unsigned x = 0;
     const char8_t* parts[] = {state, u8" ", name,
@@ -65,24 +66,20 @@ int status(mm::display::Display& display, const char8_t* state, preview::Mode mo
     const mm::gfx::Palette palette{mm::gfx::rgb565_white,
                                    running ? mm::gfx::rgb(0, 64, 0) :
                                              mm::gfx::rgb(0, 0, 64)};
-    if (mm::gfx::write(display, surface, 0, 0, palette, {}, row) !=
+    // Compose the banner in RAM, then transfer one complete LCD window.
+    for (unsigned y = 0; y < 17; ++y) {
+        const auto packed = std::span<const std::byte>{banner}.subspan(y * (preview::width / 8),
+                                                                     preview::width / 8);
+        const auto rgb = std::span<std::byte>{pixels}.subspan(y * preview::width * 2,
+                                                            preview::width * 2);
+        if (mm::gfx::expand_row(packed, preview::width, palette, rgb) !=
+            mm::display::Status::Ok) return 6;
+    }
+    if (display.write({0, 0, preview::width, preview::height}, pixels) !=
         mm::display::Status::Ok) return 6;
     return display.refresh(mm::display::Refresh::Full) == mm::display::Status::Ok ? 0 : 7;
 }
 
-int show(mm::display::Display& display) {
-    for (unsigned y = 17; y < preview::height; ++y) {
-        for (unsigned x = 0; x < preview::width; ++x) {
-            const unsigned grey = image[y * preview::width + x];
-            const auto pixel = ((grey & 0xf8) << 8) | ((grey & 0xfc) << 3) | (grey >> 3);
-            row[x * 2] = static_cast<std::byte>(pixel >> 8);
-            row[x * 2 + 1] = static_cast<std::byte>(pixel & 0xff);
-        }
-        if (display.write({0, y, preview::width, 1}, row) != mm::display::Status::Ok)
-            return 6;
-    }
-    return 0;
-}
 }
 
 int main() {
@@ -102,12 +99,13 @@ int main() {
         mm::mcu::Status::Ok) return 9;
     resources.mode_watch = true;
     preview::Button capture_button, mode_button;
-    preview::Mode mode = preview::Mode::Area;
+    preview::Mode mode = preview::Mode::Crop;
     bool have_frame = false, history = false;
-    unsigned warmup = 0;
-    const char8_t* state = u8"STOP";
-    if (const int error = show(display)) return error;
-    if (const int error = status(display, state, mode, false)) return error;
+    resources.active = camera.initialize() == mm::camera::Status::Ok;
+    unsigned warmup = warmup_frames;
+    const char8_t* state = resources.active ? u8"WAIT" : u8"ERR3";
+    preview::encode(image, pixels);
+    if (const int error = status(display, state, mode, resources.active)) return error;
 
     for (;;) {
         unsigned long ticks = 0;
@@ -138,7 +136,7 @@ int main() {
             // it again to the temporal average.
             if (!resources.active && have_frame) {
                 preview::process(frame, image, mode, false);
-                if (const int error = show(display)) return error;
+                preview::encode(image, pixels);
             }
             changed = true;
         }
@@ -162,7 +160,7 @@ int main() {
         have_frame = true;
         preview::process(frame, image, mode, history);
         history = true;
-        if (const int error = show(display)) return error;
+        preview::encode(image, pixels);
         state = u8"LIVE";
         if (const int error = status(display, state, mode, true)) return error;
     }
