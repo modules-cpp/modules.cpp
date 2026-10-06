@@ -17,6 +17,11 @@ All notable changes to modules.cpp. Versions follow [semantic versioning](https:
 
 ### Added
 
+- **Standalone UF2 flashing.** `flash --image <file.uf2>` uses the existing
+  Pico flashing backend for externally built firmware without an application
+  manifest or configured target lane. Supports `--auto-flash` and an explicit
+  `picotool_DIR` package.
+
 - **`pico_cam_a` board.** The Waveshare PICO-Cam-A, under
   `boards/pico_cam_a`, deriving from `pico` and selecting the SDK's
   `waveshare_pico_cam_a` header for its 16 MB flash. Binds its HM01B0 camera
