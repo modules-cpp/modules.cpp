@@ -2,28 +2,22 @@
 
 All notable changes to modules.cpp. Versions follow [semantic versioning](https://semver.org/).
 
-## [Unreleased]
+## [v1.3.2] — 2026-10-06
+
+Something to capture and keep. v1.3.1 added USB connectivity; v1.3.2 gives
+programs a portable file system with littlefs and FAT on Pico, SD-card and
+SPI-flash drivers with Linux emulation, addressable RGB LEDs, and live
+HM01B0 camera preview on PICO-Cam-A. New Waveshare board profiles, standalone
+UF2 flashing, and USB console fixes complete the release.
 
 ### Fixed
 
-- **Camera demo startup.** Automatically start capture in CROP after reset,
-  showing LIVE after exposure settling. K3 stops or restarts capture.
-
-- **Camera preview module structure.** Replace `apps/camera-demo/preview.h`
-  with the C++20 module `mm.camera.preview`. Move preview regression tests
-  to `tests/mm/camera/preview/` and register them with the normal test runner.
-  Remove the custom template and assertion macros to follow project rules.
-
-- **PICO-Cam-A preview parity with Waveshare's working C demo.** Capture
-  square 324x324 frames (`0x3010=0`) and restore the 10 ms delay after each
-  sensor initialization write. All 77 non-reset register writes now match
-  the reference. Run the original LVLD/PCLK sampling loop at its 250 MHz
-  clock, retaining 1.15 V; this exceeds the documented 200 MHz operating
-  point. Default to the reference's unscaled, vertically reversed crop;
-  K4 also offers full-frame nearest, area and temporal sampling. Compose
-  pixels and status into one RGB565 LCD transfer. Regression checks cover
-  crop orientation, resizing and RGB565 bytes;
-  hardware image quality and frame rate still require board verification.
+- **Pico USB console connection and flush.** Recognize DTR immediately or
+  apply a bounded connection fallback for terminals that omit it. Drain
+  queued output only while USB is ready and DTR is asserted, with timer and
+  iteration bounds; battery operation and disconnected hosts retain
+  best-effort flushing without a half-second delay per message. Handle
+  deconfiguration and stale TinyUSB transfer state without indefinite waits.
 
 ### Added
 
@@ -39,11 +33,15 @@ All notable changes to modules.cpp. Versions follow [semantic versioning](https:
   Reports no user LED, a 3300 mV ADC reference, UART0 on GP0/GP1, I2C1 on
   GP2/GP3, and the LCD's SPI1 wiring. Wiring follows Waveshare's schematic;
   the backlight is permanently powered and GP14 is camera PCLK. Firmware
-  builds and UF2 checks pass; not yet qualified on hardware.
+  builds and UF2 checks pass; basic preview has been confirmed on the board,
+  with frame rate and image quality not formally qualified.
 - **`mm.camera` and `platform.pico_cam_a.camera`.** A portable synchronous
   grayscale camera interface and an HM01B0 provider capturing 324×324 frames
   through PIO and DMA, with bounded transfers, sensor identity checks,
   frame synchronization in PIO, FIFO stall reporting, and resource cleanup.
+  All 77 non-reset sensor register writes match Waveshare's working demo,
+  with 10 ms settling per initialization write. Camera-linked firmware uses
+  its 250 MHz capture clock at 1.15 V, above the documented 200 MHz point.
   The camera support adapts
   [ArduCAM/RPI-Pico-Cam](https://github.com/ArduCAM/RPI-Pico-Cam), through
   Waveshare's PICO-Cam-A example: the sensor initialization table retains
@@ -51,18 +49,18 @@ All notable changes to modules.cpp. Versions follow [semantic versioning](https:
   PIO/DMA capture are adapted from `arducam.c` and `image.pio`.
   Source provenance and local modifications are documented in
   `boards/pico_cam_a/mm.mdy`.
-- **`apps/camera-demo`.** Live 324×324 grayscale capture with a default
-  240×135 crop on the ST7789V LCD. K3 starts/stops capture; K4 cycles crop, nearest-neighbor,
-  weighted area, and area plus temporal averaging. Debounced edge latches
-  retain taps during capture; an LCD status line shows state and mode.
-  Eight startup frames are discarded for automatic exposure settling;
-  stopping retains the image and releases the camera. Host C++20 tests
-  cover processing and button handling. ArduCAM's separate
-  [HM01B0/ST7735 demo](https://github.com/ArduCAM/RPI-Pico-Cam/tree/master/rp2040_hm01b0_st7735)
-  targets Pico4MLcbot's ST7735 display and credits Hermann-SW; PICO-Cam-A
-  instead requires ST7789V support and Waveshare's panel settings.
-- **PICO-Cam-A regression checks.** Board selection and camera/display
-  provider closure checks, plus C++20 preview sampling and button tests.
+- **`apps/camera-demo` and `mm.camera.preview`.** Start capture in CROP
+  after reset, showing LIVE after exposure settling. The default 240x135
+  crop follows Waveshare's orientation and window. K3 stops/restarts capture;
+  K4 selects crop, nearest sampling, weighted area averaging, or area plus
+  temporal averaging. Debounced edge latches retain taps during capture;
+  eight startup frames allow automatic exposure to settle. Image and status
+  are sent in one RGB565 LCD transfer, and stopping retains the last image.
+  Processing and controls are a C++20 module. Tests under
+  `tests/mm/camera/preview/` cover sampling, temporal history, RGB565 encoding
+  and button handling; script checks cover board and provider selection.
+  ArduCAM's separate HM01B0/ST7735 demo targets Pico4MLcbot and credits
+  Hermann-SW; PICO-Cam-A uses ST7789V and Waveshare's panel settings.
 - **`rp2040_geek` and `rp2350_geek` boards.** The Waveshare RP2040-GEEK and
   RP2350-GEEK, under `boards/geek`, deriving from `pico` and `pico2-arm` and
   sharing `platform.geek.display`, the 1.14 inch 240×135 ST7789 panel on SPI1.
@@ -100,7 +98,8 @@ All notable changes to modules.cpp. Versions follow [semantic versioning](https:
   clock hook, and the `Volume`, `BlockDevice`, and `FlashDevice` seams drivers
   implement, with `McuStorage` over `mm.mcu` block storage. No allocation.
   `mm.fs.conformance` runs the contract as 25 checks against any mounted
-  volume. See `drafts/plan-mm-fs-5.mdy` for the drivers still to come.
+  volume. The Pico littlefs and FAT providers and portable storage drivers
+  described below implement those seams.
 - **`mm.fs.local`, `mm.fs.native`, and `platform.linux.fs`.** Mount
   interfaces for the board's own storage and for a directory of the
   platform's file system, bound on the Linux SDKs to a provider over
@@ -121,8 +120,8 @@ All notable changes to modules.cpp. Versions follow [semantic versioning](https:
   `platform.pico.fs.littlefs`, which the Pico SDKs bind for `mm.fs.littlefs`
   and `mm.fs.local`: `mm.fs.local` mounts littlefs on the flash region,
   formatting a region never written and leaving a damaged one alone.
-  Timestamps live in a littlefs attribute. `scripts/test-littlefs.sh` runs the
-  adapter's 77-check native harness; `scripts/build-fs.sh` now defaults to
+  Timestamps live in a littlefs attribute. The adapter includes a 77-check
+  native harness; `scripts/build-fs.sh` defaults to
   `pico`.
 - **`mm.fs.fat` and FAT on every Pico board.** FatFs R0.16, vendored by
   `platforms/pico/sdk/pico-sdk/fatfs/vendor.sh` from ChaN's checksummed
@@ -130,8 +129,7 @@ All notable changes to modules.cpp. Versions follow [semantic versioning](https:
   behind `platform.pico.fs.fat`, which the Pico SDKs bind for `mm.fs.fat`:
   FAT12/16/32 with long names on 512-byte block devices, never written when it
   holds no FAT volume, with zero-filled extension and true appends.
-  `scripts/test-fatfs.sh` runs the adapter's 84-check native harness;
-  `apps/fat-smoke` and `scripts/build-fat.sh` check FAT on a host-port board's
+  The adapter includes an 84-check native harness; `apps/fat-smoke` and `scripts/build-fat.sh` check FAT on a host-port board's
   USB drive.
 - **`mm.sdcard` and `mm.sdcard.socket`: FAT on TF sockets.** An SD card in SPI
   mode over `mm.mcu` SPI as an `mm.fs` block device -- SDSC, SDHC, and SDXC,
@@ -1338,6 +1336,7 @@ framework or documentation generator. 77 commits from the initial commit on
   `xfail`, and `xpass` failing the run when a known defect starts passing.
 - GCC and Clang backends, selected per build.
 
+[v1.3.2]: https://github.com/modules-cpp/modules.cpp/releases/tag/v1.3.2
 [v1.3.1]: https://github.com/modules-cpp/modules.cpp/releases/tag/v1.3.1
 [v1.3.0]: https://github.com/modules-cpp/modules.cpp/releases/tag/v1.3.0
 [v1.2.4]: https://github.com/modules-cpp/modules.cpp/releases/tag/v1.2.4
@@ -1345,6 +1344,7 @@ framework or documentation generator. 77 commits from the initial commit on
 [v1.2.2]: https://github.com/modules-cpp/modules.cpp/releases/tag/v1.2.2
 [v1.2.1]: https://github.com/modules-cpp/modules.cpp/releases/tag/v1.2.1
 [v1.2.0]: https://github.com/modules-cpp/modules.cpp/releases/tag/v1.2.0
+[v1.1.1]: https://github.com/modules-cpp/modules.cpp/releases/tag/v1.1.1
 [v1.1.0]: https://github.com/modules-cpp/modules.cpp/releases/tag/v1.1.0
 [v1.0.1]: https://github.com/modules-cpp/modules.cpp/releases/tag/v1.0.1
 [v1.0.0]: https://github.com/modules-cpp/modules.cpp/releases/tag/v1.0.0

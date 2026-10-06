@@ -62,8 +62,8 @@ serial bit. Every sensor initialization write gets the reference 10 ms
 settling delay. LCD pixels and status are sent in one full-frame write. The
 previous 125 MHz sequence could sample late and its 0x3060=0x20 setting had
 incorrect serial bit order; the original 0x30 setting is restored. See
-boards/pico_cam_a/mm.mdy for the timing comparison. Hardware
-validation is still required; no frame-rate or image-quality claim is made.
+boards/pico_cam_a/mm.mdy for the timing comparison. Basic preview has been confirmed on the board.
+Frame rate and image quality are not formally qualified.
 
 The LCD is SPI1 on GP10/GP11, CS GP13, DC GP9, reset GP7, with a permanently
 powered backlight. Do not use the vendor demo's LCD_BL=14, reset=2 or XCLK=3:

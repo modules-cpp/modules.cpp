@@ -3,7 +3,7 @@ mm: 1.0
 kind: doc
 name: modules.cpp file system interface
 status: official
-release: v1.3.1
+release: v1.3.2
 ---
 
 # modules.cpp file system interface
@@ -251,10 +251,10 @@ The adapter keeps the Volume rules in C:
   BadArgument. An I/O error the device explained is the device's own answer,
   so a flash timeout is Timeout.
 
-scripts/test-littlefs.sh compiles adapter.c and the pinned littlefs for the
-build machine with its C compiler, against a RAM NOR flash that refuses to
-program a byte that is not erased, and runs littlefs/test/harness.c's 77
-checks through the ABI, under valgrind when it is installed: the
+The tracked platforms/pico/sdk/pico-sdk/littlefs/test/harness.c provides 77
+native checks through the ABI. It is compiled with adapter.c and the pinned
+littlefs using the host C compiler, against a RAM NOR flash that refuses to
+program a byte that is not erased. The checks cover: the
 dispositions, append, extension, truncate, timestamps kept and updated,
 listing and its retry, the Busy rules, rename, the file pool, NoSpace,
 remounting, read-only mounts, a device timeout, and a damaged volume left
@@ -311,10 +311,10 @@ The adapter keeps the Volume rules FatFs does not keep by itself:
   Corrupt, FR_LOCKED Busy, FR_TOO_MANY_OPEN_FILES TooMany, FR_TIMEOUT
   Timeout, the invalid-argument results BadArgument.
 
-scripts/test-fatfs.sh compiles adapter.c and the pinned FatFs, with
-ffconf.h, for the build machine against a RAM block device filled with 0xA5,
-so a byte nothing wrote cannot pass for zero, and runs fatfs/test/harness.c's
-84 checks under valgrind when it is installed: the dispositions, appends after
+The tracked platforms/pico/sdk/pico-sdk/fatfs/test/harness.c provides 84
+native checks. It is compiled with adapter.c, the pinned FatFs and ffconf.h
+using the host C compiler, against a RAM block device filled with 0xA5 so a
+byte nothing wrote cannot pass for zero. The checks cover: the dispositions, appends after
 seeks, a zero-filled gap, truncate, timestamps, long names, listing and its
 retry, the Busy rules including a name under another case, rename, the file
 pool, NoSpace with a short count, remounting, read-only mounts, a device
