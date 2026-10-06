@@ -2021,5 +2021,6 @@ bool __not_in_flash_func(__wrap_hw_endpoint_xfer_continue)(
 
 // Board camera implementation stays in this adapter, the SDK header boundary.
 #if MM_PICO_CAM_CAMERA
+#include "hardware/vreg.h"
 #include "../../../../../boards/pico_cam_a/camera/capture.inc.c"
 #endif

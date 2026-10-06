@@ -5,24 +5,71 @@
 #include <cstdlib>
 #include <filesystem>
 #include <iostream>
+#include <optional>
 
 import mm.app;
 import mm.build;
 import mm.flash;
 
+namespace {
+std::optional<std::filesystem::path> picotool_path() {
+    const char* package = std::getenv("picotool_DIR");
+    if (package == nullptr || *package == '\0') {
+        std::cerr << "flash: picotool_DIR is unset\n";
+        return std::nullopt;
+    }
+    std::error_code ec;
+    auto directory = std::filesystem::weakly_canonical(package, ec);
+    if (ec || !std::filesystem::is_directory(directory, ec) || ec) {
+        std::cerr << "flash: picotool_DIR is not an existing directory: " << package << "\n";
+        return std::nullopt;
+    }
+    auto executable = directory / "picotool";
+    if (!std::filesystem::is_regular_file(executable, ec) || ec) {
+        std::cerr << "flash: picotool executable not found: " << executable.string() << "\n";
+        return std::nullopt;
+    }
+    return executable;
+}
+}
+
 int main(int argc, char** argv) {
     mm::app::Options options("flash");
     options.flag("-a");
     options.flag("--auto-flash");
-    options.help("flash [-v|--verbose] [-a|--auto-flash] [-h|--help] <app-manifest>");
+    options.option("--image", "a UF2 image path");
+    options.help("flash [-v|--verbose] [-a|--auto-flash] [-h|--help] (<app-manifest> | --image <file.uf2>)");
     const auto cli = options.parse(argc, argv);
     if (cli == mm::app::Cli::help) return mm::build::exit_ok;
     if (cli != mm::app::Cli::ok) return mm::build::exit_usage;
-    if (options.positional().size() != 1) {
-        std::cerr << "usage: flash [-v] [-a|--auto-flash] <app-manifest>\n";
+    const bool direct_image = options.seen("--image");
+    if ((direct_image && (!options.positional().empty() || options.count("--image") != 1)) ||
+        (!direct_image && options.positional().size() != 1)) {
+        std::cerr << "usage: flash [-v] [-a|--auto-flash] (<app-manifest> | --image <file.uf2>)\n";
         return mm::build::exit_usage;
     }
     const bool auto_flash = options.seen("-a") || options.seen("--auto-flash");
+    if (direct_image) {
+        std::error_code ec;
+        const std::filesystem::path requested = options.value("--image");
+        if (requested.empty() || requested.extension() != ".uf2") {
+            std::cerr << "flash: --image requires a .uf2 file\n";
+            return mm::build::exit_usage;
+        }
+        const auto image = std::filesystem::weakly_canonical(requested, ec);
+        if (ec || !std::filesystem::is_regular_file(image, ec) || ec ||
+            std::filesystem::file_size(image, ec) == 0 || ec) {
+            std::cerr << "flash: UF2 image is missing or empty: " << requested.string() << "\n";
+            return mm::build::exit_run;
+        }
+        const auto picotool = picotool_path();
+        if (!picotool) return mm::build::exit_run;
+        // External CMake-built UF2s do not require a modules.cpp target lane.
+        // Picotool validates the UF2 and device compatibility when loading it.
+        const auto toolchain = mm::build::default_toolchain(options.verbose());
+        const int status = mm::flash::execute(toolchain, *picotool, image, auto_flash);
+        return status < 0 ? mm::build::exit_run : status;
+    }
 
     auto manifest = mm::build::resolve_manifest(options.positional().front());
     std::filesystem::path manifest_directory;
@@ -117,29 +164,16 @@ int main(int argc, char** argv) {
         return mm::build::exit_run;
     }
 
-    const char* package = std::getenv("picotool_DIR");
-    if (package == nullptr || *package == '\0') {
-        std::cerr << "flash: picotool_DIR is unset\n";
-        return mm::build::exit_run;
-    }
-    auto package_directory = std::filesystem::weakly_canonical(package, ec);
-    if (ec || !std::filesystem::is_directory(package_directory, ec) || ec) {
-        std::cerr << "flash: picotool_DIR is not an existing directory: " << package << "\n";
-        return mm::build::exit_run;
-    }
-    const auto picotool = package_directory / "picotool";
-    if (!std::filesystem::is_regular_file(picotool, ec) || ec) {
-        std::cerr << "flash: picotool executable not found: " << picotool.string() << "\n";
-        return mm::build::exit_run;
-    }
+    const auto picotool = picotool_path();
+    if (!picotool) return mm::build::exit_run;
 
     if (options.verbose()) {
         std::cout << "modules.cpp flash tool\n";
         std::cout << "  board      " << *platform->board << "\n";
         std::cout << "  image      " << image.string() << "\n";
-        std::cout << "  picotool   " << picotool.string() << "\n";
+        std::cout << "  picotool   " << picotool->string() << "\n";
         std::cout << "  auto-flash " << (auto_flash ? "yes" : "no") << "\n";
     }
-    const int status = mm::flash::execute(*toolchain, picotool, image, auto_flash);
+    const int status = mm::flash::execute(*toolchain, *picotool, image, auto_flash);
     return status < 0 ? mm::build::exit_run : status;
 }

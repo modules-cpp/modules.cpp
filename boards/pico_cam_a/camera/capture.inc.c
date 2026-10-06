@@ -17,10 +17,19 @@ static int mm_cam_sm = -1;
 static int mm_cam_dma = -1;
 static unsigned int mm_cam_offset;
 static int mm_cam_ready;
-static uint16_t mm_cam_instructions[5];
+static uint16_t mm_cam_instructions[6];
 static const struct pio_program mm_cam_program = {
-    .instructions = mm_cam_instructions, .length = 5, .origin = -1
+    .instructions = mm_cam_instructions, .length = 6, .origin = -1
 };
+
+// Run before C++ providers or application peripherals are initialized. Changing
+// clk_sys later could invalidate an already configured SPI/UART baud rate.
+// RP2040 datasheet 2.15.3 specifies 200 MHz with VREG set to 1.15 V.
+__attribute__((constructor(101))) static void mm_cam_clock_setup(void) {
+    vreg_set_voltage(VREG_VOLTAGE_1_15);
+    sleep_ms(10); // Allow the regulator to settle before increasing frequency.
+    (void)set_sys_clock_khz(200000, false); // Failure is checked by initialize.
+}
 
 static int mm_cam_write(uint16_t address, uint8_t value) {
     const uint8_t bytes[] = {(uint8_t)(address >> 8), (uint8_t)address, value};
@@ -60,15 +69,18 @@ int mm_pico_cam_initialize(void) {
         const unsigned int pin = mm_cam_pins[i];
         if (mm_pico_pin_owner[pin] != MM_PICO_OWNER_NONE) return MM_CAM_BUSY;
     }
-    // Gated PCLK supplies exactly the active bits, so no per-bit LVLD wait
-    // is needed. Three instructions keep up with the board's 36 MHz PCLK
-    // at the SDK's default 125 MHz system clock, without an overclock.
-    if (clock_get_hz(clk_sys) < 125000000u) return MM_CAM_UNSUPPORTED;
+    // The fixed 36 MHz serial clock needs more than throughput alone:
+    // WAIT-high recognition and IN must both fit inside the valid bit window.
+    // At 200 MHz there are 5.56 PIO cycles/bit; at 125 MHz only 3.47.
+    if (clock_get_hz(clk_sys) < 200000000u) return MM_CAM_UNSUPPORTED;
     mm_cam_instructions[0] = pio_encode_wait_pin(false, 10); // Fresh FVLD edge.
     mm_cam_instructions[1] = pio_encode_wait_pin(true, 10);
-    mm_cam_instructions[2] = pio_encode_wait_pin(false, 8);
+    // Match ArduCAM's image.pio loop: LVLD, rising PCLK, sample, low PCLK.
+    // Gated clock alone is not a substitute for correct sampling phase.
+    mm_cam_instructions[2] = pio_encode_wait_pin(true, 9);
     mm_cam_instructions[3] = pio_encode_wait_pin(true, 8);
     mm_cam_instructions[4] = pio_encode_in(pio_pins, 1);
+    mm_cam_instructions[5] = pio_encode_wait_pin(false, 8);
     const PIO candidates[] = {pio0, pio1};
     for (size_t i = 0; i < 2; ++i) {
         if (!pio_can_add_program(candidates[i], &mm_cam_program)) continue;
@@ -113,7 +125,7 @@ int mm_pico_cam_initialize(void) {
     }
     if (status != MM_CAM_OK) { mm_cam_release(); return status; }
     pio_sm_config config = pio_get_default_sm_config();
-    sm_config_set_wrap(&config, mm_cam_offset + 2, mm_cam_offset + 4);
+    sm_config_set_wrap(&config, mm_cam_offset + 2, mm_cam_offset + 5);
     sm_config_set_in_pins(&config, 6);
     sm_config_set_in_shift(&config, false, true, 8); // MSB first; byte in low FIFO bits.
     sm_config_set_fifo_join(&config, PIO_FIFO_JOIN_RX);
@@ -133,6 +145,7 @@ int mm_pico_cam_capture(unsigned char* data, size_t size, unsigned long timeout_
     if (timeout_ms > UINT32_MAX) return MM_CAM_BAD_ARGUMENT;
 #endif
     if (!mm_cam_ready) return MM_CAM_NOT_INITIALIZED;
+    if (clock_get_hz(clk_sys) < 200000000u) return MM_CAM_UNSUPPORTED;
     const absolute_time_t deadline = make_timeout_time_ms((uint32_t)timeout_ms);
     const uint sm = (uint)mm_cam_sm;
     const uint channel = (uint)mm_cam_dma;

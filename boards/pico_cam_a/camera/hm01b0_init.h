@@ -33,7 +33,7 @@
  * The Waveshare notice above is retained from that distribution.
  * Local changes: static table with address/value fields; reset performed by
  * the adapter; sentinel omitted in favor of the array length; QVGA enabled
- * (0x3010=1); gated serial clock with MSB-first output (0x3060=0x20).
+ * (0x3010=1). The original gated/MSB-first setting (0x3060=0x30) is retained.
  */
 static const struct { uint16_t address; uint8_t value; } mm_cam_registers[] = {
     {0x0100,0x00},  
@@ -109,7 +109,7 @@ static const struct { uint16_t address; uint8_t value; } mm_cam_registers[] = {
     {0x0390,0x00},
     {0x3011,0x70},
     {0x3059,0x22},
-    {0x3060,0x20},
+    {0x3060,0x30},
     {0x0101,0x01},
     {0x0104,0x01},
     {0x0100,0x01},

@@ -31,19 +31,32 @@ static unsigned char* dma_buffer;
 static size_t dma_size;
 static unsigned int qvga, clock_control, initialized_gpio_mask, identity_register;
 static int wrong_identity;
+static int voltage_set, clock_set;
 static pio_sm_config recorded_pio;
 static dma_channel_config recorded_dma;
 static int pio_index(PIO p) { return p == pio0 ? 0 : 1; }
+enum { VREG_VOLTAGE_1_15 = 12 };
+static void vreg_set_voltage(int voltage) {
+    assert(voltage == VREG_VOLTAGE_1_15); voltage_set = 1;
+}
+static bool set_sys_clock_khz(uint khz, bool required) {
+    assert(voltage_set && ticks >= 10 && khz == 200000 && !required);
+    sys_clock = khz * 1000u; clock_set = 1; return true;
+}
 static uint clock_get_hz(int clock) { (void)clock; return sys_clock; }
 static uint16_t pio_encode_wait_pin(bool level, uint pin) { return (uint16_t)(pin | (level ? 128 : 0)); }
 static uint16_t pio_encode_in(int source, uint bits) { (void)source; return (uint16_t)(256 | bits); }
 static uint16_t pio_encode_jmp(uint address) { return (uint16_t)address; }
 static bool pio_can_add_program(PIO p, const struct pio_program* program) {
-    assert(program->length == 5); return !pio_full[pio_index(p)];
+    assert(program->length == 6); return !pio_full[pio_index(p)];
 }
 static int pio_claim_unused_sm(PIO p, bool required) { (void)p; assert(!required); return 2; }
 static uint pio_add_program(PIO p, const struct pio_program* program) {
     (void)p; assert(program->instructions[0] == 10); assert(program->instructions[1] == 138);
+    assert(program->instructions[2] == 137); // LVLD high.
+    assert(program->instructions[3] == 136); // PCLK high.
+    assert(program->instructions[4] == 257); // IN one bit.
+    assert(program->instructions[5] == 8);   // PCLK low.
     ++program_claims; return 7;
 }
 static void pio_remove_program(PIO p, const struct pio_program* program, uint offset) {
@@ -127,13 +140,54 @@ static void released(void) {
     assert(!pio_enabled && !dma_running && initialized_gpio_mask == 0);
     for (uint i = 0; i < 30; ++i) assert(mm_pico_pin_owner[i] == MM_PICO_OWNER_NONE);
 }
+// Exercise the actual encoded instruction sequence against a serial waveform.
+// One bit lasts 250 units and a 200 MHz PIO cycle 45 units (9 GHz model
+// timebase). Figure 6.5: data changes at the low boundary, clock rises halfway
+// through the bit. Sweep sub-cycle phase, full 324-pixel lines and blanking.
+// Equal data/clock synchronizer latency is represented by the phase sweep.
+static void timing(void) {
+    const uint line_bits = 324u * 8u;
+    const uint line_time = (line_bits + 40u) * 250u;
+    for (uint phase = 0; phase < 250; ++phase) {
+        const uint frame_start = 500u + phase;
+        const uint data_start = frame_start + line_time; // FVLD advances one row.
+        uint pc = 0, samples = 0;
+        for (uint time = 0; time < data_start + 4u * line_time; time += 45u) {
+            const bool fvld = time >= frame_start;
+            bool lvld = false, pclk = false;
+            uint bit = UINT_MAX;
+            if (time >= data_start) {
+                const uint row = (time - data_start) / line_time;
+                const uint at = (time - data_start) % line_time;
+                if (row < 3 && at < line_bits * 250u) {
+                    lvld = true;
+                    pclk = (at % 250u) >= 125u;
+                    bit = row * line_bits + at / 250u;
+                }
+            }
+            const uint16_t instruction = mm_cam_instructions[pc];
+            if (instruction == 257) {
+                assert(bit == samples); // No late, blanking, missing or duplicate bit.
+                if (++samples == 3u * line_bits) break;
+                ++pc;
+            } else {
+                const uint pin = instruction & 127u;
+                const bool level = pin == 10 ? fvld : pin == 9 ? lvld : pclk;
+                if (level == ((instruction & 128u) != 0)) ++pc;
+            }
+            if (pc == 6) pc = 2;
+        }
+        assert(samples == 3u * line_bits);
+    }
+}
 int main(void) {
+    assert(voltage_set && clock_set && sys_clock == 200000000);
     assert(mm_pico_cam_capture(frame, sizeof(frame), 10) == MM_CAM_NOT_INITIALIZED);
     assert(mm_pico_cam_capture(frame, sizeof(frame) - 1, 10) == MM_CAM_BAD_ARGUMENT);
     assert(mm_pico_cam_capture(NULL, sizeof(frame), 10) == MM_CAM_BAD_ARGUMENT);
     assert(mm_pico_cam_capture(frame, sizeof(frame), 0) == MM_CAM_BAD_ARGUMENT);
     assert(mm_pico_cam_sleep() == MM_CAM_OK); released();
-    sys_clock = 120000000; assert(mm_pico_cam_initialize() == MM_CAM_UNSUPPORTED); released(); sys_clock = 125000000;
+    sys_clock = 125000000; assert(mm_pico_cam_initialize() == MM_CAM_UNSUPPORTED); released(); sys_clock = 200000000;
     mm_pico_pin_owner[14] = MM_PICO_OWNER_GPIO;
     assert(mm_pico_cam_initialize() == MM_CAM_BUSY); mm_pico_pin_owner[14] = MM_PICO_OWNER_NONE; released();
     pio_full[0] = pio_full[1] = 1; assert(mm_pico_cam_initialize() == MM_CAM_BUSY); released();
@@ -142,9 +196,14 @@ int main(void) {
     wrong_identity = 1; assert(mm_pico_cam_initialize() == MM_CAM_TRANSPORT_ERROR); released(); wrong_identity = 0;
     assert(mm_pico_cam_initialize() == MM_CAM_OK); assert(mm_cam_pio == pio1);
     assert(mm_pico_cam_initialize() == MM_CAM_OK && program_claims == 1 && dma_claims == 1);
-    assert(qvga == 1 && clock_control == 0x20);
+    // Match ArduCAM: serial gated clock and msb_en must both be set.
+    assert(qvga == 1 && clock_control == 0x30);
     assert(recorded_pio.base == 6 && recorded_pio.bits == 8 && !recorded_pio.shift_right);
-    assert(recorded_pio.wrap_start == 9 && recorded_pio.wrap_end == 11);
+    assert(recorded_pio.wrap_start == 9 && recorded_pio.wrap_end == 12);
+    timing();
+    sys_clock = 125000000;
+    assert(mm_pico_cam_capture(frame, sizeof(frame), 7) == MM_CAM_UNSUPPORTED);
+    sys_clock = 200000000;
     dma_hang = 1; uint start = ticks;
     assert(mm_pico_cam_capture(frame, sizeof(frame), 7) == MM_CAM_TIMEOUT && ticks == start + 7);
     assert(!pio_enabled && !dma_running); dma_hang = 0;
@@ -154,5 +213,5 @@ int main(void) {
     fifo_stall = 1; assert(mm_pico_cam_capture(frame, sizeof(frame), 7) == MM_CAM_TRANSPORT_ERROR); fifo_stall = 0;
     i2c_error = -1; assert(mm_pico_cam_sleep() == MM_CAM_TRANSPORT_ERROR); released(); i2c_error = 0;
     assert(mm_pico_cam_initialize() == MM_CAM_OK); assert(mm_pico_cam_sleep() == MM_CAM_OK); released();
-    puts("PASS: PICO-Cam-A camera lifecycle, allocation, timeout recovery, and cleanup");
+    puts("PASS: PICO-Cam-A timing phases, clock setup, lifecycle, and failure recovery");
 }

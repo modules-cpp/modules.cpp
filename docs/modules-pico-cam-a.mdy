@@ -24,20 +24,41 @@ The scripts require the usual Pico tools and picotool package. `--dry-run`
 checks lane selection and provider closure without those tools or hardware.
 Put the board in BOOTSEL before using `--flash`.
 
-`camera-demo` captures a 324 by 244 grayscale frame and scales it into the
-240 by 135 LCD, using one RGB565 row buffer. A white or black pixel is stored
-as 255 or 0 in the camera buffer. The displayed image remains after the
-camera enters standby. Applications can repeat capture for a live preview.
+`camera-demo` starts paused. Press K3 (GP18) to start a live 324 by 244
+grayscale preview scaled to the 240 by 135 LCD; press K3 again to stop,
+put the sensor in standby, and keep the last image on screen. K4 (GP19)
+cycles NEAREST sampling, AREA averaging (the default), and AREA+TIME
+averaging. K4 also works while paused, reprocessing the retained frame.
+
+AREA averages fractional source-pixel coverage when resizing. AREA+TIME
+also blends each new frame equally with the previous output, reducing
+random noise at the cost of trails on moving objects. History resets on
+restart and mode changes. The first eight frames after each start are
+discarded to allow automatic exposure to settle. These are application
+processing modes; sensor gain and exposure settings remain automatic.
+
+The top 17 rows display STOP, WAIT (startup), LIVE, or ERR3/ERR4/ERR8
+(initialization/capture/standby failure), plus the mode and button actions.
+K3 retries a stopped camera after an error. Buttons have release debouncing
+and falling-edge latches to retain taps during capture. Actions take effect
+between frames; a capture timeout is bounded to 500 ms.
 
 The camera uses I2C0 GP4/GP5 (address 0x24), data GP6, PCLK GP14, LVLD GP15,
 and FVLD GP16. MCLK comes from the board's 36 MHz oscillator. The adapter
 uses the gated pixel clock and MSB-first serial output, claims one PIO state
-machine plus five instructions and one DMA channel, and bounds I2C transfers
+machine plus six instructions and one DMA channel, and bounds I2C transfers
 and frame capture. Frame synchronization and transfer share a capture deadline.
 A timeout stops DMA; the next call starts from a fresh FVLD edge. `sleep()`
 releases resources even if the sensor cannot acknowledge standby. Call this
-API from one core and keep the system clock at least 125 MHz. Hardware
-validation is still required; no frame-rate or image-quality claim is made.
+API from one core. Camera-linked applications set the core regulator to
+1.15 V and clk_sys to 200 MHz at startup, before peripheral configuration,
+as specified in Raspberry Pi's RP2040 datasheet. The clock stays at 200 MHz
+when capture stops. This gives the ArduCAM-style four-instruction sampling
+loop 5.56 PIO cycles per 36 MHz serial bit. The previous 125 MHz sequence
+could sample late and its 0x3060=0x20 setting had incorrect serial bit order;
+the original 0x30 setting is restored. See boards/pico_cam_a/mm.mdy for the
+timing comparison and waveform test. Hardware validation is still required;
+no frame-rate or image-quality claim is made.
 
 The LCD is SPI1 on GP10/GP11, CS GP13, DC GP9, reset GP7, with a permanently
 powered backlight. Do not use the vendor demo's LCD_BL=14, reset=2 or XCLK=3:
@@ -56,6 +77,7 @@ Host regression checks:
 
 ```sh
 sh boards/pico_cam_a/camera/test/run.sh
+sh apps/camera-demo/test/run.sh
 sh tests/scripts/run.sh
 ```
 

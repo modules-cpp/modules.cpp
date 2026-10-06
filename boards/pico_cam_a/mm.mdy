@@ -29,8 +29,9 @@ https://files.waveshare.com/wiki/PICO-Cam-A/PICO-Cam-A.zip
 camera/hm01b0_init.h retains the original filename and the notice from the
 Waveshare distribution. Its table is adapted for this integration: the
 adapter performs software reset separately, the sentinel is omitted in favor
-of the array length, the QVGA window is enabled, and the serial output is
-MSB-first. The Waveshare version's other register settings are retained.
+of the array length, and the QVGA window is enabled. The original gated,
+MSB-first serial setting 0x3060=0x30 is retained. The Waveshare version's
+other register settings are retained.
 
 camera/capture.inc.c adapts the upstream PIO/DMA capture approach for this
 board and the modules.cpp interface, adding timeouts, frame synchronization
@@ -67,3 +68,65 @@ stall reporting, and resource cleanup even when sensor standby fails.
 
 The simulated SDK does not validate real PIO timing, electrical wiring,
 frame rate, or image quality. Those require testing on a PICO-Cam-A board.
+
+## Live preview controls
+
+apps/camera-demo starts paused. K3 (GP18) starts and stops capture; K4 (GP19)
+cycles NEAREST, AREA averaging, and AREA+TIME averaging, including while
+paused. Both buttons are active-low, watched with pull-ups and release
+debouncing. The LCD shows state and mode; stopping retains the last image
+and releases camera resources. Eight startup frames are discarded before
+showing video. Temporal averaging resets on restart or mode change.
+
+The preview processing, controls, and apps/camera-demo/test/preview.cpp are
+new modules.cpp application/test code, not upstream camera support code.
+Run the C++20 host test with sh apps/camera-demo/test/run.sh. It checks
+weighted area sampling against a reference, temporal history, button
+bounce, held buttons, taps latched during capture, and timer wraparound.
+It does not measure image quality or verify physical button behavior.
+
+## Capture timing audit
+
+ArduCAM's image.pio waits for LVLD, waits for PCLK high, samples one bit,
+and waits for PCLK low. Its ST7735 demo sets clk_sys to 250 MHz and uses
+PWM wrap 9 for a 25 MHz MCLK, giving 10 PIO cycles per serial bit. Its base
+example at 125 MHz uses a 12.5 MHz PWM MCLK, again 10 cycles per bit. The
+PWM comment mentioning wrap 5 is stale; the executable code uses wrap 9.
+
+PICO-Cam-A has a fixed 36 MHz oscillator, so GPIO PWM cannot slow its MCLK.
+The previous three-instruction loop at 125 MHz had only 3.47 PIO cycles per
+bit: WAIT-high recognition followed by IN could sample after the bit's
+valid window (HM01B0 Figure 6.5). Instruction throughput alone was not a
+valid timing guarantee. The previous 0x3060=0x20 setting also incorrectly
+cleared msb_en; it is restored to ArduCAM/Waveshare's 0x30, as specified in
+HM01B0 Table 6.6 and register 0x3060.
+
+The capture loop now matches ArduCAM's LVLD-high, PCLK-high, IN, PCLK-low
+sequence, with the existing PIO FVLD synchronization prefix. Camera-linked
+applications set the RP2040 core regulator to 1.15 V, wait 10 ms, then set
+clk_sys to 200 MHz before C++ initialization or application peripheral
+configuration. Raspberry Pi's current RP2040 datasheet section 2.15.3
+specifies 200 MHz operation at 1.15 V. This provides 5.56 PIO cycles per
+36 MHz bit. The adapter refuses initialization or capture below 200 MHz.
+The clock setup is linked only when the camera provider is reached, and
+remains in effect when the camera sleeps. No runtime clock change occurs
+on K3 presses. PIO allocation now requires six instructions.
+
+camera/test/capture.c also checks the voltage/clock startup sequence and
+interprets the production PIO instruction array against a gated 36 MHz
+serial waveform: 250 phase offsets, full 324-pixel lines, blanking, and a
+one-row FVLD advance. It checks that each bit is sampled once in order and
+within its data window. This model assumes the datasheet waveform and equal
+input synchronizer delays; it does not measure pin setup/hold, metastability,
+oscillator duty cycle, or hardware signal integrity. Board verification is
+still required. AREA+TIME can separately produce a shifted ghost of moving
+objects because it blends current output with previous frames; NEAREST and
+AREA do not blend frames.
+
+Timing sources:
+https://github.com/ArduCAM/RPI-Pico-Cam/blob/master/rp2040_hm01b0/image.pio
+https://github.com/ArduCAM/RPI-Pico-Cam/blob/master/rp2040_hm01b0/arducam/arducam.c
+https://github.com/ArduCAM/RPI-Pico-Cam/blob/master/rp2040_hm01b0_st7735/main.c
+https://github.com/ArduCAM/RPI-Pico-Cam/blob/master/rp2040_hm01b0_st7735/arducam/arducam.c
+https://files.waveshare.com/wiki/common/HM01B0-datasheet.pdf
+https://pip-assets.raspberrypi.com/categories/814-rp2040/documents/RP-008371-DS-1-rp2040-datasheet.pdf

@@ -4,6 +4,17 @@ All notable changes to modules.cpp. Versions follow [semantic versioning](https:
 
 ## [Unreleased]
 
+### Fixed
+
+- **PICO-Cam-A camera timing and bit order.** Restore ArduCAM's LVLD/high
+  PCLK/sample/low PCLK loop and gated MSB-first setting `0x3060=0x30`.
+  Camera-linked firmware sets the RP2040 to the documented 200 MHz/1.15 V
+  configuration before application initialization, providing sampling margin
+  for the fixed 36 MHz camera clock. The previous 125 MHz sequence could
+  sample late, and `0x20` cleared `msb_en`. Host tests interpret the actual
+  PIO instruction array across 250 waveform phases and line blanking;
+  physical signal timing still needs board verification.
+
 ### Added
 
 - **`pico_cam_a` board.** The Waveshare PICO-Cam-A, under
@@ -25,9 +36,13 @@ All notable changes to modules.cpp. Versions follow [semantic versioning](https:
   PIO/DMA capture are adapted from `arducam.c` and `image.pio`.
   Source provenance and local modifications are documented in
   `boards/pico_cam_a/mm.mdy`.
-- **`apps/camera-demo`.** Captures one grayscale frame, scales it to
-  240×135, converts it to RGB565 using a row buffer, and displays it through
-  `mm.lcd.st7789`. ArduCAM's separate
+- **`apps/camera-demo`.** Live 324×244 grayscale capture scaled to the
+  240×135 ST7789V LCD. K3 starts/stops capture; K4 cycles nearest-neighbor,
+  weighted area, and area plus temporal averaging. Debounced edge latches
+  retain taps during capture; an LCD status line shows state and mode.
+  Eight startup frames are discarded for automatic exposure settling;
+  stopping retains the image and releases the camera. Host C++20 tests
+  cover processing and button handling. ArduCAM's separate
   [HM01B0/ST7735 demo](https://github.com/ArduCAM/RPI-Pico-Cam/tree/master/rp2040_hm01b0_st7735)
   targets Pico4MLcbot's ST7735 display and credits Hermann-SW; PICO-Cam-A
   instead requires ST7789V support and Waveshare's panel settings.
