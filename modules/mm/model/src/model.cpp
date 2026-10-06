@@ -1055,8 +1055,8 @@ std::vector<std::unique_ptr<models::Operation>> build_operations(
     // and help, build1's help, build's help, configure's unknown-option
     // check, main's three output modes, mdy's smoke run), then one test
     // runner invocation per suite. Branch 0 is the full non-Darwin roster
-    // (39 suites); branch 1 is Darwin, which skips tests/mm/linux/ because
-    // Linux DRM headers are unavailable on macOS (38 suites). A suite
+    // (40 suites); branch 1 is Darwin, which skips tests/mm/linux/ because
+    // Linux DRM headers are unavailable on macOS (39 suites). A suite
     // added to test.sh must update these two counts with it.
     {
         std::vector<std::vector<const models::Tool*>> branches;
@@ -1064,7 +1064,7 @@ std::vector<std::unique_ptr<models::Operation>> build_operations(
         for (std::size_t darwin = 0; darwin < 2; ++darwin) {
             std::vector<const models::Tool*> branch = {
                 build0, build0, build1, build, configure, main_tool, main_tool, main_tool, mdy};
-            const std::size_t suites = darwin == 0 ? 39 : 38;
+            const std::size_t suites = darwin == 0 ? 40 : 39;
             branch.insert(branch.end(), suites, test_runner);
             branches.push_back(std::move(branch));
         }

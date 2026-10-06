@@ -8,6 +8,10 @@ Development work on main that is not included in a published release.
 
 ### Added
 
+- **v1.3.2 merged into main.** Camera and SDIO pin ownership remain
+  distinct in the Pico adapter. The workflow model covers all 40 test
+  suites, including camera preview and the C-library fixture.
+
 - **Library C sources, manifest version 1.4.** A library may declare
   `c-source`, `c-strict`, `c-include`, and `c-option`: C files `mm.build`
   compiles with the lane's C compiler and links into every executable that

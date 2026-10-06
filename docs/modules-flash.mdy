@@ -3,7 +3,7 @@ mm: 1.0
 kind: doc
 name: modules.cpp firmware flashing specification
 status: official
-release: v1.3.1
+release: v1.3.2
 ---
 
 # Purpose
@@ -20,11 +20,12 @@ Opening fence
 ./flash.sh [-v|--verbose] [-a|--auto-flash] <app-manifest>
 ./flash [-v|--verbose] [-a|--auto-flash] <app-manifest>
 out/bin/flash [-v|--verbose] [-a|--auto-flash] <app-manifest>
+./flash.sh [-v|--verbose] [-a|--auto-flash] --image <file.uf2>
 Closing fence
 
 The manifest may be an app directory, its mm.mdy, or another spelling accepted
 by the common manifest resolver. Exactly one registered kind: app is required.
-Flashing always uses the retained configured target lane; there is no host mode
+Manifest mode uses the retained configured target lane; there is no host mode
 and the command does not change the persisted lane selection.
 
 flash.sh requires out/bin/flash and does not rebuild it. When picotool_DIR is
@@ -35,7 +36,7 @@ flash.sh through out/bin/shell when that tool exists.
 
 # Preconditions
 
-Before starting picotool, the tool requires all of the following:
+In manifest mode, before starting picotool the tool requires all of the following:
 
 - a retained target toolchain, target build directory, and configuration-2
   platform record;
@@ -65,6 +66,25 @@ and target availability are checked with the same shared machinery as build,
 test, run, and debug. A missing image says to run build first. flash never starts
 a build implicitly, so the file installed is always the file the user can inspect
 before changing a device.
+
+# Standalone UF2 images
+
+--image <file.uf2> loads firmware built outside the modules.cpp manifest tree,
+including vendor CMake demos. It is mutually exclusive with an app manifest
+and may be specified only once. The path must name a nonempty regular .uf2
+file. This mode does not load project manifests, read a configured target
+lane, or change configuration. It requires picotool_DIR naming the installed
+picotool package; picotool validates UF2 content and device compatibility.
+The -a/--auto-flash and verbose options work with either mode.
+
+Opening fence
+picotool_DIR=/path/to/modules.cpp/platforms/pico/pico-sdk/picotool \
+  ./flash.sh --image /path/to/vendor/build/main.uf2
+Closing fence
+
+python3 tests/scripts/flash-image.py checks standalone-image argument handling,
+path quoting, automatic reboot, validation and exit status using a recording
+picotool test double. It does not access a device.
 
 # Picotool invocation
 

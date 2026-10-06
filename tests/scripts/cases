@@ -43,3 +43,7 @@ target-m68k-external|build-m68k-linux-external.sh|--compiler m68k-linux-gnu-g++-
 target-sdk-mismatch|build-target.sh|--target m68k-linux-gnu --sdk linux-x86_64 --app main --dry-run|64
 target-missing-lane|build-target.sh|--target m68k-linux-gnu --app main --dry-run|64
 target-unknown-machine|build-target.sh|--target riscv64-linux-gnu --sdk linux-x86_64 --app main --dry-run|64
+pico-camera-cam-a|build-pico.sh|--board pico_cam_a --app camera-demo --abi mm_pico_cam_capture --control target-smoke-any --dry-run|0
+pico-gfx-cam-a|build-pico.sh|--board pico_cam_a --app gfx-demo --dry-run|0
+pico-camera-unbound|build-pico.sh|--board pico --app camera-demo --dry-run|77
+pico-configure-cam-a|configure-pico.sh|--board pico_cam_a --print|0

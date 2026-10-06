@@ -1,0 +1,2 @@
+arm-none-eabi arm-none-eabi-gcc pico-arm
+exit 0

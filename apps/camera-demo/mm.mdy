@@ -1,0 +1,56 @@
+---
+mm: 1.2
+kind: app
+name: camera-demo
+option: buildable-host no
+use: mm.camera
+use: mm.camera.preview
+use: mm.display
+use: mm.mcu
+use: mm.fonts
+use: mm.gfx
+file: main.cpp
+---
+
+# camera-demo
+
+PICO-Cam-A live HM01B0 preview on the ST7789V LCD. Starts capture automatically in CROP
+after reset (WAIT during exposure settling, then LIVE), matching the working Waveshare demo's unscaled display window. K3
+(active-low GP18) starts/stops capture. Stop places the sensor in standby and
+retains the displayed image. K4 (active-low GP19) cycles CROP, NEAREST, AREA,
+AREA+TIME; it works while running or paused. The top 17 LCD rows show the
+state, selected mode, and button actions.
+
+CROP selects x=0..239 and source rows 134..0 without averaging or resizing.
+NEAREST selects one source pixel per destination pixel. AREA averages the
+fractional source-pixel areas covering each destination pixel. AREA+TIME adds
+an exponential temporal average: half the new AREA sample plus half the
+previous output. Temporal averaging reduces random noise but can leave trails
+on moving objects. Resizing modes use the full square 324x324 frame with the
+same vertical orientation. History resets on start and mode changes. The
+sensor initialization waits 10 ms after every register write, as in the
+reference. Each LCD update is a complete 240x135 RGB565 transfer. Eight
+startup frames are discarded on each start to give automatic exposure time to
+settle; this is not a guarantee of convergence in every lighting condition. No
+sensor gain, exposure, or register settings are changed by K4.
+
+Buttons use falling-edge latches so a tap during synchronous capture is
+retained. One action per press, with 30 ms of observed release before the next
+press is accepted; a button held at boot must first be released. Actions take
+effect between frames. Camera-linked firmware uses a 250 MHz system clock and
+1.15 V core supply from startup, matching the reference capture clock but
+exceeding the datasheet 200 MHz point; stopping capture retains that clock.
+Capture has a 500 ms deadline. ERR3, ERR4, and ERR8 mean initialization,
+capture, and standby failure; K3 retries from a stopped state. Fatal exit
+codes: 2 display initialization, 5 geometry, 6 pixel/text transfer, 7 refresh,
+9 GPIO/timer operation. Resources are released on fatal exits.
+
+mm.camera.preview and tests/mm/camera/preview/preview.cpp are project code
+written for modules.cpp. The default crop follows Waveshare main.c; sensor
+support provenance is documented in boards/pico_cam_a/mm.mdy. The test covers
+sampling, averaging history and button debounce/edge retention without camera
+hardware:
+
+```sh
+sh test.sh --host tests/mm/camera/preview/
+```

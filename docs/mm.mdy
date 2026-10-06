@@ -31,6 +31,7 @@ file: modules-parse.mdy
 file: modules-platform-mcu.mdy
 file: modules-platform-linux.mdy
 file: modules-platform-pico.mdy
+file: modules-pico-cam-a.mdy
 file: modules-platforms.mdy
 file: modules-rtc.mdy
 file: modules-sdcard.mdy

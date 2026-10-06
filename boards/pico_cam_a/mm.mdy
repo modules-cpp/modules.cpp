@@ -1,0 +1,127 @@
+---
+mm: 1.2
+kind: dir
+name: pico-cam-a-platform
+folder: board
+folder: display
+folder: camera
+---
+
+# pico-cam-a-platform
+
+Waveshare PICO-Cam-A board, LCD and HM01B0 camera providers.
+
+The original HM01B0 camera support code is ArduCAM's RPI-Pico-Cam:
+https://github.com/ArduCAM/RPI-Pico-Cam
+
+The upstream camera implementation and sensor initialization header are in
+rp2040_hm01b0/arducam:
+https://github.com/ArduCAM/RPI-Pico-Cam/tree/master/rp2040_hm01b0/arducam
+https://github.com/ArduCAM/RPI-Pico-Cam/blob/master/rp2040_hm01b0/arducam/hm01b0_init.h
+
+The upstream PIO program is rp2040_hm01b0/image.pio:
+https://github.com/ArduCAM/RPI-Pico-Cam/blob/master/rp2040_hm01b0/image.pio
+
+This integration used the HM01B0 table and camera example supplied in
+Waveshare's PICO-Cam-A support archive, which adapts that ArduCAM code:
+https://files.waveshare.com/wiki/PICO-Cam-A/PICO-Cam-A.zip
+
+camera/hm01b0_init.h retains the original filename and the notice from the
+Waveshare distribution. Its table is adapted for this integration: the adapter
+performs software reset separately, the sentinel is omitted in favor of the
+array length. All 77 non-reset register writes now match the working Waveshare
+demo, including square output (0x3010=0). The adapter restores the demo's 10
+ms delay after every initialization write, including reset and stream-on. The
+original gated, MSB-first serial setting 0x3060=0x30 is retained. The
+Waveshare version's other register settings are retained.
+
+camera/capture.inc.c adapts the upstream PIO/DMA capture approach for this
+board and the modules.cpp interface, adding timeouts, frame synchronization in
+PIO, sensor identity checks, resource allocation, and cleanup. It is an
+adaptation of the original support approach, not a claim of original camera
+support authorship. The C++ provider and portable mm.camera interface are
+integration code; the LCD panel settings come from Waveshare's LCD example.
+
+## Live preview controls
+
+apps/camera-demo starts capture automatically in CROP after reset, showing
+WAIT during exposure settling and then LIVE. K3 (GP18) stops/restarts capture; K4 (GP19)
+cycles CROP (default), NEAREST, AREA, and AREA+TIME, including while paused.
+Both buttons are active-low, watched with pull-ups and release debouncing. The
+LCD shows state and mode; stopping retains the last image and releases camera
+resources. Eight startup frames are discarded before showing video. CROP uses
+the reference's x=0..239 and reversed y=134..0 window; unlike its loop, row
+zero is also written. Resizing modes reverse their output rows consistently.
+Image and status are composed into one 240x135 RGB565 transfer, rather than
+separate row writes. Temporal averaging resets on restart or mode change.
+
+The mm.camera.preview processing and controls, and its tests under
+tests/mm/camera/preview/, are new modules.cpp module/test code, not upstream
+camera support code. Run the C++20 host test with sh test.sh --host
+tests/mm/camera/preview/. It checks weighted area sampling against a
+reference, temporal history, button bounce, held buttons, taps latched during
+capture, and timer wraparound. It does not measure image quality or verify
+physical button behavior.
+
+## Capture timing audit
+
+ArduCAM's image.pio waits for LVLD, waits for PCLK high, samples one bit, and
+waits for PCLK low. Its ST7735 demo sets clk_sys to 250 MHz and uses PWM wrap
+9 for a 25 MHz MCLK, giving 10 PIO cycles per serial bit. Its base example at
+125 MHz uses a 12.5 MHz PWM MCLK, again 10 cycles per bit. The PWM comment
+mentioning wrap 5 is stale; the executable code uses wrap 9.
+
+PICO-Cam-A has a fixed 36 MHz oscillator, so GPIO PWM cannot slow its MCLK.
+The previous three-instruction loop at 125 MHz had only 3.47 PIO cycles per
+bit: WAIT-high recognition followed by IN could sample after the bit's valid
+window (HM01B0 Figure 6.5). Instruction throughput alone was not a valid
+timing guarantee. The previous 0x3060=0x20 setting also incorrectly cleared
+msb_en; it is restored to ArduCAM/Waveshare's 0x30, as specified in HM01B0
+Table 6.6 and register 0x3060.
+
+The capture loop now matches ArduCAM's LVLD-high, PCLK-high, IN, PCLK-low
+sequence, with the existing PIO FVLD synchronization prefix. Camera-linked
+applications set the RP2040 core regulator to 1.15 V, wait 10 ms, then set
+clk_sys to 250 MHz before C++ initialization or application peripheral
+configuration, matching the working PICO-Cam-A/C/main.c capture clock.
+Waveshare uses 1.10 V; this integration retains 1.15 V. Raspberry Pi's RP2040
+datasheet section 2.15.3 rates 200 MHz at 1.15 V; 250 MHz is an overclock and
+is not a datasheet-qualified operating point. It provides 6.94 PIO cycles per
+fixed 36 MHz bit, versus the previous 5.56 at 200 MHz. The adapter refuses
+initialization or capture below 250 MHz. The clock setup is linked only when
+the camera provider is reached, and remains in effect when the camera sleeps.
+No runtime clock change occurs on K3 presses. PIO allocation now requires six
+instructions.
+
+Physical timing, signal integrity and image quality require board testing.
+AREA+TIME can produce a shifted ghost of moving objects because it blends
+current output with previous frames; CROP, NEAREST and AREA do not blend frames.
+
+Timing sources:
+https://github.com/ArduCAM/RPI-Pico-Cam/blob/master/rp2040_hm01b0/image.pio
+https://github.com/ArduCAM/RPI-Pico-Cam/blob/master/rp2040_hm01b0/arducam/arducam.c
+https://github.com/ArduCAM/RPI-Pico-Cam/blob/master/rp2040_hm01b0_st7735/main.c
+https://github.com/ArduCAM/RPI-Pico-Cam/blob/master/rp2040_hm01b0_st7735/arducam/arducam.c
+https://files.waveshare.com/wiki/common/HM01B0-datasheet.pdf
+https://pip-assets.raspberrypi.com/categories/814-rp2040/documents/RP-008371-DS-1-rp2040-datasheet.pdf
+
+## Comparison with the working Waveshare C demo
+
+Compared directly with ../Waveshare/PICO-Cam-A/C/lib/CAM/cam.c,
+lib/CAM/hm01b0_init.h, lib/CAM/image.pio and main.c. The 77 non-reset
+sensor register writes match in order and value: automatic exposure,
+gain limits, black-level correction, defect correction, line/frame lengths,
+serial mode and orientation. Reset is still performed separately, with its
+10 ms delay. Register transfers remain bounded hardware I2C at 100 kHz
+rather than the demo's bit-banged SCCB. Frame synchronization remains in
+PIO, with FIFO clearing and timeout recovery on each capture.
+
+The default crop follows main.c's display window and vertical order, but fills
+all 135 rows instead of leaving the last row unwritten. LCD porch, power,
+gamma, inversion, MADCTL and offsets already match the reference. The SPI
+request now also matches its 100 MHz request; the Pico divider selects 62.5
+MHz at a 250 MHz system clock. Each display update transfers one full RGB565
+frame. The reference captures on core 1 while core 0 sends LCD data, sharing a
+buffer without synchronization. This integration keeps the single-core
+synchronous camera API and a stable complete frame during LCD transfer; equal
+frame rate to the two-core reference is not claimed.

@@ -54,6 +54,14 @@ include(${MM_LIBRARY_SOURCE}/pico_sdk_init.cmake)
 project(modules_cpp_pico C CXX ASM)
 pico_sdk_init()
 
+# Compile camera support only for applications reaching the camera provider.
+set(MM_PICO_CAM_CAMERA 0)
+if(MM_OBJECTS MATCHES "/boards/pico_cam_a/camera/")
+  if(NOT MM_BOARD STREQUAL "pico_cam_a")
+    message(FATAL_ERROR "PICO-Cam-A camera provider requires board pico_cam_a")
+  endif()
+  set(MM_PICO_CAM_CAMERA 1)
+endif()
 set(MM_ADAPTER ${CMAKE_CURRENT_LIST_DIR}/../ext/adapter.c)
 set_source_files_properties(${MM_OBJECTS} PROPERTIES EXTERNAL_OBJECT TRUE GENERATED TRUE)
 add_executable(mm_external ${MM_OBJECTS} ${MM_ADAPTER})
@@ -64,6 +72,7 @@ set_source_files_properties(${MM_ADAPTER} PROPERTIES
   COMPILE_OPTIONS "-std=gnu11;-Wall;-Wextra;-Werror")
 target_compile_definitions(mm_external PRIVATE
   MM_SELECTED_BOARD="${MM_BOARD}"
+  MM_PICO_CAM_CAMERA=${MM_PICO_CAM_CAMERA}
   MM_ADC_REFERENCE_MV=${MM_ADC_REFERENCE_MV}
   MM_BOARD_HAS_LED=${MM_BOARD_HAS_LED}
   MM_BOARD_HAS_SECOND_I2C=${MM_BOARD_HAS_SECOND_I2C}
@@ -107,6 +116,9 @@ else()
     hardware_uart
     pico_flash)
   pico_enable_stdio_usb(mm_external 1)
+endif()
+if(MM_PICO_CAM_CAMERA)
+  target_link_libraries(mm_external hardware_vreg)
 endif()
 if(MM_BOARD_HAS_USB_HOST)
   if(NOT TARGET tinyusb_pico_pio_usb)

@@ -150,6 +150,9 @@ also accepted by `build`, `configure`, `test`, `run`, `check`, `model`, `json`, 
   own shell tool instead of the system shell directly; see
   docs/modules.mdy's "Shell tool wrapper scripts".
 
+See [PICO-Cam-A support](docs/modules-pico-cam-a.mdy) for the Waveshare
+RP2040 camera board and camera-to-LCD example.
+
 ## Acknowledgements
 
 The Pico SD card driver's 4-bit SDIO transport learned its design from
@@ -168,12 +171,12 @@ manifest format, every core module and tool in detail, and the TDD workflow
 for making changes. This README only covers getting the project running for
 the first time.
 
-[Configure specification for release v1.3.1](docs/modules-configure.mdy) defines
+[Configure specification for release v1.3.2](docs/modules-configure.mdy) defines
 the official manifest-option, reset, and read-only requirements. Its Current
 boundaries section describes the implemented structural-property scope;
 build, test, run, and debug consume lane capability and core declarations,
 while warning about tuning declarations whose values they do not apply yet.
 
-[Platforms specification for release v1.3.1](docs/modules-platforms.mdy) defines
+[Platforms specification for release v1.3.2](docs/modules-platforms.mdy) defines
 SDK and board manifests, target platform selection, responsibility ownership,
 and the strict configuration-2 record.

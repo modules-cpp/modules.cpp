@@ -1,0 +1,19 @@
+---
+mm: 1.2
+kind: module
+name: pico-cam-a-camera
+module: platform.pico_cam_a.camera
+use: mm.camera
+use: mm.mcu
+file: camera.cppm
+option: buildable-host no
+---
+
+# pico-cam-a-camera
+
+HM01B0 at 324 by 324, 8-bit grayscale over its one-bit serial output.
+The SDK adapter owns sensor I2C setup and PIO/DMA capture. It matches the
+Waveshare demo's 250 MHz capture clock (above the rated 200 MHz point),
+using 1.15 V, and waits 10 ms after each initialization register write.
+The fixed oscillator supplies MCLK; no GPIO clock or reset is driven. Capture waits for a fresh
+FVLD edge and gives both frame synchronization and DMA one shared deadline.

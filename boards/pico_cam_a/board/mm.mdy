@@ -1,0 +1,37 @@
+---
+mm: 1.2
+kind: board
+name: pico_cam_a
+derives-from: pico
+platform-provider: mm.display platform.pico_cam_a.display
+platform-provider: mm.camera platform.pico_cam_a.camera
+---
+
+# pico_cam_a
+
+RP2040 with 16 MB W25Q128 flash, a 240 by 135 ST7789 LCD, and an HM01B0
+grayscale camera. The SDK bridge selects waveshare_pico_cam_a, retaining the
+pico Arm lane while using the correct flash capacity and UART0 on GP0/GP1.
+There is no user LED. The exposed default I2C is I2C1 on GP2/GP3.
+
+LCD: SPI1 clock GP10, MOSI GP11, CS GP13, DC GP9, reset GP7. The
+backlight is permanently powered; GP14 is the camera pixel clock.
+Camera: I2C0 SDA GP4/SCL GP5, address 0x24; serial data GP6, PCLK GP14,
+LVLD GP15, FVLD GP16. A dedicated 36 MHz oscillator supplies MCLK; there
+is no GPIO reset or XCLK. K3 and K4 are active-low buttons on GP18/GP19.
+The ADC reference is the filtered 3V3 rail. GP24 reads the USB VBUS divider.
+
+The schematic is authoritative where the demo differs: its LCD_BL=14,
+camera reset=2 and XCLK=3 must not be driven. The vendor demo also allocates
+324 by 324 bytes despite naming its initialization table 324x244. The
+provider matches that square output (register 0x3010=0), captures the full
+frame, and leaves cropping or resizing to the preview module.
+
+Capture owns I2C0 and GP4/5/6/14/15/16 until sleep. Use from one core;
+initialization and capture are synchronous. PIO and DMA resources are claimed
+dynamically and released by sleep. No hardware qualification has been done.
+
+Sources:
+https://www.waveshare.com/wiki/PICO-Cam-A
+https://files.waveshare.com/wiki/PICO-Cam-A/PICO-Cam-A.pdf
+https://files.waveshare.com/wiki/PICO-Cam-A/PICO-Cam-A.zip
