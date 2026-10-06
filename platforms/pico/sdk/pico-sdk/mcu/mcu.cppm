@@ -172,10 +172,16 @@ public:
             uart = mm::mcu::UartWiring{uart_instance, uart_tx, uart_rx};
         std::optional<mm::mcu::UartWiring> second_uart;
         if (mm_pico_mcu_has_second_uart()) second_uart = mm::mcu::UartWiring{1, 8, 9};
-        // The chip select is GP15, DAT3 in SdFat's SDIO wiring for the Pico, the
-        // line an SD card in SPI mode is selected by.
+        unsigned int spi_instance = 0, spi_clock = 0, spi_tx = 0, spi_rx = 0, spi_cs = 0;
+        int has_receive = 0;
+        mm_pico_mcu_default_spi(&spi_instance, &spi_clock, &spi_tx, &spi_rx, &has_receive, &spi_cs);
+        std::optional<unsigned int> receive;
+        if (has_receive) receive = spi_rx;
+        unsigned int i2c_instance = 0, i2c_data = 0, i2c_clock = 0;
+        mm_pico_mcu_default_i2c(&i2c_instance, &i2c_data, &i2c_clock);
         return {mm_pico_mcu_board_name(), std::span<const mm::mcu::Gpio>{gpios, count}, led,
-                mm::mcu::SpiWiring{0, 18, 19, 16, 15}, mm::mcu::I2cWiring{0, 4, 5}, second_i2c,
+                mm::mcu::SpiWiring{spi_instance, spi_clock, spi_tx, receive, spi_cs},
+                mm::mcu::I2cWiring{i2c_instance, i2c_data, i2c_clock}, second_i2c,
                 uart, second_uart};
     }
 

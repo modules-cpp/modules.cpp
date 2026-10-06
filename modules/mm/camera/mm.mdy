@@ -1,0 +1,19 @@
+---
+mm: 1.2
+kind: module
+name: camera
+module: mm.camera
+platform-interface:
+file: camera.cppm
+file: src/camera.cpp
+---
+
+# camera
+
+Portable synchronous grayscale camera interface. Pixels are row-major, one
+unsigned byte per pixel, zero black and 255 white, with no row padding.
+The caller owns the capture buffer; capture requires exactly width*height
+bytes and a positive timeout in milliseconds. A failed capture leaves the
+buffer contents unspecified. Providers return NotInitialized before initialize
+and after sleep; sleep releases capture resources and can be called repeatedly.
+Unbound lanes return Unsupported. Applications call selected_camera().

@@ -15,6 +15,7 @@ folder: socket-smoke
 folder: font-demo
 folder: gpio-edge-smoke
 folder: gfx-demo
+folder: camera-demo
 folder: main
 folder: mcu-blink
 folder: mcu-shell

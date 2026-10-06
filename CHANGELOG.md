@@ -6,6 +6,38 @@ All notable changes to modules.cpp. Versions follow [semantic versioning](https:
 
 ### Added
 
+- **`pico_cam_a` board.** The Waveshare PICO-Cam-A, under
+  `boards/pico_cam_a`, deriving from `pico` and selecting the SDK's
+  `waveshare_pico_cam_a` header for its 16 MB flash. Binds its HM01B0 camera
+  and 1.14 inch 240×135 ST7789V LCD as `mm.camera` and `mm.display`.
+  Reports no user LED, a 3300 mV ADC reference, UART0 on GP0/GP1, I2C1 on
+  GP2/GP3, and the LCD's SPI1 wiring. Wiring follows Waveshare's schematic;
+  the backlight is permanently powered and GP14 is camera PCLK. Firmware
+  builds and UF2 checks pass; not yet qualified on hardware.
+- **`mm.camera` and `platform.pico_cam_a.camera`.** A portable synchronous
+  grayscale camera interface and an HM01B0 provider capturing 324×244 frames
+  through PIO and DMA, with bounded transfers, sensor identity checks,
+  frame synchronization in PIO, FIFO stall reporting, and resource cleanup.
+  The camera support adapts
+  [ArduCAM/RPI-Pico-Cam](https://github.com/ArduCAM/RPI-Pico-Cam), through
+  Waveshare's PICO-Cam-A example: the sensor initialization table retains
+  its original `hm01b0_init.h` filename, while register transfers and
+  PIO/DMA capture are adapted from `arducam.c` and `image.pio`.
+  Source provenance and local modifications are documented in
+  `boards/pico_cam_a/mm.mdy`.
+- **`apps/camera-demo`.** Captures one grayscale frame, scales it to
+  240×135, converts it to RGB565 using a row buffer, and displays it through
+  `mm.lcd.st7789`. ArduCAM's separate
+  [HM01B0/ST7735 demo](https://github.com/ArduCAM/RPI-Pico-Cam/tree/master/rp2040_hm01b0_st7735)
+  targets Pico4MLcbot's ST7735 display and credits Hermann-SW; PICO-Cam-A
+  instead requires ST7789V support and Waveshare's panel settings.
+- **PICO-Cam-A regression checks.** Board selection and camera/display
+  provider closure checks, plus `boards/pico_cam_a/camera/test/capture.c`,
+  a host C11 test written by Codex for this integration. Its recording Pico
+  SDK double exercises the production C adapter's initialization failures,
+  resource allocation, capture timeouts, FIFO stalls, and cleanup. Run with
+  `sh boards/pico_cam_a/camera/test/run.sh`; it does not validate hardware
+  timing or image quality.
 - **`rp2040_geek` and `rp2350_geek` boards.** The Waveshare RP2040-GEEK and
   RP2350-GEEK, under `boards/geek`, deriving from `pico` and `pico2-arm` and
   sharing `platform.geek.display`, the 1.14 inch 240×135 ST7789 panel on SPI1.

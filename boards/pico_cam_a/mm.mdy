@@ -1,0 +1,69 @@
+---
+mm: 1.2
+kind: dir
+name: pico-cam-a-platform
+folder: board
+folder: display
+folder: camera
+---
+
+# pico-cam-a-platform
+
+Waveshare PICO-Cam-A board, LCD and HM01B0 camera providers.
+
+The original HM01B0 camera support code is ArduCAM's RPI-Pico-Cam:
+https://github.com/ArduCAM/RPI-Pico-Cam
+
+The upstream camera implementation and sensor initialization header are in
+rp2040_hm01b0/arducam:
+https://github.com/ArduCAM/RPI-Pico-Cam/tree/master/rp2040_hm01b0/arducam
+https://github.com/ArduCAM/RPI-Pico-Cam/blob/master/rp2040_hm01b0/arducam/hm01b0_init.h
+
+The upstream PIO program is rp2040_hm01b0/image.pio:
+https://github.com/ArduCAM/RPI-Pico-Cam/blob/master/rp2040_hm01b0/image.pio
+
+This integration used the HM01B0 table and camera example supplied in
+Waveshare's PICO-Cam-A support archive, which adapts that ArduCAM code:
+https://files.waveshare.com/wiki/PICO-Cam-A/PICO-Cam-A.zip
+
+camera/hm01b0_init.h retains the original filename and the notice from the
+Waveshare distribution. Its table is adapted for this integration: the
+adapter performs software reset separately, the sentinel is omitted in favor
+of the array length, the QVGA window is enabled, and the serial output is
+MSB-first. The Waveshare version's other register settings are retained.
+
+camera/capture.inc.c adapts the upstream PIO/DMA capture approach for this
+board and the modules.cpp interface, adding timeouts, frame synchronization
+in PIO, sensor identity checks, resource allocation, and cleanup. It is an
+adaptation of the original support approach, not a claim of original camera
+support authorship. The C++ provider and portable mm.camera interface are
+integration code; the LCD panel settings come from Waveshare's LCD example.
+
+## Camera host regression test
+
+camera/test/capture.c was written by Codex during this board integration.
+It is project test code, not code supplied by ArduCAM or Waveshare. It
+provides a recording Pico SDK test double and directly includes
+camera/capture.inc.c to exercise the production camera implementation on
+the host, without the Pico SDK or camera hardware.
+
+The test is C because capture.inc.c is compiled as C inside the Pico SDK
+adapter. Direct inclusion checks that implementation under the same C
+language rules; the public mm.camera interface and board provider are C++20
+modules. camera/test/run.sh compiles the test as C11 with -Wall, -Wextra,
+and -Werror, runs it from a temporary directory, and removes its output.
+Set CC to select another host C compiler.
+
+Run from the repository root:
+
+```sh
+sh boards/pico_cam_a/camera/test/run.sh
+```
+
+It checks invalid capture arguments, calls before initialization, clock and
+resource constraints, PIO fallback, sensor identity and transport failures,
+repeated initialization, capture timeout recovery, DMA configuration, FIFO
+stall reporting, and resource cleanup even when sensor standby fails.
+
+The simulated SDK does not validate real PIO timing, electrical wiring,
+frame rate, or image quality. Those require testing on a PICO-Cam-A board.

@@ -1,0 +1,65 @@
+---
+mm: 1.0
+kind: doc
+name: pico-cam-a
+---
+
+# Waveshare PICO-Cam-A
+
+Select board `pico_cam_a` on the `pico-arm` SDK lane. The board derives from
+`pico`, but the SDK bridge selects `waveshare_pico_cam_a` for the correct
+16 MB flash capacity. The board binds mm.display to its ST7789 LCD and
+mm.camera to its HM01B0 camera; neither provider links into an application
+unless it reaches that interface.
+
+Build and verify a camera-to-LCD image:
+
+```sh
+scripts/build-pico.sh --board pico_cam_a --app camera-demo
+scripts/build-pico.sh --board pico_cam_a --app camera-demo --flash
+scripts/build-pico.sh --board pico_cam_a --app gfx-demo
+```
+
+The scripts require the usual Pico tools and picotool package. `--dry-run`
+checks lane selection and provider closure without those tools or hardware.
+Put the board in BOOTSEL before using `--flash`.
+
+`camera-demo` captures a 324 by 244 grayscale frame and scales it into the
+240 by 135 LCD, using one RGB565 row buffer. A white or black pixel is stored
+as 255 or 0 in the camera buffer. The displayed image remains after the
+camera enters standby. Applications can repeat capture for a live preview.
+
+The camera uses I2C0 GP4/GP5 (address 0x24), data GP6, PCLK GP14, LVLD GP15,
+and FVLD GP16. MCLK comes from the board's 36 MHz oscillator. The adapter
+uses the gated pixel clock and MSB-first serial output, claims one PIO state
+machine plus five instructions and one DMA channel, and bounds I2C transfers
+and frame capture. Frame synchronization and transfer share a capture deadline.
+A timeout stops DMA; the next call starts from a fresh FVLD edge. `sleep()`
+releases resources even if the sensor cannot acknowledge standby. Call this
+API from one core and keep the system clock at least 125 MHz. Hardware
+validation is still required; no frame-rate or image-quality claim is made.
+
+The LCD is SPI1 on GP10/GP11, CS GP13, DC GP9, reset GP7, with a permanently
+powered backlight. Do not use the vendor demo's LCD_BL=14, reset=2 or XCLK=3:
+the schematic connects GP14 to camera PCLK and exposes GP2/GP3 as I2C1.
+UART0 is GP0/GP1. K3 and K4 are active-low buttons on GP18 and GP19; the
+board has no user LED.
+
+Original camera support: [ArduCAM/RPI-Pico-Cam](https://github.com/ArduCAM/RPI-Pico-Cam),
+with provenance and local adaptations recorded in boards/pico_cam_a/mm.mdy.
+
+Board sources: [Waveshare documentation](https://www.waveshare.com/wiki/PICO-Cam-A),
+[schematic](https://files.waveshare.com/wiki/PICO-Cam-A/PICO-Cam-A.pdf),
+[reference code](https://files.waveshare.com/wiki/PICO-Cam-A/PICO-Cam-A.zip).
+
+Host regression checks:
+
+```sh
+sh boards/pico_cam_a/camera/test/run.sh
+sh tests/scripts/run.sh
+```
+
+The camera test uses a recording SDK double to check resource exhaustion,
+initialization failure, timeout recovery, FIFO stalls, and resource release
+when standby fails. Firmware builds and UF2 checks do not replace a test on
+an actual board.

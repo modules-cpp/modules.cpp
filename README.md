@@ -150,6 +150,9 @@ also accepted by `build`, `configure`, `test`, `run`, `check`, `model`, `json`, 
   own shell tool instead of the system shell directly; see
   docs/modules.mdy's "Shell tool wrapper scripts".
 
+See [PICO-Cam-A support](docs/modules-pico-cam-a.mdy) for the Waveshare
+RP2040 camera board and camera-to-LCD example.
+
 ## Learn more
 
 [docs/modules.mdy](docs/modules.mdy) covers the architecture, the MDY

@@ -141,6 +141,12 @@ unsigned int mm_pico_mcu_pwm_comparator(unsigned int pin);
 int mm_pico_mcu_pwm_configure(unsigned int pin, unsigned int top, unsigned int divider_x16);
 int mm_pico_mcu_pwm_write(unsigned int pin, unsigned int level);
 int mm_pico_mcu_pwm_release(unsigned int pin);
+/* Default board buses, including composite-board wiring. */
+void mm_pico_mcu_default_spi(unsigned int* instance, unsigned int* clock_pin,
+    unsigned int* transmit_pin, unsigned int* receive_pin, int* has_receive,
+    unsigned int* chip_select_pin);
+void mm_pico_mcu_default_i2c(unsigned int* instance, unsigned int* data_pin,
+    unsigned int* clock_pin);
 const char* mm_pico_mcu_board_name(void);
 unsigned int mm_pico_mcu_gpio_count(void);
 int mm_pico_mcu_has_led(void);

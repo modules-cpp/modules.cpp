@@ -86,7 +86,8 @@ endif()
 # sectors, zero for none. Keyed on the vendor board, because the build's flash
 # size is the vendor header's: 2 MB for pico and pico-w, 4 MB for the pico2
 # family, whatever a board's chip has; rp2350_pizero, which selects its own
-# 16 MB header, has a larger region. MM_BOARD_FLASH_REGION_BYTES given to
+# 16 MB header, has a larger region. pico_cam_a also uses its own 16 MB header
+# and retains the RP2040 default data region. MM_BOARD_FLASH_REGION_BYTES given to
 # CMake or in the environment takes precedence, which is how the bridge's
 # overlap check is exercised.
 if(MM_VENDOR_BOARD STREQUAL "pico" OR MM_VENDOR_BOARD STREQUAL "pico-w")
@@ -184,6 +185,11 @@ endif()
 # are already instance one on the 40-pin header's pins. rp2350_pizero_usb_host
 # is the same board, so the same row.
 set(MM_PICO_BOARD_HEADER "")
+if(MM_BOARD STREQUAL "pico_cam_a")
+  set(MM_PICO_BOARD_HEADER waveshare_pico_cam_a)
+  set(MM_ADC_REFERENCE_MV 3300)
+  set(MM_BOARD_HAS_LED 0)
+endif()
 if(MM_BOARD STREQUAL "rp2350_pizero" OR
    MM_BOARD STREQUAL "rp2350_pizero_usb_host")
   set(MM_PICO_BOARD_HEADER waveshare_rp2350_pizero)

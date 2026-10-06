@@ -352,9 +352,11 @@ enum {
     MM_PICO_OWNER_ADC = 3,
     MM_PICO_OWNER_PWM = 4,
     MM_PICO_OWNER_I2S = 5,
-    MM_PICO_OWNER_PULSE = 6
+    MM_PICO_OWNER_PULSE = 6,
+    MM_PICO_OWNER_CAMERA = 7
 };
 static unsigned char mm_pico_pin_owner[NUM_BANK0_GPIOS];
+static int mm_pico_camera_claimed;
 
 // A pad a peripheral holds: an analog claim, an I2S link's, or a pulse
 // output's.
@@ -362,7 +364,8 @@ static int mm_pico_analog_holds(unsigned int pin) {
     return mm_pico_pin_owner[pin] == MM_PICO_OWNER_ADC ||
            mm_pico_pin_owner[pin] == MM_PICO_OWNER_PWM ||
            mm_pico_pin_owner[pin] == MM_PICO_OWNER_I2S ||
-           mm_pico_pin_owner[pin] == MM_PICO_OWNER_PULSE;
+           mm_pico_pin_owner[pin] == MM_PICO_OWNER_PULSE ||
+           mm_pico_pin_owner[pin] == MM_PICO_OWNER_CAMERA;
 }
 
 static void mm_pico_gpio_callback(unsigned int pin, uint32_t events) {
@@ -531,6 +534,10 @@ int mm_pico_mcu_spi_configure(unsigned int instance, unsigned int clock_pin,
         mode < 0 || mode > 3)
         return MM_PICO_MCU_BAD_ARGUMENT;
 
+    if (mm_pico_pin_owner[clock_pin] == MM_PICO_OWNER_CAMERA ||
+        mm_pico_pin_owner[transmit_pin] == MM_PICO_OWNER_CAMERA ||
+        (has_receive && mm_pico_pin_owner[receive_pin] == MM_PICO_OWNER_CAMERA))
+        return MM_PICO_MCU_BUSY;
     spi_init(spi, (uint)baud);
     gpio_set_function(clock_pin, GPIO_FUNC_SPI);
     gpio_set_function(transmit_pin, GPIO_FUNC_SPI);
@@ -598,6 +605,9 @@ int mm_pico_mcu_i2c_configure(unsigned int instance, unsigned int data_pin,
         !mm_pico_i2c_pin_matches(instance, clock_pin, 1u))
         return MM_PICO_MCU_BAD_ARGUMENT;
 
+    if ((instance == 0 && mm_pico_camera_claimed) ||
+        mm_pico_pin_owner[data_pin] == MM_PICO_OWNER_CAMERA ||
+        mm_pico_pin_owner[clock_pin] == MM_PICO_OWNER_CAMERA) return MM_PICO_MCU_BUSY;
     i2c_init(i2c, (uint)baud);
     gpio_set_function(data_pin, GPIO_FUNC_I2C);
     gpio_set_function(clock_pin, GPIO_FUNC_I2C);
@@ -701,6 +711,8 @@ int mm_pico_mcu_uart_configure(unsigned int instance, unsigned int transmit_pin,
         !mm_pico_uart_pin_matches(instance, receive_pin, 1u))
         return MM_PICO_MCU_BAD_ARGUMENT;
 
+    if (mm_pico_pin_owner[transmit_pin] == MM_PICO_OWNER_CAMERA ||
+        mm_pico_pin_owner[receive_pin] == MM_PICO_OWNER_CAMERA) return MM_PICO_MCU_BUSY;
     uart_init(uart, (uint)baud);
     gpio_set_function(transmit_pin, GPIO_FUNC_UART);
     gpio_set_function(receive_pin, GPIO_FUNC_UART);
@@ -815,7 +827,8 @@ int mm_pico_mcu_adc_configure(unsigned int channel) {
         if (mm_pico_pin_owner[pin] == MM_PICO_OWNER_WATCHED ||
             mm_pico_pin_owner[pin] == MM_PICO_OWNER_PWM ||
             mm_pico_pin_owner[pin] == MM_PICO_OWNER_I2S ||
-            mm_pico_pin_owner[pin] == MM_PICO_OWNER_PULSE)
+            mm_pico_pin_owner[pin] == MM_PICO_OWNER_PULSE ||
+            mm_pico_pin_owner[pin] == MM_PICO_OWNER_CAMERA)
             return MM_PICO_MCU_BUSY;
         if (!mm_pico_adc_ready) {
             adc_init();
@@ -884,7 +897,8 @@ int mm_pico_mcu_pwm_configure(unsigned int pin, unsigned int top, unsigned int d
     if (mm_pico_pin_owner[pin] == MM_PICO_OWNER_PWM) return MM_PICO_MCU_OK;
     if (mm_pico_pin_owner[pin] == MM_PICO_OWNER_WATCHED ||
         mm_pico_pin_owner[pin] == MM_PICO_OWNER_ADC ||
-        mm_pico_pin_owner[pin] == MM_PICO_OWNER_I2S)
+        mm_pico_pin_owner[pin] == MM_PICO_OWNER_I2S ||
+        mm_pico_pin_owner[pin] == MM_PICO_OWNER_CAMERA)
         return MM_PICO_MCU_BUSY;
     const unsigned int slice = (unsigned int)pwm_gpio_to_slice_num(pin);
     const unsigned int comparator = (unsigned int)pwm_gpio_to_channel(pin);
@@ -1754,6 +1768,33 @@ int mm_pico_mcu_interrupts_enable(unsigned int saved) {
     return MM_PICO_MCU_OK;
 }
 
+void mm_pico_mcu_default_spi(unsigned int* instance, unsigned int* clock_pin,
+    unsigned int* transmit_pin, unsigned int* receive_pin, int* has_receive,
+    unsigned int* chip_select_pin) {
+#ifdef WAVESHARE_PICO_CAM_A
+    *instance = WAVESHARE_LCD_SPI;
+    *clock_pin = WAVESHARE_LCD_SCLK_PIN;
+    *transmit_pin = WAVESHARE_LCD_TX_PIN;
+    *receive_pin = 0;
+    *has_receive = 0;
+    *chip_select_pin = WAVESHARE_LCD_CS_PIN;
+#else
+    *instance = 0; *clock_pin = 18; *transmit_pin = 19;
+    *receive_pin = 16; *has_receive = 1; *chip_select_pin = 15;
+#endif
+}
+
+void mm_pico_mcu_default_i2c(unsigned int* instance, unsigned int* data_pin,
+    unsigned int* clock_pin) {
+#ifdef WAVESHARE_PICO_CAM_A
+    *instance = PICO_DEFAULT_I2C;
+    *data_pin = PICO_DEFAULT_I2C_SDA_PIN;
+    *clock_pin = PICO_DEFAULT_I2C_SCL_PIN;
+#else
+    *instance = 0; *data_pin = 4; *clock_pin = 5;
+#endif
+}
+
 const char* mm_pico_mcu_board_name(void) {
     return MM_SELECTED_BOARD;
 }
@@ -1977,3 +2018,8 @@ bool __not_in_flash_func(__wrap_hw_endpoint_xfer_continue)(
     if (!ep->active) return false;
     return __real_hw_endpoint_xfer_continue(ep);
 }
+
+// Board camera implementation stays in this adapter, the SDK header boundary.
+#if MM_PICO_CAM_CAMERA
+#include "../../../../../boards/pico_cam_a/camera/capture.inc.c"
+#endif

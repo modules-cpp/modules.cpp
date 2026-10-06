@@ -1,0 +1,15 @@
+---
+mm: 1.2
+kind: app
+name: camera-demo
+option: buildable-host no
+use: mm.camera
+use: mm.display
+file: main.cpp
+---
+
+# camera-demo
+
+Capture and show one grayscale frame on an RGB565 display. Exit codes:
+2 display initialization, 3 camera initialization, 4 capture, 5 geometry,
+6 pixel transfer, 7 refresh, 8 camera sleep. The image remains on the LCD.

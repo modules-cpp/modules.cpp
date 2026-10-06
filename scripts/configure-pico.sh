@@ -5,7 +5,7 @@
 #
 # Boards: pico, pico-w, pico2-arm, pico2-w-arm, pico2-riscv, pico2-w-riscv,
 # rp2040_geek, rp2350_geek, rp2040_zero, rp2350_zero, rp2350_pizero,
-# pico_usb_host, pico2_usb_host, rp2350_pizero_usb_host.
+# pico_usb_host, pico2_usb_host, rp2350_pizero_usb_host, pico_cam_a.
 #
 # Two calls to configure, not one. The first resolves the configuration back
 # to the host alone, so a board, SDK, or compiler left by a previous lane
@@ -61,7 +61,7 @@ done
 case "$board" in
     pico|pico-w|pico2-arm|pico2-w-arm|\
     rp2040_geek|rp2350_geek|rp2040_zero|rp2350_zero|rp2350_pizero|\
-    pico_usb_host|pico2_usb_host|rp2350_pizero_usb_host)
+    pico_usb_host|pico2_usb_host|rp2350_pizero_usb_host|pico_cam_a)
         target=arm-none-eabi
         compiler=arm-none-eabi-gcc
         sdk=pico-arm
@@ -76,7 +76,7 @@ case "$board" in
         echo "  boards: pico, pico-w, pico2-arm, pico2-w-arm, pico2-riscv," >&2
         echo "          pico2-w-riscv, rp2040_geek, rp2350_geek, rp2040_zero," >&2
         echo "          rp2350_zero, rp2350_pizero, pico_usb_host, pico2_usb_host," >&2
-        echo "          rp2350_pizero_usb_host" >&2
+        echo "          rp2350_pizero_usb_host, pico_cam_a" >&2
         exit 64
         ;;
 esac

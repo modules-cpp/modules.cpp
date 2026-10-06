@@ -1,0 +1,15 @@
+build-pico: dry run
+  lane      arm-none-eabi arm-none-eabi-gcc pico-arm pico_cam_a
+  configure ./configure --target arm-none-eabi --compiler arm-none-eabi-gcc --sdk pico-arm --board pico_cam_a --build debug
+  build     ./build --target apps/gfx-demo/
+  image     out-target-arm-none-eabi/apps/gfx-demo/gfx-demo
+  provider platform.pico.fs.fat 0
+  provider platform.pico.fs.littlefs 0
+  provider platform.pico.mcu 1
+  provider platform.pico.stdio 0
+  provider platform.pico_cam_a.camera 0
+  provider platform.pico_cam_a.display 1
+  driver mm::lcd::st7789
+  delay     500 ms
+  uf2 rp2040
+exit 0

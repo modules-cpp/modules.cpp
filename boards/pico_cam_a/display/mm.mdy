@@ -1,0 +1,16 @@
+---
+mm: 1.2
+kind: module
+name: pico-cam-a-display
+module: platform.pico_cam_a.display
+use: mm.display
+use: mm.lcd.st7789
+use: mm.mcu
+file: display.cppm
+option: buildable-host no
+---
+
+# pico-cam-a-display
+
+240 by 135 RGB565 landscape LCD, permanently lit, with the vendor panel
+settings and memory offsets (40, 53).
