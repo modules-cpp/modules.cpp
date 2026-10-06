@@ -4,8 +4,129 @@ All notable changes to modules.cpp. Versions follow [semantic versioning](https:
 
 ## [Unreleased]
 
+Development work on main that is not included in a published release.
+
 ### Added
 
+- **Library C sources, manifest version 1.4.** A library may declare
+  `c-source`, `c-strict`, `c-include`, and `c-option`: C files `mm.build`
+  compiles with the lane's C compiler and links into every executable that
+  reaches a module naming the library, once per library, project-owned glue
+  with warnings as errors. A lane an external bridge links refuses them.
+  `libraries/c-demo` is the fixture and a new suite. See
+  `docs/modules-libraries.mdy`.
+
+- **littlefs and FAT on Linux, independent of Pico.** Linux's own littlefs
+  v2.11.3 and FatFs R0.16 under `platforms/linux/littlefs` and
+  `platforms/linux/fatfs` -- their own `vendor.sh`, adapters, `ffconf.h`,
+  and providers, `platform.linux.fs.littlefs` and `platform.linux.fs.fat`,
+  which the Linux SDKs bind for `mm.fs.littlefs` and `mm.fs.fat`. Pico's
+  trees, providers, and bridge blocks are unchanged. Both pass the 25
+  conformance checks on Linux, littlefs through `mm.spiflash` on the emulated
+  flash and FAT through `mm.sdcard` on the emulated card, and `apps/sd-smoke`
+  runs unchanged on `storage-linux` against a `mkfs.fat` image.
+  `scripts/test-littlefs.sh` and `scripts/test-fatfs.sh` take
+  `--tree pico|linux|both`.
+
+- **SD cards in 4-bit SD mode: the `mm.mcu` sdio facility and
+  `mm.sdcard::SdioCard`.** A portable SD bus facility -- configure, clock,
+  idle clocks, command, read, write, release, with the platform framing
+  commands, checking response and per-line data CRCs, and waiting out busy --
+  implemented on Pico over PIO and DMA at 25 MHz, and a second card class
+  speaking the SD-mode protocol over it. The RP2350-Touch-LCD-2.8's socket,
+  which hardware SPI cannot reach, gets `platform.rp2350_touch_lcd_28.sdcard`,
+  and both PiZero boards switch from SPI mode to SDIO. The GEEK and LCD 1.54
+  sockets stay in SPI mode. The Pico transport's design learned from carlk3's
+  Apache-2.0 no-OS-FatFS-SD-SDIO-SPI-RPi-Pico, acknowledged in the README and
+  `docs/modules-sdcard.mdy`; no code is copied. Not yet qualified on
+  hardware.
+
+- **Files in the shells: `mm.shell.fs`, `mm.fs.shell`, and `mm.shell.board`.**
+  The embedded shell gains ten file commands over `mm.fs` -- `ls`, `cat`,
+  `stat`, `write`, `append`, `rm`, `mkdir`, `mv`, `df`, `mounts` -- bounded
+  and allocation-free, with `cat` and `ls` paging long output. The full
+  shell's redirections, globbing, and file tests reach `mm.fs` volumes
+  through `mm.fs.shell`. `apps/mcu-shell` now runs on `mm.shell.board` and
+  always mounts the board's own storage at `/data` (littlefs on a Pico);
+  `apps/mcu-shell-sd`, selected by `scripts/build-shell.sh --sd`, adds the
+  socket's FAT card at `/sd`. With littlefs, the RP2040 shell exceeds the
+  shell specification's size ceilings; `docs/modules-shell.mdy` records the
+  measurements and leaves the ceilings as a decision.
+
+- **littlefs's pools are sized per board.** Three board-table columns,
+  `MM_BOARD_LFS_VOLUMES`, `MM_BOARD_LFS_FILES`, and
+  `MM_BOARD_LFS_DIRECTORIES`, size the Pico littlefs adapter's static pools,
+  overridable from CMake or the environment and range-checked. The default
+  is one volume, four files, and two directories, about 4.5 KB instead of
+  9 KB; the PiZero boards keep the old 2, 8, and 4. `mm_pico_lfs_limits`
+  reports them, and `scripts/test-littlefs.sh` runs the harness at both the
+  default and the PiZero's sizes.
+
+- **The SDIO facility no longer costs every Pico image 6.7 KB of RAM.** Reads
+  go by DMA straight into the caller's buffer, byte-swapped by the DMA engine,
+  with a chained channel collecting CRC words; the CRC table is sixteen
+  entries; write words are computed as they are fed. A read buffer must now
+  start on a four-byte boundary, and `SdioCard` bounces any other.
+
+## [v1.3.2] — 2026-10-06
+
+Something to capture and keep. v1.3.1 added USB connectivity; v1.3.2 gives
+programs a portable file system with littlefs and FAT on Pico, SD-card and
+SPI-flash drivers with Linux emulation, addressable RGB LEDs, and live
+HM01B0 camera preview on PICO-Cam-A. New Waveshare board profiles, standalone
+UF2 flashing, and USB console fixes complete the release.
+
+### Fixed
+
+- **Pico USB console connection and flush.** Recognize DTR immediately or
+  apply a bounded connection fallback for terminals that omit it. Drain
+  queued output only while USB is ready and DTR is asserted, with timer and
+  iteration bounds; battery operation and disconnected hosts retain
+  best-effort flushing without a half-second delay per message. Handle
+  deconfiguration and stale TinyUSB transfer state without indefinite waits.
+
+### Added
+
+- **Standalone UF2 flashing.** `flash --image <file.uf2>` uses the existing
+  Pico flashing backend for externally built firmware without an application
+  manifest or configured target lane. Supports `--auto-flash` and an explicit
+  `picotool_DIR` package.
+
+- **`pico_cam_a` board.** The Waveshare PICO-Cam-A, under
+  `boards/pico_cam_a`, deriving from `pico` and selecting the SDK's
+  `waveshare_pico_cam_a` header for its 16 MB flash. Binds its HM01B0 camera
+  and 1.14 inch 240×135 ST7789V LCD as `mm.camera` and `mm.display`.
+  Reports no user LED, a 3300 mV ADC reference, UART0 on GP0/GP1, I2C1 on
+  GP2/GP3, and the LCD's SPI1 wiring. Wiring follows Waveshare's schematic;
+  the backlight is permanently powered and GP14 is camera PCLK. Firmware
+  builds and UF2 checks pass; basic preview has been confirmed on the board,
+  with frame rate and image quality not formally qualified.
+- **`mm.camera` and `platform.pico_cam_a.camera`.** A portable synchronous
+  grayscale camera interface and an HM01B0 provider capturing 324×324 frames
+  through PIO and DMA, with bounded transfers, sensor identity checks,
+  frame synchronization in PIO, FIFO stall reporting, and resource cleanup.
+  All 77 non-reset sensor register writes match Waveshare's working demo,
+  with 10 ms settling per initialization write. Camera-linked firmware uses
+  its 250 MHz capture clock at 1.15 V, above the documented 200 MHz point.
+  The camera support adapts
+  [ArduCAM/RPI-Pico-Cam](https://github.com/ArduCAM/RPI-Pico-Cam), through
+  Waveshare's PICO-Cam-A example: the sensor initialization table retains
+  its original `hm01b0_init.h` filename, while register transfers and
+  PIO/DMA capture are adapted from `arducam.c` and `image.pio`.
+  Source provenance and local modifications are documented in
+  `boards/pico_cam_a/mm.mdy`.
+- **`apps/camera-demo` and `mm.camera.preview`.** Start capture in CROP
+  after reset, showing LIVE after exposure settling. The default 240x135
+  crop follows Waveshare's orientation and window. K3 stops/restarts capture;
+  K4 selects crop, nearest sampling, weighted area averaging, or area plus
+  temporal averaging. Debounced edge latches retain taps during capture;
+  eight startup frames allow automatic exposure to settle. Image and status
+  are sent in one RGB565 LCD transfer, and stopping retains the last image.
+  Processing and controls are a C++20 module. Tests under
+  `tests/mm/camera/preview/` cover sampling, temporal history, RGB565 encoding
+  and button handling; script checks cover board and provider selection.
+  ArduCAM's separate HM01B0/ST7735 demo targets Pico4MLcbot and credits
+  Hermann-SW; PICO-Cam-A uses ST7789V and Waveshare's panel settings.
 - **`rp2040_geek` and `rp2350_geek` boards.** The Waveshare RP2040-GEEK and
   RP2350-GEEK, under `boards/geek`, deriving from `pico` and `pico2-arm` and
   sharing `platform.geek.display`, the 1.14 inch 240×135 ST7789 panel on SPI1.
@@ -43,7 +164,8 @@ All notable changes to modules.cpp. Versions follow [semantic versioning](https:
   clock hook, and the `Volume`, `BlockDevice`, and `FlashDevice` seams drivers
   implement, with `McuStorage` over `mm.mcu` block storage. No allocation.
   `mm.fs.conformance` runs the contract as 25 checks against any mounted
-  volume. See `drafts/plan-mm-fs-5.mdy` for the drivers still to come.
+  volume. The Pico littlefs and FAT providers and portable storage drivers
+  described below implement those seams.
 - **`mm.fs.local`, `mm.fs.native`, and `platform.linux.fs`.** Mount
   interfaces for the board's own storage and for a directory of the
   platform's file system, bound on the Linux SDKs to a provider over
@@ -64,8 +186,8 @@ All notable changes to modules.cpp. Versions follow [semantic versioning](https:
   `platform.pico.fs.littlefs`, which the Pico SDKs bind for `mm.fs.littlefs`
   and `mm.fs.local`: `mm.fs.local` mounts littlefs on the flash region,
   formatting a region never written and leaving a damaged one alone.
-  Timestamps live in a littlefs attribute. `scripts/test-littlefs.sh` runs the
-  adapter's 77-check native harness; `scripts/build-fs.sh` now defaults to
+  Timestamps live in a littlefs attribute. The adapter includes a 77-check
+  native harness; `scripts/build-fs.sh` defaults to
   `pico`.
 - **`mm.fs.fat` and FAT on every Pico board.** FatFs R0.16, vendored by
   `platforms/pico/sdk/pico-sdk/fatfs/vendor.sh` from ChaN's checksummed
@@ -73,8 +195,7 @@ All notable changes to modules.cpp. Versions follow [semantic versioning](https:
   behind `platform.pico.fs.fat`, which the Pico SDKs bind for `mm.fs.fat`:
   FAT12/16/32 with long names on 512-byte block devices, never written when it
   holds no FAT volume, with zero-filled extension and true appends.
-  `scripts/test-fatfs.sh` runs the adapter's 84-check native harness;
-  `apps/fat-smoke` and `scripts/build-fat.sh` check FAT on a host-port board's
+  The adapter includes an 84-check native harness; `apps/fat-smoke` and `scripts/build-fat.sh` check FAT on a host-port board's
   USB drive.
 - **`mm.sdcard` and `mm.sdcard.socket`: FAT on TF sockets.** An SD card in SPI
   mode over `mm.mcu` SPI as an `mm.fs` block device -- SDSC, SDHC, and SDXC,
@@ -95,60 +216,6 @@ All notable changes to modules.cpp. Versions follow [semantic versioning](https:
   read. `apps/socket-smoke` and `scripts/build-socket.sh` round-trip the
   socket's last block; `--board storage-linux` selects it on any Linux machine. See
   `docs/modules-linux-storage.mdy`.
-- **Library C sources, manifest version 1.4.** A library may declare
-  `c-source`, `c-strict`, `c-include`, and `c-option`: C files `mm.build`
-  compiles with the lane's C compiler and links into every executable that
-  reaches a module naming the library, once per library, project-owned glue
-  with warnings as errors. A lane an external bridge links refuses them.
-  `libraries/c-demo` is the fixture and a new suite. See
-  `docs/modules-libraries.mdy`.
-- **littlefs and FAT on Linux, independent of Pico.** Linux's own littlefs
-  v2.11.3 and FatFs R0.16 under `platforms/linux/littlefs` and
-  `platforms/linux/fatfs` -- their own `vendor.sh`, adapters, `ffconf.h`,
-  and providers, `platform.linux.fs.littlefs` and `platform.linux.fs.fat`,
-  which the Linux SDKs bind for `mm.fs.littlefs` and `mm.fs.fat`. Pico's
-  trees, providers, and bridge blocks are unchanged. Both pass the 25
-  conformance checks on Linux, littlefs through `mm.spiflash` on the emulated
-  flash and FAT through `mm.sdcard` on the emulated card, and `apps/sd-smoke`
-  runs unchanged on `storage-linux` against a `mkfs.fat` image.
-  `scripts/test-littlefs.sh` and `scripts/test-fatfs.sh` take
-  `--tree pico|linux|both`.
-- **SD cards in 4-bit SD mode: the `mm.mcu` sdio facility and
-  `mm.sdcard::SdioCard`.** A portable SD bus facility -- configure, clock,
-  idle clocks, command, read, write, release, with the platform framing
-  commands, checking response and per-line data CRCs, and waiting out busy --
-  implemented on Pico over PIO and DMA at 25 MHz, and a second card class
-  speaking the SD-mode protocol over it. The RP2350-Touch-LCD-2.8's socket,
-  which hardware SPI cannot reach, gets `platform.rp2350_touch_lcd_28.sdcard`,
-  and both PiZero boards switch from SPI mode to SDIO. The GEEK and LCD 1.54
-  sockets stay in SPI mode. The Pico transport's design learned from carlk3's
-  Apache-2.0 no-OS-FatFS-SD-SDIO-SPI-RPi-Pico, acknowledged in the README and
-  `docs/modules-sdcard.mdy`; no code is copied. Not yet qualified on
-  hardware.
-- **Files in the shells: `mm.shell.fs`, `mm.fs.shell`, and `mm.shell.board`.**
-  The embedded shell gains ten file commands over `mm.fs` -- `ls`, `cat`,
-  `stat`, `write`, `append`, `rm`, `mkdir`, `mv`, `df`, `mounts` -- bounded
-  and allocation-free, with `cat` and `ls` paging long output. The full
-  shell's redirections, globbing, and file tests reach `mm.fs` volumes
-  through `mm.fs.shell`. `apps/mcu-shell` now runs on `mm.shell.board` and
-  always mounts the board's own storage at `/data` (littlefs on a Pico);
-  `apps/mcu-shell-sd`, selected by `scripts/build-shell.sh --sd`, adds the
-  socket's FAT card at `/sd`. With littlefs, the RP2040 shell exceeds the
-  shell specification's size ceilings; `docs/modules-shell.mdy` records the
-  measurements and leaves the ceilings as a decision.
-- **littlefs's pools are sized per board.** Three board-table columns,
-  `MM_BOARD_LFS_VOLUMES`, `MM_BOARD_LFS_FILES`, and
-  `MM_BOARD_LFS_DIRECTORIES`, size the Pico littlefs adapter's static pools,
-  overridable from CMake or the environment and range-checked. The default
-  is one volume, four files, and two directories, about 4.5 KB instead of
-  9 KB; the PiZero boards keep the old 2, 8, and 4. `mm_pico_lfs_limits`
-  reports them, and `scripts/test-littlefs.sh` runs the harness at both the
-  default and the PiZero's sizes.
-- **The SDIO facility no longer costs every Pico image 6.7 KB of RAM.** Reads
-  go by DMA straight into the caller's buffer, byte-swapped by the DMA engine,
-  with a chained channel collecting CRC words; the CRC table is sixteen
-  entries; write words are computed as they are fed. A read buffer must now
-  start on a four-byte boundary, and `SdioCard` bounces any other.
 - **`mm.spiflash`.** A W25Q-family SPI NOR flash chip over `mm.mcu` SPI as an
   `mm.fs` flash device: identified by JEDEC ID, 64 KiB to 16 MiB, page
   programs and 4 KiB or 64 KiB erases behind write enable and BUSY polling,
@@ -1335,7 +1402,7 @@ framework or documentation generator. 77 commits from the initial commit on
   `xfail`, and `xpass` failing the run when a known defect starts passing.
 - GCC and Clang backends, selected per build.
 
-[Unreleased]: https://github.com/modules-cpp/modules.cpp/compare/v1.3.1...HEAD
+[v1.3.2]: https://github.com/modules-cpp/modules.cpp/releases/tag/v1.3.2
 [v1.3.1]: https://github.com/modules-cpp/modules.cpp/releases/tag/v1.3.1
 [v1.3.0]: https://github.com/modules-cpp/modules.cpp/releases/tag/v1.3.0
 [v1.2.4]: https://github.com/modules-cpp/modules.cpp/releases/tag/v1.2.4
@@ -1343,6 +1410,9 @@ framework or documentation generator. 77 commits from the initial commit on
 [v1.2.2]: https://github.com/modules-cpp/modules.cpp/releases/tag/v1.2.2
 [v1.2.1]: https://github.com/modules-cpp/modules.cpp/releases/tag/v1.2.1
 [v1.2.0]: https://github.com/modules-cpp/modules.cpp/releases/tag/v1.2.0
+[v1.1.1]: https://github.com/modules-cpp/modules.cpp/releases/tag/v1.1.1
 [v1.1.0]: https://github.com/modules-cpp/modules.cpp/releases/tag/v1.1.0
 [v1.0.1]: https://github.com/modules-cpp/modules.cpp/releases/tag/v1.0.1
 [v1.0.0]: https://github.com/modules-cpp/modules.cpp/releases/tag/v1.0.0
+
+[Unreleased]: https://github.com/modules-cpp/modules.cpp/compare/v1.3.2...HEAD
