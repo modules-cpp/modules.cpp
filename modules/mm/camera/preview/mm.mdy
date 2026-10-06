@@ -1,0 +1,27 @@
+---
+mm: 1.2
+kind: module
+name: preview
+module: mm.camera.preview
+file: preview.cppm
+file: preview.cpp
+---
+
+# mm.camera.preview
+
+Portable processing and button debounce for the PICO-Cam-A preview. The fixed
+324x244 grayscale input maps to a 240x135 image using nearest sampling,
+fractional area averaging, or area averaging with temporal history. Button
+state accepts one falling edge or low level after 30 ms of observed release,
+including taps latched while capture blocks and unsigned timer wraparound.
+
+The caller owns frame, image and button state. It resets temporal history on
+restart or a mode change. The module does not access hardware or configure
+sensor exposure. Output coordinates passed to sample must be in range.
+
+Written for modules.cpp, not copied from ArduCAM or Waveshare. Host regression
+coverage lives in tests/mm/camera/preview/ and uses the normal mm.test runner:
+
+```sh
+sh test.sh --host tests/mm/camera/preview/
+```

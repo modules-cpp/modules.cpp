@@ -4,7 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <span>
-#include "preview.h"
+import mm.camera.preview;
 import mm.camera;
 import mm.display;
 import mm.fonts;
@@ -12,6 +12,7 @@ import mm.gfx;
 import mm.mcu;
 
 namespace {
+namespace preview = mm::camera::preview;
 preview::Frame frame;
 preview::Image image;
 std::array<std::byte, preview::width * 2> row;
@@ -21,6 +22,11 @@ constexpr unsigned warmup_frames = 8;
 
 // Restore standby and release button watches on every error exit.
 struct Resources {
+    explicit Resources(mm::camera::Camera& selected) : camera(selected) {}
+    Resources(const Resources&) = delete;
+    Resources& operator=(const Resources&) = delete;
+    Resources(Resources&&) = delete;
+    Resources& operator=(Resources&&) = delete;
     mm::camera::Camera& camera;
     bool capture_watch = false, mode_watch = false, active = false;
     ~Resources() {

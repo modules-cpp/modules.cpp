@@ -4,6 +4,7 @@ kind: app
 name: camera-demo
 option: buildable-host no
 use: mm.camera
+use: mm.camera.preview
 use: mm.display
 use: mm.mcu
 use: mm.fonts
@@ -38,10 +39,10 @@ from a stopped state. Fatal exit codes: 2 display initialization, 5 geometry,
 6 pixel/text transfer, 7 refresh, 9 GPIO/timer operation. Resources are
 released on fatal exits.
 
-preview.h and test/preview.cpp are application code written for modules.cpp,
-not copied from ArduCAM or Waveshare. The test covers sampling, averaging
+mm.camera.preview and tests/mm/camera/preview/preview.cpp are project code
+written for modules.cpp, not copied from ArduCAM or Waveshare. The test covers sampling, averaging
 history and button debounce/edge retention without camera hardware:
 
 ```sh
-sh apps/camera-demo/test/run.sh
+sh test.sh --host tests/mm/camera/preview/
 ```

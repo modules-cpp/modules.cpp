@@ -6,6 +6,11 @@ All notable changes to modules.cpp. Versions follow [semantic versioning](https:
 
 ### Fixed
 
+- **Camera preview module structure.** Replace `apps/camera-demo/preview.h`
+  with the C++20 module `mm.camera.preview`. Move preview regression tests
+  to `tests/mm/camera/preview/` and register them with the normal test runner.
+  Remove the custom template and assertion macros to follow project rules.
+
 - **PICO-Cam-A camera timing and bit order.** Restore ArduCAM's LVLD/high
   PCLK/sample/low PCLK loop and gated MSB-first setting `0x3060=0x30`.
   Camera-linked firmware sets the RP2040 to the documented 200 MHz/1.15 V

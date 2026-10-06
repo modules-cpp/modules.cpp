@@ -5,6 +5,7 @@ name: mm
 folder: app
 folder: audio
 folder: camera
+folder: camera/preview
 folder: audio/es8311
 folder: build
 folder: configure

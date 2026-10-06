@@ -77,7 +77,7 @@ Host regression checks:
 
 ```sh
 sh boards/pico_cam_a/camera/test/run.sh
-sh apps/camera-demo/test/run.sh
+sh test.sh --host tests/mm/camera/preview/
 sh tests/scripts/run.sh
 ```
 

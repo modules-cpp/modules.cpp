@@ -15,6 +15,7 @@ folder: display
 folder: epaper
 folder: fonts
 folder: gfx
+folder: camera/preview
 folder: flash
 folder: fs
 folder: shell

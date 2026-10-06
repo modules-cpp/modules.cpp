@@ -78,9 +78,9 @@ debouncing. The LCD shows state and mode; stopping retains the last image
 and releases camera resources. Eight startup frames are discarded before
 showing video. Temporal averaging resets on restart or mode change.
 
-The preview processing, controls, and apps/camera-demo/test/preview.cpp are
-new modules.cpp application/test code, not upstream camera support code.
-Run the C++20 host test with sh apps/camera-demo/test/run.sh. It checks
+The mm.camera.preview processing and controls, and its tests under
+tests/mm/camera/preview/, are new modules.cpp module/test code, not upstream camera support code.
+Run the C++20 host test with sh test.sh --host tests/mm/camera/preview/. It checks
 weighted area sampling against a reference, temporal history, button
 bounce, held buttons, taps latched during capture, and timer wraparound.
 It does not measure image quality or verify physical button behavior.
