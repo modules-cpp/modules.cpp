@@ -53,8 +53,8 @@ void shared_defaults() {
         expect(!values.at("warnings").boolean && !values.at("warnings-error").boolean, "warnings default off");
         expect(!values.at("optimize").read_only, "defaults are mutable");
     }
-    expect(mm::configure::build_compile_flags(Build::Debug) == "-std=c++20 -O0 -g", "debug compile unchanged");
-    expect(mm::configure::build_compile_flags(Build::Release) == "-std=c++20 -O2 -DNDEBUG", "release compile unchanged");
+    expect(mm::configure::build_compile_flags(Build::Debug) == "-std=c++20 -Werror -O0 -g", "debug compilation treats warnings as errors");
+    expect(mm::configure::build_compile_flags(Build::Release) == "-std=c++20 -Werror -O2 -DNDEBUG", "release compilation treats warnings as errors");
     expect(mm::configure::build_link_flags(Build::Debug) == "-std=c++20 -g", "debug link unchanged");
     expect(mm::configure::build_link_flags(Build::Release) == "-std=c++20 -O2", "release link unchanged");
     expect(mm::build::default_toolchain().compiler.arguments ==
@@ -438,7 +438,7 @@ void compiler_workarounds() {
            "a native MinGW host has no POSIX to expose");
     expect(host_feature_flags("arm-none-eabi").empty(),
            "a bare-metal target is left strict");
-    expect(mm::configure::build_compile_flags(Build::Debug) == "-std=c++20 -O0 -g",
+    expect(mm::configure::build_compile_flags(Build::Debug) == "-std=c++20 -Werror -O0 -g",
            "the baseline stays compiler-agnostic");
 }
 

@@ -1,0 +1,478 @@
+---
+mm: 1.0
+kind: doc
+name: A good compiler is all you need on Raspberry Pi
+---
+
+# A good compiler is all you need on Raspberry Pi
+
+Your Raspberry Pi can build its own development tools, run Linux applications, and produce firmware for a Raspberry Pi Pico. modules.cpp brings these jobs together using C++20 modules: your program imports the interfaces it needs, and the build tools select the implementation for the chosen platform.
+
+The first tool you need is a good compiler. On Raspberry Pi OS Trixie, the default GNU compiler is GCC 14. The project records compiler crashes with that version when building its module graph, and supplies workaround flags. This guide uses Clang for Linux programs instead. You can leave GCC installed; there is no need to change the system's default compiler.
+
+For Pico firmware, you will also install a cross-compiler. Clang builds the tools that run on the Pi; the Pico SDK integration uses a separate GCC toolchain to build the program that runs on the Pico.
+
+The examples use modules.cpp v1.3.2. They have been checked against that release's scripts and manifests; they are not a report of a fresh hardware test on a Raspberry Pi.
+
+# Before you begin
+
+Use a Raspberry Pi 4, 400, 5, or another model capable of running 64-bit Raspberry Pi OS Trixie. You need an internet connection and enough free storage for compilers, the Pico SDK, and build output. For the windowed graphics example, use the Pi's desktop session.
+
+This recipe is for Trixie. Bookworm installs an older default Clang package and needs a separate compiler setup; do not assume the commands below select the same compiler on both releases. The pinned Pico tools used here also require a 64-bit userspace.
+
+Open a terminal. Run the command blocks in order, choosing just one option where the guide offers alternatives. Stop if a command reports an error and resolve it before continuing.
+
+In the examples, a host is the computer running the development tools. A target is the computer or microcontroller that will run your application:
+
+```text
+Host                  Application target       Compiler
+Raspberry Pi Linux    Raspberry Pi Linux       clang++
+Raspberry Pi Linux    Pico / RP2040            arm-none-eabi-g++
+Raspberry Pi Linux    Pico 2 / RP2350 Arm      arm-none-eabi-g++
+Raspberry Pi Linux    Pico 2 / RP2350 RISC-V   riscv32-pico-elf-g++
+```
+
+You can try the Linux examples without owning a Pico. The firmware sections need the corresponding board and a USB cable that carries data.
+
+# 1. Check your Pi and install download tools
+
+Start with:
+
+```sh
+uname -m
+dpkg --print-architecture
+cat /etc/os-release
+df -h .
+free -h
+```
+
+The first two commands should report aarch64 and arm64. Check that the OS release identifies Trixie. The last two commands show available disk space and memory. Compiled objects and module caches can take much more space than the source files, so keep an eye on free storage as you work.
+
+Install the tools used to download the source:
+
+```sh
+sudo apt-get update
+sudo apt-get install -y git curl ca-certificates tar unzip
+mkdir -p "$HOME/src"
+cd "$HOME/src"
+```
+
+sudo may ask for your login password. It is needed here to install system packages; ordinary project builds run as your normal user.
+
+# 2. Get modules.cpp v1.3.2
+
+Choose either a Git clone or a source archive. Both options create a folder called modules.cpp-v1.3.2. Do not run both in the same location.
+
+## Option A: clone the release with Git
+
+```sh
+git clone --branch v1.3.2 --depth 1 \
+    https://github.com/modules-cpp/modules.cpp.git modules.cpp-v1.3.2
+cd modules.cpp-v1.3.2
+git describe --tags --exact-match
+```
+
+The last command should print v1.3.2. Git may mention a detached HEAD. That means you checked out a release rather than a development branch, which is fine for following this guide.
+
+## Option B: download the release source archive
+
+```sh
+curl --fail --location \
+    --output modules.cpp-v1.3.2.tar.gz \
+    https://github.com/modules-cpp/modules.cpp/archive/refs/tags/v1.3.2.tar.gz
+mkdir modules.cpp-v1.3.2
+tar -xzf modules.cpp-v1.3.2.tar.gz \
+    --strip-components=1 -C modules.cpp-v1.3.2
+cd modules.cpp-v1.3.2
+```
+
+You can also download the source archive from the [v1.3.2 release page](https://github.com/modules-cpp/modules.cpp/releases/tag/v1.3.2). The archive contains source code, so you still need to build the tools. Keep Git installed even if you choose this route: the Pico SDK installer uses it later.
+
+You are now in the project root, the folder containing bootstrap.sh and mm.mdy. Run the remaining commands from this folder unless stated otherwise. If you open a new terminal, return to it with:
+
+```sh
+cd "$HOME/src/modules.cpp-v1.3.2"
+```
+
+# 3. Install compilers and Linux dependencies
+
+The project supplies scripts/install-linux-deps.sh to install its Linux libraries and tools. First preview the packages, then install them:
+
+```sh
+./scripts/install-linux-deps.sh --dry-run --no-gcc --clang --pico
+./scripts/install-linux-deps.sh --yes --no-gcc --clang --pico
+sudo apt-get install -y libstdc++-arm-none-eabi-newlib
+```
+
+These options mean:
+
+- --dry-run shows the intended actions without installing anything.
+- --no-gcc skips the script's default request for host GCC 15.
+- --clang installs the distribution's Clang compiler, Clang 19 on Trixie.
+- --pico adds the Arm bare-metal compiler, binutils, and newlib C runtime.
+- --yes runs the installation without the script's interactive selection.
+
+The final apt-get command adds the bare-metal C++ standard library used by Arm firmware. This package can be large. The installer also supplies SDL2 and libusb development libraries, CMake, and the other Linux prerequisites.
+
+Check the installed compilers:
+
+```sh
+clang++ --version
+clang --version
+clang++ -dumpmachine
+arm-none-eabi-g++ --version
+arm-none-eabi-gcc --version
+```
+
+The Linux compiler should be Clang 19, targeting AArch64 Linux. The two Arm drivers should belong to the same toolchain version. They build Pico programs, so their version can differ from the host compiler's version.
+
+If clang++ selects an older installation already on your machine, use clang++-19 in both bootstrap and host configure commands below. Keep its matching clang-19 C driver installed too.
+
+For the distribution versions, see [Trixie's GNU C++ package](https://packages.debian.org/trixie/g++), [Trixie's Clang package](https://packages.debian.org/trixie/clang), and [Bookworm's older Clang package](https://packages.debian.org/bookworm/clang).
+
+# 4. Build the development tools with Clang
+
+Bootstrapping means building the first tools needed to build the rest of the project. Select Clang explicitly:
+
+```sh
+./bootstrap.sh --compiler clang++
+./configure --host --compiler clang++ --build debug
+./build --host
+```
+
+On Linux, bootstrap defaults to the system c++ driver if you omit --compiler. Passing clang++ avoids starting with the default GCC 14. The debug setting keeps information useful when investigating problems.
+
+Bootstrap creates the initial build and configure tools. The configured build then installs the other tools, including test, sketch, flash, and documentation generation, under out/bin/.
+
+Try a small application on the Pi:
+
+```sh
+./build --host apps/main/
+./run --host apps/main/
+```
+
+Then generate the project documentation:
+
+```sh
+./document.sh
+```
+
+Open out/index.html in your browser. The generated documentation explains the modules, applications, and board definitions in this checkout.
+
+You can also run a small test suite:
+
+```sh
+./test --host tests/mm/parse/
+```
+
+--host means the program will run on your Pi's Linux system. Later, --target will select a separately configured application platform.
+
+# 5. Install the Pico SDK and host utilities
+
+Complete this section before building any Pico firmware. If you only want to try the Linux graphics example, you can skip ahead to Section 6.
+
+First download the SDK source:
+
+```sh
+./platforms/pico/sdk/pico-sdk/vendor.sh
+```
+
+The script obtains Pico SDK 2.3.1, checks the pinned commit 079c6f39023649b154152db30f1d781e884879bc, and checks its recursive submodules. That keeps the SDK source consistent with the version expected by this release. It does not download the SDK automatically during a build.
+
+Next install the host utilities. The following location keeps them outside the source checkout so other workspaces can reuse them:
+
+```sh
+export MM_PICO_TOOLS="$HOME/.local/share/modules.cpp/pico-tools-v2.3.1-0"
+export MM_PICO_TOOLS_CACHE="$HOME/.cache/modules.cpp/pico-tools"
+./platforms/pico/install-sdk-tools.sh
+export picotool_DIR="$MM_PICO_TOOLS/picotool"
+```
+
+On a 64-bit Pi, the installer selects the AArch64 Linux archives. It checks their SHA-256 digests and installs picotool 2.3.1, pioasm, OpenOCD 0.12.0+dev, and the RISC-V cross-compiler used for Pico 2's RISC-V profile. picotool and pioasm also include the packages needed by CMake.
+
+MM_PICO_TOOLS is the installation folder. MM_PICO_TOOLS_CACHE keeps the downloaded archives for reuse. picotool_DIR tells the build and flash tools where to find picotool's package.
+
+The exports apply to your current terminal. In a new terminal, run these again before the Pico examples:
+
+```sh
+export MM_PICO_TOOLS="$HOME/.local/share/modules.cpp/pico-tools-v2.3.1-0"
+export MM_PICO_TOOLS_CACHE="$HOME/.cache/modules.cpp/pico-tools"
+export picotool_DIR="$MM_PICO_TOOLS/picotool"
+```
+
+You can rerun the installers: they accept an existing installation that matches their pinned version. If they report a different or incomplete installation, read that message before changing any files.
+
+Some applications need additional SDK libraries. The blink and graphics examples below do not require you to provision these separately, but later storage or PIO USB applications may need:
+
+```sh
+./platforms/pico/sdk/pico-sdk/littlefs/vendor.sh
+./platforms/pico/sdk/pico-sdk/fatfs/vendor.sh
+./platforms/pico/sdk/pico-sdk/pio-usb/vendor.sh
+```
+
+Run the relevant installer when an application requires that library.
+
+# 6. Run a graphics application on the Pi desktop
+
+apps/gfx-demo draws a scene using mm.gfx, mm.display, and mm.mcu. Its source does not select an SDK or board. The configured platform supplies the display and timing implementation.
+
+From your Pi's desktop terminal, run:
+
+```sh
+./scripts/build-linux.sh --board sdl --arch aarch64 \
+    --compiler clang++ --app apps/gfx-demo --run
+```
+
+The helper selects a Linux target for your Pi's processor, builds the application with Clang, checks its provider dependencies, and runs it in an SDL2 window. Expect a rotating scene with frames, a porthole, and animated colour effects.
+
+The application uses the desktop's SDL2 display support. A graphical session is needed; an ordinary SSH connection without display access will not necessarily open a window.
+
+The executable is written to:
+
+```text
+out-target-aarch64-linux-gnu/apps/gfx-demo/gfx-demo
+```
+
+This is a target build even though the target happens to be the same Pi that runs the tools. Host tools and target applications have separate output folders.
+
+The helper restores your earlier configuration when it finishes. Add --keep if you want later --target build or run commands to use this Linux target. The examples below choose their Pico target explicitly.
+
+For a simpler picture, substitute apps/display-demo. It draws colour bars using mm.display and mm.mcu; unlike gfx-demo, it does not use mm.gfx.
+
+# 7. Build and flash a Pico application
+
+Start with a standard Raspberry Pi Pico and its onboard LED. A Pico 2 uses a different board name, covered in Section 9.
+
+Build the blink application:
+
+```sh
+./scripts/build-pico.sh --board pico --app mcu-blink --keep
+```
+
+The helper configures an Arm target, compiles the application through the Pico SDK bridge, and checks the executable and UF2 image. UF2 is the firmware file format used by the Pico bootloader.
+
+--keep matters here. It leaves the Pico target recorded in out/config.mdy so the next flash command selects that board and its output folder. Without --keep, the helper restores the configuration it found when it started. Host tools remain configured for Clang in either case.
+
+The firmware image is:
+
+```text
+out-target-arm-none-eabi/apps/mcu-blink/mcu-blink.uf2
+```
+
+## First flash: put the Pico in BOOTSEL mode
+
+1. Disconnect the Pico from USB.
+2. Hold its BOOTSEL button.
+3. Connect it to the Pi with a USB data cable while holding the button.
+4. Release the button once the bootloader is available.
+
+Then run:
+
+```sh
+./flash.sh apps/mcu-blink/
+```
+
+The flash tool reads the retained Pico target configuration and finds the UF2 image from the application manifest. It invokes picotool to load the image, verify it, and start the program. The onboard LED should blink.
+
+For this guide, connect only the board you intend to program. If the tool reports a USB permission problem, see Section 11.
+
+You can combine a build and BOOTSEL flash once you are familiar with them:
+
+```sh
+./scripts/build-pico.sh --board pico --app mcu-blink --flash --keep
+```
+
+Put the board in BOOTSEL before that command. --flash runs ordinary flashing; it does not request an automatic reboot from running firmware.
+
+## Later flashes: automatic reboot when firmware supports it
+
+If the program currently running on the Pico supports the Pico SDK's USB reset interface, you can ask picotool to switch it into BOOTSEL:
+
+```sh
+./flash.sh --auto-flash apps/mcu-blink/
+```
+
+The command uses picotool load -f -v -x IMAGE. The -f option requests the supported USB reboot, -v verifies the written image, and -x starts it. This depends on the firmware already running on the board. A USB connection or an arbitrary USB stack alone does not guarantee support. For a new board, an incompatible program, or unresponsive firmware, use BOOTSEL.
+
+See the [picotool documentation](https://github.com/raspberrypi/picotool#overview) for its USB requirements.
+
+## Flash an existing UF2 file
+
+You can also select an image directly:
+
+```sh
+./flash.sh --image /path/to/firmware.uf2
+```
+
+Replace /path/to/firmware.uf2 with a real file intended for your board. This mode needs picotool but does not need an application manifest or a configured target. It still needs the board in BOOTSEL unless you add --auto-flash and the running firmware supports USB reboot.
+
+# 8. Run the graphics application on a physical screen
+
+For this example, use a Waveshare RP2040-GEEK, which has an ST7789 LCD. A standard Pico without a display cannot show this picture.
+
+Build the same gfx-demo source for that board:
+
+```sh
+./scripts/build-pico.sh --board rp2040_geek --app apps/gfx-demo --keep
+```
+
+Put the GEEK into BOOTSEL mode according to its board instructions, then:
+
+```sh
+./flash.sh apps/gfx-demo/
+```
+
+The target now uses arm-none-eabi-g++ and the platform.geek.display provider. The application source is the same as in the Linux SDL2 example; the provider sends the picture to the physical LCD over SPI.
+
+This shows portability for the interfaces the application uses. A different board must supply those interfaces too. The program also adapts its output to panel depth: a monochrome e-paper panel receives a different colour treatment and refresh sequence from a colour LCD.
+
+# 9. Build for Pico 2
+
+Pico 2's RP2350 offers two processor choices: Arm Cortex-M33 or Hazard3 RISC-V. Select one profile for a build; these commands do not run the same application on both processor types at once.
+
+For a Pico 2 using the Arm profile:
+
+```sh
+./scripts/build-pico.sh --board pico2-arm --app mcu-blink --keep
+```
+
+Put your Pico 2 into BOOTSEL, then flash:
+
+```sh
+./flash.sh apps/mcu-blink/
+```
+
+To build the RISC-V profile instead:
+
+```sh
+./scripts/build-pico.sh --board pico2-riscv --app mcu-blink --keep
+```
+
+The helper finds the RISC-V compiler in MM_PICO_TOOLS and writes the image under out-target-riscv32-pico-elf/apps/mcu-blink/. Put the board into BOOTSEL again and use the same flash command. Because --keep retained the RISC-V target, the flash tool selects that target's image.
+
+# 10. Build sketches as applications using C++20 modules
+
+A sketch can keep its familiar setup() and loop() functions. The sketch tool processes the .ino files, collects includes, generates function prototypes, and creates main.cpp with a call to mm::sketch::run.
+
+The generated file is an application translation unit that imports mm.sketch. It does not declare the sketch itself as a named C++20 module. mm.sketch supplies the supported sketch functions through the project's platform interfaces.
+
+## Try the included blink sketch
+
+For a standard Pico:
+
+```sh
+./out/bin/sketch apps/ino/blink/
+./scripts/build-pico.sh --board pico --app apps/ino/blink --keep
+```
+
+Put the Pico in BOOTSEL, then:
+
+```sh
+./flash.sh apps/ino/blink/
+```
+
+Use pico2-arm instead of pico if you are working with a Pico 2.
+
+The sketch uses ledOn() and ledOff(). These ask the board definition which electrical level turns its LED on, so the sketch does not need to know whether that LED is wired active-high or active-low.
+
+## Create a sketch outside the repository
+
+Keep your own project in a separate folder:
+
+```sh
+mkdir -p "$HOME/src/my-sketch"
+cat > "$HOME/src/my-sketch/my-sketch.ino" <<'SKETCH'
+void setup() {
+    pinMode(LED_BUILTIN, OUTPUT);
+    Serial.begin(115200);
+}
+
+void loop() {
+    ledOn();
+    delay(250);
+    ledOff();
+    delay(250);
+}
+SKETCH
+./out/bin/sketch --project "$PWD" "$HOME/src/my-sketch"
+```
+
+Run this from the modules.cpp project root. --project "$PWD" records that location in the new sketch's mm.mdy manifest. The generated application can then use the modules from this installation.
+
+Configure the intended board explicitly before building your new sketch:
+
+```sh
+./configure --target arm-none-eabi --compiler arm-none-eabi-gcc \
+    --sdk pico-arm --board pico --build debug
+./build --target "$HOME/src/my-sketch"
+```
+
+Here arm-none-eabi-gcc identifies the matching C/C++ toolchain; C++ sources are compiled with its arm-none-eabi-g++ driver. For Pico 2 Arm, replace --board pico with --board pico2-arm.
+
+Put the board in BOOTSEL and flash:
+
+```sh
+./flash.sh "$HOME/src/my-sketch"
+```
+
+On subsequent edits, run sketch again to update the generated source, then build and flash again. If the running firmware supports automatic USB reboot, you can use --auto-flash on the flash command.
+
+The sketch runtime implements a defined set of functions. A sketch that depends on unsupported facilities or additional libraries may need adaptation. See docs/modules-sketch.mdy for the supported API.
+
+# 11. If something does not work
+
+- Compiler not found: check that the dependency installer finished and that clang++ or the required cross-compiler runs from your terminal.
+- Pico tools or SDK missing: complete Section 5 and repeat its exports in the terminal where you are building.
+- Wrong target or missing UF2: check the board you last configured. Rebuild with --keep, or explicitly configure the target before building and flashing.
+- Pico not detected: try BOOTSEL and a known USB data cable. A charging-only cable cannot carry the programming connection.
+- USB permission denied: the installers do not set up USB udev rules or serial-port group membership. Follow picotool's Linux USB access instructions, including its supplied udev rules, and reconnect the board after applying them. Serial-console access is a separate permission.
+- SDL2 window does not open: run from the Pi's desktop session and check the error message for display-access problems.
+
+The [picotool repository](https://github.com/raspberrypi/picotool) contains its Linux USB access guidance. Keep project builds under your normal account rather than running the entire build with sudo.
+
+# 12. Optional: debug a Pico over SWD
+
+Debugging lets you stop a program at a breakpoint, inspect variables, and step through its instructions. It needs a debug connection in addition to USB programming. For this example, connect a standard Pico's SWD pins to a CMSIS-DAP probe, such as a Raspberry Pi Debug Probe, following the probe and board wiring instructions.
+
+Install GDB and make the provisioned OpenOCD available:
+
+```sh
+sudo apt-get install -y gdb-multiarch
+export PATH="$MM_PICO_TOOLS:$MM_PICO_TOOLS/bin:$PATH"
+export OPENOCD_SCRIPTS="$MM_PICO_TOOLS/scripts"
+
+./configure --target arm-none-eabi --compiler arm-none-eabi-gcc \
+    --sdk pico-arm --board pico --runner openocd \
+    --debugger openocd --build debug
+./build --target apps/mcu-blink/
+```
+
+Flash this build using BOOTSEL as described earlier, then start debugging:
+
+```sh
+./debug --target apps/mcu-blink/
+```
+
+The debug tool starts OpenOCD and opens gdb-multiarch connected to its server at localhost:3333. See docs/modules-debug.mdy for the project's debugger behaviour and the probe documentation for connection setup.
+
+To return to Linux host work, select it explicitly:
+
+```sh
+./configure --host --compiler clang++ --build debug
+./build --host apps/main/
+./run --host apps/main/
+```
+
+Configuring the host preserves the retained target. You can still select that target with --target when you want to work on firmware again.
+
+# Further reading
+
+- docs/compiler-is-all-you-need.mdy: the project's design philosophy.
+- docs/modules-configure.mdy: compilers, host and target configuration.
+- docs/modules-platform-linux.mdy: Linux platform providers.
+- docs/modules-platform-pico.mdy: the Pico SDK integration.
+- docs/modules-flash.mdy: image selection and picotool options.
+- docs/modules-ino.mdy: sketch preprocessing and external projects.
+- docs/modules-sketch.mdy: the supported sketch runtime functions.
+- docs/modules-debug.mdy: debugger setup and execution.
+

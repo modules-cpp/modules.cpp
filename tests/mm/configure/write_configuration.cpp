@@ -153,11 +153,11 @@ void parses_supported_builds() {
                      "expected debug build to parse");
     mm::test::expect(release && *release == mm::configure::Build::Release,
                      "expected release build to parse");
-    mm::test::expect(mm::configure::build_compile_flags(*debug) == "-std=c++20 -O0 -g" &&
+    mm::test::expect(mm::configure::build_compile_flags(*debug) == "-std=c++20 -Werror -O0 -g" &&
                          mm::configure::build_link_flags(*debug) == "-std=c++20 -g",
                      "expected debug build flags");
     mm::test::expect(mm::configure::build_compile_flags(*release) ==
-                             "-std=c++20 -O2 -DNDEBUG" &&
+                             "-std=c++20 -Werror -O2 -DNDEBUG" &&
                          mm::configure::build_link_flags(*release) == "-std=c++20 -O2",
                      "expected release build flags");
     mm::test::expect(!mm::configure::parse_build("optimized"),

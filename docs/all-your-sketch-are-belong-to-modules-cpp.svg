@@ -1,0 +1,108 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="720" viewBox="0 0 1200 720" role="img" aria-labelledby="title desc">
+  <title id="title">All your sketch are belong to modules.cpp</title>
+  <desc id="desc">A retro space-console illustration. A sketch containing setup and loop passes through modules.cpp to a C++20 application on a circuit board. A glowing LED celebrates a successful build.</desc>
+  <defs>
+    <linearGradient id="space" x2="0" y2="1">
+      <stop stop-color="#111d37"/>
+      <stop offset="1" stop-color="#070d1b"/>
+    </linearGradient>
+    <pattern id="scanlines" width="4" height="6" patternUnits="userSpaceOnUse">
+      <path d="M0 5H4" stroke="#000" stroke-opacity=".14"/>
+    </pattern>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M40 0H0V40" fill="none" stroke="#233857" stroke-width="1"/>
+    </pattern>
+    <g id="star" fill="#a9c4e5">
+      <path d="M4 0H8V4H12V8H8V12H4V8H0V4H4Z"/>
+    </g>
+    <g id="arrow" fill="#7ef4c2">
+      <path d="M0 14H36V4H46V14H56V24H46V34H36V24H0Z"/>
+    </g>
+    <g id="ship" fill="#91aacb">
+      <path d="M24 0H40V12H52V24H64V40H48V32H16V40H0V24H12V12H24Z"/>
+      <path d="M24 16H40V24H24Z" fill="#7ef4c2"/>
+      <path d="M16 40H24V48H16ZM40 40H48V48H40Z" fill="#ffc56a"/>
+    </g>
+  </defs>
+
+  <rect width="1200" height="720" fill="url(#space)"/>
+  <rect x="24" y="24" width="1152" height="672" rx="12" fill="none" stroke="#34516e" stroke-width="2"/>
+  <path d="M24 64V24H64M1136 24H1176V64M24 656V696H64M1136 696H1176V656" fill="none" stroke="#7ef4c2" stroke-width="4"/>
+
+  <g opacity=".5">
+    <use href="#star" x="82" y="82"/>
+    <use href="#star" x="1090" y="104"/>
+    <use href="#star" x="1038" y="267"/>
+    <use href="#star" x="160" y="270"/>
+    <use href="#star" x="100" y="587"/>
+    <use href="#star" x="1096" y="582"/>
+    <path d="M285 73H289V77H285ZM980 76H984V80H980ZM58 296H62V300H58ZM1140 260H1144V264H1140Z" fill="#a9c4e5"/>
+  </g>
+
+  <g font-family="'DejaVu Sans Mono', 'Liberation Mono', monospace" text-anchor="middle">
+    <text x="600" y="81" font-size="15" letter-spacing="3" fill="#91aacb">INCOMING TRANSMISSION // SKETCH SECTOR</text>
+    <text x="603" y="147" font-size="46" font-weight="bold" fill="#000" opacity=".4">ALL YOUR SKETCH</text>
+    <text x="600" y="144" font-size="46" font-weight="bold" fill="#eef6ff">ALL YOUR SKETCH</text>
+    <text x="600" y="198" font-size="38" font-weight="bold" fill="#eef6ff">ARE BELONG TO</text>
+    <text x="600" y="258" font-size="52" font-weight="bold" fill="#7ef4c2">modules.cpp</text>
+    <text x="600" y="299" font-size="17" fill="#ffc56a">Somebody set up us the build.</text>
+  </g>
+
+  <rect x="64" y="337" width="1072" height="244" rx="8" fill="#091321" stroke="#29425e"/>
+  <rect x="65" y="338" width="1070" height="242" rx="8" fill="url(#grid)" opacity=".35"/>
+
+  <!-- Source document, compiler console, and execution target. -->
+  <g font-family="'DejaVu Sans Mono', 'Liberation Mono', monospace">
+    <path d="M125 375H293L323 405V529H125Z" fill="#16263e" stroke="#7895b8" stroke-width="2"/>
+    <path d="M293 375V405H323" fill="none" stroke="#7895b8" stroke-width="2"/>
+    <text x="145" y="407" font-size="20" fill="#ffc56a">blink.ino</text>
+    <path d="M145 423H288" stroke="#34516e"/>
+    <text x="145" y="451" font-size="18" fill="#eef6ff">setup() {</text>
+    <text x="164" y="476" font-size="18" fill="#7ef4c2">// ready</text>
+    <text x="145" y="501" font-size="18" fill="#eef6ff">loop() { }</text>
+
+    <use href="#arrow" x="362" y="433"/>
+
+    <rect x="452" y="382" width="284" height="149" rx="6" fill="#111f34" stroke="#7ef4c2" stroke-width="2"/>
+    <rect x="453" y="383" width="282" height="31" rx="5" fill="#213a4b"/>
+    <path d="M453 408H735V414H453Z" fill="#213a4b"/>
+    <rect x="466" y="394" width="8" height="8" fill="#7ef4c2"/>
+    <rect x="482" y="394" width="8" height="8" fill="#ffc56a"/>
+    <text x="508" y="403" font-size="14" fill="#c0d3e8">modules.cpp</text>
+    <text x="470" y="447" font-size="17" fill="#c0d3e8">&gt; import mm.sketch;</text>
+    <text x="470" y="478" font-size="17" fill="#c0d3e8">&gt; compile + link</text>
+    <text x="470" y="508" font-size="17" fill="#7ef4c2">BUILD: SUCCESS</text>
+
+    <use href="#arrow" x="773" y="433"/>
+
+    <rect x="869" y="387" width="197" height="137" rx="6" fill="#14382f" stroke="#71b49d" stroke-width="2"/>
+    <g stroke="#55977f" stroke-width="3" fill="none">
+      <path d="M881 408H909V436H929M881 500H910V479H929M1054 431H1027V446H1008M1054 492H1026V479H1008"/>
+      <path d="M950 399V430M978 399V430M950 489V512M978 489V512"/>
+    </g>
+    <rect x="929" y="430" width="79" height="59" fill="#0c1624" stroke="#a9c4e5"/>
+    <text x="968" y="466" text-anchor="middle" font-size="18" fill="#eef6ff">C++20</text>
+    <circle cx="1036" cy="405" r="13" fill="#7ef4c2" opacity=".13"/>
+    <rect x="1031" y="400" width="10" height="10" fill="#7ef4c2"/>
+    <g fill="#c6b883">
+      <rect x="884" y="383" width="8" height="8"/>
+      <rect x="884" y="520" width="8" height="8"/>
+      <rect x="1043" y="383" width="8" height="8"/>
+      <rect x="1043" y="520" width="8" height="8"/>
+    </g>
+  </g>
+
+  <g font-family="'DejaVu Sans Mono', 'Liberation Mono', monospace" font-size="14" letter-spacing="1" text-anchor="middle" fill="#91aacb">
+    <text x="224" y="560">YOUR SKETCH</text>
+    <text x="594" y="560">C++20 BUILD</text>
+    <text x="967" y="560">YOUR APPLICATION</text>
+  </g>
+
+  <use href="#ship" transform="translate(162 604) scale(.65)"/>
+  <use href="#ship" transform="translate(997 604) scale(.65)"/>
+  <g font-family="'DejaVu Sans Mono', 'Liberation Mono', monospace" text-anchor="middle">
+    <text x="600" y="625" font-size="23" font-weight="bold" fill="#ffc56a">TAKE OFF EVERY BUILD.</text>
+    <text x="600" y="658" font-size="16" fill="#91aacb">Move LED. For great visibility.</text>
+  </g>
+  <rect x="26" y="26" width="1148" height="668" rx="10" fill="url(#scanlines)" pointer-events="none"/>
+</svg>

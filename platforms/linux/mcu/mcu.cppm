@@ -40,7 +40,8 @@ export namespace platform::linux::mcu_detail {
 
 class Descriptor {
 public:
-    explicit Descriptor(int value = -1) : value_(value) {}
+    Descriptor() = default;
+    explicit Descriptor(int value) : value_(value) {}
     Descriptor(const Descriptor&) = delete;
     Descriptor& operator=(const Descriptor&) = delete;
     Descriptor(Descriptor&& other) noexcept : value_(other.value_) {
@@ -59,7 +60,7 @@ public:
     [[nodiscard]] int get() const { return value_; }
 
 private:
-    int value_;
+    int value_ = -1;
 };
 
 // Who holds a pad, and one PWM claim's record. Here rather than in the
