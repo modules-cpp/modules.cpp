@@ -2,7 +2,12 @@
 
 All notable changes to modules.cpp. Versions follow [semantic versioning](https://semver.org/).
 
-## [Unreleased]
+## [v1.3.3] — 2026-10-07
+
+Something to build beyond the checkout with. v1.3.3 lets an application
+keep its manifest portable while configure records the chosen modules.cpp
+installation and toolchain locally. Build, run, flash, debug, and clean then
+use that binding across standalone and multi-app projects.
 
 ### Added
 
@@ -1362,6 +1367,7 @@ framework or documentation generator. 77 commits from the initial commit on
   `xfail`, and `xpass` failing the run when a known defect starts passing.
 - GCC and Clang backends, selected per build.
 
+[v1.3.3]: https://github.com/modules-cpp/modules.cpp/releases/tag/v1.3.3
 [v1.3.2]: https://github.com/modules-cpp/modules.cpp/releases/tag/v1.3.2
 [v1.3.1]: https://github.com/modules-cpp/modules.cpp/releases/tag/v1.3.1
 [v1.3.0]: https://github.com/modules-cpp/modules.cpp/releases/tag/v1.3.0
