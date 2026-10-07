@@ -68,7 +68,9 @@ void test_sink_fragment_order() {
     TestSink ts;
     Sink sink = make_sink(ts);
     Cursor cursor{"a'b'c${x}d", 0, Dialect::Embedded};
-    cursor.scan(sink);
+    const ScanOutcome result = cursor.scan(sink);
+    expect(result.complete && result.kind == TokenKind::Word,
+           "callback input scans as a complete word");
     // Expected fragments in order: Literal(a), SingleQuoted(b),
     // Literal(c), Parameter(${x}), Literal(d)
     expect(ts.fragment_calls >= 3, "multiple fragments emitted");
@@ -100,7 +102,9 @@ void test_sink_context_passthrough() {
     Sink sink = make_sink(ts);
     expect(sink.context == &ts, "Sink context is the TestSink");
     Cursor cursor{"test", 0, Dialect::Embedded};
-    cursor.scan(sink);
+    const ScanOutcome result = cursor.scan(sink);
+    expect(result.complete && result.kind == TokenKind::Word,
+           "callback input scans as a complete word");
     expect(ts.token_calls == 1, "callback received context");
 }
 

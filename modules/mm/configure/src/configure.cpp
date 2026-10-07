@@ -632,6 +632,7 @@ namespace {
 std::string baseline_flags(Build build, bool link) {
     const auto defaults = build_defaults(build);
     std::string flags = "-std=c++20";
+    if (!link) flags += " -Werror";
     if (!link || defaults.optimize != 0) flags += " -O" + std::to_string(defaults.optimize);
     if (defaults.debug_info) flags += " -g";
     if (!link && !defaults.assertions) flags += " -DNDEBUG";

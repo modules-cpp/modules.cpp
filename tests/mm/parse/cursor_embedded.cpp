@@ -126,7 +126,9 @@ void test_embedded_crlf() {
     TestSink ts;
     Sink sink = make_sink(ts);
     Cursor cursor{"foo\r\nbar", 0, Dialect::Embedded};
-    cursor.scan(sink);  // skip "foo"
+    const ScanOutcome prefix = cursor.scan(sink);
+    expect(prefix.complete && prefix.kind == TokenKind::Word,
+           "foo prefix scans successfully");
     Cursor cursor2{"\r\nbar", 0, Dialect::Embedded};
     Sink sink2 = make_sink(ts);
     ScanOutcome result = cursor2.scan(sink2);
@@ -153,7 +155,9 @@ void test_embedded_malformed_ampersand() {
     TestSink ts;
     Sink sink = make_sink(ts);
     Cursor cursor{"echo & foo", 0, Dialect::Embedded};
-    cursor.scan(sink);  // skip "echo"
+    const ScanOutcome prefix = cursor.scan(sink);
+    expect(prefix.complete && prefix.kind == TokenKind::Word,
+           "echo prefix scans successfully");
     Cursor cursor2{"& foo", 0, Dialect::Embedded};
     Sink sink2 = make_sink(ts);
     ScanOutcome result = cursor2.scan(sink2);

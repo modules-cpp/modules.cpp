@@ -121,7 +121,9 @@ void test_embedded_bare_cr_at_end() {
     TestSink ts;
     Sink sink = make_sink(ts);
     Cursor cursor{"foo\r", 0, Dialect::Embedded};
-    cursor.scan(sink);  // scan "foo"
+    const ScanOutcome prefix = cursor.scan(sink);
+    expect(prefix.complete && prefix.kind == TokenKind::Word,
+           "foo prefix scans successfully");
     Cursor cursor2{"\r", 0, Dialect::Embedded};
     Sink sink2 = make_sink(ts);
     ScanOutcome result = cursor2.scan(sink2);
@@ -147,7 +149,9 @@ void test_full_gt_at_end() {
     TestSink ts;
     Sink sink = make_sink(ts);
     Cursor cursor{"echo >", 0, Dialect::Full};
-    cursor.scan(sink);  // scan "echo"
+    const ScanOutcome prefix = cursor.scan(sink);
+    expect(prefix.complete && prefix.kind == TokenKind::Word,
+           "echo prefix scans successfully");
     ScanOutcome result = cursor.scan(sink);
     expect(result.kind == TokenKind::Output, "> is Output");
     ScanOutcome end = cursor.scan(sink);

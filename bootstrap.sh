@@ -73,7 +73,7 @@ echo
 MM_BUILD="out"
 echo "Build in ${MM_BUILD}"
 echo
-MM_CPPFLAGS="-std=c++20"
+MM_CPPFLAGS="-std=c++20 -Werror"
 
 # GCC 14 cannot build this tree unaided. The module import chain exhausts the
 # 32-bit location_t space and aborts in write_location while writing a CMI, and

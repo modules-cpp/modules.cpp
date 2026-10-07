@@ -2,7 +2,9 @@
 mm: 1.0
 kind: doc
 name: docs
+file: all-your-sketch-are-belong-to-modules-cpp.mdy
 file: compiler-is-all-you-need.mdy
+file: compiler-is-all-you-need-raspberry-pi.mdy
 file: mdy.mdy
 file: modules.mdy
 file: modules-audio.mdy
