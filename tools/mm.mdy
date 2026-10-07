@@ -6,6 +6,7 @@ option: buildable-target no
 read-only: buildable-target
 folder: build
 folder: configure
+folder: clean
 folder: debug
 folder: flash
 folder: test

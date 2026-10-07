@@ -34,3 +34,9 @@ Before executing an application, run sets the current working directory:
   application's own source directory containing its sketch and manifest,
   so relative file accesses find the application's local files.
 
+
+# Configure-managed external applications
+
+Locator-free external application manifests use their connected tree's out/config.mdy. Build, run, flash, and debug consume the saved installation and lane; they do not discover a replacement installation. Manifest-driven run/flash/debug default to the current directory's manifest and require an app. They reject stale completion records before executing it. flash --image remains an independent image workflow.
+
+Use sketch --external to generate a new locator-free sketch application, then configure its local build. Existing --project generation and project: sketches retain their established workflow. Do not combine a locator with the managed external configuration. See modules-external-apps.mdy for examples, supported source kinds, and migration.

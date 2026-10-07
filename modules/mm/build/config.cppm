@@ -88,6 +88,8 @@ Toolchain default_toolchain(bool verbose = false);
 class BuildConfiguration {
 public:
     Build build = Build::Debug;
+    std::optional<std::filesystem::path> modules_root;
+    std::optional<std::filesystem::path> external_root;
     std::filesystem::path build_directory;        // the selected lane's output
     std::filesystem::path host_build_directory;
 
@@ -139,13 +141,17 @@ private:
     bool target_has_host_capability_ = false;
     bool configuration_2_ = false;
 
-    friend bool load_configuration(const std::filesystem::path&, bool, BuildConfiguration&);
+    friend bool load_configuration(const std::filesystem::path&, bool, BuildConfiguration&,
+                                   const std::filesystem::path&);
     friend bool resolve_configuration(const std::filesystem::path&, bool, BuildConfiguration&);
 };
 
 [[nodiscard]] bool load_configuration(const std::filesystem::path& path,
                                       bool verbose,
-                                      BuildConfiguration& configuration);
+                                      BuildConfiguration& configuration,
+                                      const std::filesystem::path& binding_override = {});
+
+bool validate_external_cleanup_configuration(const std::filesystem::path& path);
 
 // Loads project_root/out/config.mdy when present; otherwise returns the shared
 // debug GCC default and the legacy out build directory. Every compiling front

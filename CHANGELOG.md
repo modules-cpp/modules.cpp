@@ -2,6 +2,32 @@
 
 All notable changes to modules.cpp. Versions follow [semantic versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- Configure-managed external applications using existing manifest 1.3 fields.
+  Portable app manifests carry no installation locator; configure discovers its
+  installed tool root and atomically publishes local external configuration.
+  Build, run, flash, and debug preserve that binding and isolate outputs,
+  imported modules, board objects, and SDK bridge artifacts in the external tree.
+- Connected multi-app external trees, multiple ordinary implementation files,
+  single-step native target configuration, and `sketch --external` generation.
+  Existing `project:` external sketches retain their established workflow;
+  external named module declarations fail before compilation.
+- Per-lane cache identity and executable/UF2 completion records, with stale
+  artifact rejection and completion withdrawal when builds fail.
+- Manifest-aware offline external cleanup preserving configuration, guarded
+  `--distclean`, and location-independent root and `.sh` tool launchers.
+- External application lifecycle documentation and isolated regression checks.
+
+### Changed
+
+- CLI regression tests use native mm.shell scripts instead of Python. The
+  restored wrapper fixtures, release-fetch checks, standalone flash checks, and
+  external application/platform tests run through tests/scripts/all.sh in the
+  full host test workflow. Optional Pico checks use a simulated flash backend.
+
 ## [v1.3.2] — 2026-10-06
 
 Something to capture and keep. v1.3.1 added USB connectivity; v1.3.2 gives

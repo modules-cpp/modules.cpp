@@ -138,7 +138,7 @@ When a target lane platform declares `link: external` (recorded as `cross-link: 
 # Root resolution and manifest subtree
 
 A manifest argument specifies either a target within the project tree or an
-external application tree. Root resolution proceeds in one of two ways:
+external application tree. Root resolution selects one of three explicit workflows:
 
 1. Inside a project tree: build searches upward from the requested manifest to
    locate the enclosing directory containing kind: project. The project tree is
@@ -150,12 +150,18 @@ external application tree. Root resolution proceeds in one of two ways:
    project tree is loaded first, followed by grafting the external application
    tree into the project structure.
 
+3. A locator-free external app or connected dir tree uses its own out/config.mdy,
+   published by an installed configure tool. Build consumes the saved installation
+   binding and never falls back to the invoking installation. Ordinary app files
+   and sketches are admitted, while external named modules are rejected. See
+   modules-external-apps.mdy for configuration, caching, and cleanup.
+
 Capability values must be resolved from the project root so invoking build on
 a descendant cannot bypass an inherited value or read-only setting.
 
-# External sketches
+# Legacy locator-based external sketches
 
-An external sketch or directory of sketches lives outside the project checkout
+A project:-based external sketch or directory of sketches lives outside the project checkout
 and links against the project's modules.
 
 - The graft: build grafts an external app or dir root into the project's

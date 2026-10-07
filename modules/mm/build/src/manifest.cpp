@@ -307,7 +307,7 @@ void walk_project(const std::filesystem::path& dir, std::size_t parent, Project&
             state.visited.push_back(canonical);
             return;
         }
-        if (!state.is_external) {
+        if (!state.is_external || state.policy.managed_external) {
             std::cerr << state.policy.tool << ": " << manifest.string()
                       << ": project: is not allowed inside a project tree\n";
             project.ok = false;
@@ -352,7 +352,7 @@ void walk_project(const std::filesystem::path& dir, std::size_t parent, Project&
             state.visited.push_back(canonical);
             return;
         }
-    } else if (state.is_external && parent == 0) {
+    } else if (state.is_external && parent == 0 && !state.policy.managed_external) {
         std::cerr << state.policy.tool << ": " << manifest.string()
                   << ": external root manifest must declare project:\n";
         project.ok = false;
@@ -378,7 +378,7 @@ void walk_project(const std::filesystem::path& dir, std::size_t parent, Project&
                 state.visited.push_back(canonical);
                 return;
             }
-            if (all(doc, "sketch").empty()) {
+            if (all(doc, "sketch").empty() && !state.policy.managed_external) {
                 std::cerr << state.policy.tool << ": " << manifest.string()
                           << ": external app manifest must declare sketch:\n";
                 project.ok = false;
@@ -493,6 +493,13 @@ void walk_project(const std::filesystem::path& dir, std::size_t parent, Project&
                 project.ok = false;
                 return false;
             }
+        }
+        if (state.is_external && state.policy.managed_external &&
+            (!unit.module_name.empty() || !external_source_is_ordinary(abs_source))) {
+            std::cerr << state.policy.tool << ": external named module declarations are unsupported: "
+                      << (abs_source) << "\n";
+            project.ok = false;
+            return false;
         }
         unit.path = (state.is_external && join_with_dir)
             ? (target.logical_dir / raw).lexically_normal().string()
@@ -1759,7 +1766,7 @@ std::filesystem::path find_project_root(std::filesystem::path dir) {
     return {};
 }
 
-ResolvedRoots resolve_roots(const std::filesystem::path& manifest_or_dir) {
+ResolvedRoots resolve_roots(const std::filesystem::path& manifest_or_dir, bool configuring, std::string_view executable) {
     ResolvedRoots result;
     const auto manifest_path = resolve_manifest(manifest_or_dir);
     if (manifest_path.filename() != "mm.mdy" || !safe_exists(manifest_path)) {
@@ -1802,6 +1809,12 @@ ResolvedRoots resolve_roots(const std::filesystem::path& manifest_or_dir) {
                     return result;
                 }
                 result.tools_dir = result.project_root / "out" / "bin";
+                result.configuration_root = result.project_root;
+                const auto config = mm::mdy::Parser::parse_file(result.project_root / "out/config.mdy");
+                if (first(config, "schema") == "external-configuration-1") {
+                    std::cerr << "build: external configuration cannot reclassify a project tree\n";
+                    result.ok = false;
+                }
                 return result;
             }
         }
@@ -1824,12 +1837,52 @@ ResolvedRoots resolve_roots(const std::filesystem::path& manifest_or_dir) {
             return result;
         }
         result.tools_dir = result.project_root / "out" / "bin";
+        result.configuration_root = result.project_root;
+        if (first(mm::mdy::Parser::parse_file(*result.external_root / "out/config.mdy"),
+                  "schema") == "external-configuration-1") {
+            std::cerr << "build: ambiguous project: locator and external configuration; migrate explicitly\n";
+            result.ok = false;
+        }
         return result;
     }
 
     const auto proj_root = find_project_root(result.requested_dir);
     if (proj_root.empty()) {
-        result.ok = false;
+        const auto kind = first(req_doc, "kind");
+        if (kind != "app" && kind != "dir") {
+            std::cerr << "build: external root must be app or dir\n";
+            result.ok = false;
+            return result;
+        }
+        result.external_root = connected_external_root(result.requested_dir);
+        result.configuration_root = *result.external_root;
+        result.managed_external = true;
+        const auto path = result.configuration_root / "out/config.mdy";
+        if (configuring) {
+            result.project_root = discover_installation(executable);
+        } else {
+            const auto config = mm::mdy::Parser::parse_file(path);
+            if (first(config, "schema") != "external-configuration-1") {
+                std::cerr << "build: missing or unsupported external configuration: " << path
+                          << "; run configure for this app\n";
+                result.ok = false;
+                return result;
+            }
+            const auto binding = first(config, "modules-root");
+            if (!std::filesystem::path(binding).is_absolute()) {
+                std::cerr << "build: invalid modules-root in " << path << "\n";
+                result.ok = false;
+                return result;
+            }
+            result.project_root = std::filesystem::weakly_canonical(binding, ec);
+        }
+        if (result.project_root.empty() || ec ||
+            first(mm::mdy::Parser::parse_file(result.project_root / "mm.mdy"), "kind") != "project") {
+            std::cerr << "build: modules installation is unavailable; rerun configure\n";
+            result.ok = false;
+            return result;
+        }
+        result.tools_dir = result.project_root / "out/bin";
         return result;
     }
     result.project_root = std::filesystem::weakly_canonical(proj_root, ec);
@@ -1838,6 +1891,7 @@ ResolvedRoots resolve_roots(const std::filesystem::path& manifest_or_dir) {
         return result;
     }
     result.tools_dir = result.project_root / "out" / "bin";
+    result.configuration_root = result.project_root;
     return result;
 }
 

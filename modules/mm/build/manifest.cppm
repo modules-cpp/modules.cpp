@@ -174,6 +174,7 @@ struct LoadPolicy {
     std::optional<std::filesystem::path> external;
     bool check = false;
     bool print_folders = false;
+    bool managed_external = false;
 };
 
 [[nodiscard]] bool validate_manifest_schema(const mm::mdy::MDYDocument& document,
@@ -230,10 +231,31 @@ struct ResolvedRoots {
     std::filesystem::path requested_dir;
     std::string requested_node;
     bool ok = true;
+    bool managed_external = false;
+    std::filesystem::path configuration_root;
 };
 
 [[nodiscard]] ResolvedRoots resolve_roots(
-    const std::filesystem::path& manifest_or_dir);
+    const std::filesystem::path& manifest_or_dir,
+    bool configuring = false, std::string_view executable = {});
+std::filesystem::path discover_installation(std::string_view executable = {});
+std::filesystem::path connected_external_root(const std::filesystem::path& directory);
+bool register_external_outputs(const ResolvedRoots& roots,
+                               const std::vector<std::filesystem::path>& directories);
+std::string external_build_identity(const ResolvedRoots& roots,
+                                    const BuildConfiguration& configuration,
+                                    bool target, const Project& project);
+bool prepare_external_build(const ResolvedRoots& roots,
+                            const std::filesystem::path& output, std::string_view identity);
+bool finish_external_build(const ResolvedRoots& roots, const std::filesystem::path& output, std::string_view identity);
+bool record_external_artifact(const ResolvedRoots& roots,
+                              const std::filesystem::path& executable, std::string_view identity);
+bool check_external_artifact(const ResolvedRoots& roots,
+                             const BuildConfiguration& configuration, bool target,
+                             const Project& project, const std::filesystem::path& executable);
+int clean_external(const std::filesystem::path& manifest, bool host, bool target, bool reset);
+bool external_source_is_ordinary(const std::filesystem::path& source);
+
 
 struct ManifestVersionRule {
     std::string_view name;

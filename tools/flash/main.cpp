@@ -44,7 +44,7 @@ int main(int argc, char** argv) {
     if (cli != mm::app::Cli::ok) return mm::build::exit_usage;
     const bool direct_image = options.seen("--image");
     if ((direct_image && (!options.positional().empty() || options.count("--image") != 1)) ||
-        (!direct_image && options.positional().size() != 1)) {
+        (!direct_image && options.positional().size() > 1)) {
         std::cerr << "usage: flash [-v] [-a|--auto-flash] (<app-manifest> | --image <file.uf2>)\n";
         return mm::build::exit_usage;
     }
@@ -71,7 +71,7 @@ int main(int argc, char** argv) {
         return status < 0 ? mm::build::exit_run : status;
     }
 
-    auto manifest = mm::build::resolve_manifest(options.positional().front());
+    auto manifest = mm::build::resolve_manifest(options.positional().empty() ? std::filesystem::path(".") : std::filesystem::path(options.positional().front()));
     std::filesystem::path manifest_directory;
     if (const auto status = mm::app::open_manifest("flash", manifest, manifest_directory, false);
         status != mm::app::Cli::ok)
@@ -92,7 +92,7 @@ int main(int argc, char** argv) {
     }
 
     mm::build::BuildConfiguration configuration;
-    if (!mm::build::resolve_configuration(".", options.verbose(), configuration))
+    if (!mm::build::resolve_configuration(resolved_roots.configuration_root, options.verbose(), configuration))
         return mm::build::exit_manifest;
     const auto* toolchain = configuration.cross_toolchain();
     const auto* lane_directory = configuration.cross_build_directory();
@@ -104,6 +104,7 @@ int main(int argc, char** argv) {
     mm::build::LoadPolicy policy{.tool = "flash", .warn_options = true};
     if (resolved_roots.external_root)
         policy.external = resolved_roots.external_root;
+    policy.managed_external = resolved_roots.managed_external;
     auto project = mm::build::load_project(".", policy);
     if (!project.ok) return mm::build::exit_manifest;
     if (!mm::build::check_configuration_staleness(configuration, project, true, "flash"))
@@ -157,6 +158,8 @@ int main(int argc, char** argv) {
         context_tree_root, context_output_root, resolved_roots.tools_dir,
         resolved_roots.external_root.has_value());
     const auto executable = context.executable_path(app);
+    if (!mm::build::check_external_artifact(resolved_roots, configuration, true, project, executable))
+        return mm::build::exit_manifest;
     const auto image = mm::flash::image_for(executable);
     if (!std::filesystem::is_regular_file(image, ec) || ec) {
         std::cerr << "flash: UF2 image is not built: " << image.string()

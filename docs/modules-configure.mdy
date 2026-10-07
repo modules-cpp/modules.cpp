@@ -47,6 +47,12 @@ docs/modules-build.mdy and docs/modules-test.mdy define how command-line lane se
 - Only folder entries establish inheritance. use entries do not participate in configuration resolution.
 - The shared manifest loader owns version and structural-key validation. configure owns typed option validation, resolution, provenance, and record writing, over the shared build-default policy.
 
+# Configure-managed external applications
+
+Locator-free external app and dir manifests use the existing source manifest 1.3 vocabulary. configure discovers its installation from the installed executable and writes external-root/out/config.mdy, preserving the caller's directory and the installation's configuration. The generated record uses mm: 3.0, schema: external-configuration-1, tool-contract: external-app-1, modules-root, and external-root. This generated schema is independent of source manifest versions.
+
+External resolved option records live beneath out/options, including graft/project records for installation nodes. Configure validates C/C++ driver pairs, dependency closure, and retained platform selections before publishing configuration. On a first native --target-host configuration, a matching selected native compiler supplies host defaults; an existing host lane remains preserved. New external named modules and installation locators are refused. modules-external-apps.mdy describes the full workflow; existing project: sketches retain their established behavior.
+
 # Configure command
 
 configure resolves the option tree on every run; there is no separate subcommand.
@@ -56,7 +62,7 @@ configure resolves the option tree on every run; there is no separate subcommand
 
 -v and --verbose enable configuration diagnostics. -h and --help print the command syntax and exit successfully without reading a manifest or existing configuration.
 
-The optional manifest path locates the containing project. configure always resolves the complete tree from that project's root, even when invoked on a descendant, so the resolved value of every node is independent of where configure was invoked. A requested manifest reachable in the filesystem but not present in the walked tree is an error; it does not become a separate inheritance root.
+For in-project and legacy locator-based invocations, the optional manifest path locates the containing project. configure always resolves the complete tree from that project's root, even when invoked on a descendant, so the resolved value of every node is independent of where configure was invoked. A requested manifest reachable in the filesystem but not present in the walked tree is an error; it does not become a separate inheritance root.
 
 Compiler selector behavior is unchanged, including versioned spellings. --build accepts debug or release and keeps its existing default. There is no positional build command and no --release shorthand. An unknown command-line option exits 64; a tree, option, or record failure exits 65.
 

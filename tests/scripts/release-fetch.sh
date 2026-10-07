@@ -34,10 +34,11 @@ git init --quiet "$work/seed"
     git config user.name test
     mkdir scripts
     cp "$root/scripts/release.sh" scripts/release.sh
-    git add scripts
+    printf '%s\n' '---' 'mm: 1.3' 'kind: project' 'name: release-fixture' '---' > "$work/seed/mm.mdy"
+    git add scripts mm.mdy
     git commit --quiet -m first
     git tag v9.0.0
-    echo second > second.txt
+    echo second > "$work/seed/second.txt"
     git add second.txt
     git commit --quiet -m second
     git remote add origin "$work/origin.git"
@@ -58,8 +59,8 @@ printf '#!/bin/sh\nexit 0\n' > "$work/bin/gh"
 chmod +x "$work/bin/gh"
 
 status=0
-output=$(cd "$work/clone" && PATH="$work/bin:$PATH" \
-    sh scripts/release.sh --dry-run --no-verify v9.9.9 2>&1) || status=$?
+output=$(trap - EXIT; cd "$work/clone" && PATH="$work/bin:$PATH" \
+    "$root/out/bin/shell" --project "$work/clone/mm.mdy" --run scripts/release.sh -- --dry-run --no-verify v9.9.9 2>&1) || status=$?
 
 [ "$status" -eq 65 ] || fail "expected exit 65, got $status: $output"
 case "$output" in

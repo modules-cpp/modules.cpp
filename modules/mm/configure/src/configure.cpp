@@ -233,7 +233,7 @@ bool valid_settings(const Settings& settings) {
     if (settings.host.target != "host" || settings.host_platform.target != "host" ||
         settings.host_platform.system != PlatformSystem::Posix)
         return false;
-    if (settings.configuration_2 &&
+    if (settings.configuration_2 && (settings.cross || !settings.external_root) &&
         (!settings.cross || !settings.cross_platform ||
          !valid_platform(*settings.cross_platform, true)))
         return false;
@@ -696,6 +696,10 @@ bool log_configuration(const ConfigurationLog& log) {
 
 bool write_configuration(const std::filesystem::path& project_root, const Settings& settings) {
     if (!valid_settings(settings)) return false;
+    if (settings.external_root && (!settings.modules_root ||
+        !settings.modules_root->is_absolute() || !settings.external_root->is_absolute() ||
+        !valid_scalar(settings.modules_root->generic_string()) ||
+        !valid_scalar(settings.external_root->generic_string()))) return false;
 
     std::error_code ec;
     if (!std::filesystem::is_directory(project_root, ec) || ec) return false;
@@ -703,8 +707,13 @@ bool write_configuration(const std::filesystem::path& project_root, const Settin
     std::ostringstream out;
 
     out << "---\n";
-    out << "mm: " << (settings.configuration_2 ? "2.0" : "1.0") << '\n';
-    if (settings.configuration_2) out << "schema: configuration-2\n";
+    out << "mm: " << (settings.external_root ? "3.0" : settings.configuration_2 ? "2.0" : "1.0") << '\n';
+    if (settings.external_root) {
+        out << "schema: external-configuration-1\n"
+            << "tool-contract: external-app-1\n"
+            << "modules-root: " << settings.modules_root->generic_string() << '\n'
+            << "external-root: " << settings.external_root->generic_string() << '\n';
+    } else if (settings.configuration_2) out << "schema: configuration-2\n";
     out << "kind: configuration\n";
     out << "name: " << settings.name << '\n';
     out << "build: " << build_name(settings.build) << '\n';
@@ -717,7 +726,7 @@ bool write_configuration(const std::filesystem::path& project_root, const Settin
     if (settings.cross) write_compiler(out, "cross", *settings.cross, !settings.configuration_2);
     if (settings.cross_debugger) write_debugger(out, "cross", *settings.cross_debugger);
     if (settings.cross_runner) write_runner(out, *settings.cross_runner);
-    if (settings.configuration_2) write_platform(out, *settings.cross_platform);
+    if (settings.configuration_2 && settings.cross_platform) write_platform(out, *settings.cross_platform);
     out << "host-build-directory: " << settings.host_build_directory.generic_string() << '\n';
     out << "target-build-directory: " << settings.target_build_directory.generic_string() << '\n';
     out << "---\n";

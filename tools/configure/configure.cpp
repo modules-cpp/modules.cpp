@@ -449,17 +449,19 @@ int main(int argc, char** argv) {
     manifest_path = mm::build::resolve_manifest(manifest_path);
 
     std::filesystem::path manifest_root;
-    if (const auto status = mm::app::open_manifest("configure", manifest_path, manifest_root, true);
+    if (const auto status = mm::app::open_manifest("configure", manifest_path, manifest_root, false);
         status != mm::app::Cli::ok)
         return status == mm::app::Cli::usage ? mm::build::exit_usage : mm::build::exit_manifest;
 
-    const auto project_root = mm::build::find_project_root(manifest_root);
-    if (project_root.empty()) {
-        std::cerr << "configure: no kind: project manifest above " << manifest_root.string() << "\n";
+    const auto roots = mm::build::resolve_roots(manifest_path, true, argv[0]);
+    if (!roots.ok) return mm::build::exit_manifest;
+    if (roots.external_root && !roots.managed_external) {
+        std::cerr << "configure: locator-based external sketches use installation configuration; configure the installation itself, or remove project: and migrate\n";
         return mm::build::exit_manifest;
     }
-
-    const auto configuration_path = project_root / "out" / "config.mdy";
+    const auto project_root = roots.project_root;
+    const auto configuration_root = roots.configuration_root;
+    const auto configuration_path = configuration_root / "out/config.mdy";
 
     std::error_code ec;
     std::filesystem::current_path(project_root, ec);
@@ -479,9 +481,10 @@ int main(int argc, char** argv) {
         .tool = "configure",
         .strict_tree = !options.seen("--check"),
         .warn_options = false,
-        .external = std::nullopt,
+        .external = roots.external_root,
         .check = options.seen("--check"),
         .print_folders = options.seen("--check"),
+        .managed_external = roots.managed_external,
     });
 
     if (options.seen("--check")) {
@@ -554,14 +557,23 @@ int main(int argc, char** argv) {
     if (ec) return mm::build::exit_manifest;
     if (has_configuration) {
         mm::build::BuildConfiguration existing;
-        if (!mm::build::load_configuration(configuration_path, verbose, existing))
+        if (!mm::build::load_configuration(configuration_path, verbose, existing,
+                roots.managed_external ? project_root : std::filesystem::path{}))
             return mm::build::exit_manifest;
         settings.configuration_2 = existing.configuration_2();
         settings.host_platform = existing.host_platform();
         settings.host = compiler_settings(existing.host_toolchain(), *build);
+        if (roots.managed_external) {
+            settings.host.compile_flags = existing.host_toolchain().compiler.arguments;
+            settings.host.link_flags = existing.host_toolchain().linker.arguments;
+        }
         settings.host_debugger = debugger_settings(existing.host_toolchain());
         if (const auto* cross = existing.cross_toolchain()) {
             settings.cross = compiler_settings(*cross, *build);
+            if (roots.managed_external) {
+                settings.cross->compile_flags = cross->compiler.arguments;
+                settings.cross->link_flags = cross->linker.arguments;
+            }
             settings.target_build_directory = *existing.cross_build_directory();
             settings.target_has_host_capability =
                 existing.target_has_host_capability();
@@ -579,6 +591,20 @@ int main(int argc, char** argv) {
             compile_flags(*build, mm::configure::CompilerFamily::Gcc, "host", "g++"),
             std::string(mm::configure::build_link_flags(*build)),
         };
+    }
+
+    if (roots.managed_external) {
+        settings.configuration_2 = true;
+        settings.modules_root = project_root;
+        settings.external_root = configuration_root;
+        // Dependency errors belong to configuration, before any publication.
+        mm::build::Tree tree;
+        tree.targets = project.targets;
+        for (std::size_t i = 0; i < tree.targets.size(); ++i) {
+            if (!tree.targets[i].external) continue;
+            std::vector<std::size_t> ordered;
+            if (!mm::build::order_from(tree, i, ordered)) return mm::build::exit_manifest;
+        }
     }
 
     bool external_lane = false;
@@ -616,6 +642,26 @@ int main(int argc, char** argv) {
                       << "\n";
             return mm::build::exit_manifest;
         }
+    }
+
+    if (roots.managed_external && !has_configuration && target_lane && options.seen("--target-host")) {
+        const auto selected_probe = mm::configure::probe_compiler(compiler->invocation, run_driver_command);
+        std::string machine, system;
+        const bool native_machine = run_driver_command("uname -m", machine) &&
+                                    run_driver_command("uname -s", system);
+        if (machine == "arm64") machine = "aarch64";
+        if (machine == "amd64") machine = "x86_64";
+        const std::string native_target = native_machine && system == "Linux"
+            ? machine + "-linux-gnu" : "unknown";
+        if (!selected_probe || !mm::configure::same_target(native_target, target) ||
+            !mm::configure::same_target(selected_probe->target_triple, target)) {
+            std::cerr << "configure: --target-host must match the native build machine\n";
+            return mm::build::exit_usage;
+        }
+        settings.host = mm::configure::CompilerSettings{
+            compiler->family, compiler->invocation, "host", "POSIX",
+            compile_flags(*build, compiler->family, "host", compiler->invocation),
+            std::string(mm::configure::build_link_flags(*build)), c_driver};
     }
 
     settings.name = (target_lane ? target : compiler->invocation) + "-" + requested_build;
@@ -721,23 +767,61 @@ int main(int argc, char** argv) {
             settings.target_build_directory = mm::configure::host_output_directory();
     }
 
-    if (!mm::configure::write_configuration(project_root, settings)) {
+    if (roots.managed_external) {
+        // Validate retained lanes against this installation before rebinding.
+        for (auto* lane : {&settings.host, settings.cross ? &*settings.cross : nullptr}) {
+            if (!lane) continue;
+            if (!mm::configure::probe_compiler(lane->invocation, run_driver_command)) {
+                std::cerr << "configure: compiler is unavailable; configure --host with an explicit compiler before selecting a cross target\n";
+                return mm::build::exit_manifest;
+            }
+            if (lane->c_compiler.empty())
+                lane->c_compiler = mm::configure::candidate_c_compiler(lane->invocation);
+            std::string error;
+            if (lane->c_compiler.empty() || !mm::configure::probe_c_compiler(
+                    lane->c_compiler, lane->invocation, lane->family, error, run_driver_command)) {
+                std::cerr << "configure: compatible retained C driver required: " << error << "\n";
+                return mm::build::exit_manifest;
+            }
+        }
+        if (settings.cross && !target_lane && settings.cross_platform) {
+            mm::configure::PlatformSettings rebound;
+            if (const auto status = resolve_platform(project,
+                    settings.cross_platform->sdk.value_or(""),
+                    settings.cross_platform->board.value_or(""), settings.cross->target,
+                    settings.cross->family, settings.cross->invocation, rebound);
+                status != mm::build::exit_ok) return status;
+            settings.cross_platform = std::move(rebound);
+        }
+        std::vector<std::filesystem::path> outputs{settings.host_build_directory};
+        if (settings.cross) outputs.push_back(settings.target_build_directory);
+        if (!mm::build::register_external_outputs(roots, outputs)) return mm::build::exit_manifest;
+        auto snapshots = nodes;
+        for (std::size_t i = 0; i < snapshots.size(); ++i) {
+            const auto& node = project.nodes[i];
+            snapshots[i].directory = node.external
+                ? (configuration_root / node.logical_dir)
+                : (configuration_root / "graft/project" / node.logical_dir);
+        }
+        if (!mm::configure::write_option_records(configuration_root, "out/options", *build,
+                snapshots, resolved, verbose)) return mm::build::exit_manifest;
+    }
+    if (!mm::configure::write_configuration(configuration_root, settings)) {
         std::cerr << "configure: failed to write " << configuration_path.string() << "\n";
         return mm::build::exit_manifest;
     }
-
-    const auto selected_output = target_lane ? settings.target_build_directory
-                                             : settings.host_build_directory;
-    if (!mm::configure::write_option_records(project_root, selected_output, *build,
-                                             nodes, resolved, verbose)) {
-        std::cerr << "configure: incomplete option snapshot; rerun configure\n";
-        return mm::build::exit_manifest;
+    if (!roots.managed_external) {
+        const auto selected_output = target_lane ? settings.target_build_directory : settings.host_build_directory;
+        if (!mm::configure::write_option_records(project_root, selected_output, *build,
+                nodes, resolved, verbose)) return mm::build::exit_manifest;
     }
 
     std::cout << "Configured " << (target_lane ? target : std::string("host")) << " "
               << mm::configure::build_name(*build) << " build with "
               << mm::configure::compiler_family_name(compiler->family) << " compiler "
               << compiler->invocation << "\n";
+    if (roots.managed_external && target_lane && !has_configuration)
+        std::cout << "Host defaults use " << settings.host.invocation << " and " << settings.host.c_compiler << "\n";
     if (verbose && target_lane)
         std::cout << "  runner "
                   << (settings.cross_runner ? settings.cross_runner->invocation : "none") << "\n";

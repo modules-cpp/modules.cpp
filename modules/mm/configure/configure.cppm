@@ -282,6 +282,8 @@ struct Settings {
     PlatformSettings host_platform;
     std::optional<PlatformSettings> cross_platform;
     bool configuration_2 = false;
+    std::optional<std::filesystem::path> modules_root;
+    std::optional<std::filesystem::path> external_root;
     std::filesystem::path host_build_directory = host_output_directory();
     std::filesystem::path target_build_directory = host_output_directory();
 };

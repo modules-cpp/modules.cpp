@@ -12,8 +12,13 @@
 LC_ALL=C
 export LC_ALL
 
-MM_BUILD="out"
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+MM_BUILD="$script_dir/out"
 echo "Build in ${MM_BUILD}"
 echo
 echo "Build all"
-"${MM_BUILD}/bin/build" "$@"
+if [ ! -x "${MM_BUILD}/bin/build" ]; then
+    echo "build: ${MM_BUILD}/bin/build not found; bootstrap the installation first" >&2
+    exit 65
+fi
+exec "${MM_BUILD}/bin/build" "$@"

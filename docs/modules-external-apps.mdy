@@ -1,0 +1,136 @@
+---
+mm: 1.0
+kind: doc
+name: External applications
+---
+
+# Build an application outside the checkout
+
+An external application can use modules.cpp without living inside its checkout. Its mm.mdy describes its code; configure records the local installation and compiler choices in out/config.mdy. The source manifest needs no installation path and no manifest 1.4 features.
+
+These commands require the updated v1.3.x tools. Stock v1.3.2 does not provide this configure-managed workflow. Bootstrap and build the installation's host tools first. Use the installation's configure.sh from your application's directory; the root configure/build/run/flash/debug/clean launchers work too.
+
+## A small application
+
+Create a directory containing main.cpp and mm.mdy. For example, main.cpp can contain:
+
+```cpp
+#include <cstdio>
+int main() { std::puts("Hello from an external application"); }
+```
+
+Its manifest is:
+
+```yaml
+---
+mm: 1.3
+kind: app
+name: hello
+file: main.cpp
+---
+```
+
+Add use: entries for installed modules your source imports. Several ordinary implementation files can be listed under file:. External named module declarations, including export module interfaces and named module implementation units, are rejected. External module, library, SDK, board, test, and documentation manifests are outside this workflow's scope. Do not use handwritten headers as a workaround for named modules; keep the application modular using the installed interfaces.
+
+From the application directory, configure, build, and run:
+
+```sh
+/path/to/modules.cpp/configure.sh --host --compiler clang++
+/path/to/modules.cpp/build.sh --host
+/path/to/modules.cpp/run.sh --host
+```
+
+Replace /path/to/modules.cpp with your checkout path. Omitting the manifest selects mm.mdy in the current directory, exactly like passing a trailing dot. A missing manifest is an error; the tool does not choose an application from an ancestor directory.
+
+configure discovers its installation from the running installed out/bin/configure executable, including when that executable is reached through a symlink. It validates the full installation and application trees, dependencies, compilers, and selected platform before publishing the local configuration. A failed reconfiguration leaves an existing config.mdy unchanged.
+
+Build, run, flash, and debug read the saved installation binding. Calling a compatible tool from another installation does not rebind the application. To choose a different installation, run its configure tool again. No external operation writes the installation's configuration or installed tools.
+
+GCC's module mapper cannot use a cache directory containing whitespace. For an application directory containing spaces, select Clang. Wrappers quote paths and preserve the caller's directory for either compiler.
+
+## Native Linux target and Pico target
+
+A desktop target needs just one configure invocation on a new tree. The selected native compiler supplies the initial host defaults when --target-host matches the build machine. Previously configured host settings are preserved.
+
+```sh
+/path/to/modules.cpp/configure.sh --target x86_64-linux-gnu --target-host \
+    --compiler clang++ --sdk linux-x86_64 --board sdl-linux-x86_64 \
+    --runner native --build debug
+/path/to/modules.cpp/build.sh --target
+/path/to/modules.cpp/run.sh --target
+```
+
+Use an application importing the portable graphics/display modules for that SDL board. On a Raspberry Pi, use the matching aarch64-linux-gnu SDK and board instead. Cross-compilers never become host drivers just because a target was configured first.
+
+For Pico firmware, install the Pico SDK tools as described in modules-platform-pico.mdy, export their environment, then select the board:
+
+```sh
+/path/to/modules.cpp/configure.sh --target arm-none-eabi \
+    --compiler arm-none-eabi-gcc --sdk pico-arm --board pico --build debug
+/path/to/modules.cpp/build.sh --target
+/path/to/modules.cpp/flash.sh
+```
+
+The application must be compatible with that board and its bound providers. Put the board into BOOTSEL mode for its first flash. flash --auto-flash requests USB reboot when supported by the running firmware. flash --image remains independent of application configuration. Debug uses the same saved lane and configured debugger; see modules-debug.mdy.
+
+## Several applications, one configuration
+
+Declare child directories using folder: entries in a kind: dir manifest. Only connected declared parent directories participate in root discovery. An unregistered ancestor does not own a child application's configuration.
+
+```text
+Fractal/
+  mm.mdy                 kind: dir, folder: mandelbrot, folder: julia
+  mandelbrot/mm.mdy       kind: app
+  julia/mm.mdy            kind: app
+  out/config.mdy
+  out-host/
+    mandelbrot/mandelbrot
+    julia/julia
+    graft/project/...
+```
+
+Configure from either child or the root; both use Fractal/out/config.mdy. Build from the root to build its applications, or from a child to build that application and its dependencies. Run, flash, and debug require an application manifest and refuse a directory root rather than guessing an application.
+
+Imported installation modules and board objects are compiled beneath graft/project in the external lane. Executables, objects, BMIs, and SDK bridge outputs remain in the external tree.
+
+## Rebuilds and cleanup
+
+A lane's .build-identity records installation, compiler, flags, platform configuration, manifest/source inputs, and tool contract. Executable .build-state records also cover the published executable and UF2 image. Incompatible cached outputs are discarded before compilation. Run, flash, and debug reject missing or stale artifacts and ask for a rebuild. A failed build withdraws the selected applications' previous completion records.
+
+Changing just the target configuration does not change an unchanged host lane's identity. Source inventory changes can invalidate additional applications sharing that tree.
+
+```sh
+/path/to/modules.cpp/clean.sh --host
+/path/to/modules.cpp/build.sh --host
+/path/to/modules.cpp/clean.sh --distclean
+```
+
+Standard clean removes owned lane artifacts and keeps out/config.mdy. Without a lane selector it cleans all owned lanes, including previously configured target lanes. Cleanup is tree-wide even when invoked from a child. It works offline without accessing the saved installation or probing compilers. The ownership record prevents deleting unrelated out-* directories or following output symlinks.
+
+--distclean removes owned lane directories and out/, including configuration and metadata. Deleting only out/ by hand leaves lane artifacts and discards their ownership record; configure will refuse to claim any surviving nonempty unowned lane directory. Use --distclean for the supported full reset. It cannot be combined with --host or --target. Configure again afterward. Sources and manifests remain intact. Installation-root cleanup retains its historic full bootstrap reset.
+
+## Sketches and migration
+
+Generate a portable, locator-free external sketch application using:
+
+```sh
+/path/to/modules.cpp/out/bin/sketch --external /path/to/my-sketch
+cd /path/to/my-sketch
+/path/to/modules.cpp/configure.sh --host --compiler clang++
+/path/to/modules.cpp/build.sh --host
+```
+
+The sketch directory must already contain its matching .ino file. --external cannot be combined with --project, library generation, or an existing installation/locator tree. Once configured, regeneration recognizes the local external configuration.
+
+Existing project: external sketches keep their established locator-based workflow and installation configuration semantics. Configure the installation itself for that workflow; configure invoked on a locator-based external sketch refuses to write the installation configuration. --project generation remains supported. To migrate, remove the root project: locator and configure with the desired supporting installation. A locator combined with a new external configuration is ambiguous and rejected; configure does not edit manifests to resolve it.
+
+# Verification
+
+The context and graft tests run through ./test --host tests/mm/build/.
+
+
+Run ./out/bin/shell --run tests/scripts/external-apps.sh after building the host tools. It creates temporary installations and apps to check binding, isolation, reconfiguration, multi-file apps, named-module refusals, stale artifacts, native defaults, connected directory roots, offline clean, and symlink protection.
+
+./out/bin/shell --run tests/scripts/external-platforms.sh builds real Linux providers and an external sketch, including regeneration after source edits or deletion of main.cpp. With a provisioned Pico SDK, Arm compiler, picotool_DIR, and pioasm_DIR, append -- --pico to test the SDK bridge and UF2 output. Flash checks use a recording tool and never contact hardware.
+
+The full host ./test run invokes tests/scripts/all.sh through native mm.shell. These integration checks require GCC and Clang and leave the installation configuration unchanged. Named test targets and --compile-only do not run the CLI integration suite.

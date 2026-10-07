@@ -22,5 +22,5 @@ already be in BOOTSEL. Both modes use the same mm.flash backend.
 Host CLI regression check (records picotool arguments without a device):
 
 ```sh
-python3 tests/scripts/flash-image.py
+./out/bin/shell --run tests/scripts/flash-image.sh
 ```

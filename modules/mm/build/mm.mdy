@@ -15,6 +15,7 @@ file: graph.cppm mm.build:graph
 file: external.cppm mm.build:external
 file: build.cppm mm.build
 file: src/manifest.cpp
+file: src/context.cpp
 file: src/config.cpp
 file: src/platform.cpp
 file: src/graph.cpp

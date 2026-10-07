@@ -8,7 +8,8 @@
 LC_ALL=C
 export LC_ALL
 
-MM_BUILD="out"
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+MM_BUILD="$script_dir/out"
 echo "Run configure"
 echo
 
