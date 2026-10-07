@@ -1,16 +1,17 @@
 #!/bin/sh
-# removes from:
-#   out/          bootstrap products, installed commands, configuration, records
-#   out-*/        configured build trees, out-host and any future target tree
-#   gcm.cache/
-#   help-dummy.o  left in the working directory by builds made before the
-#                 target-option probe stopped passing -c to the C driver
-
-# Sort, compare, and match bytes, and keep tool messages untranslated,
-# whatever the caller's locale.
+# Preserve the caller's directory; external cleanup is manifest-aware and offline.
 LC_ALL=C
 export LC_ALL
-
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+if [ -x "$script_dir/out/bin/clean" ]; then
+    exec "$script_dir/out/bin/clean" "$@"
+fi
+# Before bootstrap there is no clean tool. Preserve the historical root reset
+# only at this installation's root, never in an arbitrary caller directory.
+if [ "$#" -ne 0 ] || [ "$PWD" != "$script_dir" ]; then
+    echo "clean: installed tool missing; bootstrap the installation first" >&2
+    exit 65
+fi
 rm -fr out/
 rm -fr out-*/
 rm -fr gcm.cache/

@@ -103,6 +103,7 @@ int build_1(const std::string& compiler, const std::string& module_flags)
         {"modules/mm/build/graph.cppm",     "out/modules/mm/build/graph.o", "mm.build:graph"},
         {"modules/mm/build/external.cppm",  "out/modules/mm/build/external.o", "mm.build:external"},
         {"modules/mm/build/build.cppm",     "out/modules/mm/build/build.o", "mm.build"},
+        {"modules/mm/build/src/context.cpp", "out/modules/mm/build/src/context.o", {}},
         {"modules/mm/build/src/manifest.cpp", "out/modules/mm/build/src/manifest.o", {}},
         {"modules/mm/build/src/config.cpp",   "out/modules/mm/build/src/config.o", {}},
         {"modules/mm/build/src/platform.cpp", "out/modules/mm/build/src/platform.o", {}},

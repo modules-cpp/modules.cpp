@@ -1,0 +1,17 @@
+---
+mm: 1.0
+kind: doc
+name: Clean
+---
+
+# Clean
+
+clean.sh and the root clean launcher preserve the caller's directory. The installed clean tool accepts an optional manifest, defaulting to the current directory's mm.mdy.
+
+For configure-managed external applications, standard clean removes only lane directories registered in out/.external-ownership and retains out/config.mdy and configuration metadata. --host and --target select a lane; no selector cleans all owned lanes. Cleanup affects the complete connected external tree, even from a child app. It validates local configuration and ownership without loading the installation or probing a compiler.
+
+--distclean removes every owned lane and the external out/ directory. Combining it with a lane selector is an error. Missing ownership, malformed configuration, and symlink outputs cause refusal before deletion; unowned out-* directories are left alone.
+
+At a kind: project root, clean retains the historical full bootstrap cleanup of out/, out-*/, gcm.cache/, and help-dummy.o. The shell fallback before a clean tool is installed is restricted to the installation's root. Legacy project: external sketches do not have managed ownership records; clean does not guess their cleanup paths.
+
+See modules-external-apps.mdy for examples and migration.

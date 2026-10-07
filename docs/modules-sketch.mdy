@@ -3,7 +3,7 @@ mm: 1.0
 kind: doc
 name: modules.cpp sketch specification
 status: official
-release: v1.3.2
+release: v1.3.3
 ---
 
 # Sketch compatibility specification
@@ -870,3 +870,9 @@ printTo receives the destination and returns the number of bytes it wrote, and P
 PROGMEM and the F("...") macro are declined as behaviour. In the modules.cpp toolchain, constant placement in flash or RAM is determined automatically by the linker, so there is nothing for either to do.
 
 The spellings are a separate matter. A vendored library writes F("...") in its own header whether or not this module wants the behaviour, so the compatibility header that mm.ino synthesises for every sketch application defines F, PSTR, and PROGMEM as inert: the argument is its own value and PROGMEM expands to nothing. Nothing is exported from mm::sketch for them. docs/modules-ino.mdy owns that header, and the flash readers, the C allocator, and the bit-pattern names it also defines.
+
+# Configure-managed external applications
+
+Locator-free external application manifests use their connected tree's out/config.mdy. Build, run, flash, and debug consume the saved installation and lane; they do not discover a replacement installation. Manifest-driven run/flash/debug default to the current directory's manifest and require an app. They reject stale completion records before executing it. flash --image remains an independent image workflow.
+
+Use sketch --external to generate a new locator-free sketch application, then configure its local build. Existing --project generation and project: sketches retain their established workflow. Do not combine a locator with the managed external configuration. See modules-external-apps.mdy for examples, supported source kinds, and migration.

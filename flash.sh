@@ -8,8 +8,8 @@ export LC_ALL
 
 set -eu
 
-MM_BUILD="out"
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+MM_BUILD="$script_dir/out"
 
 # Use an explicit package when supplied. Otherwise use the local Pico tools
 # installed by platforms/pico/install-sdk-tools.sh.
@@ -23,4 +23,4 @@ if [ ! -x "${MM_BUILD}/bin/flash" ]; then
     exit 65
 fi
 
-${MM_BUILD}/bin/flash "$@"
+exec "${MM_BUILD}/bin/flash" "$@"

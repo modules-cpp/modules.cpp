@@ -129,7 +129,7 @@ int main(int argc, char** argv) {
     std::cout << "  root " << resolved_roots.project_root.string() << "\n";
 
     mm::build::BuildConfiguration configuration;
-    if (!mm::build::resolve_configuration(".", verbose, configuration))
+    if (!mm::build::resolve_configuration(resolved_roots.configuration_root, verbose, configuration))
         return mm::build::exit_manifest;
 
     // Bootstrap supplies these explicitly so an unconfigured build uses the
@@ -165,6 +165,7 @@ int main(int argc, char** argv) {
                                        : &configuration.host_platform();
     if (!mm::configure::log_configuration({
             .tool = "build",
+            .configuration_path = resolved_roots.configuration_root / "out/config.mdy",
             .build = mm::build::build_name(configuration.build),
             .compiler_family = mm::build::compiler_family_name(toolchain.family),
             .compiler = toolchain.compiler.invocation,
@@ -181,10 +182,14 @@ int main(int argc, char** argv) {
     mm::build::LoadPolicy policy{.tool = "build", .warn_options = true};
     if (resolved_roots.external_root)
         policy.external = resolved_roots.external_root;
+    policy.managed_external = resolved_roots.managed_external;
     auto project = mm::build::load_project(".", policy);
     if (!project.ok) return mm::build::exit_manifest;
     if (!mm::build::check_configuration_staleness(configuration, project, target_lane, "build"))
         return mm::build::exit_manifest;
+
+    const auto identity_project = resolved_roots.managed_external ? project : mm::build::Project{};
+    auto build_identity = mm::build::external_build_identity(resolved_roots, configuration, target_lane, project);
 
     std::size_t scope = mm::build::no_parent;
     for (std::size_t i = 0; i < project.nodes.size(); ++i) {
@@ -333,6 +338,14 @@ int main(int argc, char** argv) {
         return mm::build::exit_manifest;
     }
 
+    if (!mm::build::prepare_external_build(resolved_roots, context_output_root, build_identity))
+        return mm::build::exit_manifest;
+    if (resolved_roots.managed_external) {
+        for (const auto& target : tree.targets) if (target.external && target.kind == "app") {
+            std::filesystem::remove(context.executable_path(target).string() + ".build-state", ec);
+            if (ec) return mm::build::exit_manifest;
+        }
+    }
     std::cout << "Prepare module cache\n";
     if (!mm::build::prepare_module_cache(toolchain, tree, context)) {
         std::cerr << "build: failed to prepare module cache\n";
@@ -360,6 +373,13 @@ int main(int argc, char** argv) {
         if (const int status = mm::build::compile(toolchain, *board, context);
             status != 0)
             return status;
+    }
+
+    if (resolved_roots.managed_external) {
+        // Sketch preprocessing can regenerate sources while compiling.
+        build_identity = mm::build::external_build_identity(resolved_roots, configuration, target_lane, identity_project);
+        if (!mm::build::finish_external_build(resolved_roots, context_output_root, build_identity))
+            return mm::build::exit_manifest;
     }
 
     // Linked artifacts follow the configured build directory, but installed
@@ -437,6 +457,9 @@ int main(int argc, char** argv) {
                 status != 0)
                 return status;
         }
+
+        if (!mm::build::record_external_artifact(resolved_roots, output, build_identity))
+            return mm::build::exit_manifest;
 
         if (!target_lane && !target.external) {
             if (const int status =

@@ -6,17 +6,18 @@
 LC_ALL=C
 export LC_ALL
 
-MM_BUILD="out"
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+MM_BUILD="$script_dir/out"
 echo "Debug application"
 echo
 
 # mm.shell is installed by the configured full build. Without it, use the
 # plain launcher, which reports the missing tool precisely.
 if [ ! -x "${MM_BUILD}/bin/shell" ]; then
-    exec sh debug.sh "$@"
+    exec sh "$script_dir/debug.sh" "$@"
 fi
 
 if [ "${MM_SHELL_LEGACY:-0}" = 1 ]; then
-    exec "${MM_BUILD}/bin/shell" --legacy-sh --run debug.sh -- "$@"
+    exec "${MM_BUILD}/bin/shell" --legacy-sh --run "$script_dir/debug.sh" -- "$@"
 fi
-exec "${MM_BUILD}/bin/shell" --run debug.sh -- "$@"
+exec "${MM_BUILD}/bin/shell" --run "$script_dir/debug.sh" -- "$@"

@@ -6,15 +6,16 @@
 LC_ALL=C
 export LC_ALL
 
-MM_BUILD="out"
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+MM_BUILD="$script_dir/out"
 echo "Flash application"
 echo
 
 if [ ! -x "${MM_BUILD}/bin/shell" ]; then
-    exec sh flash.sh "$@"
+    exec sh "$script_dir/flash.sh" "$@"
 fi
 
 if [ "${MM_SHELL_LEGACY:-0}" = 1 ]; then
-    exec "${MM_BUILD}/bin/shell" --legacy-sh --run flash.sh -- "$@"
+    exec "${MM_BUILD}/bin/shell" --legacy-sh --run "$script_dir/flash.sh" -- "$@"
 fi
-exec "${MM_BUILD}/bin/shell" --run flash.sh -- "$@"
+exec "${MM_BUILD}/bin/shell" --run "$script_dir/flash.sh" -- "$@"

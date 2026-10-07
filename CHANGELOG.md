@@ -2,75 +2,36 @@
 
 All notable changes to modules.cpp. Versions follow [semantic versioning](https://semver.org/).
 
-## [Unreleased]
+## [v1.3.3] — 2026-10-07
 
-Development work on main that is not included in a published release.
+Something to build beyond the checkout with. v1.3.3 lets an application
+keep its manifest portable while configure records the chosen modules.cpp
+installation and toolchain locally. Build, run, flash, debug, and clean then
+use that binding across standalone and multi-app projects.
 
 ### Added
 
-- **v1.3.2 merged into main.** Camera and SDIO pin ownership remain
-  distinct in the Pico adapter. The workflow model covers all 40 test
-  suites, including camera preview and the C-library fixture.
+- Configure-managed external applications using existing manifest 1.3 fields.
+  Portable app manifests carry no installation locator; configure discovers its
+  installed tool root and atomically publishes local external configuration.
+  Build, run, flash, and debug preserve that binding and isolate outputs,
+  imported modules, board objects, and SDK bridge artifacts in the external tree.
+- Connected multi-app external trees, multiple ordinary implementation files,
+  single-step native target configuration, and `sketch --external` generation.
+  Existing `project:` external sketches retain their established workflow;
+  external named module declarations fail before compilation.
+- Per-lane cache identity and executable/UF2 completion records, with stale
+  artifact rejection and completion withdrawal when builds fail.
+- Manifest-aware offline external cleanup preserving configuration, guarded
+  `--distclean`, and location-independent root and `.sh` tool launchers.
+- External application lifecycle documentation and isolated regression checks.
 
-- **Library C sources, manifest version 1.4.** A library may declare
-  `c-source`, `c-strict`, `c-include`, and `c-option`: C files `mm.build`
-  compiles with the lane's C compiler and links into every executable that
-  reaches a module naming the library, once per library, project-owned glue
-  with warnings as errors. A lane an external bridge links refuses them.
-  `libraries/c-demo` is the fixture and a new suite. See
-  `docs/modules-libraries.mdy`.
+### Changed
 
-- **littlefs and FAT on Linux, independent of Pico.** Linux's own littlefs
-  v2.11.3 and FatFs R0.16 under `platforms/linux/littlefs` and
-  `platforms/linux/fatfs` -- their own `vendor.sh`, adapters, `ffconf.h`,
-  and providers, `platform.linux.fs.littlefs` and `platform.linux.fs.fat`,
-  which the Linux SDKs bind for `mm.fs.littlefs` and `mm.fs.fat`. Pico's
-  trees, providers, and bridge blocks are unchanged. Both pass the 25
-  conformance checks on Linux, littlefs through `mm.spiflash` on the emulated
-  flash and FAT through `mm.sdcard` on the emulated card, and `apps/sd-smoke`
-  runs unchanged on `storage-linux` against a `mkfs.fat` image.
-  `scripts/test-littlefs.sh` and `scripts/test-fatfs.sh` take
-  `--tree pico|linux|both`.
-
-- **SD cards in 4-bit SD mode: the `mm.mcu` sdio facility and
-  `mm.sdcard::SdioCard`.** A portable SD bus facility -- configure, clock,
-  idle clocks, command, read, write, release, with the platform framing
-  commands, checking response and per-line data CRCs, and waiting out busy --
-  implemented on Pico over PIO and DMA at 25 MHz, and a second card class
-  speaking the SD-mode protocol over it. The RP2350-Touch-LCD-2.8's socket,
-  which hardware SPI cannot reach, gets `platform.rp2350_touch_lcd_28.sdcard`,
-  and both PiZero boards switch from SPI mode to SDIO. The GEEK and LCD 1.54
-  sockets stay in SPI mode. The Pico transport's design learned from carlk3's
-  Apache-2.0 no-OS-FatFS-SD-SDIO-SPI-RPi-Pico, acknowledged in the README and
-  `docs/modules-sdcard.mdy`; no code is copied. Not yet qualified on
-  hardware.
-
-- **Files in the shells: `mm.shell.fs`, `mm.fs.shell`, and `mm.shell.board`.**
-  The embedded shell gains ten file commands over `mm.fs` -- `ls`, `cat`,
-  `stat`, `write`, `append`, `rm`, `mkdir`, `mv`, `df`, `mounts` -- bounded
-  and allocation-free, with `cat` and `ls` paging long output. The full
-  shell's redirections, globbing, and file tests reach `mm.fs` volumes
-  through `mm.fs.shell`. `apps/mcu-shell` now runs on `mm.shell.board` and
-  always mounts the board's own storage at `/data` (littlefs on a Pico);
-  `apps/mcu-shell-sd`, selected by `scripts/build-shell.sh --sd`, adds the
-  socket's FAT card at `/sd`. With littlefs, the RP2040 shell exceeds the
-  shell specification's size ceilings; `docs/modules-shell.mdy` records the
-  measurements and leaves the ceilings as a decision.
-
-- **littlefs's pools are sized per board.** Three board-table columns,
-  `MM_BOARD_LFS_VOLUMES`, `MM_BOARD_LFS_FILES`, and
-  `MM_BOARD_LFS_DIRECTORIES`, size the Pico littlefs adapter's static pools,
-  overridable from CMake or the environment and range-checked. The default
-  is one volume, four files, and two directories, about 4.5 KB instead of
-  9 KB; the PiZero boards keep the old 2, 8, and 4. `mm_pico_lfs_limits`
-  reports them, and `scripts/test-littlefs.sh` runs the harness at both the
-  default and the PiZero's sizes.
-
-- **The SDIO facility no longer costs every Pico image 6.7 KB of RAM.** Reads
-  go by DMA straight into the caller's buffer, byte-swapped by the DMA engine,
-  with a chained channel collecting CRC words; the CRC table is sixteen
-  entries; write words are computed as they are fed. A read buffer must now
-  start on a four-byte boundary, and `SdioCard` bounces any other.
+- CLI regression tests use native mm.shell scripts instead of Python. The
+  restored wrapper fixtures, release-fetch checks, standalone flash checks, and
+  external application/platform tests run through tests/scripts/all.sh in the
+  full host test workflow. Optional Pico checks use a simulated flash backend.
 
 ## [v1.3.2] — 2026-10-06
 
@@ -1406,6 +1367,7 @@ framework or documentation generator. 77 commits from the initial commit on
   `xfail`, and `xpass` failing the run when a known defect starts passing.
 - GCC and Clang backends, selected per build.
 
+[v1.3.3]: https://github.com/modules-cpp/modules.cpp/releases/tag/v1.3.3
 [v1.3.2]: https://github.com/modules-cpp/modules.cpp/releases/tag/v1.3.2
 [v1.3.1]: https://github.com/modules-cpp/modules.cpp/releases/tag/v1.3.1
 [v1.3.0]: https://github.com/modules-cpp/modules.cpp/releases/tag/v1.3.0

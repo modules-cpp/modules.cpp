@@ -28,13 +28,8 @@ int main(int argc, char** argv) {
         std::cerr << "run: --host and --target are mutually exclusive\n";
         return mm::build::exit_usage;
     }
-    if (options.positional().empty()) {
-        std::cerr << "usage: run [-v] [--host | --target] <app-manifest> "
-                     "[-- arguments...]\n";
-        return mm::build::exit_usage;
-    }
-
-    auto manifest = mm::build::resolve_manifest(options.positional().front());
+    auto manifest = mm::build::resolve_manifest(options.positional().empty()
+        ? std::filesystem::path(".") : std::filesystem::path(options.positional().front()));
     std::filesystem::path manifest_directory;
     if (const auto status = mm::app::open_manifest("run", manifest, manifest_directory, false);
         status != mm::app::Cli::ok)
@@ -55,7 +50,7 @@ int main(int argc, char** argv) {
     }
 
     mm::build::BuildConfiguration configuration;
-    if (!mm::build::resolve_configuration(".", options.verbose(), configuration))
+    if (!mm::build::resolve_configuration(resolved_roots.configuration_root, options.verbose(), configuration))
         return mm::build::exit_manifest;
     const bool target_lane = options.seen("--target") ||
         (!options.seen("--host") && configuration.selects_cross());
@@ -69,6 +64,7 @@ int main(int argc, char** argv) {
     mm::build::LoadPolicy policy{.tool = "run", .warn_options = true};
     if (resolved_roots.external_root)
         policy.external = resolved_roots.external_root;
+    policy.managed_external = resolved_roots.managed_external;
     auto project = mm::build::load_project(".", policy);
     if (!project.ok) return mm::build::exit_manifest;
     if (!mm::build::check_configuration_staleness(configuration, project, target_lane, "run"))
@@ -113,6 +109,8 @@ int main(int argc, char** argv) {
         context_tree_root, context_output_root, resolved_roots.tools_dir,
         resolved_roots.external_root.has_value());
     const auto executable = context.executable_path(app);
+    if (!mm::build::check_external_artifact(resolved_roots, configuration, target_lane, project, executable))
+        return mm::build::exit_manifest;
     if (!std::filesystem::is_regular_file(executable, ec) || ec) {
         std::cerr << "run: application is not built: " << executable.string()
                   << "; run build first\n";

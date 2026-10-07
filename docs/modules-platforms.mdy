@@ -3,7 +3,7 @@ mm: 1.0
 kind: doc
 name: modules.cpp platforms specification
 status: official
-release: v1.3.2
+release: v1.3.3
 ---
 
 # modules.cpp platforms specification
@@ -616,3 +616,7 @@ Not implemented, by design, in this release:
 - Archives. The build has no librarian.
 - picolibc and no-libc SDKs, which the schema admits and no manifest describes.
 - External library argument propagation, which belongs to the third-party library work.
+
+# External application configuration
+
+Configure-managed external apps keep source manifests at mm: 1.3 and use a separately versioned local configuration: mm: 3.0, schema: external-configuration-1, tool-contract: external-app-1. modules-root binds the selected installation; external-root records the canonical external tree identity. Platform manifest and board source paths are validated against modules-root, while lane outputs remain in the external tree. Host-only external configurations also use the new schema. Existing in-project and locator-based configuration records retain their 1.0/2.0 formats. See modules-external-apps.mdy.

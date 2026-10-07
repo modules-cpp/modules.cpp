@@ -196,8 +196,15 @@ void wrapper_contracts() {
         const auto normal = invoke(
             "/bin/sh", installed.root(),
             {name, "two words", "quote'argument"});
-        const auto marker = "arg:--run\narg:" + name +
-            ".sh\narg:--\narg:two words\narg:quote'argument\n";
+        // External-app launchers pass absolute paths so they work from any cwd.
+        const bool absolute_script = name == "build" || name == "clean" ||
+            name == "configure" || name == "debug" || name == "flash" ||
+            name == "run" || name == "sketch";
+        const auto script_path = absolute_script
+            ? installed.root() / (name + ".sh")
+            : std::filesystem::path(name + ".sh");
+        const auto marker = "arg:--run\narg:" + script_path.string() +
+            "\narg:--\narg:two words\narg:quote'argument\n";
         expect(normal.status == 0 &&
                    normal.output.find(marker) != std::string::npos &&
                    normal.output.starts_with(wrapper.banner),

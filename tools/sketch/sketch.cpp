@@ -10,6 +10,7 @@
 #include <vector>
 
 import mm.app;
+import mm.build;
 import mm.mdy;
 import mm.ino;
 
@@ -89,8 +90,9 @@ int main(int argc, char** argv) {
     options.flag("--legacy");
     options.flag("--verbose");
     options.option("--project", "DIR");
+    options.flag("--external");
     options.help("sketch [-v|--verbose] [-h|--help] [--check] [--library] "
-                 "[--legacy] [--project DIR] [directory]");
+                 "[--legacy] [--external | --project DIR] [directory]");
     const auto cli = options.parse(argc, argv);
     if (cli == mm::app::Cli::help) return 0;
     if (cli != mm::app::Cli::ok) return 64;
@@ -200,6 +202,16 @@ int main(int argc, char** argv) {
         }
     }
     const bool tree_above = ancestor_has_project || ancestor_is_project;
+
+    const auto local_root = mm::build::connected_external_root(abs_dir);
+    const auto local_config = mm::mdy::Parser::parse_file(local_root / "out/config.mdy");
+    const auto* schema = lookup(local_config, "schema");
+    const bool external_mode = options.seen("--external") ||
+        (schema && !schema->empty() && schema->front() == "external-configuration-1");
+    if (external_mode && (tree_above || self_has_project || options.seen("--project") || options.seen("--library"))) {
+        std::cerr << "sketch: --external requires a locator-free application outside an existing project tree\n";
+        return 65;
+    }
 
     if (options.seen("--project") && tree_above) {
         std::cerr << "sketch: --project is not allowed when a tree is above"
@@ -637,7 +649,7 @@ int main(int argc, char** argv) {
     // Case 2: tree_above
     // Case 3: !tree_above && !manifest_exists
     // Case 4: !tree_above && manifest_exists && !self_has_project (orphan)
-    if (!tree_above && manifest_exists && !self_has_project) {
+    if (!tree_above && manifest_exists && !self_has_project && !external_mode) {
         std::cerr << "sketch: " << manifest_path.string()
                   << ": sketch is neither registered by a parent nor external; "
                   << "add project: to it or generate in a new directory\n";
@@ -683,7 +695,7 @@ int main(int argc, char** argv) {
 
     // Generation mode
     std::vector<std::string> sketch_files;
-    std::filesystem::path owning_tree = abs_dir;
+    std::filesystem::path owning_tree = external_mode ? local_root : abs_dir;
     if (self_has_project) {
         owning_tree = abs_dir;
     } else if (ancestor_has_project) {
@@ -750,7 +762,7 @@ int main(int argc, char** argv) {
         // Generate initial manifest using guarded write
         std::string initial_manifest = "---\nmm: 1.3\nkind: app\nname: " +
                                        dir_name + "\n";
-        if (!tree_above) {
+        if (!tree_above && !external_mode) {
             const auto rel_proj = std::filesystem::relative(
                 project_root, abs_dir).lexically_normal().generic_string();
             initial_manifest += "project: " + rel_proj + "\n";
@@ -892,7 +904,9 @@ int main(int argc, char** argv) {
         std::cout << parent_msg << "\n";
     }
 
-    if (!tree_above && !manifest_exists) {
+    if (external_mode) {
+        std::cout << "external sketch generated; configure its local build before building\n";
+    } else if (!tree_above && !manifest_exists) {
         std::cout << "external sketch; build with "
                   << (project_root / "out/bin/build").string() << " .\n";
     }

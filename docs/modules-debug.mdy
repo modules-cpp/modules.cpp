@@ -3,7 +3,7 @@ mm: 1.0
 kind: doc
 name: modules.cpp debug specification
 status: official
-release: v1.3.2
+release: v1.3.3
 ---
 
 # modules.cpp debug specification
@@ -61,3 +61,9 @@ Debug accepts no SDK or board override. It uses the platform already selected by
 # Safety
 
 mm.debug single-quotes every configured path, argument, endpoint, executable, and application argument before passing its command to the shell. Runner cleanup names only the child process started by that invocation.
+
+# Configure-managed external applications
+
+Locator-free external application manifests use their connected tree's out/config.mdy. Build, run, flash, and debug consume the saved installation and lane; they do not discover a replacement installation. Manifest-driven run/flash/debug default to the current directory's manifest and require an app. They reject stale completion records before executing it. flash --image remains an independent image workflow.
+
+Use sketch --external to generate a new locator-free sketch application, then configure its local build. Existing --project generation and project: sketches retain their established workflow. Do not combine a locator with the managed external configuration. See modules-external-apps.mdy for examples, supported source kinds, and migration.

@@ -747,8 +747,36 @@ bool validate_manifest_schema(const mm::mdy::MDYDocument& document,
     return valid_manifest(document, first(document, "kind"), first(document, "name"), manifest, policy);
 }
 
+bool validate_external_cleanup_configuration(const std::filesystem::path& path) {
+    const auto doc = mm::mdy::Parser::parse_file(path);
+    if (doc.status != mm::mdy::ParseStatus::Ok) return false;
+    for (const auto& [key, values] : doc.metadata) {
+        if (!configuration_2_key(key) && key != "modules-root" && key != "external-root" && key != "tool-contract") {
+            std::cerr << "clean: unsupported configuration key: " << key << "\n"; return false;
+        }
+        const bool repeated = key == "cross-sdk-provides" || key == "cross-board-source" ||
+            key == "cross-board-derives-from" || key == "cross-board-provides" || key == "cross-board-argument" ||
+            key == "cross-unresolved" || key.ends_with("-argument");
+        if (values.empty() || (!repeated && values.size() != 1)) return false;
+    }
+    if (!std::filesystem::path(first(doc, "modules-root")).is_absolute() ||
+        !std::filesystem::path(first(doc, "external-root")).is_absolute()) return false;
+    Build build;
+    Toolchain host, cross;
+    std::filesystem::path host_dir, target_dir;
+    if (!configuration_build(doc, path, build) || !configuration_compiler(doc, "host", path, host) ||
+        !configuration_directory(doc, "host-build-directory", path, host_dir) ||
+        !configuration_directory(doc, "target-build-directory", path, target_dir)) return false;
+    const auto selection = first(doc, "target-compiler");
+    const bool has_cross = has_configuration_compiler(doc, "cross");
+    if (selection != "host" && selection != "cross") return false;
+    if (selection == "cross" && !has_cross) return false;
+    if (has_cross && !configuration_compiler(doc, "cross", path, cross, false)) return false;
+    return true;
+}
+
 bool load_configuration(const std::filesystem::path& path, bool verbose,
-                        BuildConfiguration& configuration) {
+                        BuildConfiguration& configuration, const std::filesystem::path& binding_override) {
     const auto document = mm::mdy::Parser::parse_file(path);
     if (document.status != mm::mdy::ParseStatus::Ok) {
         std::cerr << "build: cannot read configuration: " << path.string() << "\n";
@@ -760,24 +788,26 @@ bool load_configuration(const std::filesystem::path& path, bool verbose,
     std::string name;
     std::string selection;
     if (!configuration_scalar(document, "mm", path, version) ||
-        (version != "1.0" && version != "2.0") ||
+        (version != "1.0" && version != "2.0" && version != "3.0") ||
         !configuration_scalar(document, "kind", path, kind) || kind != "configuration" ||
         !configuration_scalar(document, "name", path, name) ||
         !configuration_scalar(document, "target-compiler", path, selection)) {
         std::cerr << "build: invalid configuration: " << path.string() << "\n";
         return false;
     }
-    const bool configuration_2 = version == "2.0";
+    const bool external = version == "3.0";
+    const bool configuration_2 = version == "2.0" || external;
     std::string schema;
     if (configuration_2) {
         if (!configuration_scalar(document, "schema", path, schema) ||
-            schema != "configuration-2") {
+            schema != (external ? "external-configuration-1" : "configuration-2")) {
             std::cerr << "build: mm 2.0 configuration requires schema configuration-2: "
                       << path.string() << "\n";
             return false;
         }
         for (const auto& [key, values] : document.metadata) {
-            if (!configuration_2_key(key)) {
+            if (!configuration_2_key(key) && !(external &&
+                (key == "modules-root" || key == "external-root" || key == "tool-contract"))) {
                 std::cerr << "build: unknown configuration-2 key: " << key << "\n";
                 return false;
             }
@@ -805,6 +835,35 @@ bool load_configuration(const std::filesystem::path& path, bool verbose,
         return false;
     }
 
+    std::filesystem::path platform_configuration = path;
+    configuration.modules_root.reset();
+    configuration.external_root.reset();
+    if (external) {
+        std::string modules, root, contract;
+        if (!configuration_scalar(document, "modules-root", path, modules) ||
+            !configuration_scalar(document, "external-root", path, root) ||
+            !configuration_scalar(document, "tool-contract", path, contract) ||
+            contract != "external-app-1" || !std::filesystem::path(modules).is_absolute() ||
+            !std::filesystem::path(root).is_absolute()) {
+            std::cerr << "build: unsupported external binding or tool contract; rerun configure using compatible tools\n";
+            return false;
+        }
+        std::error_code ec;
+        const auto actual_root = std::filesystem::canonical(path.parent_path().parent_path(), ec);
+        if (ec || actual_root != std::filesystem::weakly_canonical(root, ec) || ec) {
+            std::cerr << "build: external configuration root changed; rerun configure: " << path << "\n";
+            return false;
+        }
+        const auto module_root = std::filesystem::canonical(
+            binding_override.empty() ? std::filesystem::path(modules) : binding_override, ec);
+        if (ec || first(mm::mdy::Parser::parse_file(module_root / "mm.mdy"), "kind") != "project") {
+            std::cerr << "build: saved modules installation is missing; rerun configure\n";
+            return false;
+        }
+        configuration.modules_root = module_root;
+        configuration.external_root = actual_root;
+        platform_configuration = module_root / "out/config.mdy";
+    }
     if (selection != "host" && selection != "cross") {
         std::cerr << "build: configuration target-compiler must be host or cross: "
                   << path.string() << "\n";
@@ -825,7 +884,7 @@ bool load_configuration(const std::filesystem::path& path, bool verbose,
 
     Toolchain cross;
     const bool has_cross = has_configuration_compiler(document, "cross");
-    if (configuration_2 && !has_cross) {
+    if (configuration_2 && !external && !has_cross) {
         std::cerr << "build: configuration-2 requires a target toolchain: "
                   << path.string() << "\n";
         return false;
@@ -875,7 +934,7 @@ bool load_configuration(const std::filesystem::path& path, bool verbose,
     if (has_cross) {
         Platform value;
         if (configuration_2) {
-            if (!load_platform(document, path, cross, value)) return false;
+            if (!load_platform(document, platform_configuration, cross, value)) return false;
             for (const auto& argument : value.compiler_arguments) {
                 cross.compiler.arguments += " " + argument;
                 cross.linker.arguments += " " + argument;
@@ -942,6 +1001,8 @@ bool resolve_configuration(const std::filesystem::path& project_root, bool verbo
 
     if (exists) return load_configuration(path, verbose, configuration);
 
+    configuration.modules_root.reset();
+    configuration.external_root.reset();
     configuration.host_ = default_toolchain(verbose);
     configuration.cross_.reset();
     configuration.cross_build_directory_.reset();

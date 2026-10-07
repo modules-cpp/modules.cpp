@@ -3,7 +3,7 @@ mm: 1.0
 kind: doc
 name: modules.cpp firmware flashing specification
 status: official
-release: v1.3.2
+release: v1.3.3
 ---
 
 # Purpose
@@ -82,10 +82,6 @@ picotool_DIR=/path/to/modules.cpp/platforms/pico/pico-sdk/picotool \
   ./flash.sh --image /path/to/vendor/build/main.uf2
 Closing fence
 
-python3 tests/scripts/flash-image.py checks standalone-image argument handling,
-path quoting, automatic reboot, validation and exit status using a recording
-picotool test double. It does not access a device.
-
 # Picotool invocation
 
 The backend executes:
@@ -144,3 +140,13 @@ never sends the extensionless ELF by accident.
   BOOTSEL, picotool decides whether its default selection is unambiguous.
 - Flash success proves that picotool programmed and verified the image. It does
   not prove application-level behavior after the reboot.
+
+# Configure-managed external applications
+
+Locator-free external application manifests use their connected tree's out/config.mdy. Build, run, flash, and debug consume the saved installation and lane; they do not discover a replacement installation. Manifest-driven run/flash/debug default to the current directory's manifest and require an app. They reject stale completion records before executing it. flash --image remains an independent image workflow.
+
+Use sketch --external to generate a new locator-free sketch application, then configure its local build. Existing --project generation and project: sketches retain their established workflow. Do not combine a locator with the managed external configuration. See modules-external-apps.mdy for examples, supported source kinds, and migration.
+
+# Host regression checks
+
+./out/bin/shell --run tests/scripts/flash-image.sh checks standalone image argument validation, literal paths, automatic reboot, and backend exit codes with a recording picotool. It never accesses a device.

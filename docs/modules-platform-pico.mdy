@@ -3,7 +3,7 @@ mm: 1.0
 kind: doc
 name: modules.cpp Pico platform specification
 status: official
-release: v1.3.2
+release: v1.3.3
 ---
 
 # modules.cpp Pico platform specification
@@ -854,8 +854,8 @@ other option passes through.
   symbols.
 - build-stdio.sh: apps/stdio-smoke, with target-smoke-any as control.
 
-tests/scripts, run by test.sh, compares every wrapper's dry run against a
-recorded expectation.
+
+tests/scripts/run.sh compares wrapper dry runs with recorded expectations. Run it with ./out/bin/shell --run tests/scripts/run.sh. The full host test.sh run includes these checks.
 
 # Operational notes
 

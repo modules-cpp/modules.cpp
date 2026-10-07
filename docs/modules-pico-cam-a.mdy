@@ -80,7 +80,7 @@ Host regression checks:
 
 ```sh
 sh test.sh --host tests/mm/camera/preview/
-sh tests/scripts/run.sh
+./out/bin/shell --run tests/scripts/run.sh
 ```
 
 Firmware builds and UF2 checks do not replace a test on an actual board.

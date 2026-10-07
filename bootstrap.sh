@@ -280,7 +280,8 @@ if [ "${mm_build1_status}" -ne 0 ] || [ ! -x "${MM_BUILD}/build1" ]; then
 
     ${MCCP_MODULES} ${MM_MODULE_FLAGS} \
         -c modules/mm/build/src/manifest.cpp \
-        -o "${MM_BUILD}/modules/mm/build/src/manifest.o" || exit $?
+        -o "${MM_BUILD}/modules/mm/build/src/context.o" \
+        "${MM_BUILD}/modules/mm/build/src/manifest.o" || exit $?
 
     ${MCCP_MODULES} ${MM_MODULE_FLAGS} \
         -c modules/mm/build/src/config.cpp \
@@ -328,6 +329,7 @@ if [ "${mm_build1_status}" -ne 0 ] || [ ! -x "${MM_BUILD}/build1" ]; then
         "${MM_BUILD}/modules/mm/build/graph.o" \
         "${MM_BUILD}/modules/mm/build/external.o" \
         "${MM_BUILD}/modules/mm/build/build.o" \
+        "${MM_BUILD}/modules/mm/build/src/context.o" \
         "${MM_BUILD}/modules/mm/build/src/manifest.o" \
         "${MM_BUILD}/modules/mm/build/src/config.o" \
         "${MM_BUILD}/modules/mm/build/src/platform.o" \
