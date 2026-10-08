@@ -7,13 +7,15 @@ folder: display
 folder: touch
 folder: imu
 folder: rtc
+folder: sdcard
 ---
 
 # rp2350-touch-lcd-28-platform
 
-The Waveshare RP2350-Touch-LCD-2.8 composite board and the four board-owned
+The Waveshare RP2350-Touch-LCD-2.8 composite board and the five board-owned
 providers it binds: an ST7789 colour panel, a CST328 touch controller, a
-QMI8658 inertial sensor, and a PCF85063 clock.
+QMI8658 inertial sensor, a PCF85063 clock, and the TF socket in 4-bit SD mode
+through mm.sdcard's SdioCard.
 
 Each provider owns its own wiring and nothing else. The device drivers are
 portable modules under modules/mm, and the board is the only place that knows

@@ -58,6 +58,26 @@ constexpr std::array<std::byte, 64> idle_bytes = [] {
 
 }  // namespace
 
+bool csd_block_count(std::span<const std::byte> csd, std::uint64_t& blocks) {
+    if (csd.size() < 16) return false;
+    const unsigned int structure = bits(csd, 0) >> 6;
+    if (structure == 1) {
+        const std::uint64_t size = ((bits(csd, 7) & 0x3fu) << 16) | (bits(csd, 8) << 8) |
+                                   bits(csd, 9);
+        blocks = (size + 1) * 1024;
+        return true;
+    }
+    if (structure == 0) {
+        const unsigned int read_length = bits(csd, 5) & 0x0fu;
+        const std::uint64_t size = ((bits(csd, 6) & 0x03u) << 10) | (bits(csd, 7) << 2) |
+                                   (bits(csd, 8) >> 6);
+        const unsigned int multiplier = ((bits(csd, 9) & 0x03u) << 1) | (bits(csd, 10) >> 7);
+        blocks = ((size + 1) << (multiplier + 2) << read_length) / block_size;
+        return true;
+    }
+    return false;
+}
+
 std::uint8_t crc7(std::span<const std::byte> data) {
     std::uint8_t crc = 0;
     for (const auto value : data) {
@@ -318,20 +338,7 @@ mm::fs::Status SpiCard::initialize() {
     std::array<std::byte, 16> csd{};
     status = receive_block(csd);
     if (status != mm::fs::Status::Ok) return forget(status);
-    const unsigned int structure = bits(csd, 0) >> 6;
-    if (structure == 1) {
-        const std::uint64_t size = ((bits(csd, 7) & 0x3fu) << 16) | (bits(csd, 8) << 8) |
-                                   bits(csd, 9);
-        block_count_ = (size + 1) * 1024;
-    } else if (structure == 0) {
-        const unsigned int read_length = bits(csd, 5) & 0x0fu;
-        const std::uint64_t size = ((bits(csd, 6) & 0x03u) << 10) | (bits(csd, 7) << 2) |
-                                   (bits(csd, 8) >> 6);
-        const unsigned int multiplier = ((bits(csd, 9) & 0x03u) << 1) | (bits(csd, 10) >> 7);
-        block_count_ = ((size + 1) << (multiplier + 2) << read_length) / block_size;
-    } else {
-        return forget(mm::fs::Status::Unsupported);
-    }
+    if (!csd_block_count(csd, block_count_)) return forget(mm::fs::Status::Unsupported);
 
     status = finish(mm::fs::Status::Ok);
     if (status != mm::fs::Status::Ok) return forget(status);

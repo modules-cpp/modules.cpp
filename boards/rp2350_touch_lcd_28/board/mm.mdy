@@ -8,6 +8,7 @@ platform-provider: mm.touch platform.rp2350_touch_lcd_28.touch
 platform-provider: mm.imu platform.rp2350_touch_lcd_28.imu
 platform-provider: mm.rtc platform.rp2350_touch_lcd_28.rtc
 platform-provider: mm.audio platform.rp2350_touch_lcd_28.audio
+platform-provider: mm.sdcard.socket platform.rp2350_touch_lcd_28.sdcard
 ---
 
 # rp2350_touch_lcd_28
@@ -21,7 +22,7 @@ It derives from pico2-arm because that is what it is: the same RP2350A the Pico
 SDK configures as pico2. The SDK publishes no board header for this product, and
 Waveshare's own firmware for it selects PICO_BOARD pico2 and drives every
 peripheral by explicit GPIO number, which is exactly what deriving does here.
-The chip, the SDK, and the ABI come from the base; the five bindings above and
+The chip, the SDK, and the ABI come from the base; the six bindings above and
 the pin maps in the providers are what this board adds.
 
 The panel is wired to SPI1 -- clock GP10, data GP11, CS GP13, DC GP14, reset
@@ -30,8 +31,10 @@ I2C1 on GP6 and GP7, the touch controller's reset and interrupt on GP17 and
 GP18. The DAC's I2S link is bit clock GP2, word clock GP3, and data GP4; its
 audio provider, platform code rather than board description, lives under
 platforms/pico/rp2350_touch_lcd_28/audio. GP25 is the battery key, GP26 the
-battery enable, GP27 the battery sense, and GP19 to GP24 the TF card; GP0 and
-GP1 are the exposed UART.
+battery enable, GP27 the battery sense, and GP19 to GP24 the TF card -- clock,
+CMD, and DAT0 to DAT3 -- which platform.rp2350_touch_lcd_28.sdcard publishes
+as mm.sdcard.socket in 4-bit SD mode over PIO, since hardware SPI cannot reach
+those pins; GP0 and GP1 are the exposed UART.
 
 The Pico bridge's board table corrects two pico2 defaults for this board:
 GP25 is a key, not an LED, so the board reports no LED, and ADC_AVDD is the 3V3

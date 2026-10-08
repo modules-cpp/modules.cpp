@@ -1,0 +1,45 @@
+---
+mm: 1.3
+kind: test
+name: rp2350-touch-lcd-28-sd-fat
+option: buildable-host no
+requires-board: rp2350_touch_lcd_28
+use: mm.display
+use: mm.fonts
+use: mm.gfx
+use: mm.mcu
+use: mm.fs
+use: mm.fs.fat
+use: mm.sdcard
+use: mm.sdcard.socket
+use: mm.stdio
+unit: tests/boards/rp2350_touch_lcd_28/main.cpp
+---
+
+# RP2350 Touch LCD 2.8 SD/FAT hardware test
+
+Read-only, on-board SDIO and FAT diagnostics. From the project root, configure
+the `rp2350_touch_lcd_28` board and compile the test:
+
+```sh
+./configure --target arm-none-eabi --compiler arm-none-eabi-gcc --sdk pico-arm --board rp2350_touch_lcd_28 --runner none --build debug
+./test --target --compile-only tests/boards/rp2350_touch_lcd_28
+```
+
+The test runner does not execute bare-metal images. Put the board in BOOTSEL
+mode and flash the generated image with:
+
+```sh
+./flash --image out-target-arm-none-eabi/tests/rp2350-touch-lcd-28-sd-fat/rp2350-touch-lcd-28-sd-fat.uf2
+```
+
+The LCD retains the results. USB CDC receives the same lines when a terminal
+is connected. The test identifies the card, reads raw sectors repeatedly,
+compares unaligned and multiblock reads with single-block reads, checks the
+last sector and out-of-range handling, mounts FAT read-only, queries capacity,
+lists the root directory, and reads the first regular file twice. If the first
+sector times out at the board's normal 25 MHz data clock, it retries at 4 MHz
+to separate a data-clock problem from a basic transport failure.
+
+This test never formats or writes to the SD card. A failure line names the
+stage and `mm.fs` status. Leave the card inserted until the final summary.

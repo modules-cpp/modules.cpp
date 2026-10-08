@@ -629,6 +629,59 @@ public:
         return from(mm_pico_mcu_pulse_release(instance));
     }
 
+    [[nodiscard]] mm::mcu::Status sdio_configure(
+        const mm::mcu::SdioConfiguration& configuration) override {
+        return from(mm_pico_mcu_sdio_configure(configuration.instance, configuration.clock_gpio,
+                                               configuration.command_gpio,
+                                               configuration.data0_gpio, configuration.width));
+    }
+
+    [[nodiscard]] mm::mcu::Status sdio_clock(unsigned int instance, unsigned long hz,
+                                             unsigned long& actual_hz) override {
+        return from(mm_pico_mcu_sdio_clock(instance, hz, &actual_hz));
+    }
+
+    [[nodiscard]] mm::mcu::Status sdio_idle_clocks(unsigned int instance,
+                                                   unsigned int count) override {
+        return from(mm_pico_mcu_sdio_idle_clocks(instance, count));
+    }
+
+    [[nodiscard]] mm::mcu::Status sdio_command(unsigned int instance, unsigned int index,
+                                               std::uint32_t argument,
+                                               mm::mcu::SdioResponse response,
+                                               std::span<std::uint32_t> words) override {
+        int kind = MM_PICO_MCU_SDIO_NONE;
+        switch (response) {
+            case mm::mcu::SdioResponse::None: kind = MM_PICO_MCU_SDIO_NONE; break;
+            case mm::mcu::SdioResponse::Short: kind = MM_PICO_MCU_SDIO_SHORT; break;
+            case mm::mcu::SdioResponse::ShortNoCrc: kind = MM_PICO_MCU_SDIO_SHORT_NO_CRC; break;
+            case mm::mcu::SdioResponse::ShortBusy: kind = MM_PICO_MCU_SDIO_SHORT_BUSY; break;
+            case mm::mcu::SdioResponse::Long: kind = MM_PICO_MCU_SDIO_LONG; break;
+        }
+        return from(mm_pico_mcu_sdio_command(instance, index, argument, kind, words.data(),
+                                             words.size()));
+    }
+
+    [[nodiscard]] mm::mcu::Status sdio_read(unsigned int instance, unsigned int index,
+                                            std::uint32_t argument, std::uint32_t& response,
+                                            std::span<std::byte> data,
+                                            unsigned int block_size) override {
+        return from(mm_pico_mcu_sdio_read(instance, index, argument, &response, data.data(),
+                                          data.size(), block_size));
+    }
+
+    [[nodiscard]] mm::mcu::Status sdio_write(unsigned int instance, unsigned int index,
+                                             std::uint32_t argument, std::uint32_t& response,
+                                             std::span<const std::byte> data,
+                                             unsigned int block_size) override {
+        return from(mm_pico_mcu_sdio_write(instance, index, argument, &response, data.data(),
+                                           data.size(), block_size));
+    }
+
+    [[nodiscard]] mm::mcu::Status sdio_release(unsigned int instance) override {
+        return from(mm_pico_mcu_sdio_release(instance));
+    }
+
     [[nodiscard]] mm::mcu::Status flash_region_geometry(
         mm::mcu::FlashRegionGeometry& geometry) override {
         unsigned long long size = 0;

@@ -20,6 +20,7 @@ import :adc_types;
 import :dac_types;
 import :pwm_types;
 import :pulse_types;
+import :sdio_types;
 import :flash_region_types;
 
 export namespace mm::mcu {
@@ -229,6 +230,30 @@ public:
         return Status::Unsupported;
     }
     [[nodiscard]] virtual Status pulse_release(unsigned int) { return Status::Unsupported; }
+
+    [[nodiscard]] virtual Status sdio_configure(const SdioConfiguration&) {
+        return Status::Unsupported;
+    }
+    [[nodiscard]] virtual Status sdio_clock(unsigned int, unsigned long, unsigned long&) {
+        return Status::Unsupported;
+    }
+    [[nodiscard]] virtual Status sdio_idle_clocks(unsigned int, unsigned int) {
+        return Status::Unsupported;
+    }
+    [[nodiscard]] virtual Status sdio_command(unsigned int, unsigned int, std::uint32_t,
+                                              SdioResponse, std::span<std::uint32_t>) {
+        return Status::Unsupported;
+    }
+    [[nodiscard]] virtual Status sdio_read(unsigned int, unsigned int, std::uint32_t,
+                                           std::uint32_t&, std::span<std::byte>, unsigned int) {
+        return Status::Unsupported;
+    }
+    [[nodiscard]] virtual Status sdio_write(unsigned int, unsigned int, std::uint32_t,
+                                            std::uint32_t&, std::span<const std::byte>,
+                                            unsigned int) {
+        return Status::Unsupported;
+    }
+    [[nodiscard]] virtual Status sdio_release(unsigned int) { return Status::Unsupported; }
 
     [[nodiscard]] virtual Status flash_region_geometry(FlashRegionGeometry&) {
         return Status::Unsupported;
