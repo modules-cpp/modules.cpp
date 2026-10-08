@@ -48,6 +48,7 @@ folder: shell/posix
 folder: sketch
 folder: stdio
 folder: test
+folder: terminal
 folder: touch
 folder: touch/cst328
 folder: touch/cst816

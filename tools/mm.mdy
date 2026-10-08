@@ -10,6 +10,7 @@ folder: clean
 folder: debug
 folder: flash
 folder: test
+folder: terminal
 folder: check
 folder: model
 folder: json

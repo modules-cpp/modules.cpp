@@ -1,0 +1,32 @@
+---
+mm: 1.3
+kind: module
+name: terminal
+module: mm.terminal
+use: mm.display
+use: mm.gfx
+use: mm.fonts
+file: terminal.cppm
+file: src/terminal.cpp
+---
+
+# mm.terminal
+
+A bounded ASCII line terminal on a caller-owned character grid. initialize
+borrows a character span; its storage must outlive the Terminal. No allocations
+or device initialization occur in this module. Printable ASCII occupies one
+cell; other high bytes become '?'. LF starts a new line, CR returns to column
+zero, BS moves left and erases, TAB inserts spaces to the next eight-column
+stop, and FF clears the grid. Other controls are ignored. ANSI escape sequences
+and UTF-8 decoding are not implemented.
+
+Wrapping is deferred until the next printable character, so a full line followed
+by LF advances only once. Advancing past the last row scrolls one line. A failed
+initialize leaves the previous grid intact. cell returns zero outside the grid.
+
+present redraws a caller-owned one-bit surface with mm.fonts, writes it through
+mm.gfx to a one-bit or RGB565 display, and refreshes it. Supply a scratch row of
+at least surface.width * 2 bytes for RGB565. The surface must fit the display and
+the font must fit every cell. A failed draw or refresh preserves dirty for retry.
+Callers initialize their display and schedule presentation; they may force a
+redraw after display loss. The cursor position is exposed but not painted.

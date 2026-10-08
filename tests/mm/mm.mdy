@@ -25,6 +25,7 @@ folder: shell/posix
 folder: stdio
 folder: model
 folder: run
+folder: terminal
 folder: touch
 folder: touch/cst816
 folder: imu

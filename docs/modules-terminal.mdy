@@ -1,0 +1,94 @@
+---
+mm: 1.3
+kind: doc
+name: Line terminal and terminal tool
+---
+
+# Line terminal
+
+mm.terminal provides a fixed character grid for displaying a byte stream.
+The caller supplies storage, chooses a font, and initializes the display.
+The module uses mm.fonts for glyphs, mm.gfx for composition and RGB565 expansion,
+and mm.display for output. It can be used independently of a console transport.
+
+# Text handling
+
+Printable ASCII writes one cell and wraps at the right edge. Wrap is deferred:
+a newline immediately after a full line moves down only once. At the bottom,
+advancing a line scrolls the grid up. LF moves to column zero on the next row;
+CR moves to column zero on the current row. Backspace erases the preceding cell
+without crossing a line boundary. Tab fills with spaces to the next multiple
+of eight columns; form feed clears the grid and homes the cursor.
+
+Bytes above ASCII become question marks. Other controls are ignored. This is
+a line terminal; ANSI escape parsing, UTF-8 decoding, scrollback, and a painted
+cursor are outside its current interface.
+
+# Module API
+
+Terminal::initialize(columns, rows, cells) validates dimensions and borrows
+cells. Keep that storage alive while the terminal is used. write(string_view)
+updates the grid; cell(column, row), column(), row(), and dirty() expose its
+state. Calls to write before initialization return NotInitialized. A failed
+initialization preserves the previous grid.
+
+The default colors are amber-orange text (RGB 255, 176, 0) on black. Monochrome
+displays use white text on black.
+
+present(display, surface, font, scratch, force) renders the current grid into
+a caller-owned one-bit Surface and refreshes the display. The font and complete
+grid must fit the surface, which must fit the display. RGB565 output requires
+scratch space of two bytes per pixel in one surface row. The module allocates
+no storage. Successful presentation clears dirty; failed output remains dirty
+for retry. force requests repaint even when the text has not changed.
+
+# Tool on Linux
+
+The build helper detects the native architecture and selects Clang and SDL:
+
+```sh
+./scripts/build-terminal.sh
+```
+
+Add --run to open the terminal after building, --compiler to choose a compiler,
+or --dry-run to preview the commands. It restores the previous configuration
+unless --keep is given. The executable is placed at
+out-target-<triple>/tools/terminal/terminal.
+
+Install the project's Linux and SDL dependencies first. From the project root,
+configure a native SDL target, build the tool, then run its target executable.
+For an aarch64 Linux host:
+
+```sh
+./configure --target aarch64-linux-gnu --target-host --compiler clang++ \
+    --sdk linux-aarch64 --board sdl-linux-aarch64 --runner native --build debug
+./build --target tools/terminal/
+./out-target-aarch64-linux-gnu/terminal
+```
+
+On x86_64 Linux, use x86_64 instead of aarch64 in the target, SDK, board and
+output directory. The target must match the development machine. The native
+SDL target supplies both display and console providers; a plain host build
+has no display provider.
+
+The tool reads mm.stdio's selected console and shows the bytes in the display
+window. The console's normal line discipline applies: type a line in the
+launching terminal and press Enter. Ctrl-C ends the process. It does not start
+a child shell or read keyboard input from the SDL window.
+
+--once reads one available chunk (up to 256 bytes), renders it, and exits.
+--help prints usage. Normal mode polls every 10 milliseconds. A zero-byte
+successful read is treated as idle: mm.stdio has no separate EOF status.
+The Linux provider reports pipe hangup as TransportError, which ends the tool
+with an error; use redirected file input for a --once smoke check. Idle display
+refreshes also service the SDL event queue.
+
+# Tests
+
+```sh
+./test --host tests/mm/terminal/
+```
+
+The mm.test suite exercises wrapping, scrolling, carriage return, tabs,
+backspace, clear, storage bounds, failed initialization, and display retry,
+including RGB565 scratch validation. No physical display is required.

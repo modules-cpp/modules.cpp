@@ -1,0 +1,27 @@
+---
+mm: 1.3
+kind: app
+name: terminal
+use: mm.terminal
+use: mm.stdio
+use: mm.display
+use: mm.gfx
+use: mm.fonts
+file: terminal.cpp
+---
+
+# terminal
+
+terminal [--once] displays bytes read from mm.stdio on the selected display.
+Build in a native target lane with a display and stdio provider, for example the
+Linux SDL board with --target-host. A plain host build has no display provider.
+Run the produced executable from the configured target output directory.
+
+Input is polled every 10 milliseconds. The Linux console retains its existing
+line discipline, so interactive input arrives when Enter is pressed. Ctrl-C
+ends the tool. --once renders one read of currently available input and exits;
+it is useful for smoke checks, not for draining an arbitrary stream. The console
+API has no separate EOF status; zero-byte successful reads are treated as idle.
+The Linux provider reports pipe hangup as an error; use file redirection for a
+--once smoke check. This tool displays a stream; it does not launch a
+shell, allocate a PTY, or implement ANSI control sequences.
