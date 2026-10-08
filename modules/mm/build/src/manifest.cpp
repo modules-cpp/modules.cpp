@@ -361,9 +361,10 @@ void walk_project(const std::filesystem::path& dir, std::size_t parent, Project&
     }
 
     if (state.is_external) {
-        if (kind != "dir" && kind != "app") {
+        if (kind != "dir" && kind != "app" &&
+            !(state.policy.managed_external && kind == "module" && parent != 0)) {
             std::cerr << state.policy.tool << ": " << manifest.string()
-                      << ": grafted node must be dir or app (found " << kind
+                      << ": grafted node must be dir, app, or a managed module child (found " << kind
                       << ")\n";
             project.ok = false;
             state.visited.push_back(canonical);
@@ -475,6 +476,16 @@ void walk_project(const std::filesystem::path& dir, std::size_t parent, Project&
         target.platform_interface = true;
     }
 
+    if (state.is_external && state.policy.managed_external && kind == "module" &&
+        (target.platform_interface || lookup(doc, "library") != nullptr)) {
+        std::cerr << state.policy.tool << ": " << manifest.string()
+                  << ": external modules cannot declare platform-interface or library\n";
+        project.ok = false;
+        return;
+    }
+
+    std::size_t primary_interfaces = 0;
+    std::set<std::string> declared_interfaces;
     const auto push_source = [&](std::string_view value, bool join_with_dir) {
         auto unit = parse_unit(value);
         const std::filesystem::path raw = unit.path;
@@ -494,12 +505,61 @@ void walk_project(const std::filesystem::path& dir, std::size_t parent, Project&
                 return false;
             }
         }
-        if (state.is_external && state.policy.managed_external &&
-            (!unit.module_name.empty() || !external_source_is_ordinary(abs_source))) {
-            std::cerr << state.policy.tool << ": external named module declarations are unsupported: "
-                      << (abs_source) << "\n";
-            project.ok = false;
-            return false;
+        if (state.is_external && state.policy.managed_external) {
+            const bool generated_sketch_main = kind == "app" &&
+                !all(doc, "sketch").empty() && raw.filename() == "main.cpp";
+            if (!generated_sketch_main && !std::filesystem::is_regular_file(abs_source)) {
+                std::cerr << state.policy.tool << ": missing external source: " << abs_source << "\n";
+                project.ok = false;
+                return false;
+            }
+            const auto declarations = external_module_declarations(abs_source);
+            if (kind != "module") {
+                if (!unit.module_name.empty() || !declarations.empty()) {
+                    std::cerr << state.policy.tool << ": external named module declarations require kind: module: "
+                              << abs_source << "\n";
+                    project.ok = false;
+                    return false;
+                }
+            } else {
+                const auto owned = [&](std::string_view name) {
+                    return name == target.module_name ||
+                           name.starts_with(target.module_name + ":");
+                };
+                if (declarations.size() > 1 ||
+                    (!unit.module_name.empty() && !owned(unit.module_name)) ||
+                    (!unit.module_name.empty() && declarations.empty())) {
+                    std::cerr << state.policy.tool << ": invalid external module unit: " << abs_source << "\n";
+                    project.ok = false;
+                    return false;
+                }
+                if (!declarations.empty()) {
+                    const auto& declaration = declarations.front();
+                    if (!owned(declaration.name) ||
+                        (!unit.module_name.empty() && unit.module_name != declaration.name) ||
+                        (declaration.name.find(':') != std::string::npos && unit.module_name.empty()) ||
+                        (declaration.exported && raw.extension() != ".cppm")) {
+                        std::cerr << state.policy.tool << ": module declaration does not match "
+                                  << manifest.string() << ": " << abs_source << "\n";
+                        project.ok = false;
+                        return false;
+                    }
+                    if (declaration.exported) {
+                        if (!declared_interfaces.insert(declaration.name).second) {
+                            std::cerr << state.policy.tool << ": duplicate external module interface: "
+                                      << declaration.name << "\n";
+                            project.ok = false;
+                            return false;
+                        }
+                        if (declaration.name == target.module_name) ++primary_interfaces;
+                    }
+                } else if (raw.extension() == ".cppm") {
+                    std::cerr << state.policy.tool << ": external .cppm has no module declaration: "
+                              << abs_source << "\n";
+                    project.ok = false;
+                    return false;
+                }
+            }
         }
         unit.path = (state.is_external && join_with_dir)
             ? (target.logical_dir / raw).lexically_normal().string()
@@ -755,6 +815,13 @@ void walk_project(const std::filesystem::path& dir, std::size_t parent, Project&
     }
     if (kind == "module" && target.module_name.empty()) {
         std::cerr << state.policy.tool << ": module manifest has no module: name: " << manifest.string() << "\n";
+        project.ok = false;
+        return;
+    }
+    if (state.is_external && state.policy.managed_external && kind == "module" &&
+        primary_interfaces != 1) {
+        std::cerr << state.policy.tool << ": external module requires one exported primary interface: "
+                  << manifest.string() << "\n";
         project.ok = false;
         return;
     }
@@ -1849,12 +1916,18 @@ ResolvedRoots resolve_roots(const std::filesystem::path& manifest_or_dir, bool c
     const auto proj_root = find_project_root(result.requested_dir);
     if (proj_root.empty()) {
         const auto kind = first(req_doc, "kind");
-        if (kind != "app" && kind != "dir") {
-            std::cerr << "build: external root must be app or dir\n";
+        if (kind != "app" && kind != "dir" && kind != "module") {
+            std::cerr << "build: external manifest must be app, dir, or module\n";
             result.ok = false;
             return result;
         }
         result.external_root = connected_external_root(result.requested_dir);
+        if (kind == "module" && (*result.external_root == result.requested_dir ||
+            first(mm::mdy::Parser::parse_file(*result.external_root / "mm.mdy"), "kind") != "dir")) {
+            std::cerr << "build: external module needs a connected dir root\n";
+            result.ok = false;
+            return result;
+        }
         result.configuration_root = *result.external_root;
         result.managed_external = true;
         const auto path = result.configuration_root / "out/config.mdy";

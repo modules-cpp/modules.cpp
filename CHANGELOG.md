@@ -2,6 +2,17 @@
 
 All notable changes to modules.cpp. Versions follow [semantic versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- Configure-managed external `kind: module` children in connected `kind: dir`
+  trees using manifest 1.3. Apps can import and share these modules, including
+  partitions, while configure rejects name collisions, mismatched interfaces,
+  unknown dependencies, and cycles. Build keeps their objects and BMIs in the
+  external tree; app sources still cannot declare named modules. Covered by
+  GCC, Clang, Pico cross-build, and shell integration checks.
+
 ## [v1.3.3] — 2026-10-07
 
 Something to build beyond the checkout with. v1.3.3 lets an application

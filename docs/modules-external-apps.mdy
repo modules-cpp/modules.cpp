@@ -30,7 +30,7 @@ file: main.cpp
 ---
 ```
 
-Add use: entries for installed modules your source imports. Several ordinary implementation files can be listed under file:. External named module declarations, including export module interfaces and named module implementation units, are rejected. External module, library, SDK, board, test, and documentation manifests are outside this workflow's scope. Do not use handwritten headers as a workaround for named modules; keep the application modular using the installed interfaces.
+Add use: entries for modules your source imports. Several ordinary implementation files can be listed under file:. Named C++20 module declarations belong in a separate kind: module manifest beneath a connected external kind: dir root; they are rejected in app sources. External library, SDK, board, test, and documentation manifests remain outside this workflow's scope. Do not use handwritten headers as a workaround for named modules.
 
 From the application directory, configure, build, and run:
 
@@ -93,6 +93,40 @@ Configure from either child or the root; both use Fractal/out/config.mdy. Build 
 
 Imported installation modules and board objects are compiled beneath graft/project in the external lane. Executables, objects, BMIs, and SDK bridge outputs remain in the external tree.
 
+## Modules shared by external applications
+
+Manifest 1.3 can declare a module in the same connected dir tree as its apps.
+For example, add folder: shared to the root dir manifest, alongside the app
+folders. The shared/mm.mdy child is:
+
+```yaml
+---
+mm: 1.3
+kind: module
+name: shared
+module: apps.shared
+file: shared.cppm apps.shared
+file: shared.cpp
+---
+```
+
+shared.cppm declares export module apps.shared; and shared.cpp declares
+module apps.shared;. An app manifest lists use: apps.shared, and its source
+imports apps.shared. The module can itself use installed modules or other
+external modules in the same tree. A build from an app directory compiles its
+module dependency closure; a build from the dir root builds all available
+apps and modules. A direct build of the module manifest compiles it without
+creating an executable. Run, flash, and debug still require an app manifest.
+
+External module names must not collide with any installed module name. The
+module's primary exported interface must match module:, and partitions need
+an explicit full module:partition name on their file: entry. Named module
+declarations in an app's file: sources are rejected. A standalone external
+module root, external platform providers, and external libraries are not
+supported. As with apps, configure stores the installation binding in the
+external root's out/config.mdy, and all objects and BMIs stay in its owned
+lane output.
+
 ## Rebuilds and cleanup
 
 A lane's .build-identity records installation, compiler, flags, platform configuration, manifest/source inputs, and tool contract. Executable .build-state records also cover the published executable and UF2 image. Incompatible cached outputs are discarded before compilation. Run, flash, and debug reject missing or stale artifacts and ask for a rebuild. A failed build withdraws the selected applications' previous completion records.
@@ -130,6 +164,10 @@ The context and graft tests run through ./test --host tests/mm/build/.
 
 
 Run ./out/bin/shell --run tests/scripts/external-apps.sh after building the host tools. It creates temporary installations and apps to check binding, isolation, reconfiguration, multi-file apps, named-module refusals, stale artifacts, native defaults, connected directory roots, offline clean, and symlink protection.
+
+Run ./out/bin/shell --run tests/scripts/external-modules.sh to check shared
+external modules, source declarations, dependency order, collision handling,
+and GCC/Clang host builds without contacting hardware.
 
 ./out/bin/shell --run tests/scripts/external-platforms.sh builds real Linux providers and an external sketch, including regeneration after source edits or deletion of main.cpp. With a provisioned Pico SDK, Arm compiler, picotool_DIR, and pioasm_DIR, append -- --pico to test the SDK bridge and UF2 output. Flash checks use a recording tool and never contact hardware.
 

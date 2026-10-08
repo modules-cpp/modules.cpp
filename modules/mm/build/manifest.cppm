@@ -256,6 +256,13 @@ bool check_external_artifact(const ResolvedRoots& roots,
 int clean_external(const std::filesystem::path& manifest, bool host, bool target, bool reset);
 bool external_source_is_ordinary(const std::filesystem::path& source);
 
+struct ExternalModuleDeclaration {
+    std::string name;
+    bool exported = false;
+};
+std::vector<ExternalModuleDeclaration> external_module_declarations(
+    const std::filesystem::path& source);
+
 
 struct ManifestVersionRule {
     std::string_view name;

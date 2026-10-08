@@ -344,7 +344,7 @@ int clean_external(const std::filesystem::path& manifest, bool host, bool target
         }
     }
     if (reset) remove.push_back(root / "out");
-    std::cout << (reset ? "Reset" : "Clean") << " external tree " << root.string() << " (all applications in selected lanes)\n";
+    std::cout << (reset ? "Reset" : "Clean") << " external tree " << root.string() << " (all targets in selected lanes)\n";
     std::error_code ec;
     for (const auto& path : remove) {
         std::filesystem::remove_all(path, ec);
@@ -354,7 +354,7 @@ int clean_external(const std::filesystem::path& manifest, bool host, bool target
     return exit_ok;
 }
 
-bool external_source_is_ordinary(const std::filesystem::path& source) {
+std::vector<ExternalModuleDeclaration> external_module_declarations(const std::filesystem::path& source) {
     const auto input = content(source);
     std::string text;
     for (std::size_t i = 0; i < input.size(); ++i) {
@@ -397,10 +397,36 @@ bool external_source_is_ordinary(const std::filesystem::path& source) {
         } else if (!std::isspace(static_cast<unsigned char>(text[i]))) tokens.push_back(text.substr(i++, 1));
         else ++i;
     }
-    for (std::size_t i = 0; i + 1 < tokens.size(); ++i) if (tokens[i] == "module") {
-        const auto& next = tokens[i + 1];
-        if (!next.empty() && (std::isalpha(static_cast<unsigned char>(next[0])) || next[0] == '_' || next == ":")) return false;
+    const auto identifier = [](const std::string& token) {
+        if (token.empty() || (!std::isalpha(static_cast<unsigned char>(token[0])) && token[0] != '_'))
+            return false;
+        return std::all_of(token.begin() + 1, token.end(), [](unsigned char c) {
+            return std::isalnum(c) || c == '_';
+        });
+    };
+    std::vector<ExternalModuleDeclaration> declarations;
+    for (std::size_t i = 0; i + 1 < tokens.size(); ++i) {
+        if (tokens[i] != "module" || tokens[i + 1] == ";") continue; // global module fragment
+        if (i + 3 < tokens.size() && tokens[i + 1] == ":" &&
+            tokens[i + 2] == "private" && tokens[i + 3] == ";") continue;
+        std::size_t j = i + 1;
+        if (!identifier(tokens[j])) continue;
+        std::string name = tokens[j++];
+        while (j + 1 < tokens.size() && tokens[j] == "." && identifier(tokens[j + 1])) {
+            name += "." + tokens[j + 1];
+            j += 2;
+        }
+        if (j + 1 < tokens.size() && tokens[j] == ":" && identifier(tokens[j + 1])) {
+            name += ":" + tokens[j + 1];
+            j += 2;
+        }
+        if (j < tokens.size() && tokens[j] == ";")
+            declarations.push_back({name, i > 0 && tokens[i - 1] == "export"});
     }
-    return true;
+    return declarations;
+}
+
+bool external_source_is_ordinary(const std::filesystem::path& source) {
+    return external_module_declarations(source).empty();
 }
 }
