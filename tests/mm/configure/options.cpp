@@ -416,6 +416,17 @@ void compiler_workarounds() {
            "an unknown version adds nothing");
     expect(compiler_workaround_flags(CompilerFamily::Clang, "14.0.0").empty(),
            "the defects are GCC's, not clang's");
+    using mm::configure::target_diagnostic_flags;
+    expect(target_diagnostic_flags(CompilerFamily::Gcc, "arm-none-eabi") == "-Wno-psabi",
+           "gcc on 32-bit ARM drops the psabi note");
+    expect(target_diagnostic_flags(CompilerFamily::Gcc, "arm-linux-gnueabihf") == "-Wno-psabi",
+           "a hosted 32-bit ARM target is the same");
+    expect(target_diagnostic_flags(CompilerFamily::Gcc, "aarch64-linux-gnu").empty(),
+           "64-bit ARM draws no such note");
+    expect(target_diagnostic_flags(CompilerFamily::Gcc, "x86_64-pc-linux-gnu").empty(),
+           "other targets add nothing");
+    expect(target_diagnostic_flags(CompilerFamily::Clang, "arm-none-eabi").empty(),
+           "the note is GCC's, not clang's");
     using mm::configure::host_feature_flags;
     expect(host_feature_flags("x86_64-pc-cygwin") == "-D_GNU_SOURCE",
            "a Cygwin or MSYS2 host asks newlib for POSIX");

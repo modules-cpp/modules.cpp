@@ -69,7 +69,7 @@ set_target_properties(mm_external PROPERTIES
   LINKER_LANGUAGE CXX
   OUTPUT_NAME ${MM_OUTPUT_NAME})
 set_source_files_properties(${MM_ADAPTER} PROPERTIES
-  COMPILE_OPTIONS "-std=gnu11;-Wall;-Wextra;-Werror")
+  COMPILE_OPTIONS "-std=gnu11;-Wall;-Wextra;-Werror;-Wno-psabi")
 target_compile_definitions(mm_external PRIVATE
   MM_SELECTED_BOARD="${MM_BOARD}"
   MM_PICO_CAM_CAMERA=${MM_PICO_CAM_CAMERA}
@@ -149,7 +149,7 @@ if(MM_OBJECTS MATCHES "/platforms/pico/sdk/pico-sdk/littlefs/provider/")
   target_compile_definitions(mm_littlefs PRIVATE
     LFS_NO_MALLOC LFS_NO_DEBUG LFS_NO_WARN LFS_NO_ERROR)
   set_source_files_properties(${MM_LITTLEFS}/adapter.c PROPERTIES
-    COMPILE_OPTIONS "-std=gnu11;-Wall;-Wextra;-Werror")
+    COMPILE_OPTIONS "-std=gnu11;-Wall;-Wextra;-Werror;-Wno-psabi")
   target_link_libraries(mm_littlefs PRIVATE pico_platform_headers)
   target_link_libraries(mm_external mm_littlefs)
 endif()
@@ -170,7 +170,7 @@ if(MM_OBJECTS MATCHES "/platforms/pico/sdk/pico-sdk/fatfs/provider/")
   target_include_directories(mm_fatfs PRIVATE ${MM_FATFS} ${MM_FATFS}/upstream/source)
   target_compile_options(mm_fatfs PRIVATE -include ${MM_FATFS}/ffconf.h)
   set_source_files_properties(${MM_FATFS}/adapter.c PROPERTIES
-    COMPILE_OPTIONS "-std=gnu11;-Wall;-Wextra;-Werror")
+    COMPILE_OPTIONS "-std=gnu11;-Wall;-Wextra;-Werror;-Wno-psabi")
   target_link_libraries(mm_fatfs PRIVATE pico_platform_headers)
   target_link_libraries(mm_external mm_fatfs)
 endif()

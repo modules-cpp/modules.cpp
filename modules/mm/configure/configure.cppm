@@ -114,6 +114,15 @@ struct CompilerRequest {
 [[nodiscard]] std::string_view compiler_workaround_flags(CompilerFamily family,
                                                          std::string_view version);
 
+// Compile flags that quiet a target's diagnostics carrying no information
+// for this project, and nothing otherwise. GCC on 32-bit ARM is the only
+// case: -Wno-psabi drops the note that an argument's passing changed in GCC
+// 7.1, which matters only when linking code built by an older GCC, and every
+// unit here is built by one compiler. target_triple is a driver -dumpmachine
+// string.
+[[nodiscard]] std::string_view target_diagnostic_flags(CompilerFamily family,
+                                                       std::string_view target_triple);
+
 // Compile flags a host C library needs to expose POSIX under -std=c++20, and
 // nothing otherwise. glibc's g++ predefines _GNU_SOURCE; the Cygwin and MSYS2
 // drivers do not, and their newlib then hides popen, setenv, O_CLOEXEC, and

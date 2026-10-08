@@ -660,6 +660,13 @@ std::string_view compiler_workaround_flags(CompilerFamily family, std::string_vi
     return "-flarge-source-files -fno-ipa-sra";
 }
 
+std::string_view target_diagnostic_flags(CompilerFamily family,
+                                         std::string_view target_triple) {
+    if (family != CompilerFamily::Gcc) return {};
+    if (!target_triple.starts_with("arm")) return {};
+    return "-Wno-psabi";
+}
+
 std::string_view host_feature_flags(std::string_view target_triple) {
     if (target_triple.ends_with("-cygwin") || target_triple.ends_with("-msys"))
         return "-D_GNU_SOURCE";
