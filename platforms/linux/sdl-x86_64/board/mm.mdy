@@ -5,6 +5,9 @@ name: sdl-linux-x86_64
 derives-from: generic-linux-x86_64
 platform-provider: mm.display platform.linux.sdl
 platform-provider: mm.touch platform.linux.sdl
+platform-provider: mm.sdcard.socket platform.linux.storage.absent
+platform-provider: mm.fs.fat platform.linux.storage.absent
+platform-provider: mm.fs.littlefs platform.linux.storage.absent
 ---
 
 # sdl-linux-x86_64
@@ -21,3 +24,4 @@ that both roles are served by the same thing.
 Selecting this board is the only way anything pays for SDL2. The SDK binds the
 DRM and evdev providers, and a lane that does not name this board needs no
 SDL2 installation at all.
+The SD socket binding reports Unsupported because this SDL board has no card.

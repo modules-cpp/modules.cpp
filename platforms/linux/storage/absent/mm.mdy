@@ -1,0 +1,19 @@
+---
+mm: 1.2
+kind: module
+name: linux-storage-absent
+module: platform.linux.storage.absent
+use: mm.fs
+use: mm.fs.fat
+use: mm.fs.littlefs
+use: mm.sdcard.socket
+file: absent.cppm
+---
+
+# platform.linux.storage.absent
+
+An explicit unavailable SD socket for Linux SDL boards. Applications can
+select their SD volume and receive Unsupported without requiring storage
+emulation or a physical card provider. The same module supplies an unavailable
+FAT and LittleFS providers so applications can link without those storage
+backends on this board.

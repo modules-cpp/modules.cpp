@@ -8,6 +8,7 @@ folder: spiflash
 folder: bus
 folder: device
 folder: socket
+folder: absent
 folder: board
 folder: board-aarch64
 ---
@@ -28,3 +29,4 @@ spiflash are the chips, which know nothing of mm.mcu; bus is the mm.mcu
 platform over both, registering nothing, so tests can use it; device is that
 platform over files named by the device map, registered as mm.mcu; socket
 publishes the card as mm.sdcard.socket.
+absent gives SDL boards an explicit socket provider that reports Unsupported.
