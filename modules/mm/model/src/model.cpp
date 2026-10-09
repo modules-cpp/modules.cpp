@@ -1064,7 +1064,7 @@ std::vector<std::unique_ptr<models::Operation>> build_operations(
         for (std::size_t darwin = 0; darwin < 2; ++darwin) {
             std::vector<const models::Tool*> branch = {
                 build0, build0, build1, build, configure, main_tool, main_tool, main_tool, mdy};
-            const std::size_t suites = darwin == 0 ? 39 : 38;
+            const std::size_t suites = darwin == 0 ? 40 : 39;
             branch.insert(branch.end(), suites, test_runner);
             branches.push_back(std::move(branch));
         }

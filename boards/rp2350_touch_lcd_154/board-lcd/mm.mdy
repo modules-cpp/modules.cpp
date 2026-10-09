@@ -6,6 +6,7 @@ derives-from: pico2-arm
 platform-provider: mm.display platform.rp2350_touch_lcd_154.display
 platform-provider: mm.imu platform.rp2350_touch_lcd_154.imu
 platform-provider: mm.audio platform.rp2350_touch_lcd_154.audio
+platform-provider: mm.rtc platform.rp2350_touch_lcd_154.rtc
 platform-provider: mm.sdcard.socket platform.rp2350_touch_lcd_154.sdcard
 ---
 

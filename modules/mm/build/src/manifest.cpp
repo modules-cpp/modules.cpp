@@ -622,7 +622,7 @@ void walk_project(const std::filesystem::path& dir, std::size_t parent, Project&
             target.sketches.push_back(sketch);
         }
         {
-            const auto profiles = all(doc, "sketch-profile");
+            auto profiles = all(doc, "sketch-profile");
             if (!profiles.empty()) {
                 if (target.sketches.empty()) {
                     std::cerr << state.policy.tool << ": " << manifest.string()

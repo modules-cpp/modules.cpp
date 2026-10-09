@@ -1,0 +1,17 @@
+---
+mm: 1.2
+kind: module
+name: rp2350-touch-lcd-154-rtc
+module: platform.rp2350_touch_lcd_154.rtc
+use: mm.mcu
+use: mm.rtc
+file: rtc.cppm
+option: buildable-host no
+---
+
+# platform.rp2350_touch_lcd_154.rtc
+
+An uptime-based software clock for the RP2350 1.54-inch LCD boards, which have
+no battery-backed RTC. It starts unset and uses mm.mcu ticks after a time is
+written. The date and time are lost on reset or power loss. Clockal can set it
+over USB with tdset.

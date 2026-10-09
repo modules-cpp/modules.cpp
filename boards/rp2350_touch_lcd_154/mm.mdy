@@ -7,6 +7,7 @@ folder: board
 folder: display
 folder: touch
 folder: imu
+folder: rtc
 folder: sdcard
 ---
 
@@ -18,7 +19,8 @@ board-owned providers they bind. rp2350_lcd_154 is the RP2350-LCD-1.54 and its
 an ES8311 codec; rp2350_touch_lcd_154 is the RP2350-Touch-LCD-1.54 and its -EN
 option, which derives from it and adds a CST816 touch controller. Both carry
 the microSD socket, which rp2350_lcd_154 binds as mm.sdcard.socket through
-platform.rp2350_touch_lcd_154.sdcard.
+platform.rp2350_touch_lcd_154.sdcard. They have no battery-backed RTC; their
+mm.rtc provider advances a set calendar using the monotonic millisecond counter.
 
 Each provider owns its own wiring and nothing else. The device drivers are
 portable modules under modules/mm, and the boards are the only place that

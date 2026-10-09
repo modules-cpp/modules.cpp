@@ -93,7 +93,7 @@ void repository_exposes_platform_definitions() {
                              " bindings to name one provider module");
         // The base board's map, usb.host, and usb.device bindings survive derivation untouched, which is
         // what says the derived board replaced two interfaces and not the set.
-        mm::test::expect(bindings.size() == 5,
+        mm::test::expect(bindings.size() == 8,
                          std::string("expected ") + name +
                              " to keep its inherited map and usb bindings");
     }
@@ -268,22 +268,24 @@ void repository_exposes_provider_declarations() {
     mm::test::expect(touch_lcd != nullptr, "expected the RP2350 touch LCD board");
     if (touch_lcd != nullptr) {
         const auto bindings = touch_lcd->platform_providers();
-        mm::test::expect(bindings.size() == 5,
-                         "expected a board to bind five interfaces at once");
+        mm::test::expect(bindings.size() == 6,
+                         "expected a board to bind six interfaces at once");
         bool display = false;
         bool touch = false;
         bool imu = false;
         bool rtc = false;
         bool audio = false;
+        bool sdcard = false;
         for (const auto& binding : bindings) {
             if (binding.interface_module == "mm.display") display = true;
             if (binding.interface_module == "mm.touch") touch = true;
             if (binding.interface_module == "mm.imu") imu = true;
             if (binding.interface_module == "mm.rtc") rtc = true;
             if (binding.interface_module == "mm.audio") audio = true;
+            if (binding.interface_module == "mm.sdcard.socket") sdcard = true;
         }
-        mm::test::expect(display && touch && imu && rtc && audio,
-                         "expected each interface bound exactly once");
+        mm::test::expect(display && touch && imu && rtc && audio && sdcard,
+                         "expected the RP2350 touch LCD board to bind display, touch, IMU, RTC, audio, and SD card");
     }
 
     mm::test::expect(pico_epaper_b_board != nullptr,
