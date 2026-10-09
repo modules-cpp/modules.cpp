@@ -28,15 +28,15 @@ constexpr std::array vrh{std::byte{0x20}};
 constexpr std::array vdv{std::byte{0x0f}};
 constexpr std::array power_control{std::byte{0xa4}, std::byte{0xa1}};
 constexpr std::array gamma_positive{
-    std::byte{0x04}, std::byte{0x0d}, std::byte{0x11}, std::byte{0x13},
-    std::byte{0x2b}, std::byte{0x3f}, std::byte{0x54}, std::byte{0x4c},
-    std::byte{0x18}, std::byte{0x0d}, std::byte{0x0b}, std::byte{0x1f},
-    std::byte{0x23}};
+    std::byte{0xd0}, std::byte{0x04}, std::byte{0x0d}, std::byte{0x11},
+    std::byte{0x13}, std::byte{0x2b}, std::byte{0x3f}, std::byte{0x54},
+    std::byte{0x4c}, std::byte{0x18}, std::byte{0x0d}, std::byte{0x0b},
+    std::byte{0x1f}, std::byte{0x23}};
 constexpr std::array gamma_negative{
-    std::byte{0x04}, std::byte{0x0c}, std::byte{0x11}, std::byte{0x13},
-    std::byte{0x2c}, std::byte{0x3f}, std::byte{0x44}, std::byte{0x51},
-    std::byte{0x2f}, std::byte{0x1f}, std::byte{0x1f}, std::byte{0x20},
-    std::byte{0x23}};
+    std::byte{0xd0}, std::byte{0x04}, std::byte{0x0c}, std::byte{0x11},
+    std::byte{0x13}, std::byte{0x2c}, std::byte{0x3f}, std::byte{0x44},
+    std::byte{0x51}, std::byte{0x2f}, std::byte{0x1f}, std::byte{0x1f},
+    std::byte{0x20}, std::byte{0x23}};
 
 constexpr std::array initialization{
     mm::lcd::st7789::InitializationCommand{std::byte{0xb2}, porch},
@@ -73,7 +73,7 @@ constexpr mm::lcd::st7789::Panel panel{
     .height = 240,
     .initialization = initialization,
     .memory_access = std::byte{0x00},
-    .inverted = false,
+    .inverted = true,
     .column_offset = 0,
     .row_offset = 0,
 };
