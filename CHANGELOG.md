@@ -2,7 +2,14 @@
 
 All notable changes to modules.cpp. Versions follow [semantic versioning](https://semver.org/).
 
-## [Unreleased]
+## [v1.3.4] — 2026-10-09
+
+Something to share and connect with. v1.3.4 introduces configure-managed
+external C++20 modules shared across applications, backports the high-speed
+4-bit SDIO driver for RP2350 with SD/FAT hardware diagnostics, adds an uptime
+RTC provider and display gamma corrections for RP2350 LCD boards, suppresses
+GCC psabi diagnostics on 32-bit ARM, and provides absent storage fallbacks for
+Linux SDL environments.
 
 ### Added
 
@@ -12,6 +19,26 @@ All notable changes to modules.cpp. Versions follow [semantic versioning](https:
   unknown dependencies, and cycles. Build keeps their objects and BMIs in the
   external tree; app sources still cannot declare named modules. Covered by
   GCC, Clang, Pico cross-build, and shell integration checks.
+- 4-bit SDIO block driver over PIO and DMA in `mm.sdcard` and `mm.mcu.sdio`,
+  integrated into the Pico SDK bridge. Bound to `rp2350_touch_lcd_28`'s TF card
+  socket as `mm.sdcard.socket`, with dedicated on-board SD/FAT hardware
+  diagnostics in `tests/boards/rp2350_touch_lcd_28`.
+- Software uptime RTC provider `platform.rp2350_touch_lcd_154.rtc` for RP2350
+  1.54-inch LCD boards lacking a battery-backed RTC chip.
+- Absent storage provider `platform.linux.storage.absent` reporting
+  `Unsupported` for SDL Linux boards (`sdl-linux-x86_64`, `sdl-linux-aarch64`),
+  allowing storage-referencing applications to build and run without local
+  storage emulation.
+
+### Fixed
+
+- **RP2350-Touch-LCD-1.54 display gamma.** Corrected ST7789 display positive/negative
+  gamma parameters and inversion setting.
+- **Quiet GCC psabi notes on 32-bit ARM.** Configure adds `-Wno-psabi` to
+  compile flags when probing GCC on 32-bit ARM targets to silence ABI warnings.
+- **GCC 14 aggregate initialization crash.** Avoided compiler crash in
+  manifest parsing when handling sketch profiles.
+
 
 ## [v1.3.3] — 2026-10-07
 
@@ -1378,6 +1405,7 @@ framework or documentation generator. 77 commits from the initial commit on
   `xfail`, and `xpass` failing the run when a known defect starts passing.
 - GCC and Clang backends, selected per build.
 
+[v1.3.4]: https://github.com/modules-cpp/modules.cpp/releases/tag/v1.3.4
 [v1.3.3]: https://github.com/modules-cpp/modules.cpp/releases/tag/v1.3.3
 [v1.3.2]: https://github.com/modules-cpp/modules.cpp/releases/tag/v1.3.2
 [v1.3.1]: https://github.com/modules-cpp/modules.cpp/releases/tag/v1.3.1

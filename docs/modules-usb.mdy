@@ -3,7 +3,7 @@ mm: 1.0
 kind: doc
 name: modules.cpp portable USB specification
 status: official
-release: v1.3.3
+release: v1.3.4
 ---
 
 # Portable USB: mm.usb, mm.usb.device, and mm.usb.host
@@ -11,7 +11,7 @@ release: v1.3.3
 # Status and authority
 
 This document specifies the portable USB architecture, interfaces, platform
-providers, and class modules for release v1.3.3. It describes the design and
+providers, and class modules for release v1.3.4. It describes the design and
 contracts of `mm.usb` (shared vocabulary), `mm.usb.device` (device stack
 interface), and `mm.usb.host` (host stack interface).
 

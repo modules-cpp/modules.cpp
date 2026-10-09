@@ -3,12 +3,12 @@ mm: 1.0
 kind: doc
 name: modules.cpp configure specification
 status: official
-release: v1.3.3
+release: v1.3.4
 ---
 
 # modules.cpp configure specification
 
-This is the configure and manifest-option specification for release v1.3.3. Manifest options, explicit host and target lane configuration, platform selection, runner profiles, configured debugger profiles, and third-party library definitions are part of this release. It describes implemented behavior. Every rule below is enforced by the code in modules/mm/build and modules/mm/configure and is covered by the tests named in Conformance; where the implementation falls short of a rule, Current boundaries says so explicitly rather than lowering the rule.
+This is the configure and manifest-option specification for release v1.3.4. Manifest options, explicit host and target lane configuration, platform selection, runner profiles, configured debugger profiles, and third-party library definitions are part of this release. It describes implemented behavior. Every rule below is enforced by the code in modules/mm/build and modules/mm/configure and is covered by the tests named in Conformance; where the implementation falls short of a rule, Current boundaries says so explicitly rather than lowering the rule.
 
 configure validates named options declared in a manifest tree, resolves their inheritance, and writes a mirrored tree of resolved records beneath out. Build, test, run, flash, and debug consume buildable-host, buildable-target, and core through the same resolver and warn about the other options they do not yet consume. No tool converts an option into a compiler argument in this release.
 
