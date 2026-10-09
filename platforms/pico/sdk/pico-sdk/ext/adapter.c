@@ -1979,10 +1979,14 @@ static void mm_pico_sdio_reset(mm_pico_sdio_t* s, unsigned int sm, unsigned int 
 
 static void mm_pico_sdio_stop_read(mm_pico_sdio_t* s) {
     // Unchain before aborting, or the aborted channel's chain restarts the
-    // other.
-    hw_clear_bits(&dma_channel_hw_addr((uint)s->dma)->al1_ctrl, DMA_CH0_CTRL_TRIG_CHAIN_TO_BITS);
-    hw_clear_bits(&dma_channel_hw_addr((uint)s->crc_dma)->al1_ctrl,
-                  DMA_CH0_CTRL_TRIG_CHAIN_TO_BITS);
+    // other. A channel chained to itself is unchained; a CHAIN_TO of zero
+    // would chain to channel 0.
+    hw_write_masked(&dma_channel_hw_addr((uint)s->dma)->al1_ctrl,
+                    (uint32_t)s->dma << DMA_CH0_CTRL_TRIG_CHAIN_TO_LSB,
+                    DMA_CH0_CTRL_TRIG_CHAIN_TO_BITS);
+    hw_write_masked(&dma_channel_hw_addr((uint)s->crc_dma)->al1_ctrl,
+                    (uint32_t)s->crc_dma << DMA_CH0_CTRL_TRIG_CHAIN_TO_LSB,
+                    DMA_CH0_CTRL_TRIG_CHAIN_TO_BITS);
     dma_channel_abort((uint)s->dma);
     dma_channel_abort((uint)s->crc_dma);
     pio_sm_set_enabled(s->read_pio, s->read_sm, false);
@@ -2168,8 +2172,12 @@ int mm_pico_mcu_sdio_configure(unsigned int instance, unsigned int clock_pin,
         pio_gpio_init(pio, pins[i]);
         gpio_set_slew_rate(pins[i], GPIO_SLEW_RATE_FAST);
         if (pins[i] != clock_pin) gpio_pull_up(pins[i]);
+        gpio_set_input_hysteresis_enabled(pins[i], true);
     }
     gpio_set_drive_strength(clock_pin, GPIO_DRIVE_STRENGTH_8MA);
+    const uint64_t mask = (1ull << clock_pin) | (1ull << command_pin) | (0xfull << data0_pin);
+    pio_set_input_sync_bypass_with_mask64(pio, mask, mask);
+    pio_set_input_sync_bypass_with_mask64(read_pio, mask, mask);
 
     pio_sm_config c = pio_get_default_sm_config();
     sm_config_set_wrap(&c, offset, offset + 17u);
@@ -2369,6 +2377,12 @@ int mm_pico_mcu_sdio_read(unsigned int instance, unsigned int index, uint32_t ar
     }
     mm_pico_sdio_reset(s, s->command_sm, 0);
     mm_pico_sdio_stop_read(s);
+    // The loop ends on the last CRC nibble, before the card has sent its end
+    // bit; clock it out, and the eight cycles a card is owed after a
+    // transfer, before anything else is sent.
+    mm_pico_sdio_queue_clocks(s, 16u);
+    if (!mm_pico_sdio_command_idle(s, MM_PICO_SDIO_RESPONSE_US))
+        mm_pico_sdio_reset(s, s->command_sm, 0);
     if (status != MM_PICO_MCU_OK) return status;
 
     const unsigned char* bytes = (const unsigned char*)data;
@@ -2461,6 +2475,9 @@ int mm_pico_mcu_sdio_release(unsigned int instance) {
     pio_remove_program_and_unclaim_sm(&s->read_program, s->read_pio, s->read_sm, s->read_offset);
     pio_sm_unclaim(s->pio, s->write_sm);
     pio_remove_program_and_unclaim_sm(&s->program, s->pio, s->command_sm, s->offset);
+    const uint64_t mask = (1ull << s->clock_pin) | (1ull << s->command_pin) | (0xfull << s->data0_pin);
+    pio_set_input_sync_bypass_with_mask64(s->pio, 0, mask);
+    pio_set_input_sync_bypass_with_mask64(s->read_pio, 0, mask);
     gpio_deinit(s->clock_pin);
     gpio_deinit(s->command_pin);
     for (unsigned int i = 0; i < 4u; ++i) gpio_deinit(s->data0_pin + i);

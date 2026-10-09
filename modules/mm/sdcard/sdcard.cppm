@@ -71,7 +71,7 @@ struct SdioWiring {
     unsigned int clock_gpio = 0;
     unsigned int command_gpio = 0;
     unsigned int data0_gpio = 0;
-    unsigned long data_clock_hz = 25'000'000;
+    unsigned long data_clock_hz = 100'000;
 };
 
 class SdioCard final : public mm::fs::BlockDevice {

@@ -15,7 +15,7 @@ mm::sdcard::SdioCard card{{.instance = 0,
                            .clock_gpio = 19,
                            .command_gpio = 20,
                            .data0_gpio = 21,
-                           .data_clock_hz = 25'000'000}};
+                           .data_clock_hz = 100'000}};
 
 class Socket final : public mm::sdcard::socket::Provider {
 public:
