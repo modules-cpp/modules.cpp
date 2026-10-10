@@ -6,4 +6,5 @@ target: arm-linux-gnueabihf
 compiler-family: gcc
 runtime: glibc
 runtime-prefix: /usr/arm-linux-gnueabihf
+platform-provider: mm.audio platform.linux.audio
 ---

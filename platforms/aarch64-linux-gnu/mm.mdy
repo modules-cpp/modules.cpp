@@ -6,4 +6,5 @@ target: aarch64-linux-gnu
 compiler-family: gcc
 runtime: glibc
 runtime-prefix: /usr/aarch64-linux-gnu
+platform-provider: mm.audio platform.linux.audio
 ---

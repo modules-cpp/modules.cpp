@@ -2,6 +2,19 @@
 
 All notable changes to modules.cpp. Versions follow [semantic versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- Unattended screen capture in the Linux SDL provider
+  (`platform.linux.sdl`): `MM_SCREENSHOT_DIR`, `MM_SCREENSHOT_EVERY`, and
+  `MM_SCREENSHOT_LIMIT` dump refreshed frames as PPMs, F12 saves the current
+  frame, `MM_TOUCH_SCRIPT` replays timed taps and holds with named shots and
+  an exit, and `MM_SDL_DISPLAY_SIZE` sets the logical size. With
+  `SDL_VIDEODRIVER=offscreen` it runs with no window. Specified in
+  docs/modules-platform-linux.mdy and covered by
+  `tests/boards/sdl-linux-aarch64`.
+
 ## [v1.3.4] — 2026-10-09
 
 Something to share and connect with. v1.3.4 introduces configure-managed

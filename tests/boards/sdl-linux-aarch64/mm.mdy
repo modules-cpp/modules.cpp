@@ -1,0 +1,18 @@
+---
+mm: 1.2
+kind: test
+name: sdl-linux-aarch64-capture
+option: buildable-host no
+requires-board: sdl-linux-aarch64
+use: mm.display
+use: mm.touch
+unit: tests/boards/sdl-linux-aarch64/main.cpp
+---
+
+# SDL screenshot and touch-script test
+
+Runs platform.linux.sdl headless, with SDL_VIDEODRIVER=offscreen, and checks
+the unattended-capture controls: MM_SCREENSHOT_DIR with MM_SCREENSHOT_EVERY
+writes every second refreshed frame as a PPM equal, pixel for pixel, to what
+was drawn; MM_TOUCH_SCRIPT replaces the pointer with scripted taps and holds,
+shoots a named frame, and ends the run.

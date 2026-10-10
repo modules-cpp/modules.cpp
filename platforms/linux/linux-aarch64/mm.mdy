@@ -9,6 +9,7 @@ platform-provider: platform.linux.map platform.linux.defaults
 platform-provider: mm.stdio platform.linux.stdio
 platform-provider: mm.mcu platform.linux.mcu
 platform-provider: mm.rtc platform.linux.rtc
+platform-provider: mm.audio platform.linux.audio
 platform-provider: mm.display platform.linux.display
 platform-provider: mm.touch platform.linux.touch
 platform-provider: mm.imu platform.linux.imu

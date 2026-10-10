@@ -405,6 +405,68 @@ until Full refresh and refuses Partial, as the DRM provider does. Touch reports
 the pointer while the left button is held and answers Unsupported when no window
 exists, rather than opening a second one.
 
+## Unattended capture
+
+The provider captures an application's screens with no one at the window, for
+documentation, for reviewing a UI change, and for checks in CI. Every control
+is an environment variable read when the display or touch initializes, so a
+program that sets none behaves exactly as it always has.
+
+Opening fence
+MM_SDL_DISPLAY_SIZE=WxH      the logical size, over the map's
+MM_SCREENSHOT_DIR=DIR        frames go here as binary PPMs, frame-NNNNNN.ppm
+                             numbered by refresh; capture is off when unset
+MM_SCREENSHOT_EVERY=N        every Nth refresh, default 1; 0 writes no
+                             periodic frame, leaving F12 and script shots
+MM_SCREENSHOT_LIMIT=N        at most N periodic frames, default 1000
+MM_TOUCH_SCRIPT=FILE         timed touch steps that replace the pointer
+SDL_VIDEODRIVER=offscreen    SDL's own: no window at all
+Closing fence
+
+A frame is the shadow buffer at the logical size -- what the application drew,
+before any window scaling -- written beside its name and renamed over it, so a
+reader never sees half a frame. That is the format and method
+platform.linux.lcd's MM_LCD_SNAPSHOT uses. F12 writes shot-NNNNNN.ppm; without
+MM_SCREENSHOT_DIR, F12 and script shots go to the current directory.
+
+MM_SDL_DISPLAY_SIZE exists because the generic boards' map providers register
+no override reader, so MM_LINUX_DEVICE_MAP answers FileError there and cannot
+size the window; an application written for a 240 by 320 panel would otherwise
+meet the provider's 480 by 320 default. A malformed value is ignored.
+
+A touch script has one step per line, and # starts a comment:
+
+Opening fence
+wait-refresh N     until N more frames have been presented
+wait-ms N          until N milliseconds have passed
+tap X Y            press at (X, Y) for one read, then release for one
+hold X Y N         press for N reads, then release for one
+shot NAME          write the current frame as NAME.ppm
+exit               end the run as closing the window does
+Closing fence
+
+Coordinates are logical pixels and must lie inside the display. A press spans
+whole reads, so an application acting on the press edge sees one press and one
+release. An application that treats a short release as a continued touch -- a
+debounce for a controller's empty frames, 35 ms in the apps.cpp touch
+applications -- needs a wait-ms after each tap, or its next tap is not a new
+press. exit makes touch read answer TransportError, which an application treats
+as the end of its run. A script that cannot be read, or holds a malformed or
+out-of-range line, fails touch initialization with TransportError and names
+the file and line on standard error; it never falls back to the pointer.
+
+Headless, a capture runs without an X server or compositor:
+
+Opening fence
+SDL_VIDEODRIVER=offscreen MM_SDL_DISPLAY_SIZE=240x320 \
+MM_SCREENSHOT_DIR=screens MM_SCREENSHOT_EVERY=0 \
+MM_TOUCH_SCRIPT=screens.touch ./application
+Closing fence
+
+apps.cpp wraps that as scripts/capture-screens.sh <app> [WxH], reading the
+application's screens.touch and converting each shot to PNG when ImageMagick
+is installed.
+
 # Qualification
 
 Machine-independent parser, status, conversion, and decoder behavior belongs in
@@ -443,5 +505,10 @@ a difference:
 
 - build-sdl.sh proves display-demo links no SDL2 on the SDK alone and SDL2 on
   the sdl board, and that one module there serves two interfaces.
+- tests/boards/sdl-linux-aarch64 runs the SDL provider under the offscreen
+  driver: dumped frames equal what was drawn, pixel for pixel, at
+  MM_SCREENSHOT_EVERY=2 and 0, and a script of taps, a hold, a named shot,
+  and exit produces exactly the expected reads. It names one board, as
+  requires-board allows; an x86_64 twin is not written yet.
 - build-linux-smoke.sh builds linux-smoke on the SDK alone and on the generic
   board, and proves the map provider is swapped between them.

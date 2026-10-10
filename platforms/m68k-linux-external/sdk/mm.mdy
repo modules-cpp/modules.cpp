@@ -7,4 +7,5 @@ compiler-family: gcc
 runtime: glibc
 runtime-prefix: /usr/m68k-linux-gnu
 library: cmake-demo
+platform-provider: mm.audio platform.linux.audio
 ---

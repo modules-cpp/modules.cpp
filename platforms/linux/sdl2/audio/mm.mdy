@@ -1,0 +1,21 @@
+---
+mm: 1.2
+kind: module
+name: linux-audio
+module: platform.linux.audio
+library: sdl2
+use: mm.audio
+file: audio.cppm
+option: buildable-host no
+---
+
+# platform.linux.audio
+
+Mono signed 16-bit playback and capture through SDL2's queued audio devices.
+Linux SDKs bind this provider, so generic, SDL, LCD, and other derived
+Linux boards inherit the same mm.audio implementation. The audio device is
+opened only when an application initializes and configures its selected Out or
+In; applications that do not import mm.audio do not link SDL2 for audio.
+
+SDL2 selects the host's audio driver and default devices. A missing playback
+or capture device makes that direction's configure return TransportError.

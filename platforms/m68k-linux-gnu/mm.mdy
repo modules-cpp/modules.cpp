@@ -6,4 +6,5 @@ target: m68k-linux-gnu
 compiler-family: gcc
 runtime: glibc
 runtime-prefix: /usr/m68k-linux-gnu
+platform-provider: mm.audio platform.linux.audio
 ---

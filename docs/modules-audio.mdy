@@ -16,11 +16,9 @@ the portable audio interface: the In, Out, and Stream interfaces, the Ring
 stream, the sample arithmetic, and the selection pair, and mm.audio.es8311,
 the portable driver for the ES8311 codec's DAC and ADC. They and their host
 tests exist; the ES8311 driver is unqualified on hardware. The board providers
-that implement a Microphone and a Speaker -- on the bare Pico boards over paced
-ADC capture and a PWM-backed DAC, on the Waveshare RP2350-Touch-LCD-2.8 over
-I2S, on Linux over ALSA, under SDL over SDL's audio queue -- are specified in
-Board providers below as the contract they will be written to, and none exists
-yet.
+that implement a Microphone and a Speaker are described below. Linux SDKs use
+one SDL2 queued-audio provider for both capture and playback on every board;
+the Pico boards use their own hardware providers.
 
 docs/modules-platform-mcu.mdy remains authoritative for the mm.mcu transports
 a provider uses, including paced ADC capture, the DAC, and I2S, and their
@@ -243,8 +241,8 @@ has samples queued is not an underrun, because nothing audible happened.
 
 set_in, selected_in, set_out, and selected_out select the devices. A board's
 provider registers its two from a static initialiser. mm.audio's own fallback
-In and Out answer Unsupported; they are what a host lane links, and what a
-host test replaces with a stand-in.
+In and Out answer Unsupported; they are what an unbound test lane links, and
+what a host test replaces with a stand-in.
 
 # Board providers
 
@@ -291,11 +289,12 @@ from the board.
   the mm.mcu I2S facility drives, with its master clock from the bit clock, and
   holds GP3 low. apps/audio-smoke plays a tone while recording through
   whichever devices a board registers, over the Pico platform's PIO I2S.
-- The Linux SDKs bind platform.linux.audio, a Microphone and a Speaker over the
-  ALSA kernel interface with no library, their device paths read from the
-  device map.
-- The SDL boards bind platform.linux.sdl.audio over SDL_QueueAudio and
-  SDL_DequeueAudio driven from service.
+- Every Linux SDK binds platform.linux.audio, a Microphone and a Speaker over
+  SDL2 queued audio. The generic, SDL, LCD, and other derived Linux boards
+  inherit that binding. SDL selects the host's audio driver and default
+  devices; service uses SDL_QueueAudio and SDL_DequeueAudio. Applications that
+  do not import mm.audio do not link SDL2 for audio. Cross SDKs need SDL2
+  development files for their target architecture when building audio apps.
 
 drafts/plan-audio.mdy records the research, the schematic reading, and the
 staged plan these follow.

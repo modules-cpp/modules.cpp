@@ -6,6 +6,7 @@ source: system
 licence: LICENSE
 link-input: SDL2
 folder: provider
+folder: audio
 ---
 
 # SDL2

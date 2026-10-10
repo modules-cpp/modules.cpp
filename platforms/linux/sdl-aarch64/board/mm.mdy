@@ -21,7 +21,6 @@ SDL has one video subsystem and one event queue, so one module implements both
 interfaces and registers both objects, and binding it twice is how a board says
 that both roles are served by the same thing.
 
-Selecting this board is the only way anything pays for SDL2. The SDK binds the
-DRM and evdev providers, and a lane that does not name this board needs no
-SDL2 installation at all.
+Selecting this board uses SDL2 for display and touch. An application importing
+mm.audio also links SDL2 for audio on any Linux board.
 The SD socket binding reports Unsupported because this SDL board has no card.
